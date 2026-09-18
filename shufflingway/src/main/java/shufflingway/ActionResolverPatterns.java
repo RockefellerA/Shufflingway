@@ -309,6 +309,31 @@ final class ActionResolverPatterns {
         "(?:that\\s+Forward|the\\s+former)\\s+in\\s+(?:your|the)\\s+Break\\s+Zone"
     );
     /**
+     * Matches Samurai 29-006C's former/latter effects: "Add the former to your hand. If the card
+     * added to your hand is a Job [J] or Card Name [N], also deal the latter [D] damage."
+     *
+     * <p>The condition is asked of the card the recursion just took, which is the former itself —
+     * nothing has to be remembered across the effect, only read before the move empties the slot.
+     *
+     * <p>Anchored end to end, and it has to be. The generic former/latter split looks for the last
+     * " and " before "the latter" and falls back to the first comma after "the former"; here there
+     * is no "and", so the comma in "…or Card Name Samurai, also deal…" became the split point and
+     * handed the former half "Add it to your hand. If the card added to your hand is a Job Samurai
+     * or Card Name Samurai" — no action at all, so the parser declined and the sentence fell
+     * through to the plain choose chain, which read the opening selection and dropped the rest.
+     * <ul>
+     *   <li>Group {@code job}    — the Job prong of the condition</li>
+     *   <li>Group {@code name}   — the Card Name prong</li>
+     *   <li>Group {@code damage} — what the latter takes when either prong holds</li>
+     * </ul>
+     */
+    static final Pattern FORMER_TO_HAND_IF_JOB_OR_NAME_DAMAGE_LATTER = Pattern.compile(
+        "(?i)^Add\\s+the\\s+former\\s+to\\s+your\\s+hand[.!]?\\s+" +
+        "If\\s+the\\s+card\\s+added\\s+to\\s+your\\s+hand\\s+is\\s+(?:an?\\s+)?" +
+        "Job\\s+(?<job>.+?)\\s+or\\s+Card\\s+Name\\s+(?<name>.+?)\\s*,\\s*" +
+        "also\\s+deal\\s+the\\s+latter\\s+(?<damage>\\d+)\\s+damage[.!]?$"
+    );
+    /**
      * Matches "If you have cast a Card Name [X] other than [X] this turn, also [effect]."
      * Fires when the ability owner has cast another copy of the named card earlier this turn.
      * Group {@code name} = the card name; group {@code effect} = the bonus effect text.
@@ -1778,6 +1803,64 @@ final class ActionResolverPatterns {
         "(?<name>.+?)\\s+gains?\\s+\\+(?<amount>\\d+)\\s+power" +
         "(?<traits>(?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)" +
         "[.!]?$"
+    );
+    /**
+     * Matches Ramza 13-121R's followup: "Your opponent puts one of the chosen Forwards into the
+     * Break Zone and returns the other to its owner's hand." — the ability's controller names the
+     * pair and the opponent decides which of the two fates each one takes.
+     *
+     * <p>Anchored end to end and read ahead of the Break Zone and return-to-hand followups, which
+     * scan with {@code find()} for the very words this sentence is built out of. Either of them
+     * would have claimed a fragment and applied one fate to <em>both</em> chosen Forwards, with
+     * the opponent's decision — the whole point of the card — dropped in silence.
+     */
+    static final Pattern FOLLOWUP_OPPONENT_SPLITS_CHOSEN_BREAK_AND_BOUNCE = Pattern.compile(
+        "(?i)^Your\\s+opponent\\s+puts\\s+one\\s+of\\s+the\\s+chosen\\s+Forwards\\s+into\\s+the\\s+" +
+        "Break\\s+Zone\\s+and\\s+returns\\s+the\\s+other\\s+to\\s+(?:its|his|her|their)\\s+" +
+        "owner's\\s+hand[.!]?$"
+    );
+    /**
+     * Matches Arciela 18-128H: "[you may] reveal any number of cards from your hand. When you
+     * reveal N or more [Element] cards, [effect]. …" plus the reminder text in parentheses.
+     *
+     * <p>One reveal feeds every threshold, which the reminder states outright — "(If you reveal 3
+     * or more cards of each Element, both effects will be triggered.)" — so the clauses are
+     * captured together and measured against a single answer rather than parsed as independent
+     * abilities that would each ask again.
+     *
+     * <p>Anchored end to end, and that is the point of it. Left to the chain, the choose parser
+     * found "choose 1 Forward. Deal it 7000 damage." in the middle of the sentence with
+     * {@code find()} and ran it <em>unconditionally</em> — no reveal, no Fire count, and the draw
+     * dropped. Strictly stronger than the printed card, and the exact failure the fail-closed rule
+     * exists for.
+     * <ul>
+     *   <li>Group {@code clauses} — the run of threshold clauses, split by
+     *       {@link #REVEAL_ELEMENT_THRESHOLD_CLAUSE}</li>
+     * </ul>
+     */
+    static final Pattern REVEAL_ANY_NUMBER_ELEMENT_THRESHOLDS = Pattern.compile(
+        "(?i)^(?:you\\s+may\\s+)?reveal\\s+any\\s+number\\s+of\\s+cards\\s+from\\s+your\\s+hand[.!]?\\s+" +
+        "(?<clauses>When\\s+you\\s+reveal\\s+\\d+\\s+or\\s+more\\s+.+?)" +
+        "\\s*(?:\\([^)]*\\))?\\s*$",
+        Pattern.DOTALL
+    );
+    /**
+     * One clause of a {@link #REVEAL_ANY_NUMBER_ELEMENT_THRESHOLDS} run: "When you reveal N or
+     * more [Element] cards, [effect]." Found repeatedly, each match ending where the next clause
+     * begins, so an effect made of several sentences stays whole.
+     * <ul>
+     *   <li>Group {@code count}   — the threshold</li>
+     *   <li>Group {@code element} — the Element counted</li>
+     *   <li>Group {@code effect}  — what happens, parsed on its own terms</li>
+     * </ul>
+     */
+    static final Pattern REVEAL_ELEMENT_THRESHOLD_CLAUSE = Pattern.compile(
+        "(?i)When\\s+you\\s+reveal\\s+(?<count>\\d+)\\s+or\\s+more\\s+" +
+        "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+cards?,\\s*" +
+        "(?<effect>.+?)" +
+        "(?=\\s*When\\s+you\\s+reveal\\s+\\d+\\s+or\\s+more\\s+" +
+        "(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+cards?,|\\s*$)",
+        Pattern.DOTALL
     );
     /** Matches "It loses all [its] abilities until the end of the turn." */
     static final Pattern FOLLOWUP_LOSE_ALL_ABILITIES_EOT = Pattern.compile(

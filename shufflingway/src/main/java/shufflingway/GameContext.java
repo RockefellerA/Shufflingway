@@ -2,6 +2,7 @@ package shufflingway;
 
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -3230,6 +3231,31 @@ public interface GameContext {
             boolean inclMonsters, boolean inclSummons, String what);
 
     /**
+     * The ability controller's <em>opponent</em> decides which of {@code chosen} — Forwards of
+     * theirs the controller has just chosen — goes to the Break Zone; every other one is returned
+     * to its owner's hand. Ramza 13-121R: "choose 2 Forwards opponent controls. Your opponent puts
+     * one of the chosen Forwards into the Break Zone and returns the other to its owner's hand."
+     *
+     * <p>Two players decide, in the shape
+     * {@link #chooseSummonsDiffCostOpponentSelectsOtherFreeCastRfg} has: the controller names the
+     * pair and the opponent says which half of the sentence each one takes. The naming is an
+     * ordinary choose and answers to the "cannot be chosen" shields; what the opponent then does
+     * is a <em>select</em>, so no shield and no chosen-by-opponent watcher narrows it, exactly as
+     * on {@link #opponentSelectsOwnCharacters}.
+     *
+     * <p>The break is resolved first and the returns are re-located by identity afterwards,
+     * because both removals shift the indices of the Forwards behind them. Each half goes through
+     * the ordinary primitive, so a Forward that cannot be broken, or cannot be returned to hand by
+     * an opponent's effect, is spared by the rule that already covers it rather than by anything
+     * here.
+     *
+     * <p>A single chosen Forward — all the opponent's board could offer — is put into the Break
+     * Zone, with nothing left to be "the other". The clauses are applied in the order they are
+     * printed, which is the only reading that does not require inventing a second card.
+     */
+    void opponentSplitsChosenBreakAndReturnToHand(List<ForwardTarget> chosen);
+
+    /**
      * Kefka 7-029H: offers the ability controller's <em>opponent</em> the option to discard
      * {@code count} cards from hand, and reports whether they took it. The card reads "your
      * opponent may discard 2 cards. If he/she doesn't, …" — the discard is the opponent's price
@@ -5222,6 +5248,24 @@ public interface GameContext {
      * <p>A multi-Element card contributes every Element it prints, and revealing nothing answers 0.
      */
     int revealAnyNumberFromHandDistinctElements();
+
+    /**
+     * The same reveal as {@link #revealAnyNumberFromHandDistinctElements}, answered as how many
+     * cards of <em>each</em> Element were shown rather than how many Elements appeared — keyed by
+     * lowercase Element name, with absent meaning zero. Arciela 18-128H is the card: it asks two
+     * separate questions of one reveal ("3 or more Fire cards", "3 or more Water cards").
+     *
+     * <p>One reveal, not one per question, and that is the whole reason this exists beside its
+     * sibling rather than being called twice. Arciela's own reminder text settles it — "(If you
+     * reveal 3 or more cards of each Element, both effects will be triggered.)" — so the player is
+     * asked once and every threshold is measured against that same answer.
+     *
+     * <p>A multi-Element card counts once for each Element it prints, which is what makes Arciela
+     * able to satisfy both thresholds off one Water/Fire card: a card of two Elements is a card of
+     * each of them. Revealing nothing answers an empty map, and "you may" declining is exactly
+     * that.
+     */
+    Map<String, Integer> revealAnyNumberFromHandElementCounts();
 
     /**
      * Reveals the top card of the opponent's deck and returns its printed cost, or {@code -1} when

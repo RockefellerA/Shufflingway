@@ -936,6 +936,63 @@ final class ActionResolverChoose {
             };
         }
 
+        // Special case: "Add the former to your hand. If the card added to your hand is a Job X
+        // or Card Name Y, also deal the latter N damage." — Samurai 29-006C.
+        //
+        // The recursion always happens; only the damage is conditional, and the condition is a
+        // property of the card just taken. Read off the former before the move, because adding it
+        // to hand empties the Break Zone slot the target names.
+        //
+        // The two prongs are alternatives, as they are everywhere else this pair of words is
+        // printed — see MainWindow.meetsJobOrCardNameFilter, which spells out why the cards named
+        // "Samurai" and the cards with Job Samurai are not the same set.
+        {
+            Matcher toHandM = FORMER_TO_HAND_IF_JOB_OR_NAME_DAMAGE_LATTER.matcher(effects);
+            if (toHandM.matches()) {
+                final String  condJob  = toHandM.group("job").trim();
+                final String  condName = toHandM.group("name").trim();
+                final int     dmg      = Integer.parseInt(toHandM.group("damage"));
+                return ctx -> {
+                    ctx.logChooseHeader(label);
+                    String zone1 = td1.fromBreakZone()
+                            ? "in " + (td1.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                    List<ForwardTarget> ts1 = selectTargets(ctx, count1, upTo1,
+                            td1.opponentOnly(), td1.selfOnly(),
+                            td1.condition(), td1.element(), zone1, td1.opponentBz(),
+                            td1.costVal(), td1.costCmp(), -1, null,
+                            td1.fwd(), td1.bkp(), td1.mon(),
+                            null, null, null, td1.excludeName(), false, null, false);
+                    if (ts1.isEmpty()) return;
+
+                    String excl2th = fExcludeFirst && !ts1.isEmpty()
+                            ? getTargetCardName(ctx, ts1.get(0)) : fDesc2Static;
+                    String zone2 = td2.fromBreakZone()
+                            ? "in " + (td2.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                    List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
+                            td2.opponentOnly(), td2.selfOnly(),
+                            td2.condition(), td2.element(), zone2, td2.opponentBz(),
+                            td2.costVal(), td2.costCmp(), -1, null,
+                            td2.fwd(), td2.bkp(), td2.mon(),
+                            null, null, null, excl2th, false, null, false);
+
+                    ForwardTarget former = ts1.get(0);
+                    CardData added = chosenTargetCard(ctx, former);
+                    ctx.addTargetToHand(former);
+                    if (added == null) return;
+                    boolean qualifies = added.hasJob(condJob)
+                            || CardFilters.meetsCardNameFilter(added, condName);
+                    if (!qualifies) {
+                        ctx.logEntry(added.name() + " is neither Job " + condJob
+                                + " nor Card Name " + condName + " — no damage");
+                        return;
+                    }
+                    // "up to 1" on the latter, so there may be nothing to damage even when the
+                    // condition holds.
+                    ts2.forEach(t -> ctx.damageTarget(t, dmg));
+                };
+            }
+        }
+
         // Generic split: prefer comma-after-former when it precedes the " and " split point,
         // since some cards use ", Action the latter" instead of "and Action the latter".
         // (e.g. "Break the former, dull and Freeze the latter.")
@@ -2448,6 +2505,28 @@ final class ActionResolverChoose {
                             costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
                             jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                     ts.forEach(t -> ctx.boostSourceWhileWardenOnField(source, t, boost, traits));
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            }
+        }
+
+        // --- "Your opponent puts one of the chosen Forwards into the Break Zone and returns
+        //      the other to its owner's hand." (Ramza 13-121R) ---
+        // Both fates are named in one sentence and the opponent says which lands on which, so the
+        // selection has to reach the engine whole. Read here, well ahead of the Break Zone and
+        // return-to-hand followups: those scan with find() for the words this sentence is made
+        // of, and either would have applied its own fate to both chosen Forwards and dropped the
+        // opponent's decision entirely.
+        {
+            if (FOLLOWUP_OPPONENT_SPLITS_CHOSEN_BREAK_AND_BOUNCE.matcher(primaryFollowup.trim()).matches()) {
+                return ctx -> {
+                    ctx.logChooseHeader(choosePrefix
+                            + " — your opponent breaks one and returns the other to hand");
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                            jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    ctx.opponentSplitsChosenBreakAndReturnToHand(ts);
                     if (secondary != null) secondary.accept(ctx);
                 };
             }

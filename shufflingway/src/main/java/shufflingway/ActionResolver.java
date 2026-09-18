@@ -694,6 +694,12 @@ public class ActionResolver {
         result = tryParseChooseOppFwdsOrOwnBzFwdsRfg(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseChooseCharacter: Arciela 18-128H's Fire arm contains a whole
+        // choose-and-damage sentence, which that parser finds in the middle of the ability and
+        // runs with neither the reveal nor the count in front of it.
+        result = tryParseRevealHandElementThresholds(effectText, source);
+        if (result != null) return result;
+
         result = tryParseChooseCharacter(effectText, source, xValue);
         if (result != null) return withAiTargetPreference(effectText, result);
 
@@ -2260,6 +2266,30 @@ public class ActionResolver {
         if (tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source) != null) return "IfPutFromFieldToBzThisTurnInstead";
         if (tryParseIfPutFromFieldToBzThisTurn(effectText, source)        != null) return "IfPutFromFieldToBzThisTurn";
         if (tryParseIfPutFromFieldToBzThisTurnMidGate(effectText, source) != null) return "IfPutFromFieldToBzThisTurnMidGate";
+        // Mirrors parse(): tryParseChooseFormerLatter is dispatched long before ChooseCharacter
+        // there, so Samurai 29-006C resolves through it while this chain — whose own
+        // ChooseFormerLatter call sits hundreds of lines below — would answer ChooseCharacter for
+        // code that did not run.
+        //
+        // Guarded on the one anchored shape rather than by hoisting that call up here. The two
+        // chains disagree about where the former/latter cluster belongs, and moving it would
+        // rename every other former/latter record in the corpus; reconciling the orders is the
+        // registry work, not something to settle from inside one guard.
+        //
+        // PHASE2-GUARD: delete this whole block when the chains become one ordered registry —
+        // an ordered registry cannot disagree with itself, so it makes the guard dead code. It
+        // will not show up as work to do on its own: the attribution report only lists abilities
+        // that parse and go unnamed, and this block is what stops 29-006C being one of them.
+        {
+            Matcher formerLatterM = CHOOSE_FORMER_LATTER_PATTERN.matcher(effectText);
+            if (formerLatterM.find() && FORMER_TO_HAND_IF_JOB_OR_NAME_DAMAGE_LATTER
+                    .matcher(formerLatterM.group("effects").trim()).matches())
+                return "ChooseFormerLatter";
+        }
+        // Mirrors parse(): ahead of ChooseCharacter, which claims the Fire arm's choose out of the
+        // middle of the ability.
+        if (tryParseRevealHandElementThresholds(effectText, source) != null)
+            return "RevealHandElementThresholds";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseIfSelfFwdReceivedDamageDraw(effectText, source)          != null) return "IfSelfFwdReceivedDamageDraw";
         if (tryParseIfRfpCount(effectText, source)               != null) return "IfRfpCount";
@@ -2818,6 +2848,11 @@ public class ActionResolver {
                     && wardenGrantM.group("name").trim().equalsIgnoreCase(source.name()))
                 return "GainsWhileSourceOnField";
         }
+        // Mirrors the choose chain, where this sits ahead of the Break Zone and return-to-hand
+        // followups for the reason given there: both of them scan with find() for words this
+        // sentence contains, and either would name it for one fate applied to both Forwards.
+        if (FOLLOWUP_OPPONENT_SPLITS_CHOSEN_BREAK_AND_BOUNCE.matcher(followupText.trim()).matches())
+            return "OpponentSplitsChosenBreakAndBounce";
         // Its mirror, where the chosen Forward sustains the grant and the source takes the power
         // (Chocobo 20-050C). Same position, same source check, and named apart from the one above
         // because the two put the boost on opposite cards.
@@ -3256,6 +3291,16 @@ public class ActionResolver {
                 sep = " | ";
             }
             return sb.append(")").toString();
+        }
+        // Arciela 18-128H's thresholds, described the same way and placed here for the same
+        // reason: the pattern is anchored over the whole ability, and the strip below would take
+        // the trailing "(If you reveal 3 or more cards of each Element, …)" reminder off the end
+        // and leave nothing for an end-to-end match to hold.
+        {
+            String revealDesc = ActionResolverHand.revealHandElementThresholdsDescription(effectText, source);
+            if (revealDesc != null
+                    && ActionResolverHand.tryParseRevealHandElementThresholds(effectText, source) != null)
+                return revealDesc;
         }
         // Strip trailing use-restriction sentences so they don't short-circuit before effect patterns match
         String noRestriction = stripRestrictionSentences(effectText);

@@ -59489,4 +59489,377 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Samurai 29-006C — a former/latter recursion whose payoff asks what came back
+	//
+	// "choose 1 Fire Character in your Break Zone and up to 1 Forward opponent controls. Add the
+	// former to your hand. If the card added to your hand is a Job Samurai or Card Name Samurai,
+	// also deal the latter 3000 damage."
+	//
+	// The recursion is unconditional; only the damage is gated, and on a property of the card the
+	// recursion just took. Nothing needs remembering across the effect — the former is read before
+	// the move, because adding it to hand empties the Break Zone slot its target names.
+	//
+	// The generic former/latter split could not reach it. That split takes the last " and " before
+	// "the latter", and this sentence has none, so it fell back to the first comma after "the
+	// former" — the one in "…or Card Name Samurai, also deal…". The former half came out as "Add
+	// it to your hand. If the card added to your hand is a Job Samurai or Card Name Samurai",
+	// which is no action at all, so the parser declined and the whole sentence fell through to the
+	// plain choose chain. That read the opening selection and dropped everything after it.
+	// =========================================================================================
+
+	private static final String SAMURAI_29_006C_EFFECT =
+			"choose 1 Fire Character in your Break Zone and up to 1 Forward opponent controls. "
+			+ "Add the former to your hand. If the card added to your hand is a Job Samurai or "
+			+ "Card Name Samurai, also deal the latter 3000 damage.";
+
+	@Test
+	void samuraiIsReadAsAFormerLatterEffectByBothChains() {
+		CardData samurai = makeForward("Samurai", "Fire", 4, 0);
+		assertEquals("ChooseFormerLatter",
+				ActionResolver.fullDescription(SAMURAI_29_006C_EFFECT, samurai));
+		// parse() reaches tryParseChooseFormerLatter hundreds of lines before ChooseCharacter, so
+		// a name chain still answering ChooseCharacter would be reporting code that did not run.
+		assertEquals("ChooseFormerLatter",
+				ActionResolver.matchedPatternName(SAMURAI_29_006C_EFFECT, samurai));
+	}
+
+	/** Resolves Samurai's effect with {@code added} coming back and one opposing Forward chosen. */
+	private static GameContext resolveSamurai(CardData added, ForwardTarget latter) {
+		Consumer<GameContext> fn = ActionResolver.parse(
+				SAMURAI_29_006C_EFFECT, makeForward("Samurai", "Fire", 4, 0));
+		assertNotNull(fn, "Samurai's former/latter effect should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharactersFromBreakZone(
+				anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(),
+				anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE)));
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(latter == null ? List.of() : List.of(latter));
+		when(ctx.p1BreakZoneCard(0)).thenReturn(added);
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void theJobProngPaysOffAndTheRecursionHappensEitherWay() {
+		ForwardTarget latter = fwd(false, 0);
+		GameContext ctx = resolveSamurai(makeJobCategoryForward("Ronin", "Samurai", "T"), latter);
+		verify(ctx).addTargetToHand(new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE));
+		verify(ctx).damageTarget(latter, 3000);
+	}
+
+	@Test
+	void theCardNameProngPaysOffToo() {
+		ForwardTarget latter = fwd(false, 0);
+		GameContext ctx = resolveSamurai(makeJobCategoryForward("Samurai", "Standard Unit", "T"), latter);
+		verify(ctx).damageTarget(latter, 3000);
+	}
+
+	@Test
+	void aCardMatchingNeitherProngComesBackWithoutTheDamage() {
+		ForwardTarget latter = fwd(false, 0);
+		GameContext ctx = resolveSamurai(makeJobCategoryForward("Ramza", "Squire", "T"), latter);
+		verify(ctx).addTargetToHand(new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE));
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void theLatterIsUpToOneSoTheRecursionStandsAlone() {
+		// "up to 1 Forward opponent controls" — an empty opposing board still gets the card back.
+		GameContext ctx = resolveSamurai(makeJobCategoryForward("Ronin", "Samurai", "T"), null);
+		verify(ctx).addTargetToHand(new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE));
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void theCardIsReadBeforeTheMoveEmptiesItsSlot() {
+		// The ordering is the thing under test, so it is asserted as an ordering. Adding the
+		// former to hand empties the Break Zone slot its target names, and a condition asked
+		// after the move would read whatever slid into that index, or nothing.
+		ForwardTarget latter = fwd(false, 0);
+		GameContext ctx = resolveSamurai(makeJobCategoryForward("Ronin", "Samurai", "T"), latter);
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).p1BreakZoneCard(0);
+		order.verify(ctx).addTargetToHand(new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE));
+		order.verify(ctx).damageTarget(latter, 3000);
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Ramza 13-121R — you name the pair, your opponent says which half each one takes
+	//
+	// "When Ramza enters the field, choose 2 Forwards opponent controls. Your opponent puts one of
+	// the chosen Forwards into the Break Zone and returns the other to its owner's hand."
+	//
+	// Two players decide, in the shape 13-110H Unei has: the controller's choose is an ordinary
+	// choose and answers to the "cannot be chosen" shields, and what the opponent then does is a
+	// select, so no shield and no chosen-by-opponent watcher narrows it.
+	//
+	// The followup had to be read whole and ahead of its neighbours. Both fates are spelled out in
+	// one sentence, and the Break Zone and return-to-hand followups scan with find() for the very
+	// words it is built out of — either would have taken its own half, applied that one fate to
+	// both chosen Forwards, and dropped the opponent's decision without saying so. That is the
+	// failure nobody is looking for: the card still does something, and it is strictly wrong.
+	// =========================================================================================
+
+	private static final String RAMZA_13_121R_EFFECT =
+			"choose 2 Forwards opponent controls. Your opponent puts one of the chosen Forwards "
+			+ "into the Break Zone and returns the other to its owner's hand.";
+
+	@Test
+	void ramzasSplitIsNamedRatherThanClaimedByEitherHalf() {
+		CardData ramza = makeForward("Ramza", "Lightning", 7, 9000);
+		assertEquals("ChooseCharacter / OpponentSplitsChosenBreakAndBounce",
+				ActionResolver.fullDescription(RAMZA_13_121R_EFFECT, ramza));
+	}
+
+	@Test
+	void bothChosenForwardsReachTheEngineTogether() {
+		// The decision needs the pair; handing them over one at a time would be the bug the
+		// anchored read exists to prevent.
+		Consumer<GameContext> fn = ActionResolver.parse(
+				RAMZA_13_121R_EFFECT, makeForward("Ramza", "Lightning", 7, 9000));
+		assertNotNull(fn, "Ramza's split effect should parse");
+		List<ForwardTarget> chosen = List.of(fwd(false, 0), fwd(false, 1));
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(chosen);
+		fn.accept(ctx);
+
+		verify(ctx).opponentSplitsChosenBreakAndReturnToHand(chosen);
+		verify(ctx, never()).breakTarget(any());
+		verify(ctx, never()).returnP2ForwardToHand(anyInt());
+	}
+
+	/** Seats {@code card} on P2's Forward row with its owner recorded, as a real game would. */
+	private static void placeP2ForwardOwned(MainWindow mw, CardData card) {
+		mw.gameState.getIdentity().put(card, false);
+		mw.placeP2CardInForwardZone(card);
+	}
+
+	@Test
+	void theOpponentBreaksTheCheaperAndKeepsTheDearer() {
+		// The AI answers as the card's owner would: bounced is recoverable and broken is gone, so
+		// what it can most afford to lose outright is the cheapest body it was offered.
+		MainWindow mw = new MainWindow();
+		CardData cheap = makeForward("Squire", "Lightning", 2, 3000);
+		CardData dear  = makeForward("Holy Knight", "Lightning", 6, 9000);
+		placeP2ForwardOwned(mw, cheap);   // P2 idx 0
+		placeP2ForwardOwned(mw, dear);    // P2 idx 1
+
+		mw.buildGameContext(true).opponentSplitsChosenBreakAndReturnToHand(
+				List.of(fwd(false, 0), fwd(false, 1)));
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(cheap), "the cheaper one is broken");
+		assertTrue(mw.gameState.getP2Hand().contains(dear), "the dearer one goes back to hand");
+		assertTrue(mw.p2ForwardCards.isEmpty(), "and neither is left on the field");
+	}
+
+	@Test
+	void theSurvivorIsRelocatedByIdentityAfterTheBreakShiftsTheRow() {
+		// The break removes a Forward ahead of the other in the row, so the second target's index
+		// is stale by the time it is used. Reading it back by identity is what keeps the right
+		// card going to hand — with a third Forward present, an index-based second step would
+		// bounce the bystander.
+		MainWindow mw = new MainWindow();
+		CardData cheap     = makeForward("Squire", "Lightning", 2, 3000);
+		CardData dear      = makeForward("Holy Knight", "Lightning", 6, 9000);
+		CardData bystander = makeForward("Bystander", "Lightning", 4, 8000);
+		placeP2ForwardOwned(mw, cheap);       // P2 idx 0
+		placeP2ForwardOwned(mw, dear);        // P2 idx 1
+		placeP2ForwardOwned(mw, bystander);   // P2 idx 2
+
+		mw.buildGameContext(true).opponentSplitsChosenBreakAndReturnToHand(
+				List.of(fwd(false, 0), fwd(false, 1)));
+
+		assertTrue(mw.gameState.getP2Hand().contains(dear), "the chosen survivor went to hand");
+		assertFalse(mw.gameState.getP2Hand().contains(bystander),
+				"the Forward that shifted into its slot was never chosen");
+		assertEquals(List.of(bystander), mw.p2ForwardCards, "and is still on the field");
+	}
+
+	@Test
+	void aLoneChosenForwardIsBrokenWithNothingLeftToBeTheOther() {
+		// All the opponent's board could offer. The clauses are applied in printed order, which is
+		// the only reading that does not require inventing a second card.
+		MainWindow mw = new MainWindow();
+		CardData only = makeForward("Squire", "Lightning", 2, 3000);
+		placeP2ForwardOwned(mw, only);
+
+		mw.buildGameContext(true).opponentSplitsChosenBreakAndReturnToHand(List.of(fwd(false, 0)));
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(only));
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "nothing was left over to return");
+	}
+
+	@Test
+	void anEmptySelectionDoesNothing() {
+		MainWindow mw = new MainWindow();
+		placeP2ForwardOwned(mw, makeForward("Squire", "Lightning", 2, 3000));
+
+		mw.buildGameContext(true).opponentSplitsChosenBreakAndReturnToHand(List.of());
+
+		assertEquals(1, mw.p2ForwardCards.size(), "an unchosen board is untouched");
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Arciela 18-128H — two thresholds measured against one reveal
+	//
+	// "At the beginning of the Attack Phase during each of your turns, you may reveal any number
+	// of cards from your hand. When you reveal 3 or more Fire cards, choose 1 Forward. Deal it
+	// 7000 damage. When you reveal 3 or more Water cards, draw 1 card. (If you reveal 3 or more
+	// cards of each Element, both effects will be triggered.)"
+	//
+	// This was a fail-open, not a gap. The choose parser found "choose 1 Forward. Deal it 7000
+	// damage." in the middle of the ability with find() and ran it unconditionally — no reveal,
+	// no Fire count, and the draw dropped. 7000 damage every Attack Phase for free, which is
+	// strictly stronger than the printed card and is exactly what nobody goes looking for.
+	//
+	// One reveal, not one per threshold. The card's own reminder text settles it, and the sharing
+	// is why the arms are parsed together and declined together: an unread arm here is not a
+	// sentence missed elsewhere but a payoff dropped from a price already paid.
+	// =========================================================================================
+
+	private static final String ARCIELA_18_128H_EFFECT =
+			"you may reveal any number of cards from your hand. When you reveal 3 or more Fire "
+			+ "cards, choose 1 Forward. Deal it 7000 damage. When you reveal 3 or more Water "
+			+ "cards, draw 1 card. (If you reveal 3 or more cards of each Element, both effects "
+			+ "will be triggered.)";
+
+	private static CardData arciela() {
+		return makeForward("Arciela", "Water/Fire", 3, 7000);
+	}
+
+	@Test
+	void arcielaIsNamedForTheWholeAbilityByBothChains() {
+		assertEquals("RevealHandElementThresholds",
+				ActionResolver.matchedPatternName(ARCIELA_18_128H_EFFECT, arciela()));
+		assertEquals("RevealHandElementThresholds(3+ Fire: ChooseCharacter / Damage | 3+ Water: DrawCards)",
+				ActionResolver.fullDescription(ARCIELA_18_128H_EFFECT, arciela()));
+	}
+
+	/** Resolves Arciela against a mock whose reveal answers {@code counts}. */
+	private static GameContext resolveArciela(Map<String, Integer> counts) {
+		Consumer<GameContext> fn = ActionResolver.parse(ARCIELA_18_128H_EFFECT, arciela());
+		assertNotNull(fn, "Arciela's thresholds should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.revealAnyNumberFromHandElementCounts()).thenReturn(counts);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(fwd(false, 0)));
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void revealingNothingBuysNeitherEffect() {
+		// The regression guard. Before this parser the damage fired every Attack Phase with no
+		// reveal behind it at all.
+		GameContext ctx = resolveArciela(Map.of());
+		verify(ctx).revealAnyNumberFromHandElementCounts();
+		verify(ctx, never()).damageTarget(any(), anyInt());
+		verify(ctx, never()).drawCards(anyInt());
+	}
+
+	@Test
+	void shortOfTheThresholdIsStillNothing() {
+		GameContext ctx = resolveArciela(Map.of("fire", 2, "water", 2));
+		verify(ctx, never()).damageTarget(any(), anyInt());
+		verify(ctx, never()).drawCards(anyInt());
+	}
+
+	@Test
+	void threeFireCardsBuyTheDamageAlone() {
+		GameContext ctx = resolveArciela(Map.of("fire", 3, "water", 1));
+		verify(ctx).damageTarget(fwd(false, 0), 7000);
+		verify(ctx, never()).drawCards(anyInt());
+	}
+
+	@Test
+	void threeWaterCardsBuyTheDrawAlone() {
+		GameContext ctx = resolveArciela(Map.of("fire", 1, "water", 3));
+		verify(ctx).drawCards(1);
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void bothThresholdsFireOffASingleReveal() {
+		// The reminder text in parentheses is a rule, not a flourish: both effects trigger, and
+		// the player is asked once. A second reveal would let the two arms disagree about what
+		// was shown, and would charge a "you may" decision twice.
+		GameContext ctx = resolveArciela(Map.of("fire", 4, "water", 3));
+		verify(ctx).damageTarget(fwd(false, 0), 7000);
+		verify(ctx).drawCards(1);
+		verify(ctx, times(1)).revealAnyNumberFromHandElementCounts();
+	}
+
+	@Test
+	void theArmsFireInPrintedOrder() {
+		GameContext ctx = resolveArciela(Map.of("fire", 3, "water", 3));
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).revealAnyNumberFromHandElementCounts();
+		order.verify(ctx).damageTarget(fwd(false, 0), 7000);
+		order.verify(ctx).drawCards(1);
+	}
+
+	@Test
+	void anArmWithNoReadableEffectDeclinesTheWholeAbility() {
+		// Fail closed, all arms or none: they share a reveal, so claiming the readable half would
+		// run the reveal and then drop a payoff the player has already paid for.
+		//
+		// Asserted against this parser rather than against parse(), which is the honest contract.
+		// Declining hands the text back to the chain, and ChooseCharacter downstream still finds
+		// the Fire arm's choose in the middle of it — the very fail-open this parser exists to
+		// beat, still live for a text this one turns down. Nothing in the corpus has that shape
+		// today (both of Arciela's arms parse) and stopping it for good needs the chain to know a
+		// text is spoken for, which is registry work, not a guard.
+		String oneArmUnreadable =
+				"you may reveal any number of cards from your hand. When you reveal 3 or more "
+				+ "Fire cards, choose 1 Forward. Deal it 7000 damage. When you reveal 3 or more "
+				+ "Water cards, do something this engine has never heard of.";
+		assertNull(ActionResolverHand.tryParseRevealHandElementThresholds(oneArmUnreadable, arciela()),
+				"an unreadable arm takes the whole ability with it");
+		assertNotNull(ActionResolverHand.tryParseRevealHandElementThresholds(
+				ARCIELA_18_128H_EFFECT, arciela()),
+				"while the printed card, whose arms both parse, is claimed");
+	}
+
+	@Test
+	void aMultiElementCardIsCountedUnderEachOfItsElements() {
+		// How Arciela reaches both thresholds off a hand that is short of either on its own — and
+		// she is Water/Fire herself, so her own printing is the case.
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < 3; i++)
+			mw.gameState.getP2Hand().add(makeForward("Dual " + i, "Water/Fire", 3, 5000));
+
+		// P2's seat reveals its whole hand without a dialog, which is the headless path.
+		Map<String, Integer> counts =
+				mw.buildGameContext(false).revealAnyNumberFromHandElementCounts();
+
+		assertEquals(3, counts.get("fire"), "three Water/Fire cards are three Fire cards");
+		assertEquals(3, counts.get("water"), "and three Water cards at the same time");
+	}
+
+	@Test
+	void anEmptyHandAnswersNothingRatherThanAskingForOne() {
+		MainWindow mw = new MainWindow();
+		assertTrue(mw.buildGameContext(false).revealAnyNumberFromHandElementCounts().isEmpty());
+	}
+
+	// =========================================================================================
+
 }

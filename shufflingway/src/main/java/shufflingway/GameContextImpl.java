@@ -155,6 +155,47 @@ final class GameContextImpl implements GameContext {
 		};
 	}
 
+	/**
+	 * Asks the resolving player which of {@code hand} they reveal, and hands back the cards shown.
+	 *
+	 * <p>Shared by the two reveal-any-number primitives so there is one dialog, one AI rule and
+	 * one log line between them; what differs is only the question asked of the answer. Nothing
+	 * leaves the hand — revealing shows the cards and puts them back.
+	 *
+	 * <p>The AI reveals everything. Nothing is spent by revealing, and no effect in this family
+	 * pays for a smaller reveal, so more shown can only be worth the same or more.
+	 */
+	private List<CardData> revealAnyNumberFromHand(List<CardData> hand) {
+		List<CardData> shown = new ArrayList<>();
+		if (isP1) {
+			List<Integer> picked = shufflingway.dialog.HandPickDialog.showRevealAnyNumber(
+					mw.frame, hand, "Reveal any number of cards from your hand.",
+					mw::showZoomAt, mw::hideZoom);
+			for (int i : picked) if (i >= 0 && i < hand.size()) shown.add(hand.get(i));
+		} else {
+			shown.addAll(hand);
+		}
+		return shown;
+	}
+
+	/** A card's Elements, lowercased — one entry per Element a multi-Element card prints. */
+	private static List<String> elementsOf(CardData card) {
+		List<String> out = new ArrayList<>();
+		for (String e : card.element().split("/")) {
+			String t = e.trim();
+			if (!t.isEmpty()) out.add(t.toLowerCase(java.util.Locale.ROOT));
+		}
+		return out;
+	}
+
+	/** The shared log line for a reveal-any-number, with {@code tally} naming what was counted. */
+	private void logRevealed(List<CardData> shown, String tally) {
+		mw.logEntry((isP1 ? "" : "[P2] ") + "Revealed " + shown.size() + " card(s) from hand: "
+				+ (shown.isEmpty() ? "(none)"
+						: shown.stream().map(CardData::name).collect(Collectors.joining(", ")))
+				+ " — " + tally);
+	}
+
 	/** "twice" / "3 times" — how a permitted attack count reads inside a granted ability's text. */
 	private static String attackCountPhrase(int maxAttacks) {
 		return maxAttacks == 2 ? "twice" : maxAttacks + " times";
@@ -4954,6 +4995,59 @@ final class GameContextImpl implements GameContext {
 				if (oppIsP1) { mw.refreshP1BreakLabel(); mw.refreshP1HandLabel(); }
 				else         { mw.refreshP2BreakLabel(); mw.refreshP2HandCountLabel(); }
 				mw.notifyCardsAddedToHandFromBreakZone(oppIsP1);
+			}
+
+			@Override public void opponentSplitsChosenBreakAndReturnToHand(List<ForwardTarget> chosen) {
+				if (chosen == null || chosen.isEmpty()) return;
+				boolean oppIsP1 = !isP1;
+				// The card offers the opponent their own Forwards, which is what the choose above
+				// was filtered to. Anything else in the list is not theirs to weigh.
+				List<ForwardTarget> offered = new ArrayList<>();
+				for (ForwardTarget t : chosen)
+					if (t != null && t.isP1() == oppIsP1
+							&& t.zone() == ForwardTarget.CardZone.FORWARD) offered.add(t);
+				if (offered.isEmpty()) return;
+
+				// Bounced is kept and can be replayed; broken is gone. So the cheapest is what
+				// they can most afford to lose outright — the same weighing the AI does when an
+				// effect makes it give up one of its own.
+				List<ForwardTarget> finalOffered = List.copyOf(offered);
+				Supplier<List<ForwardTarget>> cpuPick = () -> List.of(finalOffered.stream()
+						.min(java.util.Comparator.comparingInt(t -> {
+							CardData c = mw.fieldCardDataOrNull(t);
+							return c == null ? Integer.MAX_VALUE : c.cost();
+						}))
+						.orElse(finalOffered.get(0)));
+
+				List<ForwardTarget> picks = mw.selectOwnFieldTargets(oppIsP1, offered, 1, false,
+						"Select 1 of the chosen Forwards to put into the Break Zone",
+						"Waiting for your opponent to choose which Forward goes to the Break Zone...",
+						cpuPick);
+				// Declining leaves nothing selected. Read as breaking the first on offer rather
+				// than as sparing them all: an unanswered select must not be worth more to the
+				// player who declined it than any answer they could have given.
+				ForwardTarget broken = picks.isEmpty() ? offered.get(0) : picks.get(0);
+
+				// Captured before anything moves: a break shifts the indices of the Forwards
+				// behind it, so the survivors are re-located by identity once it has resolved.
+				CardData brokenCard = mw.fieldCardDataOrNull(broken);
+				List<CardData> returning = new ArrayList<>();
+				for (ForwardTarget t : offered) {
+					if (t.idx() == broken.idx()) continue;
+					CardData c = mw.fieldCardDataOrNull(t);
+					if (c != null) returning.add(c);
+				}
+
+				if (brokenCard != null)
+					logEntry("Opponent puts " + brokenCard.name() + " into the Break Zone");
+				breakTarget(broken);
+
+				List<CardData> row = oppIsP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				for (CardData c : returning) {
+					int idx = MainWindow.identityIndexOf(row, c);
+					if (idx < 0) continue;   // already gone — a break trigger reached it first
+					if (oppIsP1) returnP1ForwardToHand(idx); else returnP2ForwardToHand(idx);
+				}
 			}
 
 			@Override public boolean opponentMayDiscardCards(int count, String sourceName) {
@@ -9847,28 +9941,27 @@ final class GameContextImpl implements GameContext {
 			@Override public int revealAnyNumberFromHandDistinctElements() {
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				if (hand.isEmpty()) { logEntry("Reveal from hand: hand is empty — 0 Elements"); return 0; }
-				List<CardData> shown = new ArrayList<>();
-				if (isP1) {
-					List<Integer> picked = shufflingway.dialog.HandPickDialog.showRevealAnyNumber(
-							mw.frame, hand, "Reveal any number of cards from your hand.",
-							mw::showZoomAt, mw::hideZoom);
-					for (int i : picked) if (i >= 0 && i < hand.size()) shown.add(hand.get(i));
-				} else {
-					// The AI reveals everything: nothing is spent by revealing, and every extra
-					// Element can only raise the payoff.
-					shown.addAll(hand);
-				}
+				List<CardData> shown = revealAnyNumberFromHand(hand);
 				Set<String> elements = new java.util.LinkedHashSet<>();
-				for (CardData c : shown)
-					for (String e : c.element().split("/")) {
-						String t = e.trim();
-						if (!t.isEmpty()) elements.add(t.toLowerCase(java.util.Locale.ROOT));
-					}
-				logEntry((isP1 ? "" : "[P2] ") + "Revealed " + shown.size() + " card(s) from hand: "
-						+ (shown.isEmpty() ? "(none)"
-								: shown.stream().map(CardData::name).collect(Collectors.joining(", ")))
-						+ " — " + elements.size() + " different Element(s)");
+				for (CardData c : shown) elements.addAll(elementsOf(c));
+				logRevealed(shown, elements.size() + " different Element(s)");
 				return elements.size();
+			}
+
+			@Override public Map<String, Integer> revealAnyNumberFromHandElementCounts() {
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				if (hand.isEmpty()) { logEntry("Reveal from hand: hand is empty"); return Map.of(); }
+				List<CardData> shown = revealAnyNumberFromHand(hand);
+				Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+				// Each Element a card prints counts it once, so a Water/Fire card is a Fire card
+				// and a Water card at the same time — how Arciela satisfies both thresholds at
+				// once off a hand that is short of either on its own.
+				for (CardData c : shown)
+					for (String e : elementsOf(c)) counts.merge(e, 1, Integer::sum);
+				logRevealed(shown, counts.isEmpty() ? "no Elements"
+						: counts.entrySet().stream().map(e -> e.getValue() + " " + e.getKey())
+								.collect(Collectors.joining(", ")));
+				return counts;
 			}
 
 			@Override public int triggeringEnteredCardPower() {

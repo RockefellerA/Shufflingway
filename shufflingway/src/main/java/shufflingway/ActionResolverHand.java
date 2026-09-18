@@ -7,6 +7,7 @@ import static shufflingway.ActionResolver.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 
@@ -1213,5 +1214,75 @@ final class ActionResolverHand {
     /** The payoff sentence of {@link #tryParseDiscardAnyNumberThenChooseSameNumber} for a count. */
     private static String discardPayoffText(int count, String noun, String tail) {
         return "choose up to " + count + " " + noun + ". " + tail;
+    }
+
+    /** One "When you reveal N or more [Element] cards, [effect]." arm of Arciela's ability. */
+    private record RevealThreshold(String element, int count, Consumer<GameContext> effect,
+            String describe) {}
+
+    /**
+     * Arciela 18-128H: "[you may] reveal any number of cards from your hand. When you reveal N or
+     * more [Element] cards, [effect]. …"
+     *
+     * <p>One reveal answers every threshold. The reveal happens first and unconditionally — it is
+     * what the thresholds are measured against — and each arm then fires on its own count, in
+     * printed order, with both able to fire off the same reveal.
+     *
+     * <p>Every arm must parse or the whole ability is declined. Half of this read is worse than
+     * none of it: the arms share a reveal, so an unread arm is not a missing sentence somewhere
+     * else but a payoff silently dropped from a cost the player has already paid. It is also how
+     * the card got into trouble in the first place — the choose parser took the Fire arm's middle
+     * with {@code find()} and ran the damage with no reveal and no count behind it.
+     */
+    static Consumer<GameContext> tryParseRevealHandElementThresholds(String text, CardData source) {
+        Matcher m = REVEAL_ANY_NUMBER_ELEMENT_THRESHOLDS.matcher(text.trim());
+        if (!m.matches()) return null;
+
+        List<RevealThreshold> arms = new ArrayList<>();
+        Matcher c = REVEAL_ELEMENT_THRESHOLD_CLAUSE.matcher(m.group("clauses"));
+        while (c.find()) {
+            String effectText = c.group("effect").trim();
+            Consumer<GameContext> effect = parse(effectText, source);
+            if (effect == null) return null;
+            String desc = fullDescription(effectText, source);
+            arms.add(new RevealThreshold(
+                    c.group("element").trim().toLowerCase(Locale.ROOT),
+                    Integer.parseInt(c.group("count")),
+                    effect,
+                    desc != null ? desc : effectText));
+        }
+        if (arms.isEmpty()) return null;
+
+        return ctx -> {
+            ctx.logEntry("Effect: reveal any number of cards from your hand");
+            Map<String, Integer> counts = ctx.revealAnyNumberFromHandElementCounts();
+            for (RevealThreshold arm : arms) {
+                int have = counts.getOrDefault(arm.element(), 0);
+                if (have < arm.count()) {
+                    ctx.logEntry("Revealed " + have + " " + arm.element() + " card(s) — "
+                            + arm.count() + " needed, so " + arm.describe() + " does not happen");
+                    continue;
+                }
+                ctx.logEntry("Revealed " + have + " " + arm.element() + " card(s) — "
+                        + arm.describe());
+                arm.effect().accept(ctx);
+            }
+        };
+    }
+
+    /** The description of a {@link #tryParseRevealHandElementThresholds} run, arm by arm. */
+    static String revealHandElementThresholdsDescription(String text, CardData source) {
+        Matcher m = REVEAL_ANY_NUMBER_ELEMENT_THRESHOLDS.matcher(text.trim());
+        if (!m.matches()) return null;
+        List<String> parts = new ArrayList<>();
+        Matcher c = REVEAL_ELEMENT_THRESHOLD_CLAUSE.matcher(m.group("clauses"));
+        while (c.find()) {
+            String effectText = c.group("effect").trim();
+            String desc = fullDescription(effectText, source);
+            parts.add(c.group("count") + "+ " + c.group("element").trim() + ": "
+                    + (desc != null ? desc : "?"));
+        }
+        if (parts.isEmpty()) return null;
+        return "RevealHandElementThresholds(" + String.join(" | ", parts) + ")";
     }
 }
