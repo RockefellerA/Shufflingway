@@ -7108,10 +7108,10 @@ public class ActionResolver {
             String cat     = catM.group(1).trim();
             String catType = catM.group(2);
             pred = card -> {
-                String cl = cat.toLowerCase(Locale.ROOT);
-                if (!card.category1().toLowerCase(Locale.ROOT).contains(cl)
-                        && !card.category2().toLowerCase(Locale.ROOT).contains(cl))
-                    return false;
+                // Through the shared filter, which matches a Category exactly: most of them are
+                // Roman numerals, so a substring test answers "Category VII" for a VIII card, and
+                // "Category X" for everything from IX to XVI.
+                if (!CardFilters.meetsCategoryFilter(card, cat)) return false;
                 return catType == null || catType.equalsIgnoreCase("card")
                         || meetsTypeCheck(card, catType);
             };

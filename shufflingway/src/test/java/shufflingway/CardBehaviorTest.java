@@ -10099,6 +10099,78 @@ public class CardBehaviorTest {
                 "a non-Water card does not");
     }
 
+    // =========================================================================================
+    // parseRevealCondition's Category arm — "If it is a Category X Forward, …"
+    //
+    // The filter is exact on either Category slot, through CardFilters.meetsCategoryFilter. Most
+    // of the categories are Roman numerals, so they nest: a substring test answers "Category VII"
+    // for every Category VIII card, and "Category X" for everything from IX to XVI, plus FFEX.
+    // The set-name categories nest too — FFT inside FFTA, FFTA2 and FFTS.
+    //
+    // 61 printings name Category VII in a condition this reads, 28 name X and 30 name XV, so the
+    // reading is worth pinning from both directions: the category asked for matches, and the ones
+    // that merely contain it do not.
+    // =========================================================================================
+
+    @Test
+    void aCategoryConditionTakesThatCategoryAndNoOther() {
+        Predicate<CardData> vii = ActionResolver.parseRevealCondition("a Category VII card");
+        assertNotNull(vii);
+        assertTrue(vii.test(makeCategoryForward("Cloud", "Wind", "VII")));
+        assertFalse(vii.test(makeCategoryForward("Squall", "Ice", "VIII")),
+                "VIII merely contains VII");
+    }
+
+    @Test
+    void theRomanNumeralsThatNestDoNotMatchEachOther() {
+        Predicate<CardData> x = ActionResolver.parseRevealCondition("a Category X card");
+        assertTrue(x.test(makeCategoryForward("Tidus", "Water", "X")));
+        for (String other : List.of("IX", "XI", "XII", "XIII", "XIV", "XV", "XVI", "FFEX"))
+            assertFalse(x.test(makeCategoryForward("Someone", "Fire", other)),
+                    "Category " + other + " is not Category X");
+    }
+
+    @Test
+    void theSetNameCategoriesDoNotNestEither() {
+        Predicate<CardData> fft = ActionResolver.parseRevealCondition("a Category FFT card");
+        assertTrue(fft.test(makeCategoryForward("Ramza", "Earth", "FFT")));
+        for (String other : List.of("FFTA", "FFTA2", "FFTS"))
+            assertFalse(fft.test(makeCategoryForward("Someone", "Fire", other)),
+                    "Category " + other + " is not Category FFT");
+    }
+
+    @Test
+    void aTypeQualifiedCategoryStillChecksBothHalves() {
+        Predicate<CardData> viFwd = ActionResolver.parseRevealCondition("a Category VI Forward");
+        assertTrue(viFwd.test(makeCategoryForward("Terra", "Fire", "VI")));
+        assertFalse(viFwd.test(makeCategoryBackup("Strago", "Fire", "VI")), "right Category, wrong type");
+        assertFalse(viFwd.test(makeCategoryForward("Zidane", "Wind", "IX")), "right type, wrong Category");
+    }
+
+    @Test
+    void aNegatedCategoryIsTheExactTestInverted() {
+        Predicate<CardData> notVii = ActionResolver.parseRevealCondition("not a Category VII card");
+        assertFalse(notVii.test(makeCategoryForward("Cloud", "Wind", "VII")));
+        assertTrue(notVii.test(makeCategoryForward("Squall", "Ice", "VIII")),
+                "a VIII card is not a VII card, so the negation holds");
+    }
+
+    @Test
+    void paineKeepsOnlyACategoryXForward() {
+        // Through the reveal clause rather than the helper, so the gate a card actually resolves
+        // against is the one being tested. Paine names the worst-nesting numeral of the lot.
+        GameContext ctx = mock(GameContext.class);
+        ActionResolver.parse(
+                "reveal the top card of your deck. If it is a Category X Forward, add it to your hand.",
+                null).accept(ctx);
+
+        ArgumentCaptor<List<RevealClause>> clauses = ArgumentCaptor.forClass(List.class);
+        verify(ctx).revealTopDeckCard(clauses.capture(), anyBoolean());
+        Predicate<CardData> cond = clauses.getValue().get(0).condition();
+        assertTrue(cond.test(makeCategoryForward("Tidus", "Water", "X")));
+        assertFalse(cond.test(makeCategoryForward("Vaan", "Wind", "XII")));
+    }
+
     @Test
     void schultzOrdersTheLookBeforeTheReveal() {
         AutoAbility etf = CardData.parseAutoAbilities(SCHULTZ_TEXT).get(0);
