@@ -1619,6 +1619,16 @@ public class ActionResolver {
         result = tryParseSearchMatchingBrokenCard(effectText);
         if (result != null) return result;
 
+        // The type sibling of the name search above, and beside it for that reason: both take
+        // their filter from the trigger's event rather than from the sentence.
+        result = tryParseSearchSameCardTypeAsBrokenCard(effectText);
+        if (result != null) return result;
+
+        // Reads its cost off the payment record at resolution, so it cannot be one of the
+        // ordinary search patterns, whose cost filters are printed.
+        result = tryParseSearchCostOfCardsDiscardedToCast(effectText, source);
+        if (result != null) return result;
+
         result = tryParseSearchDeck(effectText, source, xValue);
         if (result != null) return result;
 
@@ -2579,6 +2589,9 @@ public class ActionResolver {
         if (ActionResolverSearch.tryParsePlaySourceFromBzOntoOppField(effectText, source) != null)
             return "PlaySourceFromBzOntoOppField";
         if (tryParseSearchMatchingBrokenCard(effectText) != null) return "SearchMatchingBrokenCard";
+        // Mirrors parse(): the two trigger-card / payment-record searches sit beside it.
+        if (tryParseSearchSameCardTypeAsBrokenCard(effectText) != null) return "SearchSameCardTypeAsBrokenCard";
+        if (tryParseSearchCostOfCardsDiscardedToCast(effectText, source) != null) return "SearchCostOfCardsDiscardedToCast";
         if (tryParseSearchDeck(effectText, source, 0)                      != null) return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText)      != null) return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null) return "PlaySourceFromBreakZone";
@@ -4399,6 +4412,9 @@ public class ActionResolver {
         if (ActionResolverSearch.tryParsePlaySourceFromBzOntoOppField(effectText, source) != null)
             return "PlaySourceFromBzOntoOppField";
         if (tryParseSearchMatchingBrokenCard(effectText) != null) return "SearchMatchingBrokenCard";
+        // Mirrors parse(): the two trigger-card / payment-record searches sit beside it.
+        if (tryParseSearchSameCardTypeAsBrokenCard(effectText) != null) return "SearchSameCardTypeAsBrokenCard";
+        if (tryParseSearchCostOfCardsDiscardedToCast(effectText, source) != null) return "SearchCostOfCardsDiscardedToCast";
         if (tryParseSearchDeck(effectText, source, 0) != null)              return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText) != null)         return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null)    return "PlaySourceFromBreakZone";

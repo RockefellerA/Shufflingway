@@ -808,6 +808,19 @@ public interface GameContext {
     int cardsDiscardedToCast(CardData card);
 
     /**
+     * What the cards discarded from hand to pay for {@code card} cost, added up — 16-107R Ezel's
+     * "1 Forward of the same cost as the total cost of discarded cards to cast Ezel".
+     *
+     * <p>A different question from {@link #cardsDiscardedToCast}, not a scaling of it: a discard
+     * produces 2 CP whatever the card cost, so two discards can total anything from 2 to 20. The
+     * two move independently and are recorded separately.
+     *
+     * <p>Owner-checked by identity for the same reason that one is, and {@code 0} both for a card
+     * that was not the one paid for and for one paid for without discarding at all.
+     */
+    int totalCostOfCardsDiscardedToCast(CardData card);
+
+    /**
      * Whether {@code card}'s own arrival was paid for entirely with CP of {@code element} — the
      * "only paid with [Element] CP" gate (7-029H Kefka, 7-046R Vata and their siblings).
      *
@@ -1190,6 +1203,27 @@ public interface GameContext {
      */
     void searchDeckMatchingTriggeringBrokenCardName(boolean inclForwards, boolean inclBackups,
             boolean inclMonsters, boolean inclSummons, String destination, int count);
+
+    /**
+     * Searches the resolving player's deck for a {@code categoryFilter} card of the same <em>card
+     * type</em> as the card whose departure fired the "put into the Break Zone" trigger now
+     * resolving, and sends it to {@code destination} — Mira 11-122H's "search for 1 Category FFCC
+     * Character of the same card type and add it to your hand".
+     *
+     * <p>The fourth of the trigger-card family, and the sibling of
+     * {@link #searchDeckMatchingTriggeringBrokenCardName}: what is copied off the broken card is
+     * the type rather than the name, and the category is the one the sentence prints. So a Backup
+     * leaving fetches a Backup of that Category, and a Forward leaving fetches a Forward.
+     *
+     * <p>Like that sibling it does not check whether the card is still in the Break Zone — the
+     * search reads a card type, and the card that supplied it has already done its part.
+     *
+     * <p>Does nothing when no such trigger is resolving, or when the broken card is a Summon: the
+     * printings that use this wording watch Characters, and "the same card type" as a Summon names
+     * a pool the sentence's own "Character" excludes.
+     */
+    void searchDeckMatchingTriggeringBrokenCardType(String categoryFilter, String destination,
+            int count);
 
 
     /**

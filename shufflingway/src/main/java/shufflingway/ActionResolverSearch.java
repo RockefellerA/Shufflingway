@@ -206,6 +206,46 @@ final class ActionResolverSearch {
             ctx.revealTopNPlayNamedOntoFieldRestBottom(n, cardName);
         };
     }
+    /**
+     * Parses "Search for 1 [Type] of the same cost as the total cost of discarded cards to cast
+     * [Self] and add it to your hand." — 16-107R Ezel.
+     *
+     * <p>The cost filter is not in the text: it is what the cards discarded from hand for CP to pay
+     * for this card added up to, which only the payment record knows and only at resolution. So the
+     * number is read off the context inside the effect rather than baked in at parse time, and an
+     * exact match is used — "the same cost" is not a ceiling.
+     *
+     * <p>A cast paid without discarding leaves a total of 0, and no Forward in the corpus costs 0.
+     * The search is skipped with a log rather than run against an empty pool, which would open a
+     * picker over nothing; the two are the same outcome and only one of them says why.
+     *
+     * <p>Declines when the sentence names a card other than the printing, since the payment record
+     * is per-card and another name is asking about a cast this one did not make.
+     */
+    static Consumer<GameContext> tryParseSearchCostOfCardsDiscardedToCast(String text, CardData source) {
+        Matcher m = SEARCH_COST_OF_CARDS_DISCARDED_TO_CAST.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (source == null || source.name() == null
+                || !m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        String type = m.group("type").toLowerCase(Locale.ROOT);
+        boolean anyType = type.equals("card");
+        final boolean fwd = anyType || type.equals("forward") || type.equals("character");
+        final boolean bkp = anyType || type.equals("backup")  || type.equals("character");
+        final boolean mon = anyType || type.equals("monster") || type.equals("character");
+        final boolean smn = anyType || type.equals("summon");
+        return ctx -> {
+            int total = ctx.totalCostOfCardsDiscardedToCast(source);
+            if (total <= 0) {
+                ctx.logEntry("Effect: no cards were discarded to cast " + source.name()
+                        + " — nothing of cost 0 to search for");
+                return;
+            }
+            ctx.logEntry("Effect: Search for 1 " + type + " of cost " + total
+                    + " (the total cost of the cards discarded to cast " + source.name() + ")");
+            ctx.searchDeckForCard(fwd, bkp, mon, smn, total, null, null, null, null, null, null,
+                    null, "hand", 1, false, null);
+        };
+    }
     static Consumer<GameContext> tryParseRevealPlayNamedWithMaxCostRestBottom(String text) {
         Matcher m = REVEAL_PLAY_NAMED_MAX_COST_REST_BOTTOM.matcher(text.trim());
         if (!m.matches()) return null;

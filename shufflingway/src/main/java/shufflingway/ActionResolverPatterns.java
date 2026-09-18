@@ -2551,6 +2551,46 @@ final class ActionResolverPatterns {
         "(?<destination>add\\s+it\\s+to\\s+your\\s+hand" +
         "|play\\s+it\\s+onto\\s+(?:the\\s+)?field)[.!]?$"
     );
+    /**
+     * "Search for 1 Category [C] Character of the same card type and add it to your hand." —
+     * Mira 11-122H, hanging off her "when a Category FFCC Character other than Mira you control is
+     * put from the field into the Break Zone" trigger.
+     *
+     * <p>The type sibling of {@link #SEARCH_MATCHING_TRIGGERING_BROKEN_CARD}: there the event
+     * supplies a name and the sentence keeps its own type, here the event supplies the type and the
+     * sentence keeps its own Category. Neither names the card it copies from, which is what puts
+     * both in the trigger-card family rather than in the ordinary search chain.
+     *
+     * <p>Anchored end to end and matched with {@code matches()}, for the reason its sibling is: the
+     * tail of an ordinary "search for … and add it to your hand" would otherwise be claimed under
+     * {@code find()}, and that sentence's type filter is printed rather than inherited.
+     *
+     * <p>Group {@code category} is the Category the search is confined to.
+     */
+    static final Pattern SEARCH_SAME_CARD_TYPE_AS_TRIGGERING_BROKEN_CARD = Pattern.compile(
+        "(?i)^search\\s+for\\s+1\\s+Category\\s+(?<category>.+?)\\s+Characters?\\s+" +
+        "of\\s+the\\s+same\\s+card\\s+type\\s+and\\s+add\\s+it\\s+to\\s+your\\s+hand[.!]?$"
+    );
+    /**
+     * "Search for 1 [Type] of the same cost as the total cost of discarded cards to cast [Self] and
+     * add it to your hand." — 16-107R Ezel, the only printing.
+     *
+     * <p>The cost is the sum of what was discarded from hand for CP while paying for this very
+     * card, which is knowable only at resolution — so the pattern captures nothing of it but the
+     * card's own name, and {@code ActionResolverSearch} reads the total off the context.
+     *
+     * <p>{@code name} is checked against the source by the parser, the guard every self-naming
+     * clause in this file carries: the payment record is per-card, and a sentence naming some other
+     * printing would be asking about a cast this one did not make.
+     *
+     * <p>Anchored end to end, so the ordinary search chain keeps every sentence whose cost filter
+     * is printed rather than counted.
+     */
+    static final Pattern SEARCH_COST_OF_CARDS_DISCARDED_TO_CAST = Pattern.compile(
+        "(?i)^search\\s+for\\s+1\\s+(?<type>Forward|Backup|Monster|Character|Summon|card)s?\\s+" +
+        "of\\s+the\\s+same\\s+cost\\s+as\\s+the\\s+total\\s+cost\\s+of\\s+discarded\\s+cards?\\s+" +
+        "to\\s+cast\\s+(?<name>.+?)\\s+and\\s+add\\s+it\\s+to\\s+your\\s+hand[.!]?$"
+    );
     static final Pattern PLAY_BROKEN_CARD_ONTO_FIELD_DULL = Pattern.compile(
         "(?i)^Play\\s+the\\s+(?:Forward|Backup|Monster|Character|card)\\s+placed\\s+in\\s+the\\s+" +
         "Break\\s+Zone\\s+onto\\s+(?:the\\s+)?field\\s+dull[.!]?$"

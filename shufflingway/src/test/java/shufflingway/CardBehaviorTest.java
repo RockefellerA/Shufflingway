@@ -59094,4 +59094,174 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// 11-122H Mira and 16-107R Ezel: two searches whose filter is not in the text
+	//
+	// Both print a filter the sentence cannot supply, and both were unparsed because every search
+	// pattern in the file reads its filter off the printed words.
+	//
+	// Mira takes her *card type* from the event: whichever Category FFCC Character just left her
+	// field decides whether she fetches a Forward, a Backup or a Monster. That makes her the fourth
+	// of the trigger-card family and the mirror of 4-137L Mira, who takes a name from the same
+	// place and keeps her printed type. The two are the same character and the opposite parser.
+	//
+	// Ezel takes his *cost* from the payment record: the cards discarded from hand for CP to pay
+	// for him, added up. The engine already counted those discards for 26-073C Dyne, but a count is
+	// not a total — a discard is worth 2 CP whatever it cost, so Dyne's number and Ezel's move
+	// independently and are recorded separately.
+	// =========================================================================================
+
+	private static final String MIRA_11_122H_PRINTED =
+			"When a Category FFCC Character other than Mira you control is put from the field into "
+			+ "the Break Zone, you may search for 1 Category FFCC Character of the same card type "
+			+ "and add it to your hand. This effect will trigger only once per turn.";
+
+	private static final String MIRA_EFFECT =
+			"search for 1 Category FFCC Character of the same card type and add it to your hand";
+
+	@Test
+	void miraWatchesHerAlliesAndOnlyOncePerTurn() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(MIRA_11_122H_PRINTED);
+
+		assertEquals(1, autos.size());
+		assertEquals("put into break zone", autos.get(0).trigger());
+		assertTrue(autos.get(0).youMay(), "\"you may\" — the search is an offer");
+		assertTrue(autos.get(0).oncePerTurn(), "\"This effect will trigger only once per turn.\"");
+	}
+
+	@Test
+	void miraKeepsHerPrintedCategoryAndTakesOnlyTheTypeFromTheEvent() {
+		CardData mira = makeForwardWithText("Mira", "Water", 2, 5000, "");
+		GameContext ctx = mock(GameContext.class);
+
+		Consumer<GameContext> fn = ActionResolver.parse(MIRA_EFFECT, mira);
+		assertNotNull(fn, "the same-card-type search should parse");
+		fn.accept(ctx);
+
+		verify(ctx).searchDeckMatchingTriggeringBrokenCardType("FFCC", "hand", 1);
+	}
+
+	/**
+	 * Runs Mira's search on P2's side with {@code broken} standing as the card that left, and
+	 * reports P2's hand afterwards. P2 so the AI picks without a dialog this test cannot answer.
+	 */
+	private static List<CardData> miraSearchWith(CardData broken, CardData... deck) {
+		MainWindow mw = new MainWindow();
+		for (CardData c : deck) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().addLast(c);
+		}
+		mw.gameState.getP2Hand().clear();
+		mw.triggeringBrokenCard = broken;
+
+		ActionResolver.parse(MIRA_EFFECT, makeForwardWithText("Mira", "Water", 2, 5000, ""))
+				.accept(mw.buildGameContext(false));
+		return mw.gameState.getP2Hand();
+	}
+
+	@Test
+	void aBackupLeavingFetchesABackupAndNotTheForwardBesideIt() {
+		CardData deckFwd = makeCategoryForward("FFCC Forward", "Water", "FFCC");
+		CardData deckBkp = makeCategoryBackup("FFCC Backup", "Water", "FFCC");
+
+		List<CardData> hand = miraSearchWith(
+				makeCategoryBackup("Departed", "Water", "FFCC"), deckFwd, deckBkp);
+
+		assertEquals(List.of(deckBkp), hand, "the same card type as what left");
+	}
+
+	@Test
+	void aForwardLeavingFetchesAForward() {
+		CardData deckFwd = makeCategoryForward("FFCC Forward", "Water", "FFCC");
+		CardData deckBkp = makeCategoryBackup("FFCC Backup", "Water", "FFCC");
+
+		List<CardData> hand = miraSearchWith(
+				makeCategoryForward("Departed", "Water", "FFCC"), deckFwd, deckBkp);
+
+		assertEquals(List.of(deckFwd), hand, "the mirror of the case above");
+	}
+
+	@Test
+	void miraStillHonoursHerPrintedCategory() {
+		// The type is inherited; the Category is not. A Forward of the wrong Category is no match
+		// however well its type lines up.
+		CardData wrongCategory = makeCategoryForward("XIV Forward", "Water", "XIV");
+
+		assertTrue(miraSearchWith(makeCategoryForward("Departed", "Water", "FFCC"), wrongCategory)
+				.isEmpty(), "right card type, wrong Category");
+	}
+
+	@Test
+	void miraFindsNothingWhenNoDepartureIsResolving() {
+		// The filter comes from the event, so with no event there is no search to run — declined
+		// rather than widened to every card type.
+		assertTrue(miraSearchWith(null, makeCategoryForward("FFCC Forward", "Water", "FFCC"))
+				.isEmpty());
+	}
+
+	private static final String EZEL_16_107R =
+			"search for 1 Forward of the same cost as the total cost of discarded cards to cast "
+			+ "Ezel and add it to your hand.";
+
+	@Test
+	void ezelSearchesForAForwardCostingWhatHisDiscardsCost() {
+		CardData ezel = makeCategoryBackup("Ezel", "Water", "FFTA");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.totalCostOfCardsDiscardedToCast(ezel)).thenReturn(5);
+
+		Consumer<GameContext> fn = ActionResolver.parse(EZEL_16_107R, ezel);
+		assertNotNull(fn, "the cost is read at resolution, not parsed out of the text");
+		fn.accept(ctx);
+
+		// costCmp null is an exact cost: "the same cost" is not a ceiling.
+		verify(ctx).searchDeckForCard(true, false, false, false, 5, null, null, null, null, null,
+				null, null, "hand", 1, false, null);
+	}
+
+	@Test
+	void ezelSearchesForNothingWhenHeWasPaidForWithoutDiscarding() {
+		// A total of 0 names a cost no Forward in the corpus has, so there is nothing to look for
+		// and the picker is not opened over an empty pool.
+		CardData ezel = makeCategoryBackup("Ezel", "Water", "FFTA");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.totalCostOfCardsDiscardedToCast(ezel)).thenReturn(0);
+
+		ActionResolver.parse(EZEL_16_107R, ezel).accept(ctx);
+
+		verify(ctx, never()).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(),
+				anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
+				anyInt(), anyBoolean(), any());
+	}
+
+	@Test
+	void aDiscardCostSentenceNamingAnotherCardIsLeftUnread() {
+		// The payment record is per-card, so a sentence naming a different printing is asking about
+		// a cast this one did not make.
+		CardData ezel = makeCategoryBackup("Ezel", "Water", "FFTA");
+		assertNull(ActionResolver.parse(
+				"search for 1 Forward of the same cost as the total cost of discarded cards to "
+				+ "cast Shantotto and add it to your hand.", ezel));
+	}
+
+	@Test
+	void theDiscardTotalBelongsToTheCardThatWasPaidFor() {
+		// Identity, not name: nothing clears the payment record when a card reaches the field some
+		// other way, so a second copy must not inherit what paid for the first.
+		MainWindow mw = new MainWindow();
+		CardData ezel = makeCategoryBackup("Ezel", "Water", "FFTA");
+		CardData twin = makeCategoryBackup("Ezel", "Water", "FFTA");
+		assertEquals(ezel, twin, "the copies are equal, so only identity separates them");
+
+		mw.lastCastPaymentCard = ezel;
+		mw.lastCastPaymentDiscardTotalCost = 7;
+		GameContext ctx = mw.buildGameContext(true);
+
+		assertEquals(7, ctx.totalCostOfCardsDiscardedToCast(ezel));
+		assertEquals(0, ctx.totalCostOfCardsDiscardedToCast(twin),
+				"an Ezel that was not the one paid for is owed nothing");
+		assertEquals(0, ctx.totalCostOfCardsDiscardedToCast(null));
+	}
+
+	// =========================================================================================
+
 }

@@ -4571,6 +4571,11 @@ final class GameContextImpl implements GameContext {
 				return card != null && mw.lastCastPaymentCard == card
 						? mw.lastCastPaymentDiscardCount : 0;
 			}
+			@Override public int totalCostOfCardsDiscardedToCast(CardData card) {
+				// Identity on the payer, like its count sibling above.
+				return card != null && mw.lastCastPaymentCard == card
+						? mw.lastCastPaymentDiscardTotalCost : 0;
+			}
 			@Override public boolean castPaymentWasOnlyElement(CardData card, String element) {
 				// Identity on the payer, like castPaymentDistinctElementsFor: a card that reached
 				// the field without being paid for must not inherit the previous cast's payment.
@@ -6231,6 +6236,33 @@ final class GameContextImpl implements GameContext {
 				logEntry("Searching for a card named " + broken.name());
 				searchDeckForCard(inclForwards, inclBackups, inclMonsters, inclSummons,
 						-1, null, broken.name(), null, null, null, null, null,
+						destination, count, false, null);
+			}
+
+			@Override public void searchDeckMatchingTriggeringBrokenCardType(String categoryFilter,
+					String destination, int count) {
+				CardData broken = mw.triggeringBrokenCard;
+				if (broken == null) {
+					logEntry("No card was placed in the Break Zone by this trigger");
+					markEffectFizzled();
+					return;
+				}
+				// Only the type travels, so the card is not looked up in the Break Zone — the same
+				// reasoning the name sibling above states for itself.
+				String typeLabel = broken.isForward() ? "Forward"
+						: broken.isBackup()  ? "Backup"
+						: broken.isMonster() ? "Monster" : null;
+				if (typeLabel == null) {
+					// A Summon is not a Character, so there is no Character of "the same card type"
+					// for this sentence to fetch. Declined rather than widened to every type.
+					logEntry(broken.name() + " is not a Character — no card type to match");
+					markEffectFizzled();
+					return;
+				}
+				logEntry("Searching for a Category " + categoryFilter + " " + typeLabel
+						+ " (the same card type as " + broken.name() + ")");
+				searchDeckForCard(broken.isForward(), broken.isBackup(), broken.isMonster(), false,
+						-1, null, null, null, categoryFilter, null, null, null,
 						destination, count, false, null);
 			}
 

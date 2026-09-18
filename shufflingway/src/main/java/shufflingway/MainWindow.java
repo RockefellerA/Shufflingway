@@ -1515,6 +1515,16 @@ public class MainWindow {
 	 * discards that paid for something else.
 	 */
 	int lastCastPaymentDiscardCount = 0;
+	/**
+	 * What those discards <em>cost</em>, added up — 16-107R Ezel's "1 Forward of the same cost as
+	 * the total cost of discarded cards to cast Ezel".
+	 *
+	 * <p>Kept beside {@link #lastCastPaymentDiscardCount} rather than derived from it, because the
+	 * two are different questions: a discard is worth 2 CP whatever it cost, so Dyne's count and
+	 * Ezel's total move independently. Owner-checked through {@link #lastCastPaymentCard} at the
+	 * reading end, for the reason that field states.
+	 */
+	int lastCastPaymentDiscardTotalCost = 0;
 	/** True if the most recently cast card was paid entirely by dulling Backups (no hand discards). */
 	boolean lastCastWasPaidByBackupsOnly = false;
 	/**
@@ -3752,6 +3762,7 @@ public class MainWindow {
 		Arrays.fill(p1BackupFrozen, false);
 		lastCastPaymentDistinctElements = 0;
 		lastCastPaymentDiscardCount = 0;
+		lastCastPaymentDiscardTotalCost = 0;
 		lastCastPaymentElements.clear();
 		lastCastPaymentCard = null;
 		lastCastPaymentBackups.clear();
@@ -10895,6 +10906,10 @@ public class MainWindow {
 			String actualElem = d.elements()[0];
 			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
 		}
+		// Summed here because the removals below empty the very hand slots it reads — 16-107R Ezel
+		// asks what the cards discarded to cast him cost, and by then they are gone.
+		int discardCostTotal = 0;
+		for (int di : discardIndices) discardCostTotal += hand.get(di).cost();
 		List<Integer> discardRemovalOrder = new ArrayList<>(discardIndices);
 		discardRemovalOrder.sort(Collections.reverseOrder());
 		for (int di : discardRemovalOrder) {
@@ -10922,6 +10937,7 @@ public class MainWindow {
 		lastCastPaymentCard = card;
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
 		lastCastPaymentDiscardCount  = discardIndices.size();
+		lastCastPaymentDiscardTotalCost = discardCostTotal;
 		// 19-127L Relm's second option watches for "your next Summon of cost 4 or less cast from
 		// your hand". This is that cast: executePlay is the from-hand path, and the marker is
 		// consumed here so the *next* Summon after this one is not also caught.
@@ -11079,6 +11095,10 @@ public class MainWindow {
 			String actualElem = d.elements()[0];
 			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
 		}
+		// Summed here because the removals below empty the very hand slots it reads — 16-107R Ezel
+		// asks what the cards discarded to cast him cost, and by then they are gone.
+		int discardCostTotal = 0;
+		for (int di : discardIndices) discardCostTotal += gameState.getP1Hand().get(di).cost();
 		List<Integer> discardRemovalOrder = new ArrayList<>(discardIndices);
 		discardRemovalOrder.sort(Collections.reverseOrder());
 		for (int di : discardRemovalOrder) {
@@ -11098,6 +11118,7 @@ public class MainWindow {
 		lastCastPaymentCard = card;
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
 		lastCastPaymentDiscardCount  = discardIndices.size();
+		lastCastPaymentDiscardTotalCost = discardCostTotal;
 
 		// Remove the borrowed card from its source zone (by identity — duplicate-named copies may exist).
 		PlayableEntry borrowEntry = bzPlayableP1.get(card);
@@ -12094,6 +12115,10 @@ public class MainWindow {
 			String actualElem = d.elements()[0];
 			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
 		}
+		// Summed here because the removals below empty the very hand slots it reads — 16-107R Ezel
+		// asks what the cards discarded to cast him cost, and by then they are gone.
+		int discardCostTotal = 0;
+		for (int di : discardIndices) discardCostTotal += hand.get(di).cost();
 		List<Integer> discardRemovalOrder = new ArrayList<>(discardIndices);
 		discardRemovalOrder.sort(Collections.reverseOrder());
 		for (int di : discardRemovalOrder) {
@@ -12126,6 +12151,7 @@ public class MainWindow {
 		lastCastPaymentCard = card;
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
 		lastCastPaymentDiscardCount  = discardIndices.size();
+		lastCastPaymentDiscardTotalCost = discardCostTotal;
 
 		// Deliberately no armSummonRecastIfWatched: 19-127L Relm watches "your next Summon of cost
 		// 4 or less cast from your hand", and this is the LB deck. executePlayFromBzP1 leaves it

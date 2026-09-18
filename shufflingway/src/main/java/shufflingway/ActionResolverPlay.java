@@ -368,6 +368,25 @@ final class ActionResolverPlay {
         };
     }
     /**
+     * Parses "Search for 1 Category [C] Character of the same card type and add it to your hand" —
+     * Mira 11-122H. The fourth of the trigger-card parsers, and the mirror image of the one above:
+     * there the event supplies the name and the sentence keeps its printed type, here the event
+     * supplies the type and the sentence keeps its printed Category.
+     *
+     * <p>So a Backup leaving fetches a Backup of that Category, and a Forward a Forward — which is
+     * the whole of what "the same card type" adds over the sentence's own "Character".
+     */
+    static Consumer<GameContext> tryParseSearchSameCardTypeAsBrokenCard(String text) {
+        Matcher m = SEARCH_SAME_CARD_TYPE_AS_TRIGGERING_BROKEN_CARD.matcher(text.trim());
+        if (!m.matches()) return null;
+        final String category = m.group("category").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Search for a Category " + category
+                    + " Character of the same card type as the card put into the Break Zone");
+            ctx.searchDeckMatchingTriggeringBrokenCardType(category, "hand", 1);
+        };
+    }
+    /**
      * Parses "Play [name] onto [the] field [dull]" for break-zone-origin abilities where
      * the card name matches the source.  Does not require a "from Break Zone" qualifier —
      * BZ-origin abilities say "Play [itself] onto the field" knowing they start in the BZ.
