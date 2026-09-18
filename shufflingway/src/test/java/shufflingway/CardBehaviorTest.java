@@ -51824,6 +51824,122 @@ public class CardBehaviorTest {
 		assertFalse(mw.p1CastLimitReached(), "Characters are untouched — this bans one card type");
 	}
 
+	// =========================================================================================
+	// 5-075L Wol's fourth option: "All Forwards cannot be chosen by Summons' EX Bursts or
+	// Characters' EX Bursts this turn."
+	//
+	// An EX Burst belongs to a Summon or to a Character, so naming both is the card spelling out
+	// "every EX Burst" — which is why this is one blanket rather than two shields combined.
+	//
+	// And why it is its own flag rather than a seed for the Summon and ability shields beside it:
+	// those stop a Summon or an ability outright, and Wol stops neither. An ordinarily cast Summon
+	// still chooses whatever it likes; only the EX Burst route is closed. 21-061H Ursula's narrower
+	// "the Forwards you control cannot be chosen by EX Bursts" goes through the older shield and is
+	// left alone here.
+	//
+	// Held as a flag rather than as the Forwards standing when it resolved, because the sentence is
+	// about Forwards and not about that particular set of them.
+	// =========================================================================================
+
+	private static final String WOL_5_075L_EX_BURST_BAN =
+			"All Forwards cannot be chosen by Summons' EX Bursts or Characters' EX Bursts this turn.";
+
+	/**
+	 * Resolves "Choose 1 Forward. Deal it 1000 damage." from P2's seat and reports whether it found
+	 * anything to hit — the shield's effect read through an actual choose.
+	 *
+	 * <p>P2's seat because a choose from P1's opens a picker no test can answer, and damage because
+	 * the selection's own return value says what the AI took rather than what it was allowed to
+	 * take. Nothing damaged means nothing was choosable.
+	 *
+	 * <p>1000, which every Forward here survives: lethal damage would put the target in the Break
+	 * Zone, and the evidence would leave the field along with it.
+	 */
+	private static boolean aChooseFindsAForward(MainWindow mw, boolean asExBurst) {
+		for (int i = 0; i < mw.p1ForwardDamage.size(); i++) mw.p1ForwardDamage.set(i, 0);
+		for (int i = 0; i < mw.p2ForwardDamage.size(); i++) mw.p2ForwardDamage.set(i, 0);
+		ActionResolver.parse("Choose 1 Forward. Deal it 1000 damage.", null)
+				.accept(mw.buildGameContext(false, asExBurst));
+		return mw.p1ForwardDamage.stream().anyMatch(d -> d > 0)
+				|| mw.p2ForwardDamage.stream().anyMatch(d -> d > 0);
+	}
+
+	@Test
+	void wolNamesAllFourOfHisOptions() {
+		assertEquals("SelectFollowingActions(up to 2 of 4: ChooseCharacter / KeywordGrant "
+				+ "| ChooseCharacter / PowerBoost | ChooseCharacter / Damage "
+				+ "| AllForwardsCannotBeChosenByExBursts)",
+				ActionResolver.fullDescription(
+						"select up to 2 of the 4 following actions. "
+						+ "\"Choose 1 Forward. It gains Brave until the end of the turn.\" "
+						+ "\"Choose 1 Forward. It gains +2000 power until the end of the turn.\" "
+						+ "\"Choose 1 dull Forward. Deal it 3000 damage.\" "
+						+ "\"" + WOL_5_075L_EX_BURST_BAN + "\"", null));
+	}
+
+	@Test
+	void anExBurstCanChooseNoForwardOnEitherFieldAfterWolResolves() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Mine", "Earth", 3, 7000));
+		placeP2Forward(mw, makeForward("Theirs", "Fire", 3, 7000));
+		assertTrue(aChooseFindsAForward(mw, true), "an EX Burst finds a Forward to begin with");
+
+		resolveAsP2(mw, WOL_5_075L_EX_BURST_BAN, makeForward("Wol", "Earth", 4, 8000));
+
+		assertFalse(aChooseFindsAForward(mw, true),
+				"no Forward on either field is left for an EX Burst to choose");
+	}
+
+	@Test
+	void anOrdinaryCastStillChoosesFreely() {
+		// The whole reason this is not the Summon shield: Wol closes the EX Burst route and no
+		// other. A Summon cast from hand is untouched.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Mine", "Earth", 3, 7000));
+		placeP2Forward(mw, makeForward("Theirs", "Fire", 3, 7000));
+
+		resolveAsP2(mw, WOL_5_075L_EX_BURST_BAN, makeForward("Wol", "Earth", 4, 8000));
+
+		assertTrue(aChooseFindsAForward(mw, false),
+				"a choose that is not an EX Burst resolves as it always did");
+	}
+
+	@Test
+	void aForwardArrivingAfterwardsIsCoveredToo() {
+		// A snapshot of the Forwards standing at resolution would let the next one through.
+		MainWindow mw = new MainWindow();
+		resolveAsP2(mw, WOL_5_075L_EX_BURST_BAN, makeForward("Wol", "Earth", 4, 8000));
+
+		placeP1Forward(mw, makeForward("Latecomer", "Earth", 3, 7000));
+
+		assertFalse(aChooseFindsAForward(mw, true));
+	}
+
+	@Test
+	void theBanLastsExactlyAsLongAsTheFlagDoes() {
+		// The sweep itself runs inside onNextPhase, which a test cannot drive headlessly, so what
+		// is pinned here is that nothing else holds the ban up: clear the flag and every Forward is
+		// choosable again. The flag is cleared beside cannotBeChosenBySummons and its siblings, in
+		// both of the places those are cleared.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Mine", "Earth", 3, 7000));
+		resolveAsP2(mw, WOL_5_075L_EX_BURST_BAN, makeForward("Wol", "Earth", 4, 8000));
+		assertTrue(mw.forwardsCannotBeChosenByExBurstThisTurn);
+		assertFalse(aChooseFindsAForward(mw, true));
+
+		mw.forwardsCannotBeChosenByExBurstThisTurn = false;
+
+		assertTrue(aChooseFindsAForward(mw, true), "\"this turn\" means this turn");
+	}
+
+	@Test
+	void bothHalvesOfTheWordingAreRequired() {
+		// A printing naming only one kind of EX Burst would be a narrower card, and reading it here
+		// would silently make it the wider one.
+		assertNull(ActionResolver.parse(
+				"All Forwards cannot be chosen by Summons' EX Bursts this turn.", null));
+	}
+
 	@Test
 	void everyCastRouteAsksTheSameQuestion() {
 		// The Playable Cards dialog (Break Zone and removed-from-game borrowed casts) used to

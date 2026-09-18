@@ -9464,6 +9464,22 @@ final class ActionResolverPatterns {
         "(?i)During\\s+this\\s+turn,?\\s+the\\s+Forwards?\\s+you\\s+control\\s+cannot\\s+be\\s+chosen\\s+by\\s+EX\\s+Bursts?[.!]?"
     );
     /**
+     * "All Forwards cannot be chosen by Summons' EX Bursts or Characters' EX Bursts this turn."
+     * — 5-075L Wol's fourth option.
+     *
+     * <p>The two halves are every EX Burst there is, since an EX Burst belongs to a Summon or to a
+     * Character, so the pair is read as one blanket rather than as two shields to combine. Both are
+     * required all the same: a future printing naming only one of them would be a narrower card,
+     * and matching it here would make it the wider one.
+     *
+     * <p>Unlike {@link #OWN_FORWARDS_CANNOT_BE_CHOSEN_BY_EX_BURST} beside it, this names no
+     * controller on either side — every Forward is covered, against either player's EX Bursts.
+     */
+    static final Pattern ALL_FORWARDS_CANNOT_BE_CHOSEN_BY_EX_BURSTS = Pattern.compile(
+        "(?i)^All\\s+(?:the\\s+)?Forwards?\\s+cannot\\s+be\\s+chosen\\s+by\\s+" +
+        "Summons'?\\s+EX\\s+Bursts?\\s+or\\s+Characters'?\\s+EX\\s+Bursts?\\s+this\\s+turn[.!]?$"
+    );
+    /**
      * Matches "EX Bursts of cards put into the Damage Zone due to this &lt;ability|damage&gt;
      * cannot be used."
      *

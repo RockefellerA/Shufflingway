@@ -22,6 +22,10 @@ final class ActionResolverRestriction {
         if (!OWN_FORWARDS_CANNOT_BE_CHOSEN_BY_EX_BURST.matcher(text.trim()).matches()) return null;
         return ctx -> ctx.shieldAllOwnForwardsCannotBeChosen(true, false);
     }
+    static Consumer<GameContext> tryParseAllForwardsCannotBeChosenByExBursts(String text) {
+        if (!ALL_FORWARDS_CANNOT_BE_CHOSEN_BY_EX_BURSTS.matcher(text.trim()).matches()) return null;
+        return ctx -> ctx.shieldAllForwardsCannotBeChosenByExBurst();
+    }
     static Consumer<GameContext> tryParseExBurstSuppression(String text) {
         if (!EX_BURST_SUPPRESSION_PATTERN.matcher(text.trim()).matches()) return null;
         return ctx -> {

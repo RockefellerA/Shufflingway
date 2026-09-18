@@ -1625,6 +1625,20 @@ public interface GameContext {
     void shieldAllOwnForwardsCannotBeChosen(boolean bySummons, boolean byAbilities);
 
     /**
+     * "All Forwards cannot be chosen by Summons' EX Bursts or Characters' EX Bursts this turn"
+     * — 5-075L Wol's fourth option. No Forward on either field may be chosen by any EX Burst for
+     * the rest of the turn, whoever controls it and whoever the EX Burst belongs to.
+     *
+     * <p>Only EX Bursts. An ordinarily cast Summon and an activated ability still choose whatever
+     * they like; naming both kinds of EX Burst is the card spelling out "every EX Burst", not a
+     * blanket immunity to Summons and abilities.
+     *
+     * <p>Covers Forwards that arrive after it resolves, since the sentence is about Forwards rather
+     * than about the ones that happened to be standing there.
+     */
+    void shieldAllForwardsCannotBeChosenByExBurst();
+
+    /**
      * Finds the named card on the active player's field and applies "cannot be chosen" protection.
      */
     void shieldNamedCardCannotBeChosen(String name, boolean bySummons, boolean byAbilities);

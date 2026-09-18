@@ -489,6 +489,9 @@ public class ActionResolver {
         result = tryParseNoForwardCostCannotAttack(effectText);
         if (result != null) return result;
 
+        result = tryParseAllForwardsCannotBeChosenByExBursts(effectText);
+        if (result != null) return result;
+
         result = tryParseOwnForwardsCannotBeChosenByExBurst(effectText);
         if (result != null) return result;
 
@@ -2170,6 +2173,7 @@ public class ActionResolver {
         if (tryParseDealDamageToForwards(effectText)                    != null) return "DealDamageToForwards";
         if (tryParseDivideDamageEquallyAmongAll(effectText)             != null) return "DivideDamageEquallyAmongAll";
         if (tryParseNoForwardCostCannotAttack(effectText)               != null) return "NoForwardCostCannotAttack";
+        if (tryParseAllForwardsCannotBeChosenByExBursts(effectText)     != null) return "AllForwardsCannotBeChosenByExBursts";
         if (tryParseOwnForwardsCannotBeChosenByExBurst(effectText)      != null) return "OwnForwardsCannotBeChosenByExBurst";
         if (tryParseExBurstSuppression(effectText)                      != null) return "ExBurstSuppression";
         if (tryParseDealHalfPowerDamageToForwards(effectText)           != null) return "DealHalfPowerDamageToForwards";
@@ -3493,6 +3497,7 @@ public class ActionResolver {
         if (tryParseDealDamageToForwards(effectText)                       != null) return "DealDamageToForwards";
         if (tryParseDivideDamageEquallyAmongAll(effectText)                != null) return "DivideDamageEquallyAmongAll";
         if (tryParseNoForwardCostCannotAttack(effectText)           != null) return "NoForwardCostCannotAttack";
+        if (tryParseAllForwardsCannotBeChosenByExBursts(effectText) != null) return "AllForwardsCannotBeChosenByExBursts";
         if (tryParseOwnForwardsCannotBeChosenByExBurst(effectText)  != null) return "OwnForwardsCannotBeChosenByExBurst";
         if (tryParseExBurstSuppression(effectText)                  != null) return "ExBurstSuppression";
         if (tryParseDealHalfPowerDamageToForwards(effectText)       != null) return "DealHalfPowerDamageToForwards";

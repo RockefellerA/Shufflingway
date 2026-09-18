@@ -898,6 +898,11 @@ final class GameContextImpl implements GameContext {
 						(bySummons && byAbilities ? " Summons or abilities" : bySummons ? " Summons" : " abilities"));
 			}
 
+			@Override public void shieldAllForwardsCannotBeChosenByExBurst() {
+				mw.forwardsCannotBeChosenByExBurstThisTurn = true;
+				logEntry("Effect: no Forward can be chosen by an EX Burst this turn");
+			}
+
 			@Override public void shieldCannotBeChosenUntilYourNextTurn(
 					ForwardTarget t, boolean bySummons, boolean byAbilities) {
 				CardData card = mw.autoAbilityTriggers.fieldCardData(t);
@@ -1208,6 +1213,17 @@ final class GameContextImpl implements GameContext {
 							if (mw.icbGrantsImmunity(c.name(), p1side, true,  true,  resCard)) sumOpp.add(c);
 							if (mw.icbGrantsImmunity(c.name(), p1side, false, true,  resCard)) ablOpp.add(c);
 						}
+					}
+					// 5-075L Wol: for the rest of the turn no Forward can be chosen by an EX Burst.
+					// Seeded into both symmetric sets because an EX Burst resolves as its card does
+					// — a Summon's through the Summon set, a Character's through the ability one —
+					// and Wol's sentence names both. Read off the resolution's own exBurst flag, so
+					// an ordinary cast of either passes through untouched.
+					if (mw.forwardsCannotBeChosenByExBurstThisTurn && exBurst) {
+						sumTmp.addAll(mw.p1ForwardCards);
+						sumTmp.addAll(mw.p2ForwardCards);
+						ablTmp.addAll(mw.p1ForwardCards);
+						ablTmp.addAll(mw.p2ForwardCards);
 					}
 					summonImmuneAnyone   = sumTmp;
 					abilityImmuneAnyone  = ablTmp;

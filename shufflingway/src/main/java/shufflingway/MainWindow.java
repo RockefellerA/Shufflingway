@@ -1201,6 +1201,21 @@ public class MainWindow {
 	 */
 	final Set<CardData> cannotBeChosenByAbilitiesAnyone = new HashSet<>();
 	/**
+	 * "All Forwards cannot be chosen by Summons' EX Bursts or Characters' EX Bursts this turn"
+	 * — 5-075L Wol's fourth option. Held as a flag rather than as a set of the Forwards standing
+	 * when it resolved, because the sentence names no particular Forwards: one that arrives later
+	 * in the turn is covered too.
+	 *
+	 * <p>Both halves of the wording together are every EX Burst there is — an EX Burst belongs to a
+	 * Summon or to a Character — so nothing consults which of the two is resolving. What it does not
+	 * cover is an ordinary cast of either: a Summon chosen from hand still chooses freely, which is
+	 * why this is its own flag rather than a seed for the Summon and ability shields beside it.
+	 *
+	 * <p>Symmetric, like Balthier's shield above and for the same reason: the sentence names no
+	 * player, so neither player's EX Bursts may choose a Forward.
+	 */
+	boolean forwardsCannotBeChosenByExBurstThisTurn = false;
+	/**
 	 * Forwards shielded from the opponent's Summons / abilities until the beginning of their
 	 * controller's next turn -- 14-126C Aerith's second option, the only printing of that duration
 	 * in quoted-grant form.
@@ -2366,6 +2381,7 @@ public class MainWindow {
 		cannotBeChosenByAbilitiesUntilNextTurn.clear();
 		cannotBeChosenBySummonsAnyone.clear();
 		cannotBeChosenByAbilitiesAnyone.clear();
+		forwardsCannotBeChosenByExBurstThisTurn = false;
 		cannotBeChosenByElement.clear();
 		p1TempAttackTriggers.clear();
 		p2TempAttackTriggers.clear();
@@ -3613,7 +3629,7 @@ public class MainWindow {
                                 perCardIncomingDmgMultiplierMap.clear();
                                 p1Turn.forwardIncomingDmgMult = 1;      p2Turn.forwardIncomingDmgMult = 1;
                                 p1Turn.abilityOutgoingDmgMult = 1;      p2Turn.abilityOutgoingDmgMult = 1;
-                                cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByAbilitiesAnyone.clear();  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();  nullifyElementDamageAbilityOnlyMap.clear();  rfgInsteadOfBzThisTurn.clear();  effectOnFieldToBzThisTurn.clear();  putIntoBzWhenLeavesFieldThisTurn.clear();  damageZeroedSourcesThisTurn.clear();  damagedBySourcesThisTurn.clear();
+                                cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByAbilitiesAnyone.clear();  forwardsCannotBeChosenByExBurstThisTurn = false;  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();  nullifyElementDamageAbilityOnlyMap.clear();  rfgInsteadOfBzThisTurn.clear();  effectOnFieldToBzThisTurn.clear();  putIntoBzWhenLeavesFieldThisTurn.clear();  damageZeroedSourcesThisTurn.clear();  damagedBySourcesThisTurn.clear();
                                 breaktouchBattleSet.clear();   breakWhenDealtDamageSet.clear();
                                 p1Turn.nonLethalProtection = false;    p2Turn.nonLethalProtection = false;
                                 p1Turn.dmgReductionDisabled = false;   p2Turn.dmgReductionDisabled = false;
