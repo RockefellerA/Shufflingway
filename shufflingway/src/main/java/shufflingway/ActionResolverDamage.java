@@ -684,7 +684,8 @@ final class ActionResolverDamage {
     static Consumer<GameContext> tryParseDealPlayerDamageToOpponent(String text) {
         Matcher m = DEAL_PLAYER_DAMAGE_TO_OPPONENT.matcher(text);
         if (!m.matches()) return null;
-        int amount = Integer.parseInt(m.group("amount"));
+        // Whichever word order the printing used put the number in a different group.
+        int amount = Integer.parseInt(m.group("amount") != null ? m.group("amount") : m.group("amountTo"));
         return ctx -> {
             ctx.logEntry("Effect: Deal " + amount + " damage to opponent");
             ctx.dealDamageToOpponent(amount);

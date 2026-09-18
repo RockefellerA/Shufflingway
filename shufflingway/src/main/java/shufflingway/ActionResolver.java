@@ -790,6 +790,11 @@ public class ActionResolver {
         result = tryParseCancelTriggeringSummon(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseIfOppNotPayAction, which matches the same opening with find():
+        // this payoff lands on the printing card, not on a preloaded target.
+        result = tryParseIfOppNotPaySourceCannotBeBroken(effectText, source);
+        if (result != null) return result;
+
         result = tryParseIfOppNotPayAction(effectText);
         if (result != null) return result;
 
@@ -2283,6 +2288,8 @@ public class ActionResolver {
         if (tryParseTriggeredTargetAction(effectText, 0)      != null) return "TriggeredTargetAction";
         if (tryParseCancelChosenTargetBare(effectText)         != null) return "CancelChosenTargetBare";
         if (tryParseCancelTriggeringSummon(effectText)         != null) return "CancelTriggeringSummon";
+        // Mirrors parse(): ahead of the target-action sibling, whose opening this text shares.
+        if (tryParseIfOppNotPaySourceCannotBeBroken(effectText, source) != null) return "IfOppNotPaySourceCannotBeBroken";
         if (tryParseIfOppNotPayAction(effectText)             != null) return "IfOppNotPayAction";
         // Mirrors parse(): checked alongside its sentence-sharing sibling below.
         if (tryParseRevealTopToHandIfTypeElseTopOrBottom(effectText) != null) return "RevealTopToHandIfTypeElseTopOrBottom";
@@ -4034,6 +4041,8 @@ public class ActionResolver {
         if (tryParseTriggeredTargetAction(effectText, 0)      != null) return "TriggeredTargetAction";
         if (tryParseCancelChosenTargetBare(effectText)         != null) return "CancelChosenTargetBare";
         if (tryParseCancelTriggeringSummon(effectText)         != null) return "CancelTriggeringSummon";
+        // Mirrors parse(): ahead of the target-action sibling, whose opening this text shares.
+        if (tryParseIfOppNotPaySourceCannotBeBroken(effectText, source) != null) return "IfOppNotPaySourceCannotBeBroken";
         if (tryParseIfOppNotPayAction(effectText)             != null) return "IfOppNotPayAction";
         // Mirrors parse(): checked alongside its sentence-sharing sibling below.
         if (tryParseRevealTopToHandIfTypeElseTopOrBottom(effectText) != null) return "RevealTopToHandIfTypeElseTopOrBottom";

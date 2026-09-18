@@ -58673,4 +58673,274 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// 4-024R Llednar: "if your opponent doesn't pay 《2》, Llednar cannot be broken this turn."
+	//
+	// Two gaps, one card, and they sat on opposite sides of the resolver.
+	//
+	// The effect: an "if your opponent doesn't pay 《N》" whose payoff lands on the printing card
+	// rather than on a target. The family's existing parser sends its payoff through
+	// parseTargetAction against the targets the trigger preloaded, and this sentence has neither —
+	// Llednar's trigger is his own combat. Both halves it needs were already here
+	// (opponentMayPayToPreventAction, shieldSourceForward); only the sentence joining them was not.
+	//
+	// The trigger: his second printing of the same ability was being dropped before the resolver
+	// ever saw it. AUTO_ABILITY_PATTERN knew "chosen by your opponent's Summon or ability" and not
+	// the other word order, "chosen by a Summon or an ability of your opponent" — so the sentence
+	// produced no ability at all. Six printings write it that way, and four of them (Kuja 1-037H,
+	// Ashe 2-121H, Porom 2-136R and Llednar) had no auto-abilities whatsoever as a result.
+	// =========================================================================================
+
+	private static final String LLEDNAR_4_024R_PRINTED =
+			"When Llednar blocks or is blocked, if your opponent doesn't pay 《2》, Llednar "
+			+ "cannot be broken this turn.[[br]] When Llednar is chosen by a Summon or an ability "
+			+ "of your opponent, if your opponent doesn't pay 《2》, Llednar cannot be "
+			+ "broken this turn.";
+
+	private static final String LLEDNAR_EFFECT =
+			"if your opponent doesn't pay 《2》, Llednar cannot be broken this turn.";
+
+	/**
+	 * Runs Llednar's payoff with the opponent either declining to pay or paying, and hands the
+	 * context back. {@code declines} false leaves the prevent-action Runnable uncalled, which is
+	 * what a payment in full means to this primitive.
+	 */
+	private static GameContext runLlednar(CardData llednar, boolean declines) {
+		GameContext ctx = mock(GameContext.class);
+		if (declines)
+			doAnswer(inv -> { ((Runnable) inv.getArgument(1)).run(); return null; })
+					.when(ctx).opponentMayPayToPreventAction(eq(2), any());
+		Consumer<GameContext> fn = ActionResolver.parse(LLEDNAR_EFFECT, llednar);
+		assertNotNull(fn, "Llednar's payoff should parse");
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void llednarShieldsHimselfWhenTheOpponentWillNotPayTheTwo() {
+		CardData llednar = makeForwardWithText("Llednar", "Fire", 2, 7000, "");
+		GameContext ctx = runLlednar(llednar, true);
+
+		verify(ctx).opponentMayPayToPreventAction(eq(2), any());
+		verify(ctx).shieldSourceForward(llednar);
+	}
+
+	@Test
+	void llednarGoesUnshieldedWhenTheOpponentPays() {
+		// Paying in full is what buys the prevention, so the offer is made and nothing follows it.
+		CardData llednar = makeForwardWithText("Llednar", "Fire", 2, 7000, "");
+		GameContext ctx = runLlednar(llednar, false);
+
+		verify(ctx).opponentMayPayToPreventAction(eq(2), any());
+		verify(ctx, never()).shieldSourceForward(any());
+	}
+
+	@Test
+	void aShieldSentenceNamingSomeOtherCardIsLeftUnread() {
+		// The guard every self-naming clause in this engine carries: the shield lands on the
+		// printing card, so a sentence naming a different one is not this ability and is declined
+		// rather than shielding whatever Forward happens to be resolving.
+		CardData llednar = makeForwardWithText("Llednar", "Fire", 2, 7000, "");
+		assertNull(ActionResolver.parse(
+				"if your opponent doesn't pay 《2》, Shantotto cannot be broken this turn.",
+				llednar));
+		assertNull(ActionResolver.parse(LLEDNAR_EFFECT, null),
+				"and with no source there is nothing to check the name against");
+	}
+
+	@Test
+	void llednarCarriesBothOfHisTriggersAndTheSamePayoffOnEach() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(LLEDNAR_4_024R_PRINTED);
+
+		assertEquals(2, autos.size(), "the second sentence used to produce no ability at all");
+		assertEquals(List.of("blocks or is blocked", "chosen by opponent's summon or ability"),
+				autos.stream().map(AutoAbility::trigger).toList());
+		for (AutoAbility fa : autos) {
+			assertEquals("Llednar", fa.triggerCard());
+			assertNotNull(ActionResolver.parse(fa.effectText(),
+					makeForwardWithText("Llednar", "Fire", 2, 7000, "")),
+					"both triggers share one payoff, and it reads the same on each");
+		}
+	}
+
+	@Test
+	void theSummonOnlySpellingDoesNotWidenToAbilities() {
+		// 3-088L Delita and 26-066L Vincent name a Summon and nothing else. Reading their trigger
+		// as the Summon-or-ability one would fire them on targeting they do not watch.
+		List<AutoAbility> autos = CardData.parseAutoAbilities(
+				"When Delita is chosen by a Summon of your opponent, deal 1 point of damage to "
+				+ "your opponent.");
+
+		assertEquals(1, autos.size());
+		assertEquals("chosen by opponent's summon", autos.get(0).trigger());
+	}
+
+	@Test
+	void thePossessiveSpellingOfTheSameTriggerStillReadsAsItDid() {
+		// The arm added for the "of your opponent" word order must not have disturbed the one the
+		// rest of the corpus writes.
+		List<AutoAbility> autos = CardData.parseAutoAbilities(
+				"When Emet-Selch is chosen by your opponent's Summon or ability, draw 1 card.");
+
+		assertEquals(1, autos.size());
+		assertEquals("chosen by opponent's summon or ability", autos.get(0).trigger());
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// 2-136R Porom and 3-088L Delita: the two chosen-by watchers left over from Llednar's trigger
+	//
+	// Both had their trigger read for the first time by the "of your opponent" arm added for
+	// Llednar, and both then sat with an effect the resolver could not run. They failed for
+	// opposite reasons, and neither was really an effect-parsing gap.
+	//
+	// Porom's "you may return it to its owner's hand" is a pronoun with no antecedent in its own
+	// sentence: "it" is whatever the opponent chose. Her subject is a disjunction — herself *or*
+	// the Palom beside her — so the chosen card is not always the watcher, which is what the
+	// chosen-by dispatch used to assume. It now says which chosen card satisfied the subject and
+	// preloads that one, the way the enters-field and becomes-dull watchers already did. She is
+	// also the first optional ability to take that inline path, so the offer had to be made there
+	// or a "you may" would have been compulsory.
+	//
+	// Delita's first ability is the only printing whose chosen-by trigger names the card doing the
+	// choosing rather than the kind of effect, because his payoff is "break that Character". Read
+	// as the plain ability watcher it would have had nothing to break, so it is a trigger of its
+	// own whose dispatch carries the acting card — the same shape 5-130R Tonberry's identical
+	// payoff already used for searches. His second ability was a plain wording gap: the engine knew
+	// "deal your opponent 1 point of damage" and not the same sentence with the recipient last.
+	// =========================================================================================
+
+	private static final String POROM_2_136R =
+			"When Porom or the Card Name Palom you control is chosen by a Summon or an ability of "
+			+ "your opponent, you may return it to its owner's hand.";
+
+	private static final String DELITA_3_088L =
+			"When Delita is chosen by an ability of a Character your opponent controls, break that "
+			+ "Character.[[br]] When Delita is chosen by a Summon of your opponent, deal 1 point of "
+			+ "damage to your opponent.";
+
+	@Test
+	void poromWatchesHerselfAndPalomAndTheReturnIsOptional() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(POROM_2_136R);
+
+		assertEquals(1, autos.size());
+		assertEquals("chosen by opponent's summon or ability", autos.get(0).trigger());
+		assertTrue(autos.get(0).youMay(), "\"you may\" — declining is a legal answer");
+		assertEquals("return it to its owner's hand.", autos.get(0).effectText());
+	}
+
+	@Test
+	void poromBouncesTheCardThatWasChosenAndNotHerself() {
+		// The point of the whole change: her subject is a disjunction, so "it" is Palom when Palom
+		// is the one targeted. Run on P2's side, where the AI seat takes the optional effect without
+		// a dialog this test cannot answer.
+		MainWindow mw = new MainWindow();
+		CardData porom = makeAutoAbilityForward("Porom", "Water", 5000, POROM_2_136R);
+		CardData palom = makeForward("Palom", "Water", 1, 5000);
+		placeP2Forward(mw, porom);
+		placeP2Forward(mw, palom);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummonOrAbility(
+				false, List.of(palom));
+
+		assertFalse(mw.p2ForwardCards.contains(palom), "Palom was the chosen card, so Palom bounces");
+		assertTrue(mw.p2ForwardCards.contains(porom), "Porom stays — she is not what was chosen");
+	}
+
+	@Test
+	void poromBouncesHerselfWhenSheIsTheOneChosen() {
+		MainWindow mw = new MainWindow();
+		CardData porom = makeAutoAbilityForward("Porom", "Water", 5000, POROM_2_136R);
+		CardData palom = makeForward("Palom", "Water", 1, 5000);
+		placeP2Forward(mw, porom);
+		placeP2Forward(mw, palom);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummonOrAbility(
+				false, List.of(porom));
+
+		assertFalse(mw.p2ForwardCards.contains(porom));
+		assertTrue(mw.p2ForwardCards.contains(palom));
+	}
+
+	@Test
+	void theBareReturnToHandNeverClaimsAChooseSentence() {
+		// The arm admitting Porom's sentence is the Choose family's own followup wording, so the
+		// anchors are what keep 92 other printings out of it. Asserted rather than assumed.
+		assertTrue(ActionResolver.isTriggeredTargetAction("return it to its owner's hand."));
+		assertFalse(ActionResolver.isTriggeredTargetAction(
+				"choose 1 Forward. Return it to its owner's hand."),
+				"a choose names its own target and must keep reaching the choose chain");
+		assertEquals("ChooseCharacter", ActionResolver.matchedPatternName(
+				"choose 1 Forward opponent controls. Return it to its owner's hand.", null));
+	}
+
+	@Test
+	void delitaCarriesBothTriggersAndTheNarrowOneIsNotThePlainAbilityWatcher() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(DELITA_3_088L);
+
+		assertEquals(2, autos.size(), "both sentences used to produce nothing at all");
+		assertEquals(List.of("chosen by opponent's character ability", "chosen by opponent's summon"),
+				autos.stream().map(AutoAbility::trigger).toList(),
+				"the first names the card choosing, the second only the kind of effect");
+	}
+
+	@Test
+	void delitaBreaksTheCharacterWhoseAbilityChoseHim() {
+		MainWindow mw = new MainWindow();
+		CardData delita = makeAutoAbilityForward("Delita", "Earth", 8000, DELITA_3_088L);
+		CardData actor  = makeForward("Meddler", "Fire", 3, 7000);
+		placeP1Forward(mw, delita);
+		placeP2Forward(mw, actor);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentCharacterAbility(
+				true, List.of(delita), actor, false);
+
+		assertFalse(mw.p2ForwardCards.contains(actor), "\"that Character\" is the one that chose him");
+		assertTrue(mw.p1ForwardCards.contains(delita), "and Delita is untouched");
+	}
+
+	@Test
+	void delitaBreaksNothingWhenTheChooserIsNotOnTheField() {
+		// "a Character your opponent controls" — an ability resolving from hand, from the Break
+		// Zone or off a Summon leaves no Character on the board, and the trigger declines rather
+		// than reaching for something else.
+		MainWindow mw = new MainWindow();
+		CardData delita  = makeAutoAbilityForward("Delita", "Earth", 8000, DELITA_3_088L);
+		CardData bystander = makeForward("Bystander", "Fire", 3, 7000);
+		placeP1Forward(mw, delita);
+		placeP2Forward(mw, bystander);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentCharacterAbility(
+				true, List.of(delita), makeForward("Off-board", "Fire", 2, 5000), false);
+
+		assertTrue(mw.p2ForwardCards.contains(bystander), "nothing on the board is broken");
+	}
+
+	@Test
+	void delitaPingsTheOpponentWhenASummonChoosesHim() {
+		CardData delita = makeAutoAbilityForward("Delita", "Earth", 8000, DELITA_3_088L);
+		GameContext ctx = mock(GameContext.class);
+
+		Consumer<GameContext> fn = ActionResolver.parse("deal 1 point of damage to your opponent.", delita);
+		assertNotNull(fn, "the recipient-last word order is Delita's alone in the corpus");
+		fn.accept(ctx);
+
+		verify(ctx).dealDamageToOpponent(1);
+	}
+
+	@Test
+	void bothWordOrdersOfThePlayerDamageSentenceReadTheSameAmount() {
+		GameContext first  = mock(GameContext.class);
+		GameContext second = mock(GameContext.class);
+
+		ActionResolver.parse("Deal your opponent 2 points of damage.", null).accept(first);
+		ActionResolver.parse("Deal 2 points of damage to your opponent.", null).accept(second);
+
+		verify(first).dealDamageToOpponent(2);
+		verify(second).dealDamageToOpponent(2);
+	}
+
+	// =========================================================================================
+
 }

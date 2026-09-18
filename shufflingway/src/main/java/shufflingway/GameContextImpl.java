@@ -1783,6 +1783,13 @@ final class GameContextImpl implements GameContext {
 				if (!mw.currentResolutionIsSummon && !oppCharactersChosen.isEmpty())
 					mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentAbility(
 							!isP1, oppCharactersChosen);
+				// 3-088L Delita's narrower twin of the line above: his trigger names the Character
+				// doing the choosing, because his effect breaks it. The card is this resolution's
+				// ability source, which is only meaningful while an ability — not a Summon — is
+				// what is resolving, hence the same guard.
+				if (!mw.currentResolutionIsSummon && !oppCharactersChosen.isEmpty())
+					mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentCharacterAbility(
+							!isP1, oppCharactersChosen, mw.currentAbilitySource, isP1);
 				if (!oppCharactersChosen.isEmpty()) {
 					mw.lastChosenSelectionCancelled = false;
 					mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummonOrAbility(

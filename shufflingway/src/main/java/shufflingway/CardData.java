@@ -3044,6 +3044,28 @@ public record CardData(
             // texts this reads do not have; a Summon is not an ability, so the two are disjoint
             // and normalise to different triggers.
             "|(?:is|are)\\s+chosen\\s+by\\s+your\\s+opponent's\\s+abilit(?:y|ies)" +
+            // "is chosen by an ability of a Character your opponent controls" — 3-088L Delita, the
+            // only printing, and the only chosen-by trigger that names the card doing the choosing
+            // rather than only the kind of effect. His payoff is "break that Character", so the
+            // acting card is carried to the effect as a preloaded target; see
+            // AutoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentCharacterAbility.
+            "|(?:is|are)\\s+chosen\\s+by\\s+an\\s+abilit(?:y|ies)\\s+of\\s+a\\s+Character\\s+" +
+                "(?:your\\s+)?opponent\\s+controls" +
+            // The same two events written the other way round — "chosen by a Summon or an ability
+            // of your opponent" rather than "by your opponent's Summon or ability". Six printings
+            // use it: 1-037H Kuja, 2-121H Ashe, 2-136R Porom and 4-024R Llednar name both, while
+            // 3-088L Delita and 26-066L Vincent name the Summon alone.
+            //
+            // Nothing in this alternation matched it, and the failure was silent in the worst way:
+            // the sentence produced no ability at all rather than one with a wrong trigger, so four
+            // of those cards had no auto-abilities whatsoever and read as vanilla Forwards.
+            //
+            // No ordering constraint against the two possessive arms above. Both require
+            // "your opponent's" immediately after "chosen by", which none of these texts has, so
+            // the three are disjoint; the normalisation below tells the Summon-only printings from
+            // the rest by whether the phrase mentions an ability.
+            "|(?:is|are)\\s+chosen\\s+by\\s+(?:an?\\s+)?Summons?" +
+                "(?:\\s+or\\s+(?:an?\\s+)?abilit(?:y|ies))?\\s+of\\s+your\\s+opponent" +
             "|uses?\\s+an\\s+EX\\s+Burst" +
             // "becomes dull due to your Summon or ability" — PR-156 Zack, the watcher form of the
             // arm below. Must precede it: this pattern requires a comma straight after the trigger,
@@ -4027,6 +4049,11 @@ public record CardData(
             else if (triggerRaw.contains("break zone")
                     && DAMAGED_BY_BZ_SUBJECT.matcher(card).matches())                               trigger = "damaged card put into break zone";
             else if (triggerRaw.contains("break zone"))                                                     trigger = "put into break zone";
+            // "chosen by an ability of a Character opponent controls" — 3-088L Delita. Must precede
+            // both branches below, which are satisfied by "chosen" + "abilit" alone and would file
+            // this as the plain ability watcher. That one's dispatch carries no acting card, so
+            // Delita's "break that Character" would have had nothing to break.
+            else if (triggerRaw.contains("chosen") && triggerRaw.contains("ability of a character")) trigger = "chosen by opponent's character ability";
             // "chosen by your opponent's ability" with no Summon named. Must precede the branch
             // below, which is satisfied by "chosen" + "abilit" alone and would widen these five
             // printings to fire on Summons too — strictly stronger than what they print.

@@ -3044,6 +3044,41 @@ final class AutoAbilityTriggers {
 	}
 
 	/**
+	 * Fires 3-088L Delita's "when [Self] is chosen by an ability of a Character your opponent
+	 * controls" — the one chosen-by trigger that cares <em>which card</em> did the choosing, because
+	 * its effect is "break that Character".
+	 *
+	 * <p>Kept apart from {@link #triggerAutoAbilitiesForChosenByOpponentAbility} rather than folded
+	 * into it for that reason: the acting card has to be carried down and preloaded as the effect's
+	 * target, the same way {@link #triggerAutoAbilitiesForSearch} carries the searching Character to
+	 * 5-130R Tonberry's identical payoff. The broad watcher takes no such argument, and adding one
+	 * there would oblige every caller of it to know something none of its printings ask about.
+	 *
+	 * <p>{@code actingCard} not being on {@code actingIsP1}'s field is how "a Character your opponent
+	 * controls" is enforced: an ability resolving from hand, from the Break Zone or off a Summon has
+	 * no Character on the board to break, so the trigger declines rather than breaking something else.
+	 *
+	 * @param chosen     the Characters the ability selected, all on {@code chosenSideIsP1}'s side
+	 * @param actingCard the card whose ability made the selection, or {@code null} when none is known
+	 * @param actingIsP1 which side {@code actingCard} is controlled by
+	 */
+	void triggerAutoAbilitiesForChosenByOpponentCharacterAbility(boolean chosenSideIsP1,
+			List<CardData> chosen, CardData actingCard, boolean actingIsP1) {
+		if (chosen.isEmpty() || actingCard == null) return;
+		ForwardTarget actingTarget = findFieldTarget(actingCard, actingIsP1);
+		if (actingTarget == null) return;
+		withBatch(() -> {
+			for (CardData watcher : fieldCards(chosenSideIsP1))
+				for (AutoAbility fa : mw.effectiveAutoAbilities(watcher)) {
+					if (!fa.trigger().equals("chosen by opponent's character ability")) continue;
+					if (chosenSubjectMatch(fa.triggerCard(), watcher, chosen) == null) continue;
+					runWithPreloadedTarget(fa, watcher, chosenSideIsP1, actingTarget);
+				}
+		});
+		mw.showStackWindowIfNeeded();
+	}
+
+	/**
 	 * Walks the chosen player's field and fires {@code triggerType} abilities whose subject the
 	 * selection actually satisfies.
 	 *
@@ -3081,10 +3116,26 @@ final class AutoAbilityTriggers {
 
 	private void fireChosenByOpponentTriggers(CardData watcher, boolean isP1, Set<String> triggerTypes,
 			List<CardData> chosen) {
-		for (AutoAbility fa : mw.effectiveAutoAbilities(watcher))
-			if (triggerTypes.contains(fa.trigger())
-					&& matchesChosenSubject(fa.triggerCard(), watcher, chosen))
-				executeAutoAbility(fa, watcher, isP1);
+		for (AutoAbility fa : mw.effectiveAutoAbilities(watcher)) {
+			if (!triggerTypes.contains(fa.trigger())) continue;
+			CardData subject = chosenSubjectMatch(fa.triggerCard(), watcher, chosen);
+			if (subject == null) continue;
+			// "you may return it to its owner's hand" (2-136R Porom) names no target of its own:
+			// "it" is the card the opponent chose, which is the watcher on most printings and is
+			// not on Porom's, who watches Palom as well. Resolved inline with that card preloaded,
+			// the way this class already handles the other pronoun-only watcher effects.
+			if (ActionResolver.isTriggeredTargetAction(fa.effectText())) {
+				ForwardTarget t = findFieldTarget(subject, isP1);
+				if (t == null) {
+					mw.logEntry("[AutoAbility] " + watcher.name()
+							+ " — the chosen card has left the field; skipped");
+					continue;
+				}
+				runWithPreloadedTarget(fa, watcher, isP1, t);
+				continue;
+			}
+			executeAutoAbility(fa, watcher, isP1);
+		}
 	}
 
 	/**
@@ -3117,10 +3168,24 @@ final class AutoAbilityTriggers {
 	 * contains an " or ".
 	 */
 	private boolean matchesChosenSubject(String subject, CardData watcher, List<CardData> chosen) {
+		return chosenSubjectMatch(subject, watcher, chosen) != null;
+	}
+
+	/**
+	 * As {@link #matchesChosenSubject}, but returns <em>which</em> chosen card satisfied the
+	 * subject rather than only that one did.
+	 *
+	 * <p>Split out for 2-136R Porom, whose effect is "you may return it to its owner's hand" — "it"
+	 * is the card the opponent chose, and Porom's subject is a disjunction ("Porom or the Card Name
+	 * Palom you control"), so the chosen card is not always the watcher. Answering with a boolean
+	 * left nothing to return but the watcher, which would have bounced Porom when Palom was
+	 * targeted.
+	 */
+	private CardData chosenSubjectMatch(String subject, CardData watcher, List<CardData> chosen) {
 		// A subject-less printing can only be about the watcher, so fall back to identity rather
 		// than to firing unconditionally — the latter is the bug this method exists to prevent.
 		if (subject == null || subject.isBlank())
-			return chosen.stream().anyMatch(c -> c == watcher);
+			return chosen.stream().filter(c -> c == watcher).findFirst().orElse(null);
 
 		String stripped = CHOSEN_SUBJECT_COUNT.matcher(subject.trim()).replaceFirst("");
 		for (String rawPart : stripped.split("(?i)\\s+or\\s+")) {
@@ -3131,13 +3196,13 @@ final class AutoAbilityTriggers {
 			if (part.isEmpty()) continue;
 			if (CHOSEN_SUBJECT_SELF.matcher(part).matches()
 					|| CardFilters.meetsCardNameFilter(watcher, part)) {
-				if (chosen.stream().anyMatch(c -> c == watcher)) return true;
+				if (chosen.stream().anyMatch(c -> c == watcher)) return watcher;
 				continue;
 			}
 			for (CardData c : chosen)
-				if (matchesSingleSubject(part, c, watcher)) return true;
+				if (matchesSingleSubject(part, c, watcher)) return c;
 		}
-		return false;
+		return null;
 	}
 
 	/**
@@ -3197,6 +3262,21 @@ final class AutoAbilityTriggers {
 			boolean watcherIsP1, ForwardTarget target) {
 		Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), watcher);
 		if (effect == null) return;
+		// The offer, for the printings that print one — 2-136R Porom's "you may return it to its
+		// owner's hand". The stack path makes it for every other optional auto-ability; this one
+		// resolves inline, so it has to make it here or an optional effect would be compulsory.
+		boolean p1GetsDialog = (fa.youMay() && watcherIsP1) || (fa.opponentMay() && !watcherIsP1);
+		if (p1GetsDialog) {
+			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
+			int choice = mw.showEffectOptionDialog(watcher.name() + " — " + prompt,
+					"Auto Ability", new Object[]{"OK", "Decline"});
+			if (choice != 0) {
+				mw.logEntry("[AutoAbility] " + watcher.name() + " — optional effect declined");
+				return;
+			}
+		} else if (fa.youMay() || fa.opponentMay()) {
+			mw.logEntry("[AutoAbility] [AI] auto-accepts optional ability");
+		}
 		GameContext ctx = mw.buildGameContext(watcherIsP1);
 		ctx.preloadTargets(List.of(target));
 		CardData prevSource  = mw.currentAbilitySource;

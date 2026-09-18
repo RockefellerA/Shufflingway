@@ -702,6 +702,23 @@ final class ActionResolverPatterns {
         Pattern.DOTALL
     );
     /**
+     * "If your opponent doesn't pay 《N》, [Self] cannot be broken this turn." — 4-024R Llednar,
+     * the payoff of both his triggers.
+     *
+     * <p>The sibling of {@link #IF_OPP_NOT_PAY_ACTION}, and not a case of it: that one's payoff
+     * goes through {@code parseTargetAction} against the targets the trigger preloaded, and this
+     * sentence has neither. Llednar's trigger is his own combat, and the shield lands on the
+     * printing card — which is why it is read here and given to {@code shieldSourceForward}.
+     *
+     * <p>{@code name} is checked against the source by the parser rather than spelled into the
+     * pattern, the guard every self-naming clause in this file carries: a sentence naming some
+     * other card is left unread instead of shielding the wrong Forward.
+     */
+    static final Pattern IF_OPP_NOT_PAY_SOURCE_CANNOT_BE_BROKEN = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+doesn'?t\\s+pay\\s+《\\s*(?<cost>\\d+)\\s*》,?\\s+" +
+        "(?<name>.+?)\\s+cannot\\s+be\\s+broken\\s+this\\s+turn[.!]?$"
+    );
+    /**
      * Banon: "Reveal the top card of your deck. If it is a [Type], cancel all effects choosing [Name]."
      * Reveals (peeks) the top card of the controller's deck; if it is of the captured {@code type},
      * the in-progress selection is cancelled. Group {@code type} — Forward / Backup / Monster / Summon.
@@ -1321,6 +1338,15 @@ final class ActionResolverPatterns {
         // alternation is anchored and read with matches(), so "dull it and freeze it" cannot be
         // claimed by this shorter arm the way it could under find().
         "|freeze\\s+it" +
+        // "return it to its owner's hand" — 2-136R Porom, whose trigger watches herself *and* the
+        // Palom beside her, so "it" is whichever of them the opponent chose.
+        //
+        // The one arm here whose words are also the Choose family's followup wording, which is the
+        // caution this pattern's javadoc raises. It is safe only because the whole alternation is
+        // anchored and read with matches(): all 92 corpus printings of the sentence carry a
+        // "Choose …" in front of it within the same ability, and every one of those is a longer
+        // string this cannot match. Porom's is the only bare one.
+        "|return\\s+it\\s+to\\s+its\\s+owner'?s\\s+hand" +
         "|break\\s+that\\s+Character" +
         // "that Forward gains +N power [and Haste/...] until the end of the turn" — 8-097H Jake.
         // The demonstrative form only: "it gains ..." is the Choose family's followup wording and
@@ -9452,14 +9478,23 @@ final class ActionResolverPatterns {
         "(?i)^Discard\\s+(\\d+)\\s+cards?[,.]?\\s+then\\s+draw\\s+(\\d+)\\s+cards?[.!]?"
     );
     /**
-     * Matches "&lt;subject&gt; deals your opponent N point(s) of damage." and the bare imperative
-     * spelling of the same effect, "Deal your opponent N point(s) of damage." (Palom 2-015H).
+     * Matches "&lt;subject&gt; deals your opponent N point(s) of damage.", the bare imperative
+     * spelling of the same effect, "Deal your opponent N point(s) of damage." (Palom 2-015H), and
+     * the one printing that puts the recipient last — 3-088L Delita's "deal 1 point of damage to
+     * your opponent."
+     *
+     * <p>{@code amountTo} carries that last spelling, a second group because Java forbids two of
+     * one name; {@link ActionResolverDamage#tryParseDealPlayerDamageToOpponent} reads whichever the
+     * text filled. The corpus's other seventy "damage to your opponent" texts are all the
+     * <em>trigger</em> "when X deals damage to your opponent", which state no number and so cannot
+     * satisfy this arm.
      * <ul>
-     *   <li>Group {@code amount} — number of damage points dealt to the opponent player</li>
+     *   <li>Group {@code amount} / {@code amountTo} — damage points dealt to the opponent player</li>
      * </ul>
      */
     static final Pattern DEAL_PLAYER_DAMAGE_TO_OPPONENT = Pattern.compile(
-        "(?i)^(?:.+?\\s+deals?|Deal)\\s+your\\s+opponent\\s+(?<amount>\\d+)\\s+points?\\s+of\\s+damage[.!]?$"
+        "(?i)^(?:(?:.+?\\s+deals?|Deal)\\s+your\\s+opponent\\s+(?<amount>\\d+)\\s+points?\\s+of\\s+damage" +
+        "|Deal\\s+(?<amountTo>\\d+)\\s+points?\\s+of\\s+damage\\s+to\\s+your\\s+opponent)[.!]?$"
     );
     /**
      * Matches "&lt;subject&gt; deals you N point(s) of damage." or "receive N point(s) of damage."

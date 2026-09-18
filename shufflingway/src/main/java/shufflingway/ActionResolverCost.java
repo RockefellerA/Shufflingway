@@ -228,6 +228,32 @@ final class ActionResolverCost {
      * card — unless the opponent pays {@code cost} in full. The inner action is resolved via
      * {@link #parseTargetAction}, so any standard action ("break it", "dull it", "Freeze it", …) works.
      */
+    /**
+     * Parses "If your opponent doesn't pay 《N》, [Self] cannot be broken this turn." — 4-024R
+     * Llednar, whose two triggers ("blocks or is blocked", "is chosen by a Summon or an ability of
+     * your opponent") share this one payoff.
+     *
+     * <p>Read ahead of {@link #tryParseIfOppNotPayAction}, which matches the same opening with
+     * {@code find()}. It declines this text today, because "Llednar cannot be broken this turn" is
+     * not a target action — but it declines by accident rather than by rule, and an unread payoff
+     * is exactly the shape that family's targets would otherwise be handed.
+     *
+     * <p>Declines when the sentence names a card other than the printing, so an unread name leaves
+     * the ability visibly unparsed rather than shielding whatever Forward the source happens to be.
+     */
+    static Consumer<GameContext> tryParseIfOppNotPaySourceCannotBeBroken(String text, CardData source) {
+        Matcher m = IF_OPP_NOT_PAY_SOURCE_CANNOT_BE_BROKEN.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (source == null || source.name() == null
+                || !m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        int cost = Integer.parseInt(m.group("cost"));
+        return ctx -> {
+            ctx.logEntry("Effect: unless opponent pays 《" + cost + "》: " + source.name()
+                    + " cannot be broken this turn");
+            ctx.opponentMayPayToPreventAction(cost, () -> ctx.shieldSourceForward(source));
+        };
+    }
+
     static Consumer<GameContext> tryParseIfOppNotPayAction(String text) {
         Matcher m = IF_OPP_NOT_PAY_ACTION.matcher(text.trim());
         if (!m.find()) return null;
