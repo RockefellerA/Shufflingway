@@ -1953,6 +1953,35 @@ final class AutoAbilityTriggers {
 	}
 
 	/**
+	 * Fires a card's own "When a &lt;Name&gt; Counter is placed on [Self]" abilities — 16-031R
+	 * Scarlet, the corpus's one counter-placed trigger.
+	 *
+	 * <p>The trigger's subject is the counter rather than a card, so {@link AutoAbility#triggerCard()}
+	 * holds "a Development Counter" and the counter's name is read back out of it. An ability whose
+	 * name does not match the counter just placed is not this placement's trigger and does not fire.
+	 *
+	 * <p>Called from the single-card placement route, which is the only one that can put a counter
+	 * on a named card: the mass routes beside it place one counter name across a whole field, and
+	 * nothing in the corpus places a watched counter that way.
+	 */
+	void fireCounterPlacedWatchers(CardData card, String counterName) {
+		if (card == null || counterName == null) return;
+		Boolean side = mw.fieldSideOf(card);
+		if (side == null) return;
+		for (AutoAbility fa : mw.effectiveAutoAbilities(card)) {
+			if (!fa.trigger().equals("counter placed")) continue;
+			Matcher cm = FA_COUNTER_PLACED_SUBJECT.matcher(fa.triggerCard().trim());
+			if (!cm.matches() || !cm.group("counter").trim().equalsIgnoreCase(counterName)) continue;
+			executeAutoAbility(fa, card, side);
+		}
+	}
+
+	/** The counter-placed trigger's subject — "a Development Counter". */
+	private static final Pattern FA_COUNTER_PLACED_SUBJECT = Pattern.compile(
+		"(?i)^(?:an?\\s+)?(?<counter>.+?)\\s+Counters?$"
+	);
+
+	/**
 	 * Fires "{@code <Type>} enters your field" auto-abilities on other field cards owned by the
 	 * same player as {@code enteringCard}. The watcher's {@link AutoAbility#triggerCard()} encodes
 	 * the type subject (e.g. "a Monster", "a Forward", "a Character") which is matched against

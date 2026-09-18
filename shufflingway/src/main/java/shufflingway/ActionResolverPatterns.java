@@ -8623,11 +8623,46 @@ final class ActionResolverPatterns {
      * verb is inflected for that subject, which is why it is {@code selects?} rather than
      * {@code select} — see {@code CardData.SELECT_ACTIONS_JOINER}, which has to admit the same two
      * spellings a step earlier or the options never reach this pattern at all.
+     *
+     * <p>How many may be taken comes in two shapes. The printed number is {@code select}; the other
+     * is "select up to the same number of the 3 following actions as &lt;countSrc&gt;" (19-045H
+     * Sophie), where the number is counted when the ability resolves and {@code select} is absent.
+     * {@code total} is the option count either way, and it is a ceiling rather than decoration in
+     * the second shape: the options are a menu, each takeable once, so a count above it buys
+     * nothing. {@code countSrc} is read by {@link #SELECT_ACTIONS_COUNT_SOURCE_FIELD}.
      */
     static final Pattern SELECT_FOLLOWING_ACTIONS = Pattern.compile(
-        "(?i)^(?:if\\s+[^,]+,\\s+)?(?<opp>your\\s+opponent\\s+)?selects?\\s+(?<upTo>up\\s+to\\s+)?(?<select>\\d+)\\s+of\\s+the\\s+"
-        + "(?<total>\\d+)\\s+following\\s+actions?[.!]?\\s*(?<actions>.+)$",
+        "(?i)^(?:if\\s+[^,]+,\\s+)?(?<opp>your\\s+opponent\\s+)?selects?\\s+(?<upTo>up\\s+to\\s+)?"
+        + "(?:(?<select>\\d+)\\s+of\\s+the|the\\s+same\\s+number\\s+of\\s+the)\\s+"
+        + "(?<total>\\d+)\\s+following\\s+actions?"
+        + "(?:\\s+as\\s+(?<countSrc>[^.!]+))?[.!]?\\s*(?<actions>.+)$",
         Pattern.DOTALL
+    );
+    /**
+     * The count source of a "select up to the same number of the N following actions as …" — the
+     * board count that decides how many options may be taken. 19-045H Sophie's "the Forwards you
+     * control other than Sophie".
+     *
+     * <p>{@code exclude} is a card name, which is what "other than Sophie" means: the count leaves
+     * out every Forward of that name, not merely the one resolving the ability.
+     *
+     * <p>The counter form is {@link #SELECT_ACTIONS_COUNT_SOURCE_COUNTERS}; a count source matching
+     * neither declines the whole ability rather than defaulting to a number the card does not print.
+     */
+    static final Pattern SELECT_ACTIONS_COUNT_SOURCE_FIELD = Pattern.compile(
+        "(?i)^(?:the\\s+)?(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control" +
+        "(?:\\s+other\\s+than\\s+(?<exclude>.+?))?$"
+    );
+    /**
+     * The counter form of a "select up to the same number of the N following actions as …" count
+     * source — 16-031R Scarlet's "as Development Counters placed on Scarlet", the pile on the card
+     * resolving the ability.
+     *
+     * <p>Groups: {@code counter} — the counter's name; {@code card} — which card's pile, checked
+     * against the source.
+     */
+    static final Pattern SELECT_ACTIONS_COUNT_SOURCE_COUNTERS = Pattern.compile(
+        "(?i)^(?:the\\s+)?(?<counter>.+?)\\s+Counters?\\s+placed\\s+on\\s+(?<card>.+?)$"
     );
     /**
      * Extracts the individual quoted action strings from the {@code actions} capture group.

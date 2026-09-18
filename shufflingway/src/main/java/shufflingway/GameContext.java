@@ -2042,6 +2042,22 @@ public interface GameContext {
                 : countP1FieldCards(inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, elementFilter);
     }
 
+    /**
+     * Counts the ability user's field cards of the given kinds, leaving out {@code excluded} itself
+     * — "the Forwards you control other than Sophie" (19-045H Sophie), where the card named is the
+     * one resolving the ability.
+     *
+     * <p>By identity, not by name. {@code CardData} is a record, so two copies of one printing are
+     * {@code equals()}, and the wording excludes the card standing there rather than anything that
+     * looks like it. The two answers only ever differ where a player controls a second Character of
+     * the same name, which the game's own rules do not allow — but the wording says what it says,
+     * and a count that agrees with it by accident is one nobody can check.
+     *
+     * <p>A {@code null} {@code excluded} counts everything, which is the unqualified wording.
+     */
+    int countSelfFieldCardsExcluding(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            CardData excluded);
+
     /** Counts the ability user's own field cards — routes to P1 or P2 based on {@link #isP1()}. */
     default int countSelfFieldCards(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String jobFilter, String cardNameFilter) {

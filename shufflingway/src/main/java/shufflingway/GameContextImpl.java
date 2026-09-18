@@ -6564,6 +6564,8 @@ final class GameContextImpl implements GameContext {
 				logEntry(card.name() + " — placed " + count + " " + counterName
 						+ " Counter(s)  [now: " + all + "]");
 				refreshSlotFor(card);
+				// After the pile has grown, so an ability counting it sees the counter that fired it.
+				mw.autoAbilityTriggers.fireCounterPlacedWatchers(card, counterName);
 			}
 
 			@Override public int getCounters(CardData card, String counterName) {
@@ -9815,6 +9817,18 @@ final class GameContextImpl implements GameContext {
 
 			@Override public int yourHandSize() {
 				return (isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand()).size();
+			}
+
+			@Override public int countSelfFieldCardsExcluding(boolean inclForwards,
+					boolean inclBackups, boolean inclMonsters, CardData excluded) {
+				int count = 0;
+				if (inclForwards) for (CardData c : isP1 ? mw.p1ForwardCards : mw.p2ForwardCards)
+					if (c != excluded) count++;
+				if (inclBackups) for (CardData c : isP1 ? mw.p1BackupCards : mw.p2BackupCards)
+					if (c != null && c != excluded) count++;
+				if (inclMonsters) for (CardData c : isP1 ? mw.p1MonsterCards : mw.p2MonsterCards)
+					if (c != excluded) count++;
+				return count;
 			}
 
 			@Override public int countP1FieldCards(boolean inclForwards, boolean inclBackups,

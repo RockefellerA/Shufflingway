@@ -4539,7 +4539,12 @@ public class ActionResolver {
         if (options.isEmpty()) return "SelectFollowingActions";
 
         String upTo = m.group("upTo") != null ? "up to " : "";
-        return "SelectFollowingActions(" + upTo + m.group("select") + " of " + m.group("total")
+        // No printed number when the count is read at resolution — named for which count it is,
+        // rather than left blank, so the shapes read differently in the golden file.
+        String howMany = m.group("select") != null ? m.group("select")
+                : SELECT_ACTIONS_COUNT_SOURCE_COUNTERS.matcher(m.group("countSrc").trim()).matches()
+                        ? "CounterCount" : "FieldCount";
+        return "SelectFollowingActions(" + upTo + howMany + " of " + m.group("total")
                 + ": " + String.join(" | ", options) + ")";
     }
 

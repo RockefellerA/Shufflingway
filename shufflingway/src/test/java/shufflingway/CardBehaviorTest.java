@@ -51508,6 +51508,293 @@ public class CardBehaviorTest {
 		assertArrayEquals(new int[]{3, 1}, runSolWithDamage(7), "and does not stop above it");
 	}
 
+	// =========================================================================================
+	// 19-045H Sophie: "When Sophie enters the field, select up to the same number of the 3
+	// following actions as the Forwards you control other than Sophie."
+	//
+	// The count variant of the modal header. Every other printing states a number; Sophie's is a
+	// board count read when the ability resolves, and capped at the option count — the options are
+	// a menu and the selection dialog is checkboxes, so each can be taken once and a count above 3
+	// buys nothing.
+	//
+	// Two separate things had to change for her. The header shape is new to SELECT_FOLLOWING_ACTIONS,
+	// and it is also new to CardData's SELECT_ACTIONS_JOINER, which is what glues the quoted options
+	// onto the header before the resolver ever sees them. Until the joiner knew the shape her effect
+	// text arrived with no options at all, so the ability read as unparsed for a reason that had
+	// nothing to do with the resolver.
+	//
+	// All three of her options already parsed on their own.
+	// =========================================================================================
+
+	private static final String SOPHIE_19_045H =
+			"select up to the same number of the 3 following actions as the Forwards you control "
+			+ "other than Sophie. \"Choose 1 Monster. Break it.\" "
+			+ "\"Activate all the Backups you control.\" "
+			+ "\"Until the end of the turn, Sophie gains +2000 power and Haste.\"";
+
+	/** Runs Sophie with {@code others} Forwards controlled besides herself. */
+	private static int[] runSophieWith(int others) {
+		CardData sophie = makeForwardWithText("Sophie", "Wind", 4, 7000, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.countSelfFieldCardsExcluding(true, false, false, sophie)).thenReturn(others);
+		when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean())).thenReturn(List.of());
+		ActionResolver.parse(SOPHIE_19_045H, sophie).accept(ctx);
+
+		ArgumentCaptor<Integer> count = ArgumentCaptor.forClass(Integer.class);
+		ArgumentCaptor<Boolean> upTo  = ArgumentCaptor.forClass(Boolean.class);
+		verify(ctx).chooseActions(any(), any(), count.capture(), upTo.capture());
+		return new int[]{count.getValue(), upTo.getValue() ? 1 : 0};
+	}
+
+	@Test
+	void sophieNamesAllThreeOptionsAndTheCountThatBuysThem() {
+		CardData sophie = makeForwardWithText("Sophie", "Wind", 4, 7000, "");
+		assertEquals("SelectFollowingActions(up to FieldCount of 3: ChooseCharacter / Break "
+				+ "| AllFieldEffect | StandalonePowerBoostUntil)",
+				ActionResolver.fullDescription(SOPHIE_19_045H, sophie));
+	}
+
+	@Test
+	void sophiesOptionsSurviveTheJoinerAndReachTheResolver() {
+		// The half that had nothing to do with the resolver: CardData has to hand the header its
+		// three quoted options, or the ability arrives as a header alone.
+		AutoAbility etf = CardData.parseAutoAbilities(
+				"When Sophie enters the field, select up to the same number of the 3 following "
+				+ "actions as the Forwards you control other than Sophie.[[br]]   "
+				+ "\"Choose 1 Monster. Break it.\"[[br]]   "
+				+ "\"Activate all the Backups you control.\"[[br]]   "
+				+ "\"Until the end of the turn, Sophie gains +2000 power and Haste.\"").get(0);
+
+		CardData sophie = makeForwardWithText("Sophie", "Wind", 4, 7000, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.countSelfFieldCardsExcluding(true, false, false, sophie)).thenReturn(2);
+		when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean())).thenReturn(List.of());
+		ActionResolver.parse(etf.effectText(), sophie).accept(ctx);
+
+		ArgumentCaptor<List<String>> actions = ArgumentCaptor.forClass(List.class);
+		verify(ctx).chooseActions(any(), actions.capture(), anyInt(), anyBoolean());
+		assertEquals(3, actions.getValue().size(), "all three options reach the selection");
+	}
+
+	@Test
+	void sophieBuysOneActionPerOtherForwardAndAlwaysAsAnUpTo() {
+		assertArrayEquals(new int[]{2, 1}, runSophieWith(2));
+		assertArrayEquals(new int[]{1, 1}, runSophieWith(1));
+	}
+
+	@Test
+	void sophieIsCappedAtTheNumberOfOptionsSheOffers() {
+		// The point of the cap: the options are a menu, not a pool, so a fifth Forward buys nothing
+		// and the dialog must not ask for picks that do not exist.
+		assertArrayEquals(new int[]{3, 1}, runSophieWith(5), "five others, three options");
+	}
+
+	@Test
+	void sophieAloneOffersNoChoiceAtAll() {
+		// Not "up to 0" — the dialog is never shown, because there is nothing it could return.
+		CardData sophie = makeForwardWithText("Sophie", "Wind", 4, 7000, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.countSelfFieldCardsExcluding(true, false, false, sophie)).thenReturn(0);
+
+		ActionResolver.parse(SOPHIE_19_045H, sophie).accept(ctx);
+
+		verify(ctx, never()).chooseActions(any(), any(), anyInt(), anyBoolean());
+	}
+
+	@Test
+	void theExclusionIsTheCardItselfAndNotEverythingWithItsName() {
+		// Against a real board, because a mock cannot tell the two readings apart: CardData is a
+		// record, so a second copy of one printing is equals() to the first, and a name filter
+		// cannot distinguish them while an identity test can.
+		//
+		// The two copies are not both put on the field — the game's uniqueness rule forbids a player
+		// controlling two Sophies, which is why the readings never disagree at the table. The twin
+		// is used as the card handed to the filter: equal to the one standing there, and not it.
+		MainWindow mw = new MainWindow();
+		CardData sophie = makeForwardWithText("Sophie", "Wind", 4, 7000, "");
+		CardData twin   = makeForwardWithText("Sophie", "Wind", 4, 7000, "");
+		assertEquals(sophie, twin, "the copies are equal, so only identity separates them");
+		for (CardData c : List.of(sophie, makeForward("Ally A", "Wind", 2, 5000),
+								  makeForward("Ally B", "Wind", 2, 5000)))
+			placeP1Forward(mw, c);
+		GameContext ctx = mw.buildGameContext(true);
+
+		assertEquals(2, ctx.countSelfFieldCardsExcluding(true, false, false, sophie),
+				"the card resolving the ability is left out");
+		assertEquals(3, ctx.countSelfFieldCardsExcluding(true, false, false, twin),
+				"an equal copy that is not it leaves out nothing — which a name filter could not say");
+	}
+
+	@Test
+	void aCountSourceThisCannotReadDeclinesTheWholeAbility() {
+		// Neither a board count nor a counter pile. Defaulting to some number the card does not
+		// print would be worse than reporting the ability unread.
+		assertNull(ActionResolver.parse(
+				"select up to the same number of the 3 following actions as the cards in your "
+				+ "opponent's hand. \"Draw 1 card.\" \"Draw 2 cards.\" \"Draw 3 cards.\"",
+				makeForwardWithText("Whoever", "Ice", 2, 5000, "")));
+	}
+
+	@Test
+	void aCounterPileOnSomebodyElseIsNotACountThisCanRead() {
+		// The pile has to be the source's own — there is no other card for the count to reach.
+		assertNull(ActionResolver.parse(
+				"select up to the same number of the 3 following actions as Development Counters "
+				+ "placed on Scarlet. \"Draw 1 card.\" \"Draw 2 cards.\" \"Draw 3 cards.\"",
+				makeForwardWithText("Somebody Else", "Ice", 2, 5000, "")));
+	}
+
+	// =========================================================================================
+	// 16-031R Scarlet: "When a Development Counter is placed on Scarlet, select up to the same
+	// number of the 3 following actions as Development Counters placed on Scarlet. This effect will
+	// trigger only once per turn."
+	//
+	// Sophie's header over a counter pile, and four separate things had to give before the resolver
+	// ever mattered:
+	//
+	//  - The trigger did not exist. "When a Development Counter is placed on Scarlet" is the only
+	//    trigger in the corpus whose subject is not a card — the counter is the subject and the
+	//    watching card is the object — so parseAutoAbilities returned nothing at all for her.
+	//  - Her three options share one [[br]] instead of taking one each, which the joiner's option
+	//    half did not admit, so only the first would have been carried onto the header.
+	//  - "This effect will trigger only once per turn." sits between the header and the options, so
+	//    once the options are joined on it is no longer the last sentence and the anchored strip
+	//    could not see it.
+	//  - The count source is a counter pile rather than a board count.
+	//
+	// All three of her options already parsed on their own.
+	// =========================================================================================
+
+	private static final String SCARLET_16_031R_TEXT =
+			"When a Development Counter is placed on Scarlet, select up to the same number of the 3 "
+			+ "following actions as Development Counters placed on Scarlet. This effect will "
+			+ "trigger only once per turn.[[br]]   \"Choose up to 2 Characters. Dull them.\" "
+			+ "\"Choose 1 Character. Freeze it.\" "
+			+ "\"Your opponent discards 1 card from their hand.\"";
+
+	private static AutoAbility scarletTrigger() {
+		return CardData.parseAutoAbilities(SCARLET_16_031R_TEXT).get(0);
+	}
+
+	@Test
+	void scarletsCounterTriggerIsReadWithAllThreeOptionsAndItsOncePerTurn() {
+		AutoAbility fa = scarletTrigger();
+		assertEquals("counter placed", fa.trigger());
+		assertEquals("a Development Counter", fa.triggerCard(),
+				"the subject is the counter, which is where its name is read back from");
+		assertTrue(fa.oncePerTurn(), "the restriction sits mid-effect and still has to be seen");
+		assertFalse(fa.effectText().contains("trigger only"),
+				"and is taken out of the effect rather than left for the resolver to trip over");
+		assertEquals("SelectFollowingActions(up to CounterCount of 3: ChooseCharacter / Dull "
+				+ "| ChooseCharacter / Freeze | OpponentDiscard)",
+				ActionResolver.fullDescription(fa.effectText(),
+						makeForwardWithText("Scarlet", "Ice", 2, 5000, "")));
+	}
+
+	@Test
+	void scarletBuysOneActionPerCounterOnHer() {
+		CardData scarlet = makeForwardWithText("Scarlet", "Ice", 2, 5000, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.getCounters(scarlet, "Development")).thenReturn(2);
+		when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean())).thenReturn(List.of());
+
+		ActionResolver.parse(scarletTrigger().effectText(), scarlet).accept(ctx);
+
+		verify(ctx).chooseActions(any(), any(), eq(2), eq(true));
+	}
+
+	@Test
+	void scarletIsCappedAtHerThreeOptionsHoweverHighThePileGets() {
+		CardData scarlet = makeForwardWithText("Scarlet", "Ice", 2, 5000, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.getCounters(scarlet, "Development")).thenReturn(7);
+		when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean())).thenReturn(List.of());
+
+		ActionResolver.parse(scarletTrigger().effectText(), scarlet).accept(ctx);
+
+		verify(ctx).chooseActions(any(), any(), eq(3), eq(true));
+	}
+
+	/** Scarlet carrying her real abilities, for the end-to-end placement tests. */
+	private static CardData scarletCard() {
+		return new CardData(null, "Scarlet", "Ice", 2, 5000, "Forward", false, 0,
+				false, false, Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(SCARLET_16_031R_TEXT),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, SCARLET_16_031R_TEXT);
+	}
+
+	/** True once Scarlet's trigger has resolved this turn — what the once-per-turn ledger records. */
+	private static boolean scarletHasFired(MainWindow mw, CardData scarlet) {
+		return mw.usedOncePerTurnAbilities.getOrDefault(scarlet, Set.of())
+				.contains(scarletTrigger().effectText());
+	}
+
+	@Test
+	void placingACounterOnScarletFiresHerTrigger() {
+		// End to end through the real placement route, which is what the trigger hangs off.
+		//
+		// On P2's side, because the selection is a modal dialog from P1's seat and a test has
+		// nobody to answer it. The evidence is the once-per-turn ledger rather than a board effect:
+		// her first option is an "up to" choose, so whether anything is actually dulled is the AI's
+		// call, while reaching the ledger at all means the trigger fired and resolved.
+		MainWindow mw = new MainWindow();
+		CardData scarlet = scarletCard();
+		placeP2Forward(mw, scarlet);
+		placeP1Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+
+		GameContext ctx = mw.buildGameContext(false);
+		assertFalse(scarletHasFired(mw, scarlet), "nothing has happened yet");
+
+		ctx.placeCounters(scarlet, "Development", 1);
+
+		assertEquals(1, mw.gameState.getCounters(scarlet, "Development"));
+		assertTrue(scarletHasFired(mw, scarlet), "placing the counter fired her");
+	}
+
+	@Test
+	void aCounterOfAnotherNameIsNotScarletsTrigger() {
+		MainWindow mw = new MainWindow();
+		CardData scarlet = scarletCard();
+		placeP2Forward(mw, scarlet);
+		placeP1Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+
+		mw.buildGameContext(false).placeCounters(scarlet, "Monster", 1);
+
+		assertEquals(1, mw.gameState.getCounters(scarlet, "Monster"), "the counter still landed");
+		assertFalse(scarletHasFired(mw, scarlet),
+				"but a Monster Counter is not a Development Counter, so nothing fired");
+	}
+
+	@Test
+	void aSecondCounterInTheSameTurnDoesNotFireHerAgain() {
+		// "This effect will trigger only once per turn." — the restriction that had to be found
+		// mid-effect, doing the job it was found for.
+		MainWindow mw = new MainWindow();
+		CardData scarlet = scarletCard();
+		placeP2Forward(mw, scarlet);
+		placeP1Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+		GameContext ctx = mw.buildGameContext(false);
+
+		ctx.placeCounters(scarlet, "Development", 1);
+		int firedAfterFirst = mw.gameState.getCounters(scarlet, "Development");
+		ctx.placeCounters(scarlet, "Development", 1);
+
+		assertEquals(1, firedAfterFirst);
+		assertEquals(2, mw.gameState.getCounters(scarlet, "Development"),
+				"the second counter is still placed — only the trigger is spent");
+	}
+
+	@Test
+	void thePrintedNumberFormIsUntouched() {
+		// The control for widening the header: a stated count still reads as a stated count, and
+		// still says so in the description.
+		assertEquals("SelectFollowingActions(1 of 2: DrawCards | GainCrystal)",
+				ActionResolver.fullDescription(
+						"select 1 of the 2 following actions. \"Draw 1 card.\" \"Gain 《C》.\"", null));
+	}
+
 	@Test
 	void ultimeciasThresholdWithoutOrMoreReadsTheSameWay() {
 		// 7-133S prints "If you have received 6 points of damage" and means at least six, the way

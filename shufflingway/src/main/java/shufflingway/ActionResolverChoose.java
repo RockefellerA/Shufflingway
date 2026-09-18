@@ -212,12 +212,51 @@ final class ActionResolverChoose {
      * sub-actions (via {@link GameContext#chooseActions}), then re-parses and applies
      * each chosen sub-action. Returns {@code null} if the text is not this shape.
      */
+    /**
+     * Reads the count source of a "select up to the same number of the N following actions as …"
+     * into the board count it names, or {@code null} when it names something this cannot count.
+     *
+     * <p>Two shapes: a board count (19-045H Sophie) and a counter pile (16-031R Scarlet). The
+     * counter form is read first — it names a card too, and the board form's "you control" tail is
+     * what tells them apart, so trying the board form first only wastes a match.
+     *
+     * <p>"Other than Sophie" excludes the card resolving the ability, by identity — the name in the
+     * text is checked against the source and then discarded. Declines when it names anything else,
+     * since there is no other card for the exclusion to mean.
+     */
+    static ToIntFunction<GameContext> selectActionsCountSource(String countSrc, CardData source) {
+        Matcher counters = SELECT_ACTIONS_COUNT_SOURCE_COUNTERS.matcher(countSrc);
+        if (counters.matches()) {
+            if (source == null || !counters.group("card").trim().equalsIgnoreCase(source.name())) return null;
+            final String counterName = counters.group("counter").trim();
+            return ctx -> ctx.getCounters(source, counterName);
+        }
+        Matcher m = SELECT_ACTIONS_COUNT_SOURCE_FIELD.matcher(countSrc);
+        if (!m.matches()) return null;
+        String type = m.group("type").toLowerCase(Locale.ROOT);
+        final boolean fwd = type.startsWith("forward") || type.startsWith("character");
+        final boolean bkp = type.startsWith("backup")  || type.startsWith("character");
+        final boolean mon = type.startsWith("monster") || type.startsWith("character");
+        final String exclude = m.group("exclude") != null ? m.group("exclude").trim() : null;
+        if (exclude != null && (source == null || !exclude.equalsIgnoreCase(source.name()))) return null;
+        final CardData excluded = exclude != null ? source : null;
+        return ctx -> ctx.countSelfFieldCardsExcluding(fwd, bkp, mon, excluded);
+    }
+
     static Consumer<GameContext> tryParseSelectFollowingActions(String text, CardData source) {
         Matcher m = SELECT_FOLLOWING_ACTIONS.matcher(text);
         if (!m.find()) return null;
 
         final boolean baseUpTo      = m.group("upTo") != null;
-        final int     baseSelect    = Integer.parseInt(m.group("select"));
+        final int     total         = Integer.parseInt(m.group("total"));
+        // "up to the same number of the N following actions as <countSrc>" — the count is a board
+        // count read at resolution, so there is no printed number to start from. Capped at the
+        // option count: the options are a menu and each can be taken once, so counting past the
+        // end of it buys nothing and would only ask the dialog for picks that do not exist.
+        final ToIntFunction<GameContext> countSource = m.group("countSrc") != null
+                ? selectActionsCountSource(m.group("countSrc").trim(), source) : null;
+        if (m.group("countSrc") != null && countSource == null) return null;
+        final int     baseSelect    = countSource != null ? 0 : Integer.parseInt(m.group("select"));
         // "Your opponent selects N of the M following actions" — 16-037R Babus, 29-080C Chaos. Only
         // the chooser changes; the options stay in the resolving player's context, because they are
         // written from that seat ("your opponent discards 2 cards" is the same hand either way).
@@ -305,6 +344,14 @@ final class ActionResolverChoose {
         return ctx -> {
             int     effSelect = baseSelect;
             boolean effUpTo   = baseUpTo;
+            if (countSource != null) {
+                int counted = countSource.applyAsInt(ctx);
+                effSelect = Math.min(counted, total);
+                effUpTo   = true;
+                ctx.logEntry("Select actions — counted " + counted + ", may select up to " + effSelect
+                        + " of " + total);
+                if (effSelect <= 0) return;
+            }
             if (surcharge != null) {
                 boolean paid = ctx.wasExtraCostPaid();
                 effSelect = paid ? surcharge.actions() : surcharge.actions() - 1;

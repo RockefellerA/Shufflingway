@@ -3072,6 +3072,10 @@ public record CardData(
             "|(?:is|are)\\s+added\\s+to\\s+your\\s+opponent's\\s+hand\\s+from\\s+the\\s+Break\\s+Zone" +
             // "gain a 《C》" — 16-115H Sarah (MOBIUS). Player-scoped, so the subject is "you".
             "|gains?\\s+an?\\s+《C》" +
+            // "is placed on Scarlet" — 16-031R Scarlet, the corpus's one counter-placed trigger and
+            // the only one whose subject is not a card: "When a Development Counter is placed on
+            // Scarlet" puts the counter in the subject slot and the watching card in the trigger.
+            "|(?:is|are)\\s+placed\\s+on\\s+[^,]+" +
         ")\\s*,\\s+" +
         "(?<youmay>(?:you|your\\s+opponent)\\s+may\\s+)?" +
         "(?<effect>.+?)\\s*" +
@@ -3187,9 +3191,18 @@ public record CardData(
         "(?i)((?:[^.!?]*,\\s+)?selects?\\s+" +
         "(?:" +
           "(?:up\\s+to\\s+)?\\d+\\s+of\\s+the\\s+\\d+\\s+following\\s+actions?" +  // "select N of the M following actions"
+          // "select up to the same number of the M following actions as <count source>" — 19-045H
+          // Sophie. The trailing run absorbs the count source, which sits between the header and
+          // the options; without this arm the header matches nothing here and the options never
+          // reach the resolver, which is what left her whole ability reading as unparsed.
+          "|up\\s+to\\s+the\\s+same\\s+number\\s+of\\s+the\\s+\\d+\\s+following\\s+actions?[^.!?]*" +
           "|the\\s+following\\s+actions?[^.!?]*" +                                   // "select the following actions..."
         ")" +
-        "[.!]?)([^\"\\[]*?(?:[^\"\\[]*\\[\\[br\\]\\]\\s*\"[^\"]+\")+)",
+        // A [[br]] introduces an option, and further options may follow it on the same line rather
+        // than each getting its own — 16-031R Scarlet prints all three of hers after one [[br]].
+        // The trailing quotes are admitted only where whitespace separates them, so the run still
+        // cannot cross into a neighbouring ability.
+        "[.!]?)([^\"\\[]*?(?:[^\"\\[]*\\[\\[br\\]\\]\\s*\"[^\"]+\"(?:\\s*\"[^\"]+\")*)+)",
         Pattern.DOTALL
     );
 
@@ -3468,6 +3481,17 @@ public record CardData(
     private static final Pattern FA_TRIGGER_RESTRICTION = Pattern.compile(
         "(?i)[.!,]?\\s*This\\s+effect\\s+will\\s+trigger\\s+only\\s+" +
         "(?:(?<yourTurn>during\\s+your\\s+turn)(?:\\s+and\\s+only\\s+)?)?(?<once>once\\s+per\\s+turn)?[.!]?\\s*$"
+    );
+
+    /**
+     * {@link #FA_TRIGGER_RESTRICTION} without the end anchor, for the restriction sentence a modal
+     * ability prints between its header and its quoted options — 16-031R Scarlet. Read only when
+     * the anchored form found nothing, so a restriction that is the last sentence keeps taking the
+     * simpler path.
+     */
+    private static final Pattern FA_TRIGGER_RESTRICTION_MID = Pattern.compile(
+        "(?i)\\s*This\\s+effect\\s+will\\s+trigger\\s+only\\s+" +
+        "(?:(?<yourTurn>during\\s+your\\s+turn)(?:\\s+and\\s+only\\s+)?)?(?<once>once\\s+per\\s+turn)?[.!]?"
     );
 
     /** Matches "This effect will trigger only if [card] is removed from the game." */
@@ -3941,7 +3965,10 @@ public record CardData(
             // triggerRaw contains "party" when the trigger phrase itself is "forms a party and attacks"
             boolean triggerHasParty = triggerRaw.contains("party");
             boolean warpOnly    = triggerRaw.contains("enter") && triggerRaw.contains("warp");
-            if      (triggerRaw.contains("attack") && triggerRaw.contains("block"))                        trigger = "attacks or blocks";
+            // Read first: the subject is a counter rather than a card, so every branch below would
+            // be answering about the wrong thing if one of them claimed the phrase.
+            if      (triggerRaw.startsWith("is placed on") || triggerRaw.startsWith("are placed on")) trigger = "counter placed";
+            else if (triggerRaw.contains("attack") && triggerRaw.contains("block"))                        trigger = "attacks or blocks";
             else if (triggerRaw.contains("attack") && (cardIsParty || triggerHasParty))                    trigger = "party attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("break zone"))                   trigger = "enters the field or put into break zone";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("attack"))                        trigger = "enters the field or attacks";
@@ -4393,6 +4420,19 @@ public record CardData(
 
         // Suffix restrictions (strip from end)
         Matcher restr = FA_TRIGGER_RESTRICTION.matcher(effect);
+        // A modal ability prints its restriction between the header and the quoted options, so by
+        // the time the options have been joined on it is no longer the last sentence — 16-031R
+        // Scarlet. Cut out rather than truncated to, since there is text on both sides of it.
+        if (!restr.find()) {
+            Matcher mid = FA_TRIGGER_RESTRICTION_MID.matcher(effect);
+            if (mid.find() && (mid.group("yourTurn") != null || mid.group("once") != null)) {
+                yourTurnOnly = mid.group("yourTurn") != null;
+                oncePerTurn  = mid.group("once")     != null;
+                effect = (effect.substring(0, mid.start()) + " " + effect.substring(mid.end()))
+                        .replaceAll("\\s+", " ").trim();
+            }
+        }
+        restr = FA_TRIGGER_RESTRICTION.matcher(effect);
         if (restr.find() && (restr.group("yourTurn") != null || restr.group("once") != null)) {
             yourTurnOnly = restr.group("yourTurn") != null;
             oncePerTurn  = restr.group("once")     != null;
