@@ -341,6 +341,48 @@
         "Play 1 Backup of cost 2 or less among them onto the field and return the other cards to the bottom of your deck in any order."
       ],
       "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-157.jpg"
+    },
+    {
+      "_note": "Promo printing; the API returns only PR-001 through PR-003.",
+      "serial": "PR-111",
+      "name": "Yuna & Tidus",
+      "type": "Forward",
+      "element": "Wind/Water",
+      "cost": 2,
+      "power": 8000,
+      "rarity": "PR",
+      "job": "Summoner/Guardian",
+      "category1": "Anniversary",
+      "category2": "X",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "Yuna & Tidus is also Card Name Yuna and Card Name Tidus in all situations.",
+        "[[br]]",
+        "The Category Anniversary Forwards other than Yuna & Tidus you control gain \"This Forward can attack 3 times in the same turn.\""
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-111_FA.jpg"
+    },
+    {
+      "_note": "Promo printing; the API returns only PR-001 through PR-003.",
+      "serial": "PR-158",
+      "name": "Snow & Lightning",
+      "type": "Forward",
+      "element": "Ice/Lightning",
+      "cost": 4,
+      "power": 10000,
+      "rarity": "PR",
+      "job": "Sentinel/Ravager/L'Cie",
+      "category1": "Anniversary",
+      "category2": "XIII",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "Snow & Lightning is also Card Name Snow and Card Name Lightning in all situations.",
+        "[[br]]",
+        "The Category Anniversary Forwards other than Snow & Lightning you control gain Haste and \"When this Forward attacks, choose 1 Character. Dull it and Freeze it.\""
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-158_FA.jpg"
     }
   ]
 }

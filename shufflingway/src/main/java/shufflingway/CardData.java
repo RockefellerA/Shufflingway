@@ -3229,11 +3229,24 @@ public record CardData(
     );
 
     /**
-     * Matches "At the beginning of the Attack Phase during each of your turns, [effect]".
+     * Matches "At the beginning of the Attack Phase during each of your turns, [effect]" and its
+     * short spelling, "At the beginning of your Attack Phase, [effect]".
      * Named group {@code effect} captures the effect text.
+     *
+     * <p>The two wordings say the same thing — the controller's own Attack Phase, every turn —
+     * and 48 printings use the long one against two using the short (Meia 9-095L, Dark Lord
+     * 6-016H). Reading only the long one did not leave those two unparsed, which would have been
+     * visible: it left them <em>mis-filed</em>. This pattern is what
+     * {@link #parseFieldAbilities} consults to keep a triggered clause out of the continuous
+     * abilities, so a trigger it did not recognise became a field ability instead, and a field
+     * ability that is really a trigger simply never fires.
+     *
+     * <p>"your opponent's Attack Phase" is a different trigger and is deliberately not reachable
+     * here: the short arm requires "your" immediately before "Attack".
      */
     private static final Pattern AT_BEGINNING_OF_ATTACK_PHASE_PATTERN = Pattern.compile(
-        "(?i)At\\s+the\\s+beginning\\s+of\\s+the\\s+Attack\\s+Phase\\s+during\\s+each\\s+of\\s+your\\s+turns,\\s+" +
+        "(?i)At\\s+the\\s+beginning\\s+of\\s+" +
+        "(?:the\\s+Attack\\s+Phase\\s+during\\s+each\\s+of\\s+your\\s+turns|your\\s+Attack\\s+Phase),\\s+" +
         "(?<effect>.+?)\\s*" +
         "(?=\\s*\\[\\[br\\]\\]|\\s*At\\s+the\\s+beginning|\\s*When\\s+[^,]+?\\s+" +
         "(?:attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed))|\\s*$)",

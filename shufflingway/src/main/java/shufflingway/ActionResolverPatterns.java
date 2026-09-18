@@ -153,7 +153,12 @@ final class ActionResolverPatterns {
                     // Safe to accept here because this group sits between the target descriptor and
                     // the followup separator: a card that puts something *into* the Break Zone says
                     // so after that separator, where this cannot reach it.
-                    "(?:\\s+(?<zone>(?:in(?:to)?|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the|either\\s+player'?s|any\\s+player'?s)\\s+Break\\s+Zone))?" +
+                    // "among all Break Zones" (B-026 Exdeath) is a third spelling of the both-zones
+                    // scope its 7-087R printing writes as "from either player's Break Zone". It
+                    // needs its own arm rather than another word in the list above: the preposition
+                    // is "among" and the noun is plural, so neither half of that arm fits it.
+                    "(?:\\s+(?<zone>(?:in(?:to)?|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the|either\\s+player'?s|any\\s+player'?s)\\s+Break\\s+Zone" +
+                    "|among\\s+all\\s+Break\\s+Zones))?" +
                     "(?:\\s+blocking\\s+" +
                     "(?:(?:a\\s+(?:Job\\s+)?(?<blockingjob>[^.,]+?)(?=\\s*[.,]))" +
                     "|(?<blockingname>[^.,]+?)(?=\\s*[.,])))?" +
@@ -2841,6 +2846,30 @@ final class ActionResolverPatterns {
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
         "(?<type>Forwards?|Backups?|Monsters?|Characters?)" +
         "\\s+you\\s+control[,.]\\s+play\\s+it\\s+onto\\s+(?<own>your|the)?\\s*field[.!]?$"
+    );
+    /**
+     * The plural spelling of {@link #FOLLOWUP_PLAY_IF_COST_LE_FIELD_COUNT}: "Play all the
+     * [Type]s among them of cost equal to or less than the number of [Element] [Category X]
+     * &lt;Type&gt; you control onto [the|your] field." — B-026 Exdeath, the reprint of 7-087R
+     * that chooses up to three instead of one.
+     *
+     * <p>Same condition, same payoff, same groups, said as one sentence instead of two: the
+     * singular form states the cost gate and then plays "it", while this one names the set and
+     * folds the gate in as a qualifier on it. The branch that reads them is shared, and already
+     * looped over the selection before this existed — the two older cards simply never chose
+     * more than one.
+     *
+     * <p>Group names are deliberately those of its sibling so one branch can read either matcher.
+     * {@code own} carries the same meaning and matters for the same reason: Exdeath reaches into
+     * both Break Zones, so a card taken from across the table has to arrive on his own side.
+     */
+    static final Pattern FOLLOWUP_PLAY_ALL_AMONG_THEM_COST_LE_FIELD_COUNT = Pattern.compile(
+        "(?i)^Play\\s+all\\s+the\\s+(?:Forwards?|Backups?|Monsters?|Characters?)\\s+among\\s+them\\s+" +
+        "of\\s+cost\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+the\\s+number\\s+of\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:Category\\s+(?<category>\\S+)\\s+)?" +
+        "(?<type>Forwards?|Backups?|Monsters?|Characters?)" +
+        "\\s+you\\s+control\\s+onto\\s+(?<own>your|the)?\\s*field[.!]?$"
     );
     /**
      * The general form of the cost gate: "If its cost is equal to or less than the number of
@@ -10869,6 +10898,27 @@ final class ActionResolverPatterns {
      */
     static final Pattern GAINS_QUOTED_ABILITIES_PERMANENT = Pattern.compile(
         "(?i)^(?<subject>.+?)\\s+gains\\s+\"(?<q1>.+?)\"(?:\\s+and\\s+\"(?<q2>.+?)\")?\\s*" +
+        "\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\)[.!]?$");
+    /**
+     * "[Self] gains [keywords] and \"[ability]\" (This effect does not end at the end of the
+     * turn.)" — Snovlinka 27-112H's first option, which hands itself Haste and a damage doubler
+     * at once and keeps both.
+     *
+     * <p>The keyword-carrying sibling of {@link #GAINS_QUOTED_ABILITIES_PERMANENT}, kept separate
+     * for the reason {@link #FOLLOWUP_GAINS_POWER_AND_QUOTED_ABILITY_PERMANENT} is: each
+     * combination of payloads puts its parts in a different order, and one pattern spanning them
+     * all would be a regex none of the three printings could be read out of.
+     *
+     * <p>Either quote style is accepted and the closing one must match the opening, through a
+     * back-reference. This clause is nested inside a {@code SELECT_FOLLOWING_ACTIONS} option, so
+     * the outer quotes are already spent on the option itself and the ability is printed in the
+     * other style — a pattern fixed on double quotes could not see it at all.
+     */
+    static final Pattern GAINS_KEYWORDS_AND_QUOTED_ABILITY_PERMANENT = Pattern.compile(
+        "(?i)^(?<subject>.+?)\\s+gains\\s+" +
+        "(?<keywords>(?:Haste|First\\s+Strike|Brave)" +
+            "(?:\\s*,\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)" +
+        "\\s+and\\s+(?<q>[\"'])(?<quoted>.+?)\\k<q>\\s*" +
         "\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\)[.!]?$");
     /**
      * A granted "[CardName] must attack once per turn if possible." clause (Roche 29-076H).

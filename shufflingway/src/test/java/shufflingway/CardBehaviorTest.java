@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
@@ -60098,6 +60099,316 @@ public class CardBehaviorTest {
 		mw.buildGameContext(false).opponentRandomRevealsSelectElementDiscard(2, "  ");
 
 		assertTrue(mw.gameState.getP1Hand().contains(windy), "nothing was revealed or taken");
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Meia 9-095L / Dark Lord 6-016H — a trigger spelled short, and mis-filed for it
+	//
+	// "At the beginning of your Attack Phase, [effect]" is the same trigger as "At the beginning
+	// of the Attack Phase during each of your turns, [effect]" — the controller's own Attack
+	// Phase, every turn. 48 printings use the long spelling and two use the short one.
+	//
+	// Reading only the long one did not leave those two unparsed, which would have been visible
+	// in the report. It left them mis-filed. AT_BEGINNING_OF_ATTACK_PHASE_PATTERN is what
+	// parseFieldAbilities consults to keep a triggered clause out of the continuous abilities, so
+	// a trigger it did not recognise fell through into fieldAbilities — and a field ability that
+	// is really a trigger has nothing to fire it. Both cards' abilities simply never happened.
+	//
+	// Meia hid it best: run through parse() for display she came back as
+	// "ChooseCharacter / PowerBoostUntil + ChooseCharacter / KeywordGrant + ?", which reads like
+	// a card that does all three of its options at once rather than one that does nothing.
+	// =========================================================================================
+
+	private static final String MEIA_9_095L_TEXT =
+			"At the beginning of your Attack Phase, select 1 of the 3 following actions. "
+			+ "If you have received 5 points of damage or more, select up to 2 of the 3 following "
+			+ "actions instead.[[br]] \"Choose 1 Forward. Until the end of the turn, it gains "
+			+ "+1000 power and First Strike.\"[[br]] \"Choose 1 Forward. Dull it.\"[[br]] "
+			+ "\"Choose 1 Category MOBIUS Forward other than Meia. It gains Haste until the end "
+			+ "of the turn. \"";
+
+	private static final String DARK_LORD_6_016H_TEXT =
+			"At the beginning of your Attack Phase, choose up to 1 Forward. Deal it 3000 damage.";
+
+	@Test
+	void theShortAttackPhaseSpellingIsATriggerNotAFieldAbility() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(MEIA_9_095L_TEXT);
+		assertEquals(1, autos.size(), "one triggered ability");
+		assertEquals("beginning of attack phase", autos.get(0).trigger());
+		assertTrue(CardData.parseFieldAbilities(MEIA_9_095L_TEXT, "Forward").isEmpty(),
+				"and nothing left behind as a continuous ability");
+	}
+
+	@Test
+	void meiasThreeOptionsAreReadAsASelection() {
+		CardData meia = makeForward("Meia", "Lightning", 3, 7000);
+		String effect = CardData.parseAutoAbilities(MEIA_9_095L_TEXT).get(0).effectText();
+		assertEquals("SelectFollowingActions(1 of 3: ChooseCharacter / PowerBoostUntil "
+				+ "| ChooseCharacter / Dull | ChooseCharacter / KeywordGrant)",
+				ActionResolver.fullDescription(effect, meia),
+				"one of three, not all three run in a row");
+	}
+
+	@Test
+	void darkLordCarriesTheSameShortSpelling() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(DARK_LORD_6_016H_TEXT);
+		assertEquals(1, autos.size());
+		assertEquals("beginning of attack phase", autos.get(0).trigger());
+		assertTrue(CardData.parseFieldAbilities(DARK_LORD_6_016H_TEXT, "Forward").isEmpty());
+	}
+
+	@Test
+	void theLongSpellingIsUntouched() {
+		// 48 printings depend on it, so the widening has to be additive.
+		List<AutoAbility> autos = CardData.parseAutoAbilities(
+				"At the beginning of the Attack Phase during each of your turns, all the Earth "
+				+ "Forwards you control gain +2000 power until the end of the turn.");
+		assertEquals(1, autos.size());
+		assertEquals("beginning of attack phase", autos.get(0).trigger());
+	}
+
+	@Test
+	void theOpponentsAttackPhaseIsADifferentTriggerAndStaysOne() {
+		// "your opponent's Attack Phase" must not be swept up by the short arm, which is why that
+		// arm requires "your" immediately before "Attack".
+		List<AutoAbility> autos = CardData.parseAutoAbilities(
+				"At the beginning of your opponent's Attack Phase, choose 1 Forward. Dull it.");
+		assertFalse(autos.stream().anyMatch(a -> "beginning of attack phase".equals(a.trigger())),
+				"the opponent's phase is not the controller's");
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Exdeath B-026 — the plural reprint of 7-087R
+	//
+	// "choose up to 3 Forwards among all Break Zones. Play all the Forwards among them of cost
+	// equal to or less than the number of Backups you control onto your field."
+	//
+	// 7-087R says the same thing about one card: "choose 1 Forward from either player's Break
+	// Zone. If its cost is equal to or less than the number of Backups you control, play it onto
+	// your field." Two wordings differ and both are B-026's alone in the corpus — "among all
+	// Break Zones" for the both-zones scope, and the plural payoff that names the set and folds
+	// the cost gate in as a qualifier rather than stating it as a separate sentence.
+	//
+	// Nothing in the executor needed changing. It already walked the whole selection and gated
+	// each card on its own cost, because that was the honest way to write it even while no
+	// printing chose more than one.
+	// =========================================================================================
+
+	private static final String EXDEATH_B_026_EFFECT =
+			"choose up to 3 Forwards among all Break Zones. Play all the Forwards among them of "
+			+ "cost equal to or less than the number of Backups you control onto your field.";
+
+	@Test
+	void exdeathsPluralSpellingIsRead() {
+		CardData exdeath = makeForward("Exdeath", "Lightning", 6, 0);
+		assertEquals("ChooseCharacter / PlayAllAmongThemCostLeFieldCount",
+				ActionResolver.fullDescription(EXDEATH_B_026_EFFECT, exdeath));
+	}
+
+	@Test
+	void theSingularPrintingsStillReadAsThemselves() {
+		assertEquals("ChooseCharacter / PlayIfCostLeFieldCount", ActionResolver.fullDescription(
+				"choose 1 Forward from either player's Break Zone. If its cost is equal to or "
+				+ "less than the number of Backups you control, play it onto your field.", null));
+		assertEquals("ChooseCharacter / CostLeFieldCount(PlayOntoField)", ActionResolver.fullDescription(
+				"choose 1 Category II Forward other than Card Name Minwu in your Break Zone. If "
+				+ "its cost is equal to or less than the number of Backups you control, play it "
+				+ "onto the field.", null));
+	}
+
+	@Test
+	void exdeathReachesBothBreakZonesAndTakesUpToThree() {
+		Consumer<GameContext> fn = ActionResolver.parse(EXDEATH_B_026_EFFECT, null);
+		assertNotNull(fn, "Exdeath's selection should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharactersFromBreakZone(
+				anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of());
+		fn.accept(ctx);
+
+		// maxCount 3, upTo true, bothZones true — the fourth argument is the both-zones flag.
+		verify(ctx).selectCharactersFromBreakZone(
+				eq(3), eq(true), anyBoolean(), eq(true), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void onlyTheAffordableOnesArePlayedAndTheyLandOnYourField() {
+		// Three chosen, two Backups controlled: the cost-1 and cost-2 Forwards come back and the
+		// cost-5 does not. The one taken from the opponent's Break Zone still arrives on ours,
+		// which is what "onto your field" means on a card that reaches across the table.
+		ForwardTarget cheapMine  = new ForwardTarget(true,  0, ForwardTarget.CardZone.BREAK_ZONE);
+		ForwardTarget cheapTheirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		ForwardTarget dear       = new ForwardTarget(true,  1, ForwardTarget.CardZone.BREAK_ZONE);
+
+		Consumer<GameContext> fn = ActionResolver.parse(EXDEATH_B_026_EFFECT, null);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharactersFromBreakZone(
+				anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(cheapMine, dear, cheapTheirs));
+		when(ctx.p1BreakZoneCard(0)).thenReturn(makeForward("Cheap", "Lightning", 1, 3000));
+		when(ctx.p1BreakZoneCard(1)).thenReturn(makeForward("Dear",  "Lightning", 5, 9000));
+		when(ctx.p2BreakZoneCard(0)).thenReturn(makeForward("Theirs", "Fire", 2, 5000));
+		when(ctx.countSelfFieldCards(anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any())).thenReturn(2);
+		fn.accept(ctx);
+
+		verify(ctx).playTargetOntoOwnField(cheapMine);
+		verify(ctx).playTargetOntoOwnField(cheapTheirs);
+		verify(ctx, never()).playTargetOntoOwnField(dear);
+		verify(ctx, never()).playTargetOntoField(any());
+	}
+
+	@Test
+	void noBackupsMeansNothingComesBack() {
+		ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		Consumer<GameContext> fn = ActionResolver.parse(EXDEATH_B_026_EFFECT, null);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharactersFromBreakZone(
+				anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of(t));
+		when(ctx.p1BreakZoneCard(0)).thenReturn(makeForward("Cheap", "Lightning", 1, 3000));
+		when(ctx.countSelfFieldCards(anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any())).thenReturn(0);
+		fn.accept(ctx);
+
+		verify(ctx, never()).playTargetOntoOwnField(any());
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Snovlinka 27-112H — a keyword and a quoted ability handed over together, for keeps
+	//
+	// "select 1 of the 2 following actions. If you have received 5 points of damage or more,
+	// select up to 2 of the 2 following actions instead.
+	//   "Snovlinka gains Haste and 'If Snovlinka deals damage to your opponent or a Forward,
+	//    double the damage instead.' (This effect does not end at the end of the turn.)"
+	//   "Choose 1 Forward. Deal it 8000 damage.""
+	//
+	// Most of this was already standing. The select framework reads the two options and the
+	// damage-threshold upgrade, and the second option parsed on its own. Two small things stopped
+	// the first one.
+	//
+	// The doubler clause is printed with its targets the other way round from every other card
+	// that has it — "to your opponent or a Forward" where Caius 18-108H and the rest say "to a
+	// Forward or your opponent" — so FA_OUTGOING_DAMAGE_DOUBLER did not recognise it. And the
+	// grant pairs a keyword with a quoted ability permanently, a combination none of the existing
+	// grant patterns spelled.
+	//
+	// Both payloads or neither: granting the Haste while dropping the doubler would be a weaker
+	// effect reported as the whole one.
+	// =========================================================================================
+
+	private static final String SNOVLINKA_27_112H_EFFECT =
+			"select 1 of the 2 following actions. If you have received 5 points of damage or more, "
+			+ "select up to 2 of the 2 following actions instead. "
+			+ "\"Snovlinka gains Haste and 'If Snovlinka deals damage to your opponent or a "
+			+ "Forward, double the damage instead.' (This effect does not end at the end of the "
+			+ "turn.)\" \"Choose 1 Forward. Deal it 8000 damage.\"";
+
+	private static final String SNOVLINKA_OPTION_ONE =
+			"Snovlinka gains Haste and 'If Snovlinka deals damage to your opponent or a Forward, "
+			+ "double the damage instead.' (This effect does not end at the end of the turn.)";
+
+	@Test
+	void bothOfSnovlinkasOptionsAreRead() {
+		CardData snov = makeForward("Snovlinka", "Dark", 3, 7000);
+		assertEquals("SelectFollowingActions(1 of 2: GainsKeywordsAndQuotedAbilityPermanent "
+				+ "| ChooseCharacter / Damage)",
+				ActionResolver.fullDescription(SNOVLINKA_27_112H_EFFECT, snov));
+	}
+
+	@Test
+	void theReversedDoublerWordingIsRecognisedAndCoversBothTargets() {
+		// Snovlinka is the corpus's only printing with the halves this way round. Every reader
+		// tests the target group with contains(), so the arm has to answer both questions.
+		Matcher m = AutoAbilityTriggers.FA_OUTGOING_DAMAGE_DOUBLER.matcher(
+				"If Snovlinka deals damage to your opponent or a Forward, double the damage instead.");
+		assertTrue(m.matches(), "the reversed order should be read");
+		assertEquals("Snovlinka", m.group("card"));
+		String target = m.group("target").toLowerCase(Locale.ROOT);
+		assertTrue(target.contains("forward"), "the combat readers ask for this");
+		assertTrue(target.contains("opponent"), "the damage-to-player readers ask for this");
+	}
+
+	@Test
+	void theOriginalDoublerWordingStillReads() {
+		Matcher m = AutoAbilityTriggers.FA_OUTGOING_DAMAGE_DOUBLER.matcher(
+				"If Caius deals damage to a Forward or your opponent, double the damage instead.");
+		assertTrue(m.matches(), "the widening must not have cost the spelling every other card uses");
+		assertTrue(m.group("target").toLowerCase(Locale.ROOT).contains("forward"));
+		assertTrue(m.group("target").toLowerCase(Locale.ROOT).contains("opponent"));
+	}
+
+	@Test
+	void theFirstOptionGrantsHasteAndTheDoublerAndKeepsBoth() {
+		MainWindow mw = new MainWindow();
+		CardData snov = makeForward("Snovlinka", "Dark", 3, 7000);
+		placeP1Forward(mw, snov);
+		CardData victim = makeForward("Victim", "Fire", 4, 8000);
+		mw.gameState.getIdentity().put(victim, false);
+		mw.placeP2CardInForwardZone(victim);
+
+		Consumer<GameContext> fn = ActionResolver.parse(SNOVLINKA_OPTION_ONE, snov);
+		assertNotNull(fn, "the paired grant should parse");
+		fn.accept(mw.buildGameContext(true));
+
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.HASTE), "the keyword half");
+		assertEquals(2, mw.fieldAbilityCombatOutgoingMult(snov, victim),
+				"the quoted half, against a Forward");
+		assertTrue(mw.sourceHasOutgoingDmgToOpponentDoubler(snov),
+				"and against the opponent — the reversed wording names both");
+	}
+
+	@Test
+	void anUnreadableQuotedHalfTakesTheKeywordWithIt() {
+		// Fail closed. The keyword alone is a real effect, so claiming it would look like success
+		// while quietly delivering less than the card says.
+		CardData snov = makeForward("Snovlinka", "Dark", 3, 7000);
+		assertNull(ActionResolver.parse(
+				"Snovlinka gains Haste and 'Snovlinka does something this engine cannot read.' "
+				+ "(This effect does not end at the end of the turn.)", snov));
+	}
+
+	@Test
+	void theGrantIsDeclinedWhenItNamesAnotherCard() {
+		CardData other = makeForward("Tifa", "Wind", 2, 4000);
+		assertNull(ActionResolver.parse(SNOVLINKA_OPTION_ONE, other),
+				"the grant is keyed to the printing that resolved it");
+	}
+
+	/** Resolves Snovlinka's select against a mock whose controller has taken {@code damage}. */
+	private static GameContext resolveSnovlinka(int damage) {
+		CardData snov = makeForward("Snovlinka", "Dark", 3, 7000);
+		Consumer<GameContext> fn = ActionResolver.parse(SNOVLINKA_27_112H_EFFECT, snov);
+		assertNotNull(fn, "Snovlinka's select should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selfDamageCount()).thenReturn(damage);
+		when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean())).thenReturn(List.of());
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void theDamageThresholdWidensTheSelectionToBoth() {
+		// Pre-existing machinery, locked for this card: the description prints the base count, so
+		// nothing in it would show the upgrade being dropped.
+		verify(resolveSnovlinka(4)).chooseActions(any(), any(), eq(1), eq(false));
+		verify(resolveSnovlinka(5)).chooseActions(any(), any(), eq(2), eq(true));
+		verify(resolveSnovlinka(7)).chooseActions(any(), any(), eq(2), eq(true));
 	}
 
 	// =========================================================================================

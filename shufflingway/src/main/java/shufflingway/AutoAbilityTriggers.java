@@ -440,7 +440,13 @@ final class AutoAbilityTriggers {
 	 */
 	static final Pattern FA_OUTGOING_DAMAGE_DOUBLER = Pattern.compile(
 		"(?i)^If\\s+(?<card>.+?)\\s+deals\\s+damage\\s+to\\s+" +
-		"(?<target>a\\s+Forward(?:\\s+or\\s+your\\s+opponent)?|your\\s+opponent|a\\s+player)" +
+		// Both orders of the two-target wording. Every printing but one says "a Forward or your
+		// opponent"; Snovlinka 27-112H grants itself the same clause with the halves the other way
+		// round. The reversed arm is listed ahead of the bare "your opponent" so the longer read
+		// is tried first — every reader tests this group with contains(), so an arm naming both
+		// answers to the Forward question and the opponent question alike.
+		"(?<target>a\\s+Forward(?:\\s+or\\s+your\\s+opponent)?" +
+		"|your\\s+opponent\\s+or\\s+a\\s+Forward|your\\s+opponent|a\\s+player)" +
 		// "instead" is optional: every printing of this doubler carries it except the one Terra
 		// 1-047R grants itself ("… double the damage"), which is the only corpus text of this
 		// shape without it. Requiring it left that grant matching nothing at all.

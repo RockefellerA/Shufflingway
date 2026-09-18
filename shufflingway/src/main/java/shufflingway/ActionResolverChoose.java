@@ -1959,8 +1959,11 @@ final class ActionResolverChoose {
         boolean opponentOnly = control != null && !control.equalsIgnoreCase("you control");
         boolean selfOnly     = "you control".equalsIgnoreCase(control);
         String  zone         = m.group("zone") != null ? m.group("zone") : bzFieldZone;
+        // "among all Break Zones" (B-026 Exdeath) is the third spelling of the same scope, and
+        // the only one that says it with a plural noun rather than by naming both players.
         boolean bothZones    = zone != null && (zone.toLowerCase(java.util.Locale.ROOT).contains("either player")
-                                             || zone.toLowerCase(java.util.Locale.ROOT).contains("any player"));
+                                             || zone.toLowerCase(java.util.Locale.ROOT).contains("any player")
+                                             || zone.toLowerCase(java.util.Locale.ROOT).contains("all break zones"));
         boolean opponentZone = zone != null && !bothZones && zone.toLowerCase(java.util.Locale.ROOT).contains("opponent");
 
         String  followup     = restorePeriodInName(m.group("followup").trim(), source);
@@ -4984,7 +4987,14 @@ final class ActionResolverChoose {
         // whole board. Both cards needed this for opposite reasons — Exdeath reported "?" and did
         // nothing, while Minwu's condition was being taken off the end of his sentence by a find()
         // PlayOntoField arm below, so he played a Forward of any cost at all.
+        //
+        // B-026 Exdeath, the plural reprint of 7-087R, says the same thing in one sentence
+        // instead of two and is read through the same branch. Nothing below needed changing for
+        // it: the body already walked the whole selection and gated each card on its own cost,
+        // because that was the honest way to write it even when no printing chose more than one.
         Matcher costLeFieldM = FOLLOWUP_PLAY_IF_COST_LE_FIELD_COUNT.matcher(primaryFollowup.trim());
+        if (!costLeFieldM.matches())
+            costLeFieldM = FOLLOWUP_PLAY_ALL_AMONG_THEM_COST_LE_FIELD_COUNT.matcher(primaryFollowup.trim());
         if (costLeFieldM.matches()) {
             String  condElement  = costLeFieldM.group("element");
             String  condCategory = costLeFieldM.group("category");
@@ -5003,8 +5013,13 @@ final class ActionResolverChoose {
             return ctx -> {
                 ctx.logChooseHeader(choosePrefix + " — Play onto " + (ontoOwnField ? "your" : "the")
                         + " field if cost ≤ count of " + countLabel + " you control");
+                // Through the bothZones overload. Both Exdeath printings reach across the table
+                // for the card — 7-087R says "from either player's Break Zone" and B-026 "among
+                // all Break Zones" — and the shorter overload passes false, which narrowed the
+                // offer to the resolving player's own Break Zone and quietly made the wording
+                // that distinguishes these two cards from Minwu do nothing at all.
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
-                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
                         jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 int allowed = ctx.countSelfFieldCards(condFwd, condBkp, condMon,

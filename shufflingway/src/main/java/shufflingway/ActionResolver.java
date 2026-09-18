@@ -1016,6 +1016,12 @@ public class ActionResolver {
         result = tryParseGainsQuotedFieldAbilityUntilEot(effectText, source);
         if (result != null) return result;
 
+        // Beside its quoted-only sibling below, and ahead of it: that one is anchored on a double
+        // quote straight after "gains", which this sentence does not have, so the order is for
+        // the reader rather than load-bearing.
+        result = tryParseGainsKeywordsAndQuotedAbilityPermanent(effectText, source);
+        if (result != null) return result;
+
         result = tryParseGainsQuotedAbilitiesPermanent(effectText, source);
         if (result != null) return result;
 
@@ -2414,6 +2420,9 @@ public class ActionResolver {
         if (tryParseSelfOutgoingDmgBoostThisTurn(effectText, source) != null)   return "SelfOutgoingDmgBoostThisTurn";
         if (tryParseGainOutgoingDmgBoostUntilEot(effectText, source) != null)   return "GainOutgoingDmgBoostUntilEot";
         if (tryParseGainsQuotedFieldAbilityUntilEot(effectText, source) != null) return "GainsQuotedFieldAbilityUntilEot";
+        // Mirrors parse(): beside its quoted-only sibling.
+        if (tryParseGainsKeywordsAndQuotedAbilityPermanent(effectText, source) != null)
+            return "GainsKeywordsAndQuotedAbilityPermanent";
         if (tryParseGainsQuotedAbilitiesPermanent(effectText, source) != null)  return "GainsQuotedAbilitiesPermanent";
         if (tryParseSelfPowerBoostPermanent(effectText, source) != null)        return "SelfPowerBoostPermanent";
         if (tryParseUntilEotGainsPowerTraitsAndQuoted(effectText, source) != null) return "UntilEotGainsPowerTraitsAndQuoted";
@@ -3080,6 +3089,10 @@ public class ActionResolver {
         // claimed by the general cost gate above, exactly as it is in the choose parser.
         if (FOLLOWUP_PLAY_IF_COST_LE_FIELD_COUNT.matcher(followupText.trim()).matches())
                                                                                       return "PlayIfCostLeFieldCount";
+        // The plural spelling of the same gate (B-026 Exdeath), which the choose chain reads
+        // through the same branch — named apart so the two printings stay tellable in a report.
+        if (FOLLOWUP_PLAY_ALL_AMONG_THEM_COST_LE_FIELD_COUNT.matcher(followupText.trim()).matches())
+                                                                                      return "PlayAllAmongThemCostLeFieldCount";
         // Mirrors the Choose chain, where the two-sentence form is read ahead of this one.
         if (FOLLOWUP_MAY_PAY_X_PLAY_IF_COST_IS_X.matcher(followupText.trim()).matches())
                                                                                       return "MayPayXPlayIfCostIsX";
@@ -4243,6 +4256,9 @@ public class ActionResolver {
         if (tryParseSelfOutgoingDmgBoostThisTurn(effectText, source) != null)   return "SelfOutgoingDmgBoostThisTurn";
         if (tryParseGainOutgoingDmgBoostUntilEot(effectText, source) != null)   return "GainOutgoingDmgBoostUntilEot";
         if (tryParseGainsQuotedFieldAbilityUntilEot(effectText, source) != null) return "GainsQuotedFieldAbilityUntilEot";
+        // Mirrors parse(): beside its quoted-only sibling.
+        if (tryParseGainsKeywordsAndQuotedAbilityPermanent(effectText, source) != null)
+            return "GainsKeywordsAndQuotedAbilityPermanent";
         if (tryParseGainsQuotedAbilitiesPermanent(effectText, source) != null)  return "GainsQuotedAbilitiesPermanent";
         if (tryParseSelfPowerBoostPermanent(effectText, source) != null)        return "SelfPowerBoostPermanent";
         if (tryParseUntilEotGainsPowerTraitsAndQuoted(effectText, source) != null) return "UntilEotGainsPowerTraitsAndQuoted";

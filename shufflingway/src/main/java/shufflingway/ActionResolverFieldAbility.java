@@ -40,6 +40,37 @@ final class ActionResolverFieldAbility {
         return grantedSelfFieldAbilityEffect(m.group("quoted").trim(), source);
     }
     /**
+     * Snovlinka 27-112H's first option: "[Self] gains [keywords] and "[ability]" (This effect
+     * does not end at the end of the turn.)" — a keyword and a quoted field ability handed over
+     * together, both outlasting the turn.
+     *
+     * <p>Both payloads or neither. The quoted clause goes through
+     * {@link ActionResolver#permanentGrantForSelfClause} and the ability is declined outright if
+     * that returns null: the two halves are one sentence, and granting the keyword alone would be
+     * a weaker effect reported as the whole one — the failure the fail-closed rule exists for.
+     *
+     * <p>The keywords ride on {@code boostSourceForwardPermanently} with an amount of zero, which
+     * is the permanent trait store every other outlasting keyword grant writes to. No new
+     * primitive: what is new here is the pairing, not either payload.
+     */
+    static Consumer<GameContext> tryParseGainsKeywordsAndQuotedAbilityPermanent(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = GAINS_KEYWORDS_AND_QUOTED_ABILITY_PERMANENT.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("subject").trim().equalsIgnoreCase(source.name())) return null;
+
+        EnumSet<CardData.Trait> traits = parseTraits(m.group("keywords"));
+        if (traits.isEmpty()) return null;
+        Consumer<GameContext> granted = permanentGrantForSelfClause(m.group("quoted").trim(), source);
+        if (granted == null) return null;
+
+        return ctx -> {
+            ctx.boostSourceForwardPermanently(source, 0, traits);
+            granted.accept(ctx);
+        };
+    }
+
+    /**
      * The subject is the source itself, so the clauses go through
      * {@link ActionResolver#permanentGrantForSelfClause} rather than the narrower
      * {@link ActionResolver#permanentGrantForClause} it delegates to: a self-grant can hand over a
