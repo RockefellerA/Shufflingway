@@ -1200,7 +1200,7 @@ public class ActionResolver {
         result = tryParseRevealTopNElementToHand(effectText);
         if (result != null) return result;
 
-        result = tryParseRevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(effectText);
+        result = tryParseRevealAddToHandOrPlayOntoField(effectText);
         if (result != null) return result;
 
         // Must precede tryParseReturnNamedToHand. 26-053L Bartz ends "and add the other cards to
@@ -1830,6 +1830,11 @@ public class ActionResolver {
         result = tryParseRevealPlayNamedWithMaxCostRestBottom(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseRevealPlayJobTypeTotalCostRestBottom: that one reads a single filter
+        // over the whole budget, and Mid Previa 26-115H names a quota per card type.
+        result = tryParseRevealPlayPerTypeQuotaTotalCost(effectText);
+        if (result != null) return result;
+
         result = tryParseRevealPlayJobTypeTotalCostRestBottom(effectText);
         if (result != null) return result;
 
@@ -2405,7 +2410,7 @@ public class ActionResolver {
         if (tryParseRevealTopNCategoryToHand(effectText) != null) return "RevealTopNCategoryToHand";
         if (tryParseRevealTopNJobOrNameToHand(effectText) != null) return "RevealTopNJobOrNameToHand";
         if (tryParseRevealTopNElementToHand(effectText) != null) return "RevealTopNElementToHand";
-        if (tryParseRevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(effectText) != null) return "RevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom";
+        if (tryParseRevealAddToHandOrPlayOntoField(effectText) != null) return "RevealAddToHandOrPlayOntoField";
         // Must precede ReturnNamedToHand — see the ordering note in parse().
         if (tryParseRevealPlayElementTypeCostOntoFieldRestBottom(effectText, 0) != null) return "RevealPlayElementTypeCostOntoFieldRestBottom";
         if (tryParseRevealPlayTypeCostOrNamedCostRestBottom(effectText) != null) return "RevealPlayTypeCostOrNamedCostRestBottom";
@@ -2659,6 +2664,9 @@ public class ActionResolver {
         }
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)         != null) return "RevealPlayNamedWithMaxCostRestBottom";
+        // Mirrors parse(): ahead of the single-filter sibling below, which would read
+        // Mid Previa 26-115H's three type quotas as one filter over the whole budget.
+        if (tryParseRevealPlayPerTypeQuotaTotalCost(effectText) != null) return "RevealPlayPerTypeQuotaTotalCost";
         if (tryParseRevealPlayJobTypeTotalCostRestBottom(effectText)        != null) return "RevealPlayJobTypeTotalCost";
         if (tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText)        != null) return "RevealPlayNamedOrJobMaxCostRestBottom";
         // Mirrors parse(), where this is read ahead of tryParsePlaySourceOntoField rather than
@@ -2742,6 +2750,11 @@ public class ActionResolver {
         // Strip leading "You may " so optional-followup effects are identified correctly
         if (followupText.toLowerCase(Locale.ROOT).startsWith("you may "))
             followupText = followupText.substring("You may ".length()).trim();
+        // Mirrors the choose chain, where the modal menu is the first branch of all: its options
+        // are quoted card text, and every find() check below would name this for whichever verb it
+        // found inside one of them. 3-138H Ceodore read as "PowerBoost".
+        if (FOLLOWUP_SELECT_FROM_FOLLOWING.matcher(followupText.trim()).matches())
+            return "SelectFollowingActions";
         // Mirrors parseChooseFollowup: a quoted grant spanning a sentence is settled here, ahead
         // of every find() check below, so the name cannot come from a clause printed inside the
         // quotation. The permanent shape is the only one that resolves, and only when its clause
@@ -3859,6 +3872,30 @@ public class ActionResolver {
             }
             if (FOLLOWUP_SELECT_COUNTER_AND_DOUBLE_SAME_TYPE.matcher(followup.trim()).matches())
                 return "ChooseCharacter / DoubleCounterType";
+            // 3-138H Ceodore's modal menu, named off the whole followup before the split below can
+            // separate the "Select 1 from the following." header from the options it introduces.
+            // Mirrors the choose chain, which suppresses that split for the same reason.
+            //
+            // Claimed only when every option is one parseTargetAction reads, because that is the
+            // condition the parser itself applies — a menu with an unreadable entry falls through
+            // there, so naming it here would report a modal the card never resolves as.
+            {
+                Matcher selFromM = FOLLOWUP_SELECT_FROM_FOLLOWING.matcher(followup.trim());
+                if (selFromM.matches()) {
+                    List<String> optionNames = new ArrayList<>();
+                    boolean allRead = true;
+                    for (String option : selectFollowingOptions(selFromM.group("actions"))) {
+                        if (parseTargetAction(option, 0) == null) allRead = false;
+                        String optName = matchedFollowupName(option, source);
+                        optionNames.add(optName != null ? optName : "?");
+                    }
+                    if (allRead && !optionNames.isEmpty())
+                        return "ChooseCharacter / SelectFollowingActions("
+                                + (selFromM.group("upTo") != null ? "up to " : "")
+                                + selFromM.group("select") + " of " + optionNames.size()
+                                + ": " + String.join(" | ", optionNames) + ")";
+                }
+            }
             // Same quote-aware split parse() uses, so the two cannot disagree about where the
             // primary followup ends when a granted ability is quoted across two sentences.
             int    dotIdx        = sentenceBreakOutsideQuotes(followup);
@@ -4168,7 +4205,7 @@ public class ActionResolver {
         if (tryParseRevealTopNCategoryToHand(effectText)   != null)          return "RevealTopNCategoryToHand";
         if (tryParseRevealTopNJobOrNameToHand(effectText)  != null)          return "RevealTopNJobOrNameToHand";
         if (tryParseRevealTopNElementToHand(effectText)    != null)           return "RevealTopNElementToHand";
-        if (tryParseRevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(effectText) != null) return "RevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom";
+        if (tryParseRevealAddToHandOrPlayOntoField(effectText) != null) return "RevealAddToHandOrPlayOntoField";
         // Must precede ReturnNamedToHand — see the ordering note in parse().
         if (tryParseRevealPlayElementTypeCostOntoFieldRestBottom(effectText)     != null) return "RevealPlayElementTypeCostOntoFieldRestBottom";
         if (tryParseRevealPlayTypeCostOrNamedCostRestBottom(effectText)         != null) return "RevealPlayTypeCostOrNamedCostRestBottom";
@@ -4447,6 +4484,9 @@ public class ActionResolver {
         }
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)           != null) return "RevealPlayNamedWithMaxCostRestBottom";
+        // Mirrors parse(): ahead of the single-filter sibling below, which would read
+        // Mid Previa 26-115H's three type quotas as one filter over the whole budget.
+        if (tryParseRevealPlayPerTypeQuotaTotalCost(effectText) != null) return "RevealPlayPerTypeQuotaTotalCost";
         if (tryParseRevealPlayJobTypeTotalCostRestBottom(effectText)          != null) return "RevealPlayJobTypeTotalCost";
         if (tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText)          != null) return "RevealPlayNamedOrJobMaxCostRestBottom";
         // Mirrors parse() and matchedPatternName(); see the note there about its real position.
@@ -4547,9 +4587,13 @@ public class ActionResolver {
         // No printed number when the count is read at resolution — named for which count it is,
         // rather than left blank, so the shapes read differently in the golden file.
         String howMany = m.group("select") != null ? m.group("select")
+                : m.group("selectFrom") != null ? m.group("selectFrom")
                 : SELECT_ACTIONS_COUNT_SOURCE_COUNTERS.matcher(m.group("countSrc").trim()).matches()
                         ? "CounterCount" : "FieldCount";
-        return "SelectFollowingActions(" + upTo + howMany + " of " + m.group("total")
+        // "Select 1 from the following" prints no option count either, so the menu supplies it —
+        // the same substitution tryParseSelectFollowingActions makes.
+        String total = m.group("total") != null ? m.group("total") : String.valueOf(options.size());
+        return "SelectFollowingActions(" + upTo + howMany + " of " + total
                 + ": " + String.join(" | ", options) + ")";
     }
 

@@ -243,12 +243,25 @@ final class ActionResolverChoose {
         return ctx -> ctx.countSelfFieldCardsExcluding(fwd, bkp, mon, excluded);
     }
 
+    /**
+     * How many options the header of a {@link ActionResolverPatterns#SELECT_FOLLOWING_ACTIONS}
+     * match tells the player to take.
+     *
+     * <p>The number sits in a different slot depending on which spelling the card printed —
+     * "select 1 of the 3 following actions" fills {@code select}, "select 1 from the following"
+     * fills {@code selectFrom} — because one regex cannot name two groups the same. Callers that
+     * read the count at resolution instead ("the same number of …") never reach this.
+     */
+    static int selectActionsPrintedCount(Matcher m) {
+        String n = m.group("select") != null ? m.group("select") : m.group("selectFrom");
+        return Integer.parseInt(n);
+    }
+
     static Consumer<GameContext> tryParseSelectFollowingActions(String text, CardData source) {
         Matcher m = SELECT_FOLLOWING_ACTIONS.matcher(text);
         if (!m.find()) return null;
 
         final boolean baseUpTo      = m.group("upTo") != null;
-        final int     total         = Integer.parseInt(m.group("total"));
         // "up to the same number of the N following actions as <countSrc>" — the count is a board
         // count read at resolution, so there is no printed number to start from. Capped at the
         // option count: the options are a menu and each can be taken once, so counting past the
@@ -256,7 +269,7 @@ final class ActionResolverChoose {
         final ToIntFunction<GameContext> countSource = m.group("countSrc") != null
                 ? selectActionsCountSource(m.group("countSrc").trim(), source) : null;
         if (m.group("countSrc") != null && countSource == null) return null;
-        final int     baseSelect    = countSource != null ? 0 : Integer.parseInt(m.group("select"));
+        final int     baseSelect    = countSource != null ? 0 : selectActionsPrintedCount(m);
         // "Your opponent selects N of the M following actions" — 16-037R Babus, 29-080C Chaos. Only
         // the chooser changes; the options stay in the resolving player's context, because they are
         // written from that seat ("your opponent discards 2 cards" is the same hand either way).
@@ -340,6 +353,9 @@ final class ActionResolverChoose {
 
         List<String> actions = selectFollowingOptions(actionsRaw);
         if (actions.isEmpty()) return null;
+        // "Select 1 from the following" prints no option count, so the menu is the total. Read
+        // after the upgrade clauses have been stripped off, which is where the options end up.
+        final int total = m.group("total") != null ? Integer.parseInt(m.group("total")) : actions.size();
 
         return ctx -> {
             int     effSelect = baseSelect;
@@ -1920,6 +1936,10 @@ final class ActionResolverChoose {
             // a number, and two arms that spend it. Split, the first arm is lost and the second
             // reads as an unconditional 10000.
             if (FOLLOWUP_OPP_REVEAL_TOP_COST_BRANCH_DAMAGE.matcher(followup).find()) dotSpaceIdx = -1;
+            // "Select 1 from the following." and the quoted options after it are one modal choice,
+            // and the break between the header and the first option is outside every quotation —
+            // so the split would hand the chain a header with no menu and a menu with no header.
+            if (FOLLOWUP_SELECT_FROM_FOLLOWING.matcher(followup.trim()).matches()) dotSpaceIdx = -1;
             if (dotSpaceIdx >= 0) {
                 primaryFollowup = followup.substring(0, dotSpaceIdx).trim();
                 String stripped = stripRestrictionSentences(followup.substring(dotSpaceIdx + 2).trim());
@@ -2089,6 +2109,57 @@ final class ActionResolverChoose {
                 + (condition != null ? " " + condition : "")
                 + (element   != null ? " " + element   : "")
                 + categoryLabel + " " + targets + costLabel + powerLabel + controlLabel + excludeLabel + zoneLabel;
+
+
+        // =====================================================================================
+        // Modal followup: "Select N from the following"
+        // =====================================================================================
+        // --- "Select 1 from the following. "<option>" "<option>" …" (3-138H Ceodore) ---------
+        // First of all the followup branches, because the options are quoted card text: every
+        // branch below scans with find() and would take a verb out of one of them and run it
+        // whatever the player picked. Ceodore granted +1000 power unconditionally that way.
+        //
+        // Every option has to go through parseTargetAction or the whole ability is declined —
+        // the menu is only as readable as its least readable entry, and a modal with a dead
+        // option offers a choice that silently does nothing.
+        Matcher selectFromM = FOLLOWUP_SELECT_FROM_FOLLOWING.matcher(primaryFollowup.trim());
+        if (selectFromM.matches()) {
+            final List<String> optionTexts = selectFollowingOptions(selectFromM.group("actions"));
+            final List<BiConsumer<GameContext, List<ForwardTarget>>> optionActions = new ArrayList<>();
+            for (String option : optionTexts) {
+                BiConsumer<GameContext, List<ForwardTarget>> action = parseTargetAction(option, xValue);
+                if (action == null) return null;
+                optionActions.add(action);
+            }
+            if (optionActions.isEmpty()) return null;
+            final int     selectCount = Integer.parseInt(selectFromM.group("select"));
+            final boolean selectUpTo  = selectFromM.group("upTo") != null;
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix);
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // The options all act on what was chosen, so an empty selection leaves nothing for
+                // the menu to do — and asking anyway would spend the choice on no one.
+                if (ts.isEmpty()) return;
+                List<String> chosen = ctx.chooseActions(source, optionTexts, selectCount, selectUpTo);
+                if (chosen == null || chosen.isEmpty()) {
+                    ctx.logEntry("Select actions — none chosen");
+                    return;
+                }
+                for (String pick : chosen) {
+                    int i = optionTexts.indexOf(pick);
+                    if (i < 0) {
+                        ctx.logEntry("Select actions — unrecognized: " + pick);
+                        continue;
+                    }
+                    ctx.logEntry("Selected: " + pick);
+                    optionActions.get(i).accept(ctx, ts);
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
 
 
         // =====================================================================================

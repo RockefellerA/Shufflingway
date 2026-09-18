@@ -239,6 +239,40 @@ final class ActionResolverSearch {
             ctx.revealTopNPlayUpToJobTypeWithTotalCostOntoFieldRestBottom(n, maxPlay, job, type, totalCost);
         };
     }
+    /**
+     * Parses "Reveal the top N cards of your deck. Play up to 1 [Type], up to 1 [Type] and up to 1
+     * [Type] with a total cost of C or less among them onto the field and [rest]." —
+     * Mid Previa 26-115H.
+     *
+     * <p>Must be tried ahead of {@link #tryParseRevealPlayJobTypeTotalCostRestBottom}, whose
+     * pattern reads a single filter: this text names three, and one filter over all of them would
+     * let three Forwards be played where the card allows one.
+     *
+     * <p>The quota list is expanded to one entry per card allowed, which is the form the dialog and
+     * the AI both count against — "up to 2 Forwards" would arrive as two Forward entries.
+     */
+    static Consumer<GameContext> tryParseRevealPlayPerTypeQuotaTotalCost(String text) {
+        Matcher m = REVEAL_PLAY_PER_TYPE_QUOTA_TOTAL_COST.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n         = Integer.parseInt(m.group("n"));
+        int totalCost = Integer.parseInt(m.group("totalcost"));
+        List<String> types = new ArrayList<>();
+        Matcher q = REVEAL_UP_TO_PER_TYPE_QUOTA.matcher(m.group("quotas"));
+        while (q.find()) {
+            int count = Integer.parseInt(q.group("count"));
+            for (int i = 0; i < count; i++) types.add(cap(q.group("type")));
+        }
+        if (types.size() < 2) return null;
+        RevealRest rest = m.group("bz") != null ? RevealRest.BREAK_ZONE : RevealRest.BOTTOM;
+        String logDesc = "Reveal top " + n + " — play up to 1 " + String.join(", up to 1 ", types)
+                + " totalling cost " + totalCost + " or less; rest to "
+                + (rest == RevealRest.BREAK_ZONE ? "Break Zone" : "bottom");
+        return ctx -> {
+            ctx.logEntry("Effect: " + logDesc);
+            ctx.revealTopNPlayPerTypeQuotaWithTotalCostOntoField(n, types, totalCost, rest);
+        };
+    }
+
     static Consumer<GameContext> tryParseRevealPlayNamedOrJobMaxCostRestBottom(String text) {
         Matcher m = REVEAL_PLAY_NAMED_OR_JOB_MAX_COST_REST_BOTTOM.matcher(text.trim());
         if (!m.matches()) return null;
@@ -924,22 +958,49 @@ final class ActionResolverSearch {
         };
     }
 
-    static Consumer<GameContext> tryParseRevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(String text) {
-        Matcher m = REVEAL_ADD_TYPE_TO_HAND_OR_PLAY_JOB_TYPE_ONTO_FIELD_REST_BOTTOM.matcher(text.trim());
+    /**
+     * Parses "Reveal the top N cards of your deck. Add M [filter] among them to your hand or play
+     * K [filter] among them onto the field, and [rest]." — Serah 17-031L, Garuda (XVI) 29-046L and
+     * Yuri 16-061R.
+     *
+     * <p>Declines anything but one card per branch. Every printing says "1" on both sides, and the
+     * dialog that resolves this is built around a single pick: it locks every other button once one
+     * is pressed, so a text asking for two would silently get one.
+     */
+    static Consumer<GameContext> tryParseRevealAddToHandOrPlayOntoField(String text) {
+        Matcher m = REVEAL_ADD_TO_HAND_OR_PLAY_ONTO_FIELD.matcher(text.trim());
         if (!m.matches()) return null;
         int n        = Integer.parseInt(m.group("n"));
         int handMax  = Integer.parseInt(m.group("handmax"));
-        String handType  = cap(m.group("handtype"));
         int fieldMax = Integer.parseInt(m.group("fieldmax"));
-        String fieldJob  = m.group("fieldjob") != null ? m.group("fieldjob").trim() : null;
-        String fieldType = cap(m.group("fieldtype"));
-        String logDesc = "Reveal top " + n + " — add up to " + handMax + " " + handType
-                + " to hand OR play up to " + fieldMax
-                + (fieldJob != null ? " Job " + fieldJob + " " : " ") + fieldType + " onto field; rest to bottom";
+        if (handMax != 1 || fieldMax != 1) return null;
+        RevealBranch hand  = revealBranch(m, handMax,  "hand");
+        RevealBranch field = revealBranch(m, fieldMax, "field");
+        RevealRest rest = m.group("bz") != null ? RevealRest.BREAK_ZONE : RevealRest.BOTTOM;
+        String logDesc = "Reveal top " + n + " — add " + hand.describe() + " to hand OR play "
+                + field.describe() + " onto field; rest to "
+                + (rest == RevealRest.BREAK_ZONE ? "Break Zone" : "bottom");
         return ctx -> {
             ctx.logEntry("Effect: " + logDesc);
-            ctx.revealTopNAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(n, handMax, handType, fieldMax, fieldJob, fieldType);
+            ctx.revealTopNAddToHandOrPlayOntoField(n, hand, field, rest);
         };
+    }
+
+    /**
+     * One side of {@link ActionResolverPatterns#REVEAL_ADD_TO_HAND_OR_PLAY_ONTO_FIELD}, read off
+     * the groups named for it. Both sides carry the same filters, so they are read by the same
+     * code and only the group prefix differs.
+     */
+    private static RevealBranch revealBranch(Matcher m, int max, String side) {
+        String cost = m.group(side + "cost");
+        return new RevealBranch(max,
+                m.group(side + "elem") != null ? cap(m.group(side + "elem")) : null,
+                cap(m.group(side + "type")),
+                m.group(side + "job") != null ? m.group(side + "job").trim() : null,
+                cost != null ? Integer.parseInt(cost) : -1,
+                // No "or less" beside the number means the card printed an exact cost, which is
+                // what a null comparator reads as everywhere else in the engine.
+                cost != null && m.group(side + "costless") != null ? "less" : null);
     }
     static Consumer<GameContext> tryParseLookTopDeckOptionallyBreak(String text) {
         if (!LOOK_TOP_DECK_OPTIONALLY_BREAK.matcher(text).find()) return null;

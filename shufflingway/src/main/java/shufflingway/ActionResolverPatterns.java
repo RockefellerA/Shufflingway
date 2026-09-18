@@ -4596,19 +4596,6 @@ final class ActionResolverPatterns {
         "(?i)up\\s+to\\s+(?<count>\\d+)\\s+(?<elems>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+cards?"
     );
     /**
-     * Matches "Reveal the top N cards of your deck. Add M [Type] among them to your hand or
-     * play M [Job] [Type] among them onto the field, and return the other cards to the bottom
-     * of your deck in any order."
-     * <ul>
-     *   <li>{@code n}        — number of cards to reveal</li>
-     *   <li>{@code handmax}  — max cards for the add-to-hand branch</li>
-     *   <li>{@code handtype} — type filter for the hand branch (Forward/Backup/Monster/Character)</li>
-     *   <li>{@code fieldmax} — max cards for the play-onto-field branch</li>
-     *   <li>{@code fieldjob} — optional job filter for the field branch (e.g. "Moogle")</li>
-     *   <li>{@code fieldtype}— type filter for the field branch</li>
-     * </ul>
-     */
-    /**
      * "Reveal the top N cards of your deck. Play as many Job [J] [Type]s as you want — or up to
      * [M] Job [J] [[Type]] — with a total cost of [C] or less among them onto the field and return
      * the other cards to the bottom of your deck in any order." — Warrior of Light 10-065L and
@@ -4625,6 +4612,37 @@ final class ActionResolverPatterns {
      * Groups: {@code n}, {@code max} (optional), {@code job}, {@code type} (optional),
      * {@code totalcost}.
      */
+    /**
+     * "Reveal the top N cards of your deck. Play up to 1 [Type], up to 1 [Type] and up to 1 [Type]
+     * with a total cost of C or less among them onto the field and [return the other cards to the
+     * bottom of your deck in any order | put the rest of the cards into the Break Zone]." —
+     * Mid Previa 26-115H.
+     *
+     * <p>A quota per card type as well as a budget, which is what separates it from
+     * {@link #REVEAL_PLAY_JOB_TYPE_TOTAL_COST_REST_BOTTOM}: there one filter admits every pick, so
+     * three cheap Forwards would all be played. Here each type has its own slot and two of them go
+     * unfilled.
+     *
+     * <p>Group {@code quotas} holds the whole list, split by {@link #REVEAL_UP_TO_PER_TYPE_QUOTA},
+     * so the pattern does not name a fixed number of allowances. Two are required — a single "play
+     * up to 1 Forward with a total cost of …" is the sibling above's shape, not this one's.
+     */
+    static final Pattern REVEAL_PLAY_PER_TYPE_QUOTA_TOTAL_COST = Pattern.compile(
+        "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Play\\s+(?<quotas>up\\s+to\\s+\\d+\\s+(?:Forward|Backup|Monster|Character)s?" +
+        "(?:,?\\s+(?:and\\s+)?up\\s+to\\s+\\d+\\s+(?:Forward|Backup|Monster|Character)s?)+)\\s+" +
+        "with\\s+a\\s+total\\s+cost\\s+of\\s+(?<totalcost>\\d+)\\s+or\\s+less\\s+" +
+        "among\\s+them\\s+onto\\s+(?:the\\s+)?field,?\\s+" +
+        "and\\s+(?:return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?" +
+        "|(?<bz>put\\s+the\\s+rest\\s+(?:of\\s+the\\s+cards?\\s+)?into\\s+the\\s+Break\\s+Zone))" +
+        "[.!]?\\s*$"
+    );
+
+    /** One "up to N [Type]" allowance inside {@link #REVEAL_PLAY_PER_TYPE_QUOTA_TOTAL_COST}'s list. */
+    static final Pattern REVEAL_UP_TO_PER_TYPE_QUOTA = Pattern.compile(
+        "(?i)up\\s+to\\s+(?<count>\\d+)\\s+(?<type>Forward|Backup|Monster|Character)s?"
+    );
+
     static final Pattern REVEAL_PLAY_JOB_TYPE_TOTAL_COST_REST_BOTTOM = Pattern.compile(
         "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
         "Play\\s+(?:as\\s+many|up\\s+to\\s+(?<max>\\d+))\\s+Job\\s+(?<job>.+?)" +
@@ -4635,14 +4653,46 @@ final class ActionResolverPatterns {
         "(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
 
-    static final Pattern REVEAL_ADD_TYPE_TO_HAND_OR_PLAY_JOB_TYPE_ONTO_FIELD_REST_BOTTOM = Pattern.compile(
+    /**
+     * "Reveal the top N cards of your deck. Add M [filter] among them to your hand or play K
+     * [filter] among them onto the field, and [return the other cards to the bottom of your deck
+     * in any order | put the rest of the cards into the Break Zone]." — Serah 17-031L,
+     * Garuda (XVI) 29-046L and Yuri 16-061R.
+     *
+     * <p>The two branches are alternatives: the player takes one and the other lapses. Both carry
+     * the same optional filters, because between the three printings each one turns up on a
+     * different side — Serah names a Job on the right only, Garuda an Element on both, and Yuri an
+     * Element and a cost on the right while naming nothing at all on the left.
+     *
+     * <p>{@code handtype} therefore admits "card", which is Yuri's "Add 1 card among them": any
+     * revealed card, a Summon included. The field side does not — a Summon cannot be played onto
+     * the field, so a "card" there would be a filter the board cannot honour.
+     *
+     * <p>A cost group with no {@code …costless} beside it is an exact cost, not a ceiling. Yuri
+     * prints "of cost 3", and reading it as "3 or less" would let her play something the card
+     * does not allow.
+     *
+     * <p>Both destinations sit in one pattern for the reason
+     * {@link #REVEAL_TOP_N_ADD_PER_ELEMENT_QUOTA} keeps its two together: the take is identical
+     * and only the leftovers differ, so group {@code bz} says which pile they join.
+     */
+    static final Pattern REVEAL_ADD_TO_HAND_OR_PLAY_ONTO_FIELD = Pattern.compile(
         "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Add\\s+(?<handmax>\\d+)\\s+(?<handtype>Forward|Backup|Monster|Character)s?\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
+        "Add\\s+(?<handmax>\\d+)\\s+" +
+        "(?:(?<handelem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:Job\\s+(?<handjob>.+?)(?=\\s+(?:Forward|Backup|Monster|Character)s?\\b)\\s+)?" +
+        "(?<handtype>Forward|Backup|Monster|Character|card)s?" +
+        "(?:\\s+of\\s+cost\\s+(?<handcost>\\d+)(?<handcostless>\\s+or\\s+less)?)?\\s+" +
+        "among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "or\\s+play\\s+(?<fieldmax>\\d+)\\s+" +
-        "(?:Job\\s+(?<fieldjob>.+?)(?=\\s+(?:Forward|Backup|Monster|Character)s?\\s+among)\\s+)?" +
-        "(?<fieldtype>Forward|Backup|Monster|Character)s?\\s+among\\s+them\\s+onto\\s+(?:the\\s+)?field,?\\s+" +
-        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
-        "(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
+        "(?:(?<fieldelem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:Job\\s+(?<fieldjob>.+?)(?=\\s+(?:Forward|Backup|Monster|Character)s?\\b)\\s+)?" +
+        "(?<fieldtype>Forward|Backup|Monster|Character)s?" +
+        "(?:\\s+of\\s+cost\\s+(?<fieldcost>\\d+)(?<fieldcostless>\\s+or\\s+less)?)?\\s+" +
+        "among\\s+them\\s+onto\\s+(?:the\\s+)?field,?\\s+" +
+        "and\\s+(?:return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?" +
+        "|(?<bz>put\\s+the\\s+rest\\s+(?:of\\s+the\\s+cards?\\s+)?into\\s+the\\s+Break\\s+Zone))" +
+        "[.!]?\\s*$"
     );
 
 
@@ -8608,7 +8658,8 @@ final class ActionResolverPatterns {
      */
     static final Pattern SELECT_FOLLOWING_ACTIONS_DETECT = Pattern.compile(
         "(?i)^(?:" +
-        "(?:if\\s+[^,]+,\\s+)?(?:your\\s+opponent\\s+)?selects?\\s+(?:up\\s+to\\s+)?\\d+\\s+of\\s+the\\s+\\d+\\s+following\\s+actions?" +
+        "(?:if\\s+[^,]+,\\s+)?(?:your\\s+opponent\\s+)?selects?\\s+(?:up\\s+to\\s+)?\\d+\\s+" +
+        "(?:of\\s+the\\s+\\d+\\s+following\\s+actions?|from\\s+the\\s+following)" +
         "|select\\s+the\\s+following\\s+actions?\\s+from\\s+top\\s+to\\s+bottom\\b" +
         ")"
     );
@@ -8630,11 +8681,18 @@ final class ActionResolverPatterns {
      * {@code total} is the option count either way, and it is a ceiling rather than decoration in
      * the second shape: the options are a menu, each takeable once, so a count above it buys
      * nothing. {@code countSrc} is read by {@link #SELECT_ACTIONS_COUNT_SOURCE_FIELD}.
+     *
+     * <p>A third spelling prints no option count at all — "select 1 from the following" (2-109H
+     * Golbez, and 3-138H Ceodore's choose followup), where the menu that follows is the total.
+     * It lands in {@code selectFrom} rather than {@code select} because Java forbids two groups of
+     * one name; {@code ActionResolverChoose.selectActionsPrintedCount} is what reads whichever of
+     * the two the text filled, so no caller has to know which spelling it got.
      */
     static final Pattern SELECT_FOLLOWING_ACTIONS = Pattern.compile(
         "(?i)^(?:if\\s+[^,]+,\\s+)?(?<opp>your\\s+opponent\\s+)?selects?\\s+(?<upTo>up\\s+to\\s+)?"
-        + "(?:(?<select>\\d+)\\s+of\\s+the|the\\s+same\\s+number\\s+of\\s+the)\\s+"
+        + "(?:(?:(?<select>\\d+)\\s+of\\s+the|the\\s+same\\s+number\\s+of\\s+the)\\s+"
         + "(?<total>\\d+)\\s+following\\s+actions?"
+        + "|(?<selectFrom>\\d+)\\s+from\\s+the\\s+following)"
         + "(?:\\s+as\\s+(?<countSrc>[^.!]+))?[.!]?\\s*(?<actions>.+)$",
         Pattern.DOTALL
     );
@@ -8677,6 +8735,27 @@ final class ActionResolverPatterns {
         "\"([^\"]+)\"" +
         "(?:\\s*(\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\)))?",
         Pattern.CASE_INSENSITIVE
+    );
+
+    /**
+     * "Select [up to] N from the following. "&lt;option&gt;" "&lt;option&gt;" …" as a <em>choose
+     * followup</em> — the modal menu whose options all act on the Forward the choose already
+     * picked. 3-138H Ceodore, whose three options each start "It gains …".
+     *
+     * <p>The sibling of {@link #SELECT_FOLLOWING_ACTIONS}, which reads the same menu as a whole
+     * ability and re-parses each option through {@code parse}. That cannot answer for this one:
+     * the options say "it", and only the choose that ran in front of them knows what "it" is, so
+     * they go through {@code parseTargetAction} against the chosen list instead.
+     *
+     * <p>Anchored end to end. Every branch in the followup chain below it scans with {@code find()},
+     * so an unanchored read would let one of them take a verb out of a quoted option and run it
+     * with the choice dropped — which is exactly what Ceodore did before this existed, granting
+     * +1000 power whatever the player would have picked.
+     */
+    static final Pattern FOLLOWUP_SELECT_FROM_FOLLOWING = Pattern.compile(
+        "(?i)^selects?\\s+(?<upTo>up\\s+to\\s+)?(?<select>\\d+)\\s+from\\s+the\\s+following[.!]?\\s*"
+        + "(?<actions>\"[^\"]+\"(?:\\s*(?:\\([^)]*\\)\\s*)?\"[^\"]+\")*\\s*(?:\\([^)]*\\))?)\\s*$",
+        Pattern.DOTALL
     );
 
     /**

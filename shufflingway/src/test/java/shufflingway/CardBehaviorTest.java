@@ -58395,4 +58395,282 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// "Select N from the following" — 3-138H Ceodore and 2-109H Golbez
+	//
+	// The third spelling of the modal header, and the only one that prints no option count: the
+	// menu underneath it is the count. Both printings parsed before this was read, and both were
+	// resolving as something else entirely, because the options are quoted card text and every
+	// branch downstream scans with find(). Golbez dulled a Forward and recurred an Archfiend on
+	// every attack — options one and three, together, with no choice offered. Ceodore handed out
+	// +1000 power, the first option, whatever the player would have picked.
+	//
+	// Golbez's menu is three whole abilities, so it goes through the existing standalone parser.
+	// Ceodore's is three followups to a choose that already happened — "it" is the Forward the
+	// sentence in front picked — so his goes through parseTargetAction against the chosen list,
+	// and all three options must be readable or the ability is declined rather than half-run.
+	// =========================================================================================
+
+	private static final String CEODORE_3_138H_PRINTED =
+			"When one of your Water Characters other than Ceodore enters the field, choose 1 "
+			+ "Forward you control. Select 1 from the following. "
+			+ "\"It gains +1000 power until the end of the turn.\" "
+			+ "\"It gains First Strike until the end of the turn.\" "
+			+ "\"It gains Brave until the end of the turn.\"";
+
+	private static final String CEODORE_POWER_OPTION = "It gains +1000 power until the end of the turn.";
+	private static final String CEODORE_FIRST_STRIKE_OPTION = "It gains First Strike until the end of the turn.";
+	private static final String CEODORE_BRAVE_OPTION = "It gains Brave until the end of the turn.";
+
+	/** Ceodore's effect text as the trigger parser hands it to the resolver, options and all. */
+	private static String ceodoreEffectText() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(CEODORE_3_138H_PRINTED);
+		assertEquals(1, autos.size(), "one triggered ability, with its menu still attached");
+		return autos.get(0).effectText();
+	}
+
+	/** Stubs the target selection the choose clause makes, whatever arity it asks with. */
+	private static void stubChosenForwards(GameContext ctx, List<ForwardTarget> chosen) {
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(
+				anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(),
+				anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+		)).thenReturn(chosen);
+	}
+
+	/**
+	 * Runs Ceodore against a board offering {@code chosen} and a player picking {@code option}
+	 * from the menu — {@code null} for a menu dismissed without a pick.
+	 */
+	private static GameContext runCeodore(String option, List<ForwardTarget> chosen) {
+		CardData ceodore = makeForwardWithText("Ceodore", "Water", 4, 7000, "");
+		GameContext ctx = mock(GameContext.class);
+		stubChosenForwards(ctx, chosen);
+		when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean()))
+				.thenReturn(option == null ? List.of() : List.of(option));
+		Consumer<GameContext> fn = ActionResolver.parse(ceodoreEffectText(), ceodore);
+		assertNotNull(fn, "Ceodore's modal followup should parse");
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void ceodoreOffersAllThreeOptionsAndAsksForExactlyOne() {
+		ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = runCeodore(null, List.of(t));
+
+		ArgumentCaptor<List<String>> actions = ArgumentCaptor.forClass(List.class);
+		verify(ctx).chooseActions(any(), actions.capture(), eq(1), eq(false));
+		assertEquals(List.of(CEODORE_POWER_OPTION, CEODORE_FIRST_STRIKE_OPTION, CEODORE_BRAVE_OPTION),
+				actions.getValue(), "all three, in printed order");
+	}
+
+	@Test
+	void ceodoreAppliesOnlyTheOptionThatWasPicked() {
+		ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = runCeodore(CEODORE_FIRST_STRIKE_OPTION, List.of(t));
+
+		verify(ctx).boostTarget(t, 0, EnumSet.of(CardData.Trait.FIRST_STRIKE));
+		// The bug this section exists for: "+1000 power" sits inside the first quoted option, and
+		// a find() branch downstream was taking it out of there and granting it unconditionally.
+		verify(ctx, never()).boostTarget(eq(t), eq(1000), any());
+		verify(ctx, never()).boostTarget(t, 0, EnumSet.of(CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void ceodoresPowerOptionStillPaysWhenItIsTheOneChosen() {
+		ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = runCeodore(CEODORE_POWER_OPTION, List.of(t));
+
+		verify(ctx).boostTarget(eq(t), eq(1000), any());
+	}
+
+	@Test
+	void ceodoreAsksNothingWhenNoForwardCouldBeChosen() {
+		// Every option acts on "it", so with nothing chosen there is nobody for the menu to act
+		// on — and offering it anyway spends the choice on no one.
+		GameContext ctx = runCeodore(CEODORE_BRAVE_OPTION, List.of());
+
+		verify(ctx, never()).chooseActions(any(), any(), anyInt(), anyBoolean());
+		verify(ctx, never()).boostTarget(any(), anyInt(), any());
+	}
+
+	@Test
+	void ceodoreIsDescribedAsTheMenuRatherThanAsOneOfItsOptions() {
+		CardData ceodore = makeForwardWithText("Ceodore", "Water", 4, 7000, "");
+		assertEquals("ChooseCharacter / SelectFollowingActions(1 of 3: PowerBoost | KeywordGrant "
+				+ "| KeywordGrant)",
+				ActionResolver.fullDescription(ceodoreEffectText(), ceodore),
+				"the count the header omits comes from the menu");
+	}
+
+	private static final String GOLBEZ_2_109H_PRINTED =
+			"When Golbez attacks, select 1 from the following. "
+			+ "\"Choose 1 Forward. Dull it.\" "
+			+ "\"Deal all Forwards opponent controls 3000 damage.\" "
+			+ "\"Choose 1 Job Archfiend from your Break Zone. Add it to your hand.\"";
+
+	/** Golbez's effect text as the trigger parser hands it to the resolver. */
+	private static String golbezEffectText() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(GOLBEZ_2_109H_PRINTED);
+		assertEquals(1, autos.size());
+		return autos.get(0).effectText();
+	}
+
+	@Test
+	void golbezReadsTheUncountedHeaderAsAThreeOptionMenu() {
+		CardData golbez = makeForwardWithText("Golbez", "Lightning", 8, 9000, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean())).thenReturn(List.of());
+
+		Consumer<GameContext> fn = ActionResolver.parse(golbezEffectText(), golbez);
+		assertNotNull(fn, "Golbez's menu should parse");
+		fn.accept(ctx);
+
+		ArgumentCaptor<List<String>> actions = ArgumentCaptor.forClass(List.class);
+		verify(ctx).chooseActions(any(), actions.capture(), eq(1), eq(false));
+		assertEquals(3, actions.getValue().size(), "the menu supplies the count the header omits");
+	}
+
+	@Test
+	void golbezNoLongerRunsTwoOfHisOptionsTogetherOnEveryAttack() {
+		CardData golbez = makeForwardWithText("Golbez", "Lightning", 8, 9000, "");
+		GameContext ctx = mock(GameContext.class);
+		stubChosenForwards(ctx, List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean()))
+				.thenReturn(List.of("Deal all Forwards opponent controls 3000 damage."));
+
+		ActionResolver.parse(golbezEffectText(), golbez).accept(ctx);
+
+		// The damage option was chosen, so neither of the other two may have happened.
+		verify(ctx, never()).dullTarget(any());
+		verify(ctx, never()).addTargetToHand(any());
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Reveal 5, then something different with them — 16-061R Yuri and 26-115H Mid Previa
+	//
+	// Both open "reveal the top 5 cards of your deck" and both were unparsed, and neither gap was
+	// a missing reveal: the machinery for revealing N cards and arranging them is old, and what
+	// each card needed was a filter the family could not yet say.
+	//
+	// Yuri joins the "add one to hand OR play one onto the field" family (17-031L Serah, 29-046L
+	// Garuda (XVI)). Between those three every filter the engine has turns up on one side or the
+	// other, so both branches became a RevealBranch: Serah names a Job on the right, Garuda an
+	// Element on both, Yuri an Element and a cost on the right and nothing at all on the left —
+	// "add 1 card", which includes a Summon. Garuda came along with the widening: his leftovers go
+	// to the Break Zone, the one thing the old signature could not say.
+	//
+	// Mid Previa needed a quota per card type on top of a shared budget. The nearest parser reads
+	// one filter over the whole budget (10-065L Warrior of Light, 22-097L Curilla), which would
+	// have played three cheap Forwards where the card allows one — so it is asked first.
+	// =========================================================================================
+
+	private static final String YURI_16_061R =
+			"reveal the top 5 cards of your deck. Add 1 card among them to your hand or play 1 "
+			+ "Wind Character of cost 3 among them onto the field, and return the other cards to "
+			+ "the bottom of your deck in any order.";
+
+	private static final String GARUDA_29_046L =
+			"reveal the top 2 cards of your deck. Add 1 Wind Character among them to your hand or "
+			+ "play 1 Wind Character among them onto the field, and put the rest of the cards into "
+			+ "the Break Zone.";
+
+	private static final String SERAH_17_031L =
+			"reveal the top 5 cards of your deck. Add 1 Backup among them to your hand or play 1 "
+			+ "Job Moogle Backup among them onto the field, and return the other cards to the "
+			+ "bottom of your deck in any order.";
+
+	private static final String MID_PREVIA_26_115H =
+			"reveal the top 5 cards of your deck. Play up to 1 Forward, up to 1 Backup and up to 1 "
+			+ "Monster with a total cost of 8 or less among them onto the field and put the rest "
+			+ "of the cards into the Break Zone.";
+
+	/** Runs a reveal effect against a mock and hands the context back for verification. */
+	private static GameContext runReveal(String effectText, CardData source) {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(effectText, source);
+		assertNotNull(fn, "the reveal should parse");
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void yuriOffersAnyCardToHandAndOnlyACostThreeWindCharacterToTheField() {
+		CardData yuri = makeForwardWithText("Yuri", "Wind", 5, 8000, "");
+		GameContext ctx = runReveal(YURI_16_061R, yuri);
+
+		verify(ctx).revealTopNAddToHandOrPlayOntoField(5,
+				new RevealBranch(1, null, "Card", null, -1, null),
+				new RevealBranch(1, "Wind", "Character", null, 3, null),
+				RevealRest.BOTTOM);
+	}
+
+	@Test
+	void yurisFieldCostIsExactAndNotACeiling() {
+		// "of cost 3" with no "or less" beside it. Read as a ceiling she would play a cost-2
+		// Character the card does not allow.
+		RevealBranch field = new RevealBranch(1, "Wind", "Character", null, 3, null);
+		assertTrue(field.accepts(makeForward("On cost", "Wind", 3, 7000)));
+		assertFalse(field.accepts(makeForward("Cheaper", "Wind", 2, 5000)),
+				"cost 2 is not cost 3");
+		assertFalse(field.accepts(makeForward("Wrong element", "Fire", 3, 7000)));
+	}
+
+	@Test
+	void yurisHandBranchTakesAnyRevealedCardIncludingASummon() {
+		// "Add 1 card among them", which names no type at all — the one branch in the family that
+		// can reach a Summon, since nothing is being played onto the field.
+		RevealBranch hand = new RevealBranch(1, null, "Card", null, -1, null);
+		assertTrue(hand.accepts(makeForward("A Forward", "Fire", 2, 5000)));
+		assertTrue(hand.accepts(makeSummon("A Summon", "Fire", 2, "")),
+				"a Summon is a card, and the hand takes cards");
+	}
+
+	@Test
+	void garudaSendsTheLeftoversToTheBreakZoneRatherThanTheDeck() {
+		CardData garuda = makeForwardWithText("Garuda (XVI)", "Wind", 4, 8000, "");
+		GameContext ctx = runReveal(GARUDA_29_046L, garuda);
+
+		verify(ctx).revealTopNAddToHandOrPlayOntoField(2,
+				new RevealBranch(1, "Wind", "Character", null, -1, null),
+				new RevealBranch(1, "Wind", "Character", null, -1, null),
+				RevealRest.BREAK_ZONE);
+	}
+
+	@Test
+	void serahsJobFilteredFieldBranchSurvivedTheWidening() {
+		CardData serah = makeForwardWithText("Serah", "Ice", 5, 7000, "");
+		GameContext ctx = runReveal(SERAH_17_031L, serah);
+
+		verify(ctx).revealTopNAddToHandOrPlayOntoField(5,
+				new RevealBranch(1, null, "Backup", null, -1, null),
+				new RevealBranch(1, null, "Backup", "Moogle", -1, null),
+				RevealRest.BOTTOM);
+	}
+
+	@Test
+	void midPreviaAsksForOneOfEachTypeInsideOneBudget() {
+		CardData mid = makeForwardWithText("Mid Previa", "Water", 9, 10000, "");
+		GameContext ctx = runReveal(MID_PREVIA_26_115H, mid);
+
+		verify(ctx).revealTopNPlayPerTypeQuotaWithTotalCostOntoField(
+				5, List.of("Forward", "Backup", "Monster"), 8, RevealRest.BREAK_ZONE);
+	}
+
+	@Test
+	void midPreviaIsNotReadAsTheSingleFilterBudgetBesideHim() {
+		// The parser that would otherwise claim this reads one filter over the whole budget, which
+		// against "up to 1 Forward, up to 1 Backup and up to 1 Monster" would play three Forwards.
+		CardData mid = makeForwardWithText("Mid Previa", "Water", 9, 10000, "");
+		assertEquals("RevealPlayPerTypeQuotaTotalCost",
+				ActionResolver.matchedPatternName(MID_PREVIA_26_115H, mid));
+	}
+
+	// =========================================================================================
+
 }

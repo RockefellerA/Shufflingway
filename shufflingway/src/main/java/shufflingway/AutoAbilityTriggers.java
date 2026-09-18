@@ -1714,15 +1714,16 @@ final class AutoAbilityTriggers {
 	 *       {@code "you control a Job AVALANCHE Operative Forward"}</li>
 	 *   <li>{@code upTo}     — non-null when "up to" is present</li>
 	 *   <li>{@code select}   — how many actions the player chooses</li>
-	 *   <li>{@code total}    — total number of options listed</li>
+	 *   <li>{@code total}    — total number of options listed, absent on the "from the following"
+	 *       spelling, which prints no count (2-109H Golbez)</li>
 	 *   <li>{@code actions}  — the remainder containing the quoted action strings</li>
 	 * </ul>
 	 */
 	private static final Pattern FA_SELECT_FOLLOWING_ACTIONS =
 		Pattern.compile(
 			"(?i)^(?:if\\s+(?<condition>[^,]+),\\s+)?(?<opp>your\\s+opponent\\s+)?selects?\\s+(?<upTo>up\\s+to\\s+)?" +
-			"(?<select>\\d+)\\s+of\\s+the\\s+(?<total>\\d+)\\s+following\\s+actions?[.!]?\\s*" +
-			"(?<actions>.+)$",
+			"(?<select>\\d+)\\s+(?:of\\s+the\\s+(?<total>\\d+)\\s+following\\s+actions?|from\\s+the\\s+following)" +
+			"[.!]?\\s*(?<actions>.+)$",
 			Pattern.DOTALL
 		);
 
@@ -4940,7 +4941,9 @@ final class AutoAbilityTriggers {
 
 		boolean upTo       = m.group("upTo") != null;
 		int     selectCount = Integer.parseInt(m.group("select"));
-		int     totalCount  = Integer.parseInt(m.group("total"));
+		// "Select 1 from the following" prints no option count — the menu is the count.
+		int     totalCount  = m.group("total") != null ? Integer.parseInt(m.group("total"))
+				: ActionResolver.selectFollowingOptions(m.group("actions")).size();
 
 		// youMay / opponentMay decline dialog (the select dialog itself is the interaction,
 		// but we still honour an explicit "you may" decline option)

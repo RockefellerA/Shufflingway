@@ -10982,6 +10982,20 @@ final class GameContextImpl implements GameContext {
 						maxPlay, job, typeFilter, totalCost, playOntoField);
 			}
 
+			@Override public void revealTopNPlayPerTypeQuotaWithTotalCostOntoField(
+					int reveal, List<String> types, int totalCost, RevealRest rest) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				Consumer<CardData> playOntoField = revealPlacement();
+				mw.lookDialogs().revealPlayPerTypeQuotaTotalCostOntoField(peeked, deck, isP1,
+						types, totalCost, rest, playOntoField);
+			}
+
 			@Override public void revealTopNPlayTypeCostOrNamedCostOntoFieldRestBottom(
 					int reveal, String typeFilter, int typeMaxCost, boolean excludeMultiElement,
 					String cardName, int nameMaxCost) {
@@ -10997,8 +11011,8 @@ final class GameContextImpl implements GameContext {
 						typeFilter, typeMaxCost, excludeMultiElement, cardName, nameMaxCost, playOntoField);
 			}
 
-			@Override public void revealTopNAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(
-					int reveal, int handMax, String handType, int fieldMax, String fieldJob, String fieldType) {
+			@Override public void revealTopNAddToHandOrPlayOntoField(
+					int reveal, RevealBranch hand, RevealBranch field, RevealRest rest) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(reveal, deck.size());
 				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
@@ -11007,8 +11021,8 @@ final class GameContextImpl implements GameContext {
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
 				Consumer<CardData> playOntoField = revealPlacement();
-				mw.lookDialogs().revealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(
-						peeked, deck, isP1, handMax, handType, fieldMax, fieldJob, fieldType, playOntoField);
+				mw.lookDialogs().revealAddToHandOrPlayOntoField(
+						peeked, deck, isP1, hand, field, rest, playOntoField);
 			}
 
 			@Override public void revealTopNPlayNamedOntoFieldRestBottom(int reveal, String cardName) {

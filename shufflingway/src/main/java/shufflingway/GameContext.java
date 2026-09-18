@@ -3763,6 +3763,23 @@ public interface GameContext {
             int reveal, int maxPlay, String job, String typeFilter, int totalCost);
 
     /**
+     * Reveals the top {@code reveal} cards of the active player's deck. The player plays one card
+     * per entry in {@code types} among them onto the field for free — one Forward, one Backup and
+     * one Monster for Mid Previa 26-115H — so long as their costs add up to {@code totalCost} or
+     * less; the rest go where {@code rest} says.
+     *
+     * <p>A quota per card type, not one filter with a count, for the reason {@link RevealQuota}
+     * states for its Element siblings: revealing two Forwards and a Backup plays one of each, not
+     * two Forwards. Card types are mutually exclusive, so each revealed card answers to exactly one
+     * quota and no matching is needed — which is why this takes a plain list of type names rather
+     * than that record.
+     *
+     * <p>{@code types} holds one entry per card allowed, so a type named twice asks for two of it.
+     */
+    void revealTopNPlayPerTypeQuotaWithTotalCostOntoField(int reveal, List<String> types,
+            int totalCost, RevealRest rest);
+
+    /**
      * <p><b>Unused.</b> Nothing calls this convenience, and a Mockito mock cannot see through it to
      * the method above, so a test that named it would pass against a real context and fail against
      * a mock. Left in step with its delegate rather than trusted.
@@ -3827,14 +3844,18 @@ public interface GameContext {
             int typeMaxCost, boolean excludeMultiElement, String cardName, int nameMaxCost);
 
     /**
-     * Reveals the top {@code reveal} cards. The player may either add up to {@code handMax}
-     * cards matching {@code handType} to their hand, OR play up to {@code fieldMax} cards
-     * matching {@code fieldJob} (optional) and {@code fieldType} onto the field for free.
-     * Only one branch fires; the remaining cards go to the bottom of the deck in any order.
+     * Reveals the top {@code reveal} cards. The player either takes the {@code hand} branch or the
+     * {@code field} branch — adding cards it accepts to their hand, or playing cards it accepts
+     * onto the field for free. Only one branch fires; the rest of the revealed cards go where
+     * {@code rest} says.
+     *
+     * <p>Serah 17-031L, Garuda (XVI) 29-046L and Yuri 16-061R. Each branch is a
+     * {@link RevealBranch} rather than a count and a type, because between the three printings
+     * every filter this engine has — type, Element, Job and cost — turns up on one side or the
+     * other, and Yuri's hand side names none of them at all.
      */
-    void revealTopNAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(
-            int reveal, int handMax, String handType,
-            int fieldMax, String fieldJob, String fieldType);
+    void revealTopNAddToHandOrPlayOntoField(int reveal, RevealBranch hand, RevealBranch field,
+            RevealRest rest);
 
     /** Returns {@code true} if the specific element CP was included in the payment for the most recently cast card. */
     boolean wasElementCpPaid(String element);

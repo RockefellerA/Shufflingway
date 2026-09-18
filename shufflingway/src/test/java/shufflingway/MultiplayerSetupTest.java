@@ -695,7 +695,8 @@ class MultiplayerSetupTest {
     void theAiPrefersPlayingARevealedCardToHoldingIt() {
         // Both branches accept a Forward, and every card here is one.
         DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddToHandOrPlayOntoField(
-                revealed(), "Forward", null, "Forward");
+                revealed(), RevealBranch.of(1, "Forward"), RevealBranch.of(1, "Forward"),
+                RevealRest.BOTTOM);
         assertEquals(List.of(1), d.toField(), "the dearest playable card, not the dearest card in hand");
         assertTrue(d.toHand().isEmpty(), "the two branches are alternatives — only one fires");
         assertEquals(List.of(0, 2), d.toBottom());
@@ -704,9 +705,87 @@ class MultiplayerSetupTest {
     @Test
     void theAiFallsBackToHandWhenNothingIsPlayable() {
         DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddToHandOrPlayOntoField(
-                revealed(), "Forward", null, "Backup");
+                revealed(), RevealBranch.of(1, "Forward"), RevealBranch.of(1, "Backup"),
+                RevealRest.BOTTOM);
         assertTrue(d.toField().isEmpty(), "none of the revealed cards is a Backup");
         assertEquals(List.of(1), d.toHand());
+    }
+
+    /** A revealed card of a named card type, for the quota rules that sort the reveal by type. */
+    private static CardData typedCard(String name, String type, int cost) {
+        return new CardData(null, name, "Fire", cost, 5000, type, false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                null, null, null, "");
+    }
+
+    /** Mid Previa 26-115H's quota list: one card of each type, and no second of any. */
+    private static final List<String> ONE_EACH = List.of("Forward", "Backup", "Monster");
+
+    @Test
+    void aTypeQuotaIsSpentByTypeAndNotByCount() {
+        // Three Forwards revealed and one Forward slot: the budget has room for all three, so a
+        // running total of picks would have taken them. Only the quota stops it.
+        List<CardData> cards = List.of(typedCard("F1", "Forward", 1),
+                typedCard("F2", "Forward", 2), typedCard("F3", "Forward", 3));
+        DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(
+                cards, ONE_EACH.size(), 8, ANY, RevealRest.BREAK_ZONE, ONE_EACH);
+
+        assertEquals(List.of(2), d.toField(), "the dearest Forward, and only one of them");
+        assertEquals(List.of(0, 1), d.toBreak(), "the spares are broken, not bottomed");
+        assertTrue(d.toBottom().isEmpty());
+    }
+
+    @Test
+    void fillingOneTypeQuotaLeavesTheOthersOpen() {
+        List<CardData> cards = List.of(typedCard("F", "Forward", 3),
+                typedCard("B", "Backup", 2), typedCard("M", "Monster", 2));
+        DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(
+                cards, ONE_EACH.size(), 8, ANY, RevealRest.BREAK_ZONE, ONE_EACH);
+
+        assertEquals(Set.of(0, 1, 2), Set.copyOf(d.toField()), "one of each, all three played");
+        assertTrue(d.toBreak().isEmpty());
+    }
+
+    @Test
+    void theBudgetStillBindsWhenEveryQuotaHasRoom() {
+        // One of each type is allowed, but 5 + 4 + 3 does not fit in 8 — so the Monster is refused
+        // by the budget rather than by its quota, which still has room.
+        List<CardData> cards = List.of(typedCard("F", "Forward", 5),
+                typedCard("B", "Backup", 3), typedCard("M", "Monster", 4));
+        DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(
+                cards, ONE_EACH.size(), 8, ANY, RevealRest.BREAK_ZONE, ONE_EACH);
+
+        assertEquals(List.of(0, 1), d.toField(),
+                "the cost-5 Forward, then the cost-3 Backup that still fits");
+        assertEquals(List.of(2), d.toBreak(), "the cost-4 Monster is priced out, not quota'd out");
+    }
+
+    @Test
+    void aCardOfNoNamedTypeIsNeverOffered() {
+        List<CardData> cards = List.of(typedCard("S", "Summon", 1), typedCard("F", "Forward", 1));
+        DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(
+                cards, ONE_EACH.size(), 8, ANY, RevealRest.BREAK_ZONE, ONE_EACH);
+
+        assertEquals(List.of(1), d.toField(), "a Summon fills none of the three quotas");
+        assertEquals(List.of(0), d.toBreak());
+    }
+
+    @Test
+    void theDialogAndTheAiAgreeOnWhatAQuotaStillAdmits() {
+        // The rule the dialog enables its buttons by, asserted directly: it cannot be exercised
+        // through the modal window, and the two seats must not disagree about what is on offer.
+        CardData forward = typedCard("F", "Forward", 1);
+        CardData backup  = typedCard("B", "Backup", 1);
+        assertTrue(LookAtDeckDialogs.typeQuotaHasRoom(forward, List.of(), ONE_EACH));
+        assertFalse(LookAtDeckDialogs.typeQuotaHasRoom(forward, List.of(forward), ONE_EACH),
+                "the Forward slot is spent");
+        assertTrue(LookAtDeckDialogs.typeQuotaHasRoom(backup, List.of(forward), ONE_EACH),
+                "and spending it leaves the Backup slot open");
+        assertTrue(LookAtDeckDialogs.typeQuotaHasRoom(forward, List.of(forward), null),
+                "an effect printing no quotas admits everything");
     }
 
     @Test
@@ -725,7 +804,8 @@ class MultiplayerSetupTest {
                 LookAtDeckDialogs.cpuRevealPlayOntoField(revealed(), 9, ANY, RevealRest.BOTTOM),
                 LookAtDeckDialogs.cpuRevealPlayOntoField(revealed(), 1, c -> false, RevealRest.HAND),
                 LookAtDeckDialogs.cpuRevealAddToHandOrPlayOntoField(
-                        revealed(), "Backup", null, "Backup"),
+                        revealed(), RevealBranch.of(1, "Backup"), RevealBranch.of(1, "Backup"),
+                        RevealRest.BOTTOM),
                 LookAtDeckDialogs.cpuRevealPlayNamedOntoField(revealed(), c -> false)))
             assertEquals(d, DeckLookDecision.fromAnswer(d.toAnswer(), 3),
                     "an AI answer the receiver would reject leaves the reveal doing nothing");

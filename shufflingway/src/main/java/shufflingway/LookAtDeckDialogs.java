@@ -2366,6 +2366,45 @@ class LookAtDeckDialogs {
     }
 
     /**
+     * "Play up to 1 {@code type}, up to 1 {@code type} and up to 1 {@code type} with a total cost
+     * of {@code totalCost} or less among them onto the field; the rest go where {@code rest}
+     * says." — Mid Previa 26-115H.
+     *
+     * <p>A quota per card type <em>and</em> a shared budget, which is what separates it from
+     * {@link #revealPlayUpToJobTypeTotalCostOntoFieldRestBottom}: there one filter admits every
+     * pick and only the budget and the count bind, here each type has its own slot. Revealing
+     * three cheap Forwards plays one of them, however much budget is left over.
+     *
+     * <p>{@code types} arrives as printed and holds one entry per card allowed, so a type named
+     * twice asks for two of it.
+     */
+    void revealPlayPerTypeQuotaTotalCostOntoField(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, List<String> types, int totalCost, RevealRest rest,
+            Consumer<CardData> playOntoField) {
+        String typeLabel = describeTypeQuotas(types)
+                + " with a total cost of " + totalCost + " or less";
+        // The quota check below decides which of the named types a card may still fill; this only
+        // has to keep everything else out of the dialog.
+        Predicate<CardData> eligible = c -> revealTypeOf(c, types) != null;
+        // Every printing is an "up to", so taking nothing is a legal answer.
+        resolveRevealPlayOntoField(cards, deck, isP1, types.size(), totalCost, typeLabel,
+                eligible, rest, playOntoField, RevealTake.FIELD, false, types);
+    }
+
+    /** The printed quota list as one phrase: "up to 1 Forward, up to 1 Backup, up to 1 Monster". */
+    private static String describeTypeQuotas(List<String> types) {
+        List<String> parts = new ArrayList<>();
+        List<String> seen  = new ArrayList<>();
+        for (String t : types) {
+            if (seen.stream().anyMatch(s -> s.equalsIgnoreCase(t))) continue;
+            seen.add(t);
+            int quota = quotaFor(types, t);
+            parts.add("up to " + quota + " " + t + (quota == 1 ? "" : "s"));
+        }
+        return String.join(", ", parts);
+    }
+
+    /**
      * "Play 1 {@code typeFilter} of cost {@code typeMaxCost} or less [other than Multi-Element] or
      * 1 Card Name {@code cardName} of cost {@code nameMaxCost} or less among them onto the field;
      * rest to the bottom of the deck in any order." (Syldra 29-101H.)
@@ -2487,9 +2526,21 @@ class LookAtDeckDialogs {
             boolean isP1, int maxPlay, int costBudget, String typeLabel,
             Predicate<CardData> eligible, RevealRest rest, Consumer<CardData> takeCard,
             RevealTake take, boolean mustPlay) {
+        resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, costBudget, typeLabel, eligible,
+                rest, takeCard, take, mustPlay, null);
+    }
+
+    /**
+     * As above, for an effect printing a quota per card type as well — Mid Previa 26-115H. Every
+     * other caller passes {@code null} and is bounded by {@code maxPlay} alone.
+     */
+    private void resolveRevealPlayOntoField(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxPlay, int costBudget, String typeLabel,
+            Predicate<CardData> eligible, RevealRest rest, Consumer<CardData> takeCard,
+            RevealTake take, boolean mustPlay, List<String> typeQuotas) {
         resolveReveal(cards, deck, isP1,
-                () -> askRevealPlayOntoField(cards, maxPlay, costBudget, typeLabel, eligible, rest, take, mustPlay),
-                () -> cpuRevealPlayOntoField(cards, maxPlay, costBudget, eligible, rest),
+                () -> askRevealPlayOntoField(cards, maxPlay, costBudget, typeLabel, eligible, rest, take, mustPlay, typeQuotas),
+                () -> cpuRevealPlayOntoField(cards, maxPlay, costBudget, eligible, rest, typeQuotas),
                 takeCard, take);
     }
 
@@ -2512,19 +2563,31 @@ class LookAtDeckDialogs {
      */
     static DeckLookDecision cpuRevealPlayOntoField(List<CardData> cards, int maxPlay,
             int costBudget, Predicate<CardData> eligible, RevealRest rest) {
+        return cpuRevealPlayOntoField(cards, maxPlay, costBudget, eligible, rest, null);
+    }
+
+    /**
+     * As above, honouring a quota per card type when the effect prints one — the same rule the
+     * dialog offers a human, so the two seats are choosing from the same cards.
+     */
+    static DeckLookDecision cpuRevealPlayOntoField(List<CardData> cards, int maxPlay,
+            int costBudget, Predicate<CardData> eligible, RevealRest rest, List<String> typeQuotas) {
         List<Integer> playable = new ArrayList<>();
         for (int i = 0; i < cards.size(); i++)
             if (eligible.test(cards.get(i))) playable.add(i);
         playable.sort(java.util.Comparator.comparingInt((Integer i) -> cards.get(i).cost()).reversed());
 
         List<Integer> toField = new ArrayList<>();
+        List<CardData> taken = new ArrayList<>();
         int spent = 0;
         for (int i : playable) {
             if (toField.size() >= maxPlay) break;
-            int cost = cards.get(i).cost();
-            if (costBudget >= 0 && spent + cost > costBudget) continue;
+            CardData c = cards.get(i);
+            if (costBudget >= 0 && spent + c.cost() > costBudget) continue;
+            if (!typeQuotaHasRoom(c, taken, typeQuotas)) continue;
             toField.add(i);
-            spent += cost;
+            taken.add(c);
+            spent += c.cost();
         }
         List<Integer> leftover = new ArrayList<>();
         for (int i = 0; i < cards.size(); i++) if (!toField.contains(i)) leftover.add(i);
@@ -2574,9 +2637,39 @@ class LookAtDeckDialogs {
                 && (costBudget < 0 || spent + c.cost() <= costBudget);
     }
 
+    /**
+     * As above, for an effect that also prints a quota per card type — Mid Previa 26-115H's "up to
+     * 1 Forward, up to 1 Backup and up to 1 Monster".
+     *
+     * <p>Needs the cards taken rather than how many, because a per-type quota is spent by the
+     * types of the picks and not by their number: filling the Forward slot must leave the Backup
+     * one open, which a running total cannot express. {@code typeQuotas} of {@code null} is an
+     * effect printing no quotas, where this is the rule above and nothing more.
+     */
+    static boolean revealTakeStillOffered(CardData c, List<CardData> taken, int maxPlay,
+            int costBudget, Predicate<CardData> eligible, List<String> typeQuotas) {
+        int spent = taken.stream().mapToInt(CardData::cost).sum();
+        return revealTakeStillOffered(c, taken.size(), spent, maxPlay, costBudget, eligible)
+                && typeQuotaHasRoom(c, taken, typeQuotas);
+    }
+
+    /**
+     * Whether the quota {@code c} would be taken against still has room. Card types are mutually
+     * exclusive, so each card answers to exactly one quota and the quotas never compete — which is
+     * what lets this be a per-card test where {@link #quotasAdmit}, over Elements, cannot be.
+     */
+    static boolean typeQuotaHasRoom(CardData c, List<CardData> taken, List<String> typeQuotas) {
+        if (typeQuotas == null) return true;
+        String type = revealTypeOf(c, typeQuotas);
+        if (type == null) return false;
+        int used = 0;
+        for (CardData sel : taken) if (type.equalsIgnoreCase(revealTypeOf(sel, typeQuotas))) used++;
+        return used < quotaFor(typeQuotas, type);
+    }
+
     private DeckLookDecision askRevealPlayOntoField(List<CardData> cards,
             int maxPlay, int costBudget, String typeLabel, Predicate<CardData> eligible,
-            RevealRest rest, RevealTake take, boolean mustPlay) {
+            RevealRest rest, RevealTake take, boolean mustPlay, List<String> typeQuotas) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame, take.title(maxPlay, typeLabel, rest), true);
         dlg.setResizable(false);
@@ -2602,8 +2695,6 @@ class LookAtDeckDialogs {
         JToggleButton[] fieldBtns = new JToggleButton[n];
 
         Runnable refreshFieldButtons = () -> {
-            int count = fieldSel.size();
-            int spent = fieldSel.stream().mapToInt(CardData::cost).sum();
             for (int j = 0; j < n; j++) {
                 CardData c = order.get(j);
                 boolean inField = holdsIdentity(fieldSel, c);
@@ -2611,7 +2702,7 @@ class LookAtDeckDialogs {
                 // selection could never be undone.
                 fieldBtns[j].setEnabled(inField
                         ? eligible.test(c)
-                        : revealTakeStillOffered(c, count, spent, maxPlay, costBudget, eligible));
+                        : revealTakeStillOffered(c, fieldSel, maxPlay, costBudget, eligible, typeQuotas));
             }
             // "Play 1 Forward …" is an instruction, not an offer, so Confirm stays shut while the
             // player could still add a card they are obliged to play. Read off the buttons rather
@@ -2754,21 +2845,20 @@ class LookAtDeckDialogs {
     }
 
     /**
-     * "Reveal N cards. Add up to {@code handMax} matching {@code handTypeFilter} to hand,
-     * OR play up to {@code fieldMax} matching {@code fieldJobFilter}+{@code fieldTypeFilter}
-     * onto the field. Only one branch fires; the rest go to the bottom of the deck."
+     * "Reveal N cards. Add cards the {@code hand} branch accepts to your hand, OR play cards the
+     * {@code field} branch accepts onto the field. Only one branch fires; the rest go where
+     * {@code rest} says." — Serah 17-031L, Garuda (XVI) 29-046L and Yuri 16-061R.
      *
      * <p>Each revealed card shows two toggle buttons. Selecting any button disables every
-     * other button across all cards — only one card can be sent to one destination.
+     * other button across all cards — only one card can be sent to one destination, which is what
+     * all three printings ask for.
      */
-    void revealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
-            boolean isP1, int handMax, String handTypeFilter, int fieldMax,
-            String fieldJobFilter, String fieldTypeFilter, Consumer<CardData> playOntoField) {
+    void revealAddToHandOrPlayOntoField(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, RevealBranch hand, RevealBranch field, RevealRest rest,
+            Consumer<CardData> playOntoField) {
         resolveReveal(cards, deck, isP1,
-                () -> askRevealAddToHandOrPlayOntoField(cards, handMax, handTypeFilter, fieldMax,
-                        fieldJobFilter, fieldTypeFilter),
-                () -> cpuRevealAddToHandOrPlayOntoField(cards, handTypeFilter, fieldJobFilter,
-                        fieldTypeFilter),
+                () -> askRevealAddToHandOrPlayOntoField(cards, hand, field, rest),
+                () -> cpuRevealAddToHandOrPlayOntoField(cards, hand, field, rest),
                 playOntoField);
     }
 
@@ -2777,18 +2867,40 @@ class LookAtDeckDialogs {
      * playable one first and only falls back to the hand branch when there is none.
      */
     static DeckLookDecision cpuRevealAddToHandOrPlayOntoField(List<CardData> cards,
-            String handTypeFilter, String fieldJobFilter, String fieldTypeFilter) {
-        int pick = dearestMatching(cards, c -> meetsRevealTypeFilter(c, fieldTypeFilter)
-                && (fieldJobFilter == null || CardFilters.meetsJobFilter(c, fieldJobFilter)));
+            RevealBranch hand, RevealBranch field, RevealRest rest) {
+        int pick = dearestMatching(cards, field::accepts);
         boolean ontoField = pick >= 0;
-        if (!ontoField) pick = dearestMatching(cards, c -> meetsRevealTypeFilter(c, handTypeFilter));
+        if (!ontoField) pick = dearestMatching(cards, hand::accepts);
 
-        List<Integer> chosen = pick < 0 ? List.of() : List.of(pick);
-        List<Integer> bottom = new ArrayList<>();
-        for (int i = 0; i < cards.size(); i++) if (i != pick) bottom.add(i);
-        return ontoField
-                ? new DeckLookDecision(List.of(), List.of(), List.of(), bottom, chosen)
-                : new DeckLookDecision(chosen, List.of(), List.of(), bottom);
+        final int taken = pick;
+        List<Integer> chosen = taken < 0 ? List.of() : List.of(taken);
+        List<Integer> leftover = new ArrayList<>();
+        for (int i = 0; i < cards.size(); i++) if (i != taken) leftover.add(i);
+        return ontoField ? arrangeRest(leftover, chosen, rest)
+                         : arrangeRestAfterHandPick(leftover, chosen, rest);
+    }
+
+    /**
+     * The arrangement when the hand branch was taken: the pick joins the hand and the leftovers go
+     * to the pile {@code rest} names.
+     *
+     * <p>{@link #arrangeRest} cannot answer for this one. There the hand slot is free to hold the
+     * leftovers — that is what its {@link RevealRest#HAND} case uses it for — and here the pick is
+     * already in it.
+     */
+    private static DeckLookDecision arrangeRestAfterHandPick(List<Integer> leftover,
+            List<Integer> toHand, RevealRest rest) {
+        return switch (rest) {
+            case BREAK_ZONE -> new DeckLookDecision(toHand, leftover, List.of(), List.of());
+            case SHUFFLED_BOTTOM -> {
+                List<Integer> shuffled = new ArrayList<>(leftover);
+                java.util.Collections.shuffle(shuffled);
+                yield new DeckLookDecision(toHand, List.of(), List.of(), shuffled);
+            }
+            // No printing in this family sends its leftovers to the hand the pick just went to,
+            // and the deck is where both remaining spellings put them.
+            case BOTTOM, HAND -> new DeckLookDecision(toHand, List.of(), List.of(), leftover);
+        };
     }
 
     /** Index of the most expensive card {@code eligible} accepts, ties going to the topmost, or -1. */
@@ -2802,11 +2914,10 @@ class LookAtDeckDialogs {
     }
 
     private DeckLookDecision askRevealAddToHandOrPlayOntoField(List<CardData> cards,
-            int handMax, String handTypeFilter, int fieldMax,
-            String fieldJobFilter, String fieldTypeFilter) {
+            RevealBranch hand, RevealBranch field, RevealRest rest) {
         int n = cards.size();
-        String title = "Reveal — Add " + handTypeFilter + " to Hand  OR  Play "
-                + (fieldJobFilter != null ? "Job " + fieldJobFilter + " " : "") + fieldTypeFilter + " onto Field";
+        String title = "Reveal — Add " + hand.describe() + " to Hand  OR  Play "
+                + field.describe() + " onto Field";
         JDialog dlg = new JDialog(frame, title, true);
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -2837,11 +2948,8 @@ class LookAtDeckDialogs {
             for (int j = 0; j < n; j++) {
                 CardData c       = order.get(j);
                 boolean isChosen = c == chosenCard[0];
-                boolean handEligible  = meetsRevealTypeFilter(c, handTypeFilter);
-                boolean fieldEligible = meetsRevealTypeFilter(c, fieldTypeFilter)
-                        && (fieldJobFilter == null || CardFilters.meetsJobFilter(c, fieldJobFilter));
-                handBtns[j].setEnabled(handEligible   && (!anyChosen || (isChosen && "hand".equals(chosenDest[0]))));
-                fieldBtns[j].setEnabled(fieldEligible && (!anyChosen || (isChosen && "field".equals(chosenDest[0]))));
+                handBtns[j].setEnabled(hand.accepts(c)  && (!anyChosen || (isChosen && "hand".equals(chosenDest[0]))));
+                fieldBtns[j].setEnabled(field.accepts(c) && (!anyChosen || (isChosen && "field".equals(chosenDest[0]))));
             }
         };
 
@@ -2952,9 +3060,13 @@ class LookAtDeckDialogs {
         }
 
         JLabel instructions = new JLabel(
-                txt("Select 1 card: '→ Hand' (" + handTypeFilter + ") or '→ Field' ("
-                + (fieldJobFilter != null ? "Job " + fieldJobFilter + " " : "") + fieldTypeFilter
-                + "). Swap others to set bottom-of-deck order (left = first)."),
+                txt("Select 1 card: '→ Hand' (" + hand.describe() + ") or '→ Field' ("
+                + field.describe() + "). " + switch (rest) {
+                    case BOTTOM -> "Swap others to set bottom-of-deck order (left = first).";
+                    case SHUFFLED_BOTTOM -> "The rest are shuffled and go under your deck.";
+                    case BREAK_ZONE -> "The rest go to your Break Zone.";
+                    case HAND -> "The rest go to your hand.";
+                }),
                 SwingConstants.CENTER);
         instructions.setFont(FontLoader.loadPixelFont(9));
         confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
@@ -2973,15 +3085,17 @@ class LookAtDeckDialogs {
         dlg.setVisible(true);
 
         CardData chosen = chosenCard[0];
-        List<CardData> rest = new ArrayList<>();
-        for (CardData c : order) if (c != chosen) rest.add(c);
-        List<Integer> bottom = peekIndices(cards, rest);
-        if (chosen == null) return new DeckLookDecision(List.of(), List.of(), List.of(), bottom);
+        // Read off `order`, not `cards`: with the leftovers bound for the bottom of the deck the
+        // arrangement the player made is the order they land in.
+        List<CardData> untaken = new ArrayList<>();
+        for (CardData c : order) if (c != chosen) untaken.add(c);
+        List<Integer> leftover = peekIndices(cards, untaken);
+        if (chosen == null) return arrangeRest(leftover, List.of(), rest);
 
         List<Integer> pick = List.of(peekIndexOf(cards, chosen));
         return "field".equals(chosenDest[0])
-                ? new DeckLookDecision(List.of(), List.of(), List.of(), bottom, pick)
-                : new DeckLookDecision(pick, List.of(), List.of(), bottom);
+                ? arrangeRest(leftover, pick, rest)
+                : arrangeRestAfterHandPick(leftover, pick, rest);
     }
 
     void revealPlayNamedOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
