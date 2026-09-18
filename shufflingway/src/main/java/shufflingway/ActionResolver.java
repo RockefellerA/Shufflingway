@@ -898,6 +898,14 @@ public class ActionResolver {
         result = tryParseAllOppForwardsLoseTraitsEot(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseAllFieldPowerBoost: that pattern carries an element and a category
+        // group of its own and reads them as a conjunction, which is the wrong reading of the two
+        // sets Graff 13-057H joins with "and". It cannot in fact claim Graff's sentence today —
+        // it wants the verb straight after the noun phrase — so this is precedence for the reader,
+        // and insurance against that pattern ever being loosened.
+        result = tryParseAllElementAndCategoryPowerBoost(effectText);
+        if (result != null) return result;
+
         result = tryParseAllFieldPowerBoost(effectText);
         if (result != null) return result;
 
@@ -1558,6 +1566,12 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseSelfMill(effectText);
+        if (result != null) return result;
+
+        // Must precede tryParseOpponentRevealHand for the reason the line below does, and it is
+        // the stronger case: Thief 8-052C's middle sentence is a reveal, so the whole-hand parser
+        // takes it and drops the naming in front of it and the discard behind it.
+        result = tryParseNameElementOppRandomRevealDiscard(effectText, source);
         if (result != null) return result;
 
         // Must precede tryParseOpponentRevealHand: both open with "Your opponent reveals ...",
@@ -2365,6 +2379,9 @@ public class ActionResolver {
         if (tryParsePartyForwardsPowerBoost(effectText) != null) return "PartyForwardsPowerBoost";
         if (tryParseAllOppForwardsLoseTraitsEot(effectText) != null) return "AllOppForwardsLoseTraitsEot";
         if (tryParseRevealOpponentTopBranchOnType(effectText) != null) return "RevealOpponentTopBranchOnType";
+        // Mirrors parse(): ahead of AllFieldPowerBoost, whose two filters mean a conjunction.
+        if (tryParseAllElementAndCategoryPowerBoost(effectText) != null)
+            return "AllElementAndCategoryPowerBoost";
         if (tryParseAllFieldPowerBoost(effectText) != null) return "AllFieldPowerBoost";
         if (tryParseUntilEotAllJobCardNameGainPowerTraitsAbility(effectText) != null) return "UntilEotAllJobCardNameGainPowerTraitsAbility";
         if (tryParseAllFieldJobCardNamePowerBoost(effectText) != null) return "AllFieldJobCardNamePowerBoost";
@@ -2596,6 +2613,10 @@ public class ActionResolver {
         if (tryParseOpponentMillIfSameElementDraw(effectText)  != null) return "OpponentMillIfSameElementDraw";
         if (tryParseOpponentMill(effectText)                  != null) return "OpponentMill";
         if (tryParseSelfMill(effectText)                      != null) return "SelfMill";
+        // Mirrors parse(): ahead of both of the reveal parsers below, whose find() would name
+        // this ability after the one sentence of it they can read.
+        if (tryParseNameElementOppRandomRevealDiscard(effectText, source) != null)
+            return "NameElementOppRandomRevealDiscard";
         // Must precede OpponentRevealHand — see the ordering note in parse().
         if (tryParseOpponentRevealNSelectOneDiscard(effectText) != null) return "OpponentRevealNSelectOneDiscard";
         // Mirrors parse(): ahead of OpponentRevealHand, whose find() takes this text's
@@ -4177,6 +4198,9 @@ public class ActionResolver {
         // Mirrors parse() and matchedPatternName(): kept beside the mass power effect it shares a
         // board with, though the pattern below needs a power figure and could not claim it.
         if (tryParseAllOppForwardsLoseTraitsEot(effectText) != null) return "AllOppForwardsLoseTraitsEot";
+        // Mirrors parse(); see the note there.
+        if (tryParseAllElementAndCategoryPowerBoost(effectText) != null)
+            return "AllElementAndCategoryPowerBoost";
         {
             Matcher bm = ALL_FIELD_POWER_BOOST_PATTERN.matcher(effectText);
             if (bm.find()) {
@@ -4443,6 +4467,9 @@ public class ActionResolver {
         if (tryParseOpponentMillIfSameElementDraw(effectText) != null)      return "OpponentMillIfSameElementDraw";
         if (tryParseOpponentMill(effectText) != null)                       return "OpponentMill";
         if (tryParseSelfMill(effectText) != null)                           return "SelfMill";
+        // Mirrors parse(); see the note in matchedPatternNameOn().
+        if (tryParseNameElementOppRandomRevealDiscard(effectText, source) != null)
+            return "Name 1 Element; opponent randomly reveals cards and discards a named one";
         // Must precede OpponentRevealHand — see the ordering note in parse().
         if (tryParseOpponentRevealNSelectOneDiscard(effectText) != null)
             return "Opponent reveals cards from their hand; you select 1 for them to discard";

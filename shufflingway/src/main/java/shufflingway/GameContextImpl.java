@@ -7517,6 +7517,53 @@ final class GameContextImpl implements GameContext {
 				else      { mw.refreshP1HandLabel();      mw.refreshP1BreakLabel(); }
 			}
 
+			@Override public void opponentRandomRevealsSelectElementDiscard(int revealCount, String element) {
+				if (element == null || element.isBlank()) return;
+				List<CardData> oppHand = isP1 ? mw.gameState.getP2Hand() : mw.gameState.getP1Hand();
+				if (oppHand.isEmpty()) {
+					logEntry("Opponent's hand is empty — nothing revealed, nothing discarded.");
+					return;
+				}
+				// randomPicks answers against a pool that shrinks by one per roll — the convention
+				// its callers rely on, because they remove each pick as they take it. Nothing is
+				// removed here until the discard, so the rolls are walked back into absolute hand
+				// indices the same way RandomPicks.fitPool validates them. Taken as-is they would
+				// collide, and two "different" reveals could be the same card.
+				List<Integer> remaining = new ArrayList<>();
+				for (int i = 0; i < oppHand.size(); i++) remaining.add(i);
+				List<Integer> revealed = new ArrayList<>();
+				for (int roll : randomPicks(revealCount, oppHand.size(), "which cards are revealed"))
+					if (roll >= 0 && roll < remaining.size()) revealed.add(remaining.remove(roll));
+				if (revealed.isEmpty()) return;
+
+				StringBuilder shown = new StringBuilder();
+				for (int i : revealed) {
+					if (shown.length() > 0) shown.append(", ");
+					shown.append(oppHand.get(i).name());
+				}
+				logEntry("[Opponent] Randomly reveals " + revealed.size() + " card(s) from hand: " + shown);
+
+				// A multi-Element card is a card of each of its Elements, so containsElement is
+				// the test rather than an equality on the printed string.
+				List<Integer> matching = new ArrayList<>();
+				for (int i : revealed) if (oppHand.get(i).containsElement(element)) matching.add(i);
+				if (matching.isEmpty()) {
+					logEntry("None of the revealed cards are " + element + " — nothing discarded");
+					return;
+				}
+
+				int chosen = mw.selectRevealedHandCard(isP1, matching);
+				if (chosen < 0) return;
+				CardData d = mw.playerBreakFromHand(!isP1, chosen);
+				if (d == null) return;
+				logEntry("[Opponent] Discards " + d.name() + " (selected from the revealed "
+						+ element + " cards)");
+				mw.turn(!isP1).discardedByEffectThisTurn = true;
+				mw.turn(isP1).causedOpponentDiscardThisTurn = true;
+				if (isP1) { mw.refreshP2HandCountLabel(); mw.refreshP2BreakLabel(); }
+				else      { mw.refreshP1HandLabel();      mw.refreshP1BreakLabel(); }
+			}
+
 			@Override public void selectFromOpponentHandRfpUntilEndOfOpponentTurn(int count) {
 				List<CardData> hand = isP1 ? mw.gameState.getP2Hand() : mw.gameState.getP1Hand();
 				if (hand.isEmpty()) { logEntry("Opponent's hand is empty."); return; }
@@ -9307,13 +9354,48 @@ final class GameContextImpl implements GameContext {
 				return highest;
 			}
 
+			/**
+			 * Whether {@code c} answers to an Element-or-Category pair the way
+			 * {@link #matchesJobOrCardName} answers to a Job-or-name one — as alternatives.
+			 *
+			 * <p>Graff 13-057H prints them that way: "all the Earth Forwards and Category MOBIUS
+			 * Forwards you control". A Forward that is both is still one Forward and is boosted
+			 * once, which is the reason this is a predicate over the union rather than two sweeps.
+			 */
+			private boolean matchesElementOrCategory(CardData c, String element, String category) {
+				if (element == null && category == null) return true;
+				return (element  != null && mw.effectiveContainsElement(c, element))
+						|| (category != null && CardFilters.meetsCategoryFilter(c, category));
+			}
+
+			@Override public void applyMassFieldElementOrCategoryPowerBoost(int amount,
+					boolean inclForwards, boolean inclMonsters, boolean opponentOnly,
+					boolean selfOnly, String element, String category, String excludeName) {
+				massFieldPowerBoostWhere(amount, inclForwards, inclMonsters, opponentOnly, selfOnly,
+						c -> matchesElementOrCategory(c, element, category)
+								&& !mw.excludedByOtherThanClause(c, excludeName));
+			}
+
 			@Override public void applyMassFieldJobCardNamePowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
 					boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter,
 					String excludeName) {
 				// One predicate for all four loops below rather than four copies of the guard, so
 				// the exclusion cannot end up applied to three of them.
-				Predicate<CardData> eligible = c -> matchesJobOrCardName(c, jobFilter, cardNameFilter)
-						&& !(mw.excludedByOtherThanClause(c, excludeName));
+				massFieldPowerBoostWhere(amount, inclForwards, inclMonsters, opponentOnly, selfOnly,
+						c -> matchesJobOrCardName(c, jobFilter, cardNameFilter)
+								&& !mw.excludedByOtherThanClause(c, excludeName));
+			}
+
+			/**
+			 * The sweep behind every union-filtered mass power boost: the four row walks, the
+			 * two suppression checks and the logging, with {@code eligible} the only thing that
+			 * differs between callers.
+			 *
+			 * <p>Shared rather than copied because the filters are what vary and the rest is what
+			 * must not: a second copy is where an exclusion gets applied to three rows out of four.
+			 */
+			private void massFieldPowerBoostWhere(int amount, boolean inclForwards, boolean inclMonsters,
+					boolean opponentOnly, boolean selfOnly, Predicate<CardData> eligible) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				boolean p1JobBoostSuppressed = inclForwards && amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || (isP1 && mw.oppForwardSelfBoostSuppressedFor(true)));

@@ -2713,6 +2713,25 @@ public interface GameContext {
     void opponentRevealsSelectOneDiscard(int revealCount);
 
     /**
+     * The random sibling of {@link #opponentRevealsSelectOneDiscard(int)}: the ability user's
+     * opponent reveals {@code revealCount} cards from hand <em>at random</em> — neither player
+     * chooses which — and the ability user then selects 1 of {@code element} among them for the
+     * opponent to discard. Thief 8-052C, whose Element is named before anything is revealed.
+     *
+     * <p>What separates it from its sibling is who controls the offer. There the opponent decides
+     * what is ever shown, so a well-played hand only exposes what it can spare; here the hand has
+     * no say, and the ability user's risk sits entirely in having had to name the Element blind.
+     *
+     * <p>A multi-Element card answers to either of its Elements, so a Wind/Water card is a legal
+     * pick against a named Wind and against a named Water alike. When nothing revealed matches,
+     * nothing is discarded — the reveal still happened and both players have seen it.
+     *
+     * <p>Hand size is read when this runs, not when the ability went on the Stack, and an
+     * opponent holding {@code revealCount} cards or fewer reveals all of them.
+     */
+    void opponentRandomRevealsSelectElementDiscard(int revealCount, String element);
+
+    /**
      * Reveals the ability-user's opponent's hand, then lets the ability user select up to
      * {@code count} cards to remove from the game <em>until the end of the opponent's next
      * turn</em>, at which point they return to their owner's hand.  The temporary removal is
@@ -4557,6 +4576,27 @@ public interface GameContext {
     void applyMassFieldJobCardNamePowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
             boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter,
             String excludeName);
+
+    /**
+     * The Element-or-Category twin of {@link #applyMassFieldJobCardNamePowerBoost}: the same
+     * sweep, selecting on an Element <em>or</em> a Category rather than a Job or a card name.
+     * Graff 13-057H — "all the Earth Forwards and Category MOBIUS Forwards you control gain
+     * +2000 power until the end of the turn."
+     *
+     * <p>Printed "and", meant as a union, exactly as the Job-or-name pairing is. The distinction
+     * matters because {@link #applyMassFieldPowerBoost} takes the same two filters and reads them
+     * as a conjunction, which is the right reading of "all the Earth Category MOBIUS Forwards"
+     * and the wrong one here — it would boost only the Forwards that are both.
+     *
+     * <p>A Forward answering to both halves is still one Forward and is boosted once, which is
+     * why this is one sweep over a union rather than two sweeps run back to back.
+     *
+     * <p>A null filter contributes nothing rather than matching everything; both null matches
+     * every card, as the unfiltered sweep does.
+     */
+    void applyMassFieldElementOrCategoryPowerBoost(int amount, boolean inclForwards,
+            boolean inclMonsters, boolean opponentOnly, boolean selfOnly,
+            String element, String category, String excludeName);
 
     /**
      * Applies a power debuff until end of turn to all opponent Forwards, where each Forward

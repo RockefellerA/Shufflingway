@@ -59954,4 +59954,243 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Thief 8-052C — the random sibling of Don Corneo's reveal
+	//
+	// "When Thief enters the field, name 1 Element. Your opponent randomly reveals 2 cards from
+	// his/her hand. Select 1 card of the same Element as named among them. Your opponent discards
+	// this card."
+	//
+	// Don Corneo 14-035C 's machinery was most of it: the opponent reveals, the ability user picks
+	// one of the revealed, that card is discarded, and the whole exchange is already wire-synced.
+	// Two things are different. The reveal is random rather than the opponent's choice — so a
+	// well-played hand cannot hide behind its worst cards, and the risk sits with the ability user
+	// instead, who names the Element before anything is shown. And the selection is filtered to
+	// that Element.
+	//
+	// The subtlety is in the rolls. RandomPicks.roll answers against a pool that shrinks by one
+	// per roll, which is the convention its existing callers rely on because they remove each pick
+	// as they take it. Nothing is removed here until the discard, so the rolls have to be walked
+	// back into absolute hand indices. Taken as-is, two "different" reveals can be the same card.
+	// =========================================================================================
+
+	private static final String THIEF_8_052C_EFFECT =
+			"name 1 Element. Your opponent randomly reveals 2 cards from his/her hand. "
+			+ "Select 1 card of the same Element as named among them. "
+			+ "Your opponent discards this card.";
+
+	@Test
+	void thiefIsReadAsOneExchangeRatherThanAsItsMiddleSentence() {
+		CardData thief = makeForward("Thief", "Wind", 4, 0);
+		assertEquals("NameElementOppRandomRevealDiscard",
+				ActionResolver.matchedPatternName(THIEF_8_052C_EFFECT, thief));
+		assertEquals("Name 1 Element; opponent randomly reveals cards and discards a named one",
+				ActionResolver.fullDescription(THIEF_8_052C_EFFECT, thief));
+	}
+
+	@Test
+	void donCorneoStillReadsAsHimself() {
+		// His text also has a reveal sentence, and the new parser sits ahead of his in all three
+		// chains. It must not have taken him with it.
+		assertEquals("OpponentRevealNSelectOneDiscard", ActionResolver.matchedPatternName(
+				"your opponent reveals 3 cards from their hand. Select 1 card among them. "
+				+ "Your opponent discards this card.", null));
+	}
+
+	@Test
+	void theNamedElementIsChosenBeforeAnythingIsRevealed() {
+		Consumer<GameContext> fn = ActionResolver.parse(
+				THIEF_8_052C_EFFECT, makeForward("Thief", "Wind", 4, 0));
+		assertNotNull(fn, "Thief's exchange should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selectElement(any())).thenReturn("Wind");
+		fn.accept(ctx);
+
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).selectElement(any());
+		order.verify(ctx).opponentRandomRevealsSelectElementDiscard(2, "Wind");
+	}
+
+	@Test
+	void namingNothingRevealsNothing() {
+		// Cancelling must not fall back to some default Element: the reveal it would trigger
+		// cannot be taken back, and the guess would be this code's rather than the player's.
+		Consumer<GameContext> fn = ActionResolver.parse(
+				THIEF_8_052C_EFFECT, makeForward("Thief", "Wind", 4, 0));
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selectElement(any())).thenReturn(null);
+		fn.accept(ctx);
+		verify(ctx, never()).opponentRandomRevealsSelectElementDiscard(anyInt(), any());
+	}
+
+	/** A board where P2 holds Thief's ability and P1's hand is {@code hand}. */
+	private static MainWindow thiefBoard(CardData... hand) {
+		MainWindow mw = new MainWindow();
+		for (CardData c : hand) {
+			mw.gameState.getIdentity().put(c, true);
+			mw.gameState.getP1Hand().add(c);
+		}
+		return mw;
+	}
+
+	@Test
+	void everyCardIsRevealedWhenTheHandIsNoBiggerThanTheReveal() {
+		// The index-conversion guard, and the reason it is run repeatedly: with a two-card hand
+		// and a two-card reveal, both cards are revealed on every possible roll, so the Wind card
+		// is always the one discarded. Reading the rolls as absolute indices instead makes the
+		// second reveal collide with the first about half the time, which shows up here as the
+		// Wind card surviving — but only on some runs, so one trial would let it through.
+		for (int trial = 0; trial < 25; trial++) {
+			CardData plain = makeForward("Ice Card", "Ice", 1, 1000);
+			CardData windy = makeForward("Wind Card", "Wind", 3, 7000);
+			MainWindow mw = thiefBoard(plain, windy);   // Wind sits at index 1
+
+			mw.buildGameContext(false).opponentRandomRevealsSelectElementDiscard(2, "Wind");
+
+			assertTrue(mw.gameState.getP1BreakZone().contains(windy),
+					"trial " + trial + ": both cards are revealed, so the Wind one is takeable");
+			assertTrue(mw.gameState.getP1Hand().contains(plain), "the Ice card is not Wind");
+		}
+	}
+
+	@Test
+	void nothingIsDiscardedWhenNoRevealedCardMatches() {
+		CardData a = makeForward("Ice Card", "Ice", 1, 1000);
+		CardData b = makeForward("Fire Card", "Fire", 3, 7000);
+		MainWindow mw = thiefBoard(a, b);
+
+		mw.buildGameContext(false).opponentRandomRevealsSelectElementDiscard(2, "Wind");
+
+		assertTrue(mw.gameState.getP1BreakZone().isEmpty(),
+				"the reveal happened, but nothing shown was Wind");
+		assertEquals(2, mw.gameState.getP1Hand().size());
+	}
+
+	@Test
+	void aMultiElementCardAnswersToEitherOfItsElements() {
+		for (String named : new String[] { "Wind", "Water" }) {
+			CardData dual  = makeForward("Dual Card", "Wind/Water", 3, 7000);
+			CardData plain = makeForward("Ice Card", "Ice", 1, 1000);
+			MainWindow mw = thiefBoard(plain, dual);
+
+			mw.buildGameContext(false).opponentRandomRevealsSelectElementDiscard(2, named);
+
+			assertTrue(mw.gameState.getP1BreakZone().contains(dual),
+					"a Wind/Water card is a " + named + " card");
+		}
+	}
+
+	@Test
+	void anEmptyOpponentHandRevealsAndDiscardsNothing() {
+		MainWindow mw = thiefBoard();
+		mw.buildGameContext(false).opponentRandomRevealsSelectElementDiscard(2, "Wind");
+		assertTrue(mw.gameState.getP1BreakZone().isEmpty());
+	}
+
+	@Test
+	void anUnnamedElementIsDeclinedByThePrimitiveToo() {
+		// The parser already refuses to call with a blank Element; the primitive does not rely on
+		// that, because a reveal is not something to perform on the strength of a caller's promise.
+		CardData windy = makeForward("Wind Card", "Wind", 3, 7000);
+		MainWindow mw = thiefBoard(windy);
+
+		mw.buildGameContext(false).opponentRandomRevealsSelectElementDiscard(2, null);
+		mw.buildGameContext(false).opponentRandomRevealsSelectElementDiscard(2, "  ");
+
+		assertTrue(mw.gameState.getP1Hand().contains(windy), "nothing was revealed or taken");
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Graff 13-057H — two filters joined by "and", meaning a union
+	//
+	// "At the beginning of the Attack Phase during each of your turns, all the Earth Forwards and
+	// Category MOBIUS Forwards you control gain +2000 power until the end of the turn."
+	//
+	// ALL_FIELD_POWER_BOOST_PATTERN already carries an element group and a category group, and
+	// hands both to a primitive that ANDs them. That is the right reading of its own printings —
+	// "all the Earth Category MOBIUS Forwards" is one narrowed set — and the wrong one here,
+	// where "and" joins two separate sets. Reusing it would have boosted only the Forwards that
+	// are both, which is a strictly smaller effect than the card.
+	//
+	// So this goes through its own pattern and its own primitive, the Element/Category twin of
+	// the Job/card-name union Tenzen 24-115R already had. The sweep itself is now shared between
+	// the two: only the predicate differs, and a second copy of four row walks is where an
+	// exclusion ends up applied to three of them.
+	// =========================================================================================
+
+	private static final String GRAFF_13_057H_EFFECT =
+			"all the Earth Forwards and Category MOBIUS Forwards you control gain +2000 power "
+			+ "until the end of the turn.";
+
+	@Test
+	void graffIsNamedApartFromTheConjunctiveSweep() {
+		assertEquals("AllElementAndCategoryPowerBoost",
+				ActionResolver.matchedPatternName(GRAFF_13_057H_EFFECT, null));
+		assertEquals("AllElementAndCategoryPowerBoost",
+				ActionResolver.fullDescription(GRAFF_13_057H_EFFECT, null));
+		// The conjunctive spelling is a different sentence and keeps its own parser.
+		assertEquals("AllFieldPowerBoost", ActionResolver.matchedPatternName(
+				"All the Earth Category MOBIUS Forwards you control gain +2000 power "
+				+ "until the end of the turn.", null));
+	}
+
+	@Test
+	void graffBoostsEitherHalfOfTheUnionAndNothingElse() {
+		MainWindow mw = new MainWindow();
+		CardData earthOnly  = makeCategoryForward("Earthy",  "Earth", "XI");
+		CardData mobiusOnly = makeCategoryForward("Mobiusy", "Fire",  "MOBIUS");
+		CardData neither    = makeCategoryForward("Bystander", "Fire", "XI");
+		placeP1Forward(mw, earthOnly);    // idx 0
+		placeP1Forward(mw, mobiusOnly);   // idx 1
+		placeP1Forward(mw, neither);      // idx 2
+
+		ActionResolver.parse(GRAFF_13_057H_EFFECT, null).accept(mw.buildGameContext(true));
+
+		assertEquals(9000, mw.effectiveP1ForwardPower(0), "Earth alone qualifies");
+		assertEquals(9000, mw.effectiveP1ForwardPower(1), "Category MOBIUS alone qualifies");
+		assertEquals(7000, mw.effectiveP1ForwardPower(2), "neither half covers it");
+	}
+
+	@Test
+	void aForwardInBothHalvesIsStillBoostedOnlyOnce() {
+		// The reason this is one sweep over a union rather than two sweeps run back to back.
+		MainWindow mw = new MainWindow();
+		CardData both = makeCategoryForward("Graff", "Earth", "MOBIUS");
+		placeP1Forward(mw, both);
+
+		ActionResolver.parse(GRAFF_13_057H_EFFECT, null).accept(mw.buildGameContext(true));
+
+		assertEquals(9000, mw.effectiveP1ForwardPower(0),
+				"Earth and Category MOBIUS is one Forward, so it gains 2000 and not 4000");
+	}
+
+	@Test
+	void graffLeavesTheOpponentsBoardAlone() {
+		MainWindow mw = new MainWindow();
+		CardData mine   = makeCategoryForward("Mine",  "Earth", "XI");
+		CardData theirs = makeCategoryForward("Yours", "Earth", "MOBIUS");
+		placeP1Forward(mw, mine);
+		mw.gameState.getIdentity().put(theirs, false);
+		mw.placeP2CardInForwardZone(theirs);
+
+		ActionResolver.parse(GRAFF_13_057H_EFFECT, null).accept(mw.buildGameContext(true));
+
+		assertEquals(9000, mw.effectiveP1ForwardPower(0));
+		assertEquals(7000, mw.effectiveP2ForwardPower(0), "\"you control\" stops at the table edge");
+	}
+
+	@Test
+	void tenzenStillReachesItsOwnParserAfterTheNewOneWasInsertedAhead() {
+		// The Job/card-name union has a richer payoff and its own parser; the new guard sits
+		// ahead of the mass power readers and must not have taken it.
+		assertEquals("UntilEotAllJobCardNameGainPowerTraitsAbility", ActionResolver.matchedPatternName(
+				"until the end of the turn, all the Job Samurai Forwards and Card Name Samurai "
+				+ "Forwards you control gain +3000 power, Brave and \"This Forward can attack "
+				+ "twice in the same turn.\"", null));
+	}
+
+	// =========================================================================================
+
 }

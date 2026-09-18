@@ -1216,6 +1216,37 @@ final class ActionResolverHand {
         return "choose up to " + count + " " + noun + ". " + tail;
     }
 
+    /**
+     * Thief 8-052C: "Name 1 Element. Your opponent randomly reveals N cards from his/her hand.
+     * Select 1 card of the same Element as named among them. Your opponent discards this card."
+     *
+     * <p>The Element is named first and the reveal follows, which is the printed order and the
+     * point of the card: the guess is made before anything is seen. Naming happens in the parser,
+     * where every other "name 1 Element" printing does it, so the engine primitive is handed a
+     * decided Element and owns only the reveal-and-discard.
+     *
+     * <p>Cancelling the naming abandons the ability rather than defaulting to an Element — a
+     * default would be a guess this code made on the player's behalf, and the reveal it triggers
+     * cannot be taken back.
+     */
+    static Consumer<GameContext> tryParseNameElementOppRandomRevealDiscard(String text, CardData source) {
+        Matcher m = NAME_ELEMENT_OPP_RANDOM_REVEAL_SELECT_DISCARD.matcher(text.trim());
+        if (!m.matches()) return null;
+        final int revealCount = Integer.parseInt(m.group("count"));
+        final String who = source != null ? source.name() : "Effect";
+        return ctx -> {
+            String elem = ctx.selectElement("Name 1 Element (" + who + " — your opponent then "
+                    + "randomly reveals " + revealCount + "):");
+            if (elem == null || elem.isBlank()) {
+                ctx.logEntry("Effect: no Element named — nothing is revealed");
+                return;
+            }
+            ctx.logEntry("Effect: named " + elem + "; opponent randomly reveals "
+                    + revealCount + " card(s)");
+            ctx.opponentRandomRevealsSelectElementDiscard(revealCount, elem);
+        };
+    }
+
     /** One "When you reveal N or more [Element] cards, [effect]." arm of Arciela's ability. */
     private record RevealThreshold(String element, int count, Consumer<GameContext> effect,
             String describe) {}

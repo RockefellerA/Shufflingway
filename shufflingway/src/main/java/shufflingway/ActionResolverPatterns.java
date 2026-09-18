@@ -1862,6 +1862,57 @@ final class ActionResolverPatterns {
         "(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+cards?,|\\s*$)",
         Pattern.DOTALL
     );
+    /**
+     * Matches Thief 8-052C: "Name 1 Element. Your opponent randomly reveals N cards from his/her
+     * hand. Select 1 card of the same Element as named among them. Your opponent discards this
+     * card."
+     *
+     * <p>Four sentences describing one exchange, anchored end to end because no part of it stands
+     * alone: the naming is worthless without the reveal it filters, and the discard has nothing
+     * to take without the selection. The Element is named <em>before</em> the reveal, which the
+     * printed order states and which is the whole risk of the card — a guess made blind.
+     * <ul>
+     *   <li>Group {@code count} — how many cards the opponent reveals</li>
+     * </ul>
+     */
+    static final Pattern NAME_ELEMENT_OPP_RANDOM_REVEAL_SELECT_DISCARD = Pattern.compile(
+        "(?i)^Name\\s+1\\s+Element[.!]?\\s+" +
+        "Your\\s+opponent\\s+randomly\\s+reveals\\s+(?<count>\\d+)\\s+cards?\\s+from\\s+" +
+        "(?:his/her|his\\s+or\\s+her|their)\\s+hand[.!]?\\s+" +
+        "Select\\s+1\\s+card\\s+of\\s+the\\s+same\\s+Element\\s+as\\s+named\\s+among\\s+them[.!]?\\s+" +
+        "Your\\s+opponent\\s+discards\\s+this\\s+card[.!]?$"
+    );
+    /**
+     * Matches Graff 13-057H: "All the [Element] Forwards and Category [C] Forwards you control
+     * gain +N power until the end of the turn." — two filters named as alternatives, in the
+     * spelling {@link #UNTIL_EOT_ALL_JOB_CARDNAME_GAIN_POWER_TRAITS_ABILITY} uses for a Job and a
+     * card name.
+     *
+     * <p>Kept apart from {@link #ALL_FIELD_POWER_BOOST_PATTERN}, which carries an
+     * {@code element} and a {@code category} group of its own and hands them to the engine as a
+     * conjunction. That is the correct reading of its own printings — "all the Earth Category
+     * MOBIUS Forwards" is one narrowed set — and the wrong one here, where the two halves are
+     * separate sets joined by "and". Widening that pattern instead would have made the same two
+     * groups mean different things depending on a word between them.
+     *
+     * <p>Anchored end to end, so it cannot take a prefix of a longer sentence: Tenzen 24-115R
+     * prints the Job/card-name twin of this with a richer payoff, and that one belongs to its
+     * own parser.
+     * <ul>
+     *   <li>Groups {@code element}, {@code category} — the two alternatives</li>
+     *   <li>Group {@code targets} — the card types swept</li>
+     *   <li>Group {@code control} — which side; {@code verb} and {@code amount} — the change</li>
+     * </ul>
+     */
+    static final Pattern ALL_ELEMENT_AND_CATEGORY_POWER_BOOST = Pattern.compile(
+        "(?i)^(?:All\\s+(?:the\\s+)?|The\\s+)" +
+        "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+" +
+        "(?<targets>Forwards?|Characters?)\\s+and\\s+" +
+        "Category\\s+(?<category>\\S+)\\s+(?:Forwards?|Characters?)" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "\\s+(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+power" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
+    );
     /** Matches "It loses all [its] abilities until the end of the turn." */
     static final Pattern FOLLOWUP_LOSE_ALL_ABILITIES_EOT = Pattern.compile(
         "(?i)It\\s+loses\\s+all\\s+(?:its\\s+)?abilities\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"

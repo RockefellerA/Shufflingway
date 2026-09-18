@@ -736,6 +736,43 @@ final class ActionResolverPower {
             if (secondary != null) secondary.accept(ctx);
         };
     }
+    /**
+     * Parses "All the [Element] Forwards and Category [C] Forwards you control gain +N power
+     * until the end of the turn." -- Graff 13-057H.
+     *
+     * <p>The two filters are alternatives, as they are in Tenzen 24-115R's Job/card-name twin
+     * above. {@code tryParseAllFieldPowerBoost} reads an element and a category together as a
+     * conjunction, which is right for "all the Earth Category MOBIUS Forwards" and wrong for
+     * this, so the union goes to its own primitive rather than through that one.
+     */
+    static Consumer<GameContext> tryParseAllElementAndCategoryPowerBoost(String text) {
+        Matcher m = ALL_ELEMENT_AND_CATEGORY_POWER_BOOST.matcher(text.trim());
+        if (!m.matches()) return null;
+
+        String element  = m.group("element");
+        String category = m.group("category");
+        String targets  = m.group("targets").toLowerCase(Locale.ROOT);
+        boolean inclForwards = targets.contains("forward") || targets.contains("character");
+        boolean inclMonsters = targets.contains("character");
+
+        String control = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase(Locale.ROOT).contains("you control");
+        boolean selfOnly     = control != null &&  control.toLowerCase(Locale.ROOT).contains("you control");
+
+        boolean isLose = m.group("verb").toLowerCase(Locale.ROOT).startsWith("lose");
+        int amount = Integer.parseInt(m.group("amount")) * (isLose ? -1 : 1);
+
+        String logMsg = "All " + element + " and Category " + category + " " + m.group("targets")
+                + (opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "")
+                + " " + (isLose ? "-" : "+") + Math.abs(amount) + " power until end of turn";
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logMsg);
+            ctx.applyMassFieldElementOrCategoryPowerBoost(amount, inclForwards, inclMonsters,
+                    opponentOnly, selfOnly, element, category, null);
+        };
+    }
+
     static Consumer<GameContext> tryParseAllForwardsSameElementAsNamedPowerBoost(String text) {
         Matcher m = ALL_FORWARDS_SAME_ELEMENT_AS_NAMED_POWER_BOOST.matcher(text);
         if (!m.find()) return null;
