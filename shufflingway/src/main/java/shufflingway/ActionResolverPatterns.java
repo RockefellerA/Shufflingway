@@ -2846,18 +2846,30 @@ final class ActionResolverPatterns {
         "(?i)If\\s+its\\s+cost\\s+is\\s+X[,.]\\s+play\\s+it\\s+onto\\s+(?:the\\s+)?field[.!]?"
     );
     /**
-     * Matches "You may pay 《X》. If its cost is X, play it onto the field." — 17-115R Maquis the
-     * Phantasm, read off the <em>whole</em> choose followup rather than either sentence alone.
+     * Matches "You may pay 《X》. [When you do so,] if its cost is X, play it onto the|your
+     * field." — 17-115R Maquis the Phantasm and 11-129H Chaos, read off the <em>whole</em> choose
+     * followup rather than either sentence alone.
      *
      * <p>Split at the ". ", the first half is an offer to pay for nothing and the second is
      * {@link #FOLLOWUP_PLAY_IF_COST_IS_X} with no X to compare against: that pattern's own card
      * (13-067L Leo) gets its X from a variable counter cost paid before the ability resolves,
      * while here the player names X at resolution by choosing what to pay. So the two sentences
      * are one effect and have to be matched together.
+     *
+     * <p>The "When you do so," bridge is optional because the two printings differ only by it,
+     * and "If you do so," is accepted beside it: the corpus uses the two interchangeably for one
+     * rule — Materia 13-103L and Snow 5-041R print the same effect each way.
+     *
+     * <p>Group {@code own} is set by the "your field" spelling, which lands the card on the
+     * ability user's side rather than on the side the Break Zone belonged to. Both printings take
+     * from their own Break Zone, so the two agree today; the group is read anyway, because a
+     * wording that says whose field it means should not be answered by a guess.
      */
     static final Pattern FOLLOWUP_MAY_PAY_X_PLAY_IF_COST_IS_X = Pattern.compile(
         "(?i)^You\\s+may\\s+pay\\s+《X》[.!]?\\s+" +
-        "If\\s+its\\s+cost\\s+is\\s+X[,.]\\s+play\\s+it\\s+onto\\s+(?:the\\s+)?field[.!]?$"
+        "(?:(?:When|If)\\s+you\\s+do\\s+so,\\s+)?" +
+        "if\\s+its\\s+cost\\s+is\\s+X[,.]\\s+play\\s+it\\s+onto\\s+" +
+        "(?:(?<own>your)\\s+|the\\s+)?field[.!]?$"
     );
     /**
      * Matches "If its cost is equal to or less than the number of cards in your hand, return it to its owner's hand."

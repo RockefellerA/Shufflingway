@@ -5034,9 +5034,17 @@ final class ActionResolverChoose {
         // X is the player's to name, and the only X that does anything is the chosen card's own
         // cost: any other amount pays CP and plays nothing. So the offer is made at that price,
         // through the same optional-cost primitive every other printed "you may pay" uses.
-        if (FOLLOWUP_MAY_PAY_X_PLAY_IF_COST_IS_X.matcher(followup.trim()).matches()) {
+        Matcher mayPayXPlayM = FOLLOWUP_MAY_PAY_X_PLAY_IF_COST_IS_X.matcher(followup.trim());
+        if (mayPayXPlayM.matches()) {
+            // "onto your field" (Chaos 11-129H) names the ability user's side; "onto the field"
+            // (Maquis 17-115R) leaves the card on the side its Break Zone belonged to. Both print
+            // a choose from their own Break Zone, so the two land in the same place today — read
+            // apart anyway, because only one of them would still be right if a printing ever
+            // reached across the table for the card.
+            final boolean ontoOwnField = mayPayXPlayM.group("own") != null;
             return ctx -> {
-                ctx.logChooseHeader(choosePrefix + " — may pay 《X》 to play it when X is its cost");
+                ctx.logChooseHeader(choosePrefix + " — may pay 《X》 to play it"
+                        + (ontoOwnField ? " onto your field" : "") + " when X is its cost");
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
@@ -5044,7 +5052,9 @@ final class ActionResolverChoose {
                 for (ForwardTarget t : ts) {
                     CardData chosen = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
                     if (chosen == null) continue;
-                    ctx.mayPayCostToEffect(chosen.cost(), null, 0, paid -> paid.playTargetOntoField(t));
+                    ctx.mayPayCostToEffect(chosen.cost(), null, 0, paid -> {
+                        if (ontoOwnField) paid.playTargetOntoOwnField(t); else paid.playTargetOntoField(t);
+                    });
                 }
                 // No secondary: this branch has consumed the whole followup, and the split's
                 // second half is the same sentence it already read.

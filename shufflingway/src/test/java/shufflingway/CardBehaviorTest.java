@@ -47348,6 +47348,98 @@ public class CardBehaviorTest {
 		assertTrue(mw.gameState.getP2BreakZone().contains(buried));
 	}
 
+	// ---- Chaos: the same effect, printed with two words Maquis does not have ------------------
+	//
+	// "When Chaos enters the field, choose 1 Forward of cost 5 or more in your Break Zone. You may
+	// pay 《X》. When you do so, if its cost is X, play it onto your field."
+	//
+	// Every mechanism this needs was already here for Maquis 17-115R: one X named at resolution,
+	// offered through the ordinary optional-cost primitive at the chosen card's own cost, because
+	// any other amount pays CP and plays nothing. What stopped it was two words — the "When you
+	// do so," bridge between the offer and the payoff, and "your field" for "the field" — so the
+	// end-anchored pattern missed and both sentences fell through unread.
+	//
+	// The wider reading is the whole change. The corpus has no other printing of this shape, and
+	// the pattern is anchored end to end, so nothing longer can reach it.
+
+	private static final String CHAOS_11_129H_TEXT =
+			"When Chaos enters the field, choose 1 Forward of cost 5 or more in your Break Zone. "
+			+ "You may pay 《X》. When you do so, if its cost is X, play it onto your field.";
+
+	/** Chaos's enters-the-field ability, as the resolver sees it. */
+	private static String chaosEffect() {
+		CardData chaos = makeJobbedAutoCard("Chaos", "Dark", "Backup", null, 1, 0, CHAOS_11_129H_TEXT);
+		return chaos.autoAbilities().get(0).effectText();
+	}
+
+	@Test
+	void chaosReadsAsTheSameEffectMaquisDoes() {
+		CardData chaos = makeJobbedAutoCard("Chaos", "Dark", "Backup", null, 1, 0, CHAOS_11_129H_TEXT);
+		assertEquals("ChooseCharacter / MayPayXPlayIfCostIsX",
+				ActionResolver.fullDescription(chaosEffect(), chaos),
+				"the bridge sentence and \"your field\" are spelling, not a different effect");
+	}
+
+	@Test
+	void maquisSpellingStillReadsAfterTheWidening() {
+		// The widening added optional words; the printing that had none must be untouched by it.
+		CardData maquis = makeAutoAbilityForward("Maquis the Phantasm", "Water", 7000, MAQUIS_17_115R_TEXT);
+		assertEquals("ChooseCharacter / MayPayXPlayIfCostIsX",
+				ActionResolver.fullDescription(maquis.autoAbilities().get(0).effectText(), maquis));
+	}
+
+	@Test
+	void chaosPlaysTheBuriedForwardWhenTheAiPaysItsCost() {
+		MainWindow mw = new MainWindow();
+		CardData chaos  = makeJobbedAutoCard("Chaos", "Dark", "Backup", null, 1, 0, CHAOS_11_129H_TEXT);
+		CardData buried = makeJobbedAutoCard("Garland", "Dark", "Forward", "Knight", 5, 9000, "");
+		mw.gameState.getIdentity().put(buried, false);
+		mw.gameState.getP2BreakZone().add(buried);
+		// Five active Backups cover the 《5》 the AI is asked for.
+		for (int i = 0; i < 5; i++)
+			seatP2Backup(mw, i, makePlainBackup("Bank " + i, "Dark", 1), CardState.ACTIVE);
+
+		ActionResolver.parse(chaosEffect(), chaos).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p2ForwardCards.contains(buried), "a cost-5 Forward came back for 5 CP");
+		assertFalse(mw.gameState.getP2BreakZone().contains(buried));
+	}
+
+	@Test
+	void chaosLeavesItBuriedWhenTheCostCannotBePaid() {
+		MainWindow mw = new MainWindow();
+		CardData chaos  = makeJobbedAutoCard("Chaos", "Dark", "Backup", null, 1, 0, CHAOS_11_129H_TEXT);
+		CardData buried = makeJobbedAutoCard("Garland", "Dark", "Forward", "Knight", 5, 9000, "");
+		mw.gameState.getIdentity().put(buried, false);
+		mw.gameState.getP2BreakZone().add(buried);
+		// Four Backups against a cost of 5 — the offer cannot be taken.
+		for (int i = 0; i < 4; i++)
+			seatP2Backup(mw, i, makePlainBackup("Bank " + i, "Dark", 1), CardState.ACTIVE);
+
+		ActionResolver.parse(chaosEffect(), chaos).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "nothing is played for free");
+		assertTrue(mw.gameState.getP2BreakZone().contains(buried));
+	}
+
+	@Test
+	void chaosCannotReachAForwardUnderCostFive() {
+		// The "of cost 5 or more" filter belongs to the choose, not to the payment, so a cheap
+		// Forward is never offered however much CP is banked.
+		MainWindow mw = new MainWindow();
+		CardData chaos = makeJobbedAutoCard("Chaos", "Dark", "Backup", null, 1, 0, CHAOS_11_129H_TEXT);
+		CardData cheap = makeJobbedAutoCard("Squire", "Dark", "Forward", "Knight", 4, 7000, "");
+		mw.gameState.getIdentity().put(cheap, false);
+		mw.gameState.getP2BreakZone().add(cheap);
+		for (int i = 0; i < 5; i++)
+			seatP2Backup(mw, i, makePlainBackup("Bank " + i, "Dark", 1), CardState.ACTIVE);
+
+		ActionResolver.parse(chaosEffect(), chaos).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "cost 4 is below the floor the card names");
+		assertTrue(mw.gameState.getP2BreakZone().contains(cheap));
+	}
+
 	// ---- Balthier: already working, locked so it stays that way -------------------------------
 
 	@Test
