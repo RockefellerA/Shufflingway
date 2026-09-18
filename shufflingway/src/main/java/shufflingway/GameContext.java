@@ -3557,6 +3557,26 @@ public interface GameContext {
             EnumSet<CardData.Trait> traits, boolean shieldFromSummons, boolean shieldFromAbilities);
 
     /**
+     * {@link #boostTargetWhileWardenOnField} with the two roles swapped: {@code source} takes the
+     * power and {@code warden} — the Forward the effect just chose — is what sustains it. Chocobo
+     * 20-050C's "choose 1 Forward … you control. As long as it is on the field, Chocobo gains
+     * +4000 power." is the printing, and the only difference from its sibling is which end of the
+     * sentence the grant lands on.
+     *
+     * <p>Stored in the same place and withdrawn by the same walk, so the chosen Forward's
+     * departure ends the boost and {@code source}'s own departure drops it with everything else
+     * granted to it. Taking {@code warden} as a target rather than a {@code CardData} is what
+     * keeps that exact: the live instance is looked up here, so the grant is keyed to the Forward
+     * that was chosen rather than to any copy of that printing.
+     *
+     * <p>A no-op when {@code source} is not on its controller's Forward row — the wording only
+     * reaches here from an enters-the-field trigger, but an effect that removed it in between has
+     * nothing left to boost.
+     */
+    void boostSourceWhileWardenOnField(CardData source, ForwardTarget warden, int amount,
+            EnumSet<CardData.Trait> traits);
+
+    /**
      * Grants {@code source} the auto ability written in {@code abilityText} for as long as it stays
      * on the field — the "(This effect does not end at the end of the turn.)" wording, as printed on
      * Odin (XVI) 29-118L / 24-112L's priming payoff.

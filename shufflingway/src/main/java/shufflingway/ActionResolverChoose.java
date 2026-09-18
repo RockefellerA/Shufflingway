@@ -2420,6 +2420,39 @@ final class ActionResolverChoose {
             }
         }
 
+        // --- "As long as it is on the field, [Self] gains +N power." ---
+        // The mirror of the warden grant directly above, and read beside it because the two
+        // sentences differ only in which end holds the power. Chocobo 20-050C is the printing:
+        // the Forward it chooses is the warden, and the boost lands on Chocobo itself.
+        //
+        // Same reason as its sibling for sitting ahead of the ordinary power grants — "+4000
+        // power" is exactly what FOLLOWUP_POWER_BOOST scans for, and left to the chain this
+        // resolved as an until-end-of-turn buff on the chosen Forward rather than a standing one
+        // on the source.
+        //
+        // The name is required to be the source's own, as it is there: the primitive keys the
+        // grant to this instance, so a text naming another card would be rewired to this one.
+        {
+            Matcher selfGrantM = FOLLOWUP_SOURCE_GAINS_WHILE_CHOSEN_ON_FIELD.matcher(primaryFollowup.trim());
+            if (source != null && selfGrantM.matches()
+                    && selfGrantM.group("name").trim().equalsIgnoreCase(source.name())) {
+                final int boost = Integer.parseInt(selfGrantM.group("amount"));
+                final EnumSet<CardData.Trait> traits = parseTraits(selfGrantM.group("traits"));
+                String label = "+" + boost + " power"
+                        + (traits.isEmpty() ? "" : " and " + traitNamesOnly(traits));
+                return ctx -> {
+                    ctx.logChooseHeader(choosePrefix + " — " + source.name() + " gains " + label
+                            + " while it is on the field");
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                            jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    ts.forEach(t -> ctx.boostSourceWhileWardenOnField(source, t, boost, traits));
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            }
+        }
+
         // --- "You may pay 《Element》. If you do so, [target action]." ---
         // Checked against the full followup before the primary/secondary split so the conditional is not lost.
         {

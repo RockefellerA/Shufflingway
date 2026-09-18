@@ -1256,7 +1256,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p1ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isTraitCondition(condition) && !mw.effectiveP1HasTrait(i, parseTraitFromCondition(condition))) continue;
@@ -1279,7 +1279,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsPowerConstraint(mw.p1BackupCards[i].power(), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(mw.p1BackupCards[i], jobFilter, cardNameFilter, mw.p1ForwardCards)) continue;
 							if (!meetsCategoryFilter(mw.p1BackupCards[i], categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(mw.p1BackupCards[i].name())) continue;
+							if (mw.excludedByOtherThanClause(mw.p1BackupCards[i], excludeName)) continue;
 							if (withoutMulticard && mw.p1BackupCards[i].multicard()) continue;
 							if (isLimitBreakCondition(condition) && !mw.p1BackupCards[i].isLb()) continue;
 							if (meetsTargetCondition(mw.p1BackupStates[i], 0, false, false, condition))
@@ -1297,7 +1297,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p1ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isEnteredThisTurnCondition(condition)
@@ -1316,7 +1316,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p2ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isTraitCondition(condition) && !mw.effectiveP2HasTrait(i, parseTraitFromCondition(condition))) continue;
@@ -1339,7 +1339,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsPowerConstraint(mw.p2BackupCards[i].power(), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(mw.p2BackupCards[i], jobFilter, cardNameFilter, mw.p2ForwardCards)) continue;
 							if (!meetsCategoryFilter(mw.p2BackupCards[i], categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(mw.p2BackupCards[i].name())) continue;
+							if (mw.excludedByOtherThanClause(mw.p2BackupCards[i], excludeName)) continue;
 							if (withoutMulticard && mw.p2BackupCards[i].multicard()) continue;
 							if (isLimitBreakCondition(condition) && !mw.p2BackupCards[i].isLb()) continue;
 							if (meetsTargetCondition(mw.p2BackupStates[i], 0, false, false, condition))
@@ -1357,7 +1357,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p2ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isEnteredThisTurnCondition(condition)
@@ -1379,7 +1379,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p2ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isTraitCondition(condition) && !mw.effectiveP2HasTrait(i, parseTraitFromCondition(condition))) continue;
@@ -1402,7 +1402,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsPowerConstraint(mw.p2BackupCards[i].power(), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(mw.p2BackupCards[i], jobFilter, cardNameFilter, mw.p2ForwardCards)) continue;
 							if (!meetsCategoryFilter(mw.p2BackupCards[i], categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(mw.p2BackupCards[i].name())) continue;
+							if (mw.excludedByOtherThanClause(mw.p2BackupCards[i], excludeName)) continue;
 							if (withoutMulticard && mw.p2BackupCards[i].multicard()) continue;
 							if (isLimitBreakCondition(condition) && !mw.p2BackupCards[i].isLb()) continue;
 							if (meetsTargetCondition(mw.p2BackupStates[i], 0, false, false, condition))
@@ -1420,7 +1420,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p2ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isEnteredThisTurnCondition(condition)
@@ -1439,7 +1439,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p1ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isTraitCondition(condition) && !mw.effectiveP1HasTrait(i, parseTraitFromCondition(condition))) continue;
@@ -1462,7 +1462,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsPowerConstraint(mw.p1BackupCards[i].power(), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(mw.p1BackupCards[i], jobFilter, cardNameFilter, mw.p1ForwardCards)) continue;
 							if (!meetsCategoryFilter(mw.p1BackupCards[i], categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(mw.p1BackupCards[i].name())) continue;
+							if (mw.excludedByOtherThanClause(mw.p1BackupCards[i], excludeName)) continue;
 							if (withoutMulticard && mw.p1BackupCards[i].multicard()) continue;
 							if (isLimitBreakCondition(condition) && !mw.p1BackupCards[i].isLb()) continue;
 							if (meetsTargetCondition(mw.p1BackupStates[i], 0, false, false, condition))
@@ -1480,7 +1480,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, null)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isEnteredThisTurnCondition(condition)
@@ -2079,6 +2079,23 @@ final class GameContextImpl implements GameContext {
 						+ " for as long as " + warden.name() + " is on the field");
 				if (tgtP1) mw.refreshP1ForwardSlot(target.idx()); else mw.refreshP2ForwardSlot(target.idx());
 			}
+			@Override public void boostSourceWhileWardenOnField(CardData source, ForwardTarget warden,
+					int amount, EnumSet<CardData.Trait> traits) {
+				if (source == null || warden == null) return;
+				CardData wardenCard = mw.autoAbilityTriggers.fieldCardData(warden);
+				if (wardenCard == null) return;
+				// By name, as boostSourceForwardPermanently locates its own source: what the
+				// grant has to be keyed to is the instance standing on the field, not the copy
+				// the resolver is holding.
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				for (int i = 0; i < fwds.size(); i++) {
+					if (!fwds.get(i).name().equals(source.name())) continue;
+					boostTargetWhileWardenOnField(
+							new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD),
+							wardenCard, amount, traits, false, false);
+					return;
+				}
+			}
 			@Override public void boostTargetPermanently(ForwardTarget target, int amount,
 					EnumSet<CardData.Trait> traits) {
 				// Forward row only — see the interface note: nothing reads permanentPowerBoost for
@@ -2675,7 +2692,7 @@ final class GameContextImpl implements GameContext {
 				if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) return false;
 				if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, null)) return false;
 				if (!meetsCategoryFilter(card, categoryFilter)) return false;
-				if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) return false;
+				if (mw.excludedByOtherThanClause(card, excludeName)) return false;
 				return !(withoutMulticard && card.multicard());
 			}
 
@@ -4169,7 +4186,7 @@ final class GameContextImpl implements GameContext {
 					if (!meetsCategoryFilter(card, categoryFilter)) continue;
 					if (!meetsElementFilter(card, elementFilter)) continue;
 					if (!meetsElementExclusion(card, excludeElement)) continue;
-					if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+					if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 					if ("Warp".equalsIgnoreCase(withTrait) && !card.hasWarp()) continue;
 					// "You cannot play X from your hand due to Summons or abilities."
 					if (card.playByEffectProhibited(true)) continue;
@@ -8816,7 +8833,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
+							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							if (!forwardHasAnyTrait(true, i, traitFilter)) continue;
@@ -8843,7 +8860,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
+							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							// The state-change actions delegate to the single-target primitives
@@ -8878,7 +8895,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
+							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							ForwardTarget slot = new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER);
@@ -8918,7 +8935,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
+							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							if (!forwardHasAnyTrait(false, i, traitFilter)) continue;
@@ -8942,7 +8959,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
+							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							ForwardTarget slot = new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP);
@@ -8972,7 +8989,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
+							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
 							ForwardTarget slot = new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER);
 							switch (action) {
 								case BREAK -> {
@@ -9202,7 +9219,7 @@ final class GameContextImpl implements GameContext {
 				// One predicate for all four loops below rather than four copies of the guard, so
 				// the exclusion cannot end up applied to three of them.
 				Predicate<CardData> eligible = c -> matchesJobOrCardName(c, jobFilter, cardNameFilter)
-						&& !(excludeName != null && excludeName.equalsIgnoreCase(c.name()));
+						&& !(mw.excludedByOtherThanClause(c, excludeName));
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				boolean p1JobBoostSuppressed = inclForwards && amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || (isP1 && mw.oppForwardSelfBoostSuppressedFor(true)));

@@ -59264,4 +59264,229 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Kimahri 24-093R — handing yourself a field-wide damage shield for the turn
+	//
+	// "When Kimahri enters the field, Kimahri gains "If a Forward you control other than Kimahri
+	// is dealt damage, reduce the damage by 2000 instead." until the end of the turn." beside a
+	// printed field ability that says the same thing narrowed to Category X.
+	//
+	// The printed half already worked: FA_FIELD_DAMAGE_MODIFIER reads the category filter and the
+	// "other than" exclusion, and DamageResolver walks it off the damaged card's own side. What
+	// had no reader was the grant. grantedSelfFieldAbilityEffect knew every damage clause whose
+	// subject is the carrier — "If [Self] is dealt damage …" — and this one's subject is the
+	// Forwards around it, so the dispatcher returned null and the whole ability went unparsed.
+	//
+	// Granted verbatim rather than translated into a primitive, which is what makes the granted
+	// copy and the printed one the same thing to every reader: the turn's unfiltered shield and
+	// the standing Category X shield stack because DamageResolver finds two field abilities, not
+	// because anything was taught to add them.
+	// =========================================================================================
+
+	private static final String KIMAHRI_24_093R_GRANT =
+			"Kimahri gains \"If a Forward you control other than Kimahri is dealt damage, "
+			+ "reduce the damage by 2000 instead.\" until the end of the turn.";
+
+	private static final String KIMAHRI_24_093R_FIELD =
+			"If a Category X Forward you control other than Kimahri is dealt damage, "
+			+ "reduce the damage by 2000 instead.";
+
+	@Test
+	void kimahrisSelfGrantOfAFieldWideShieldIsRead() {
+		CardData kimahri = makeForward("Kimahri", "Water", 4, 8000);
+		assertEquals("GainsQuotedFieldAbilityUntilEot",
+				ActionResolver.fullDescription(KIMAHRI_24_093R_GRANT, kimahri));
+	}
+
+	@Test
+	void theGrantedShieldReducesDamageToTheOthersButNotToKimahri() {
+		MainWindow mw = new MainWindow();
+		CardData kimahri = makeForward("Kimahri", "Water", 4, 8000);
+		CardData ally    = makeForward("Ally", "Water", 3, 7000);
+		placeP1Forward(mw, kimahri);   // index 0
+		placeP1Forward(mw, ally);      // index 1
+
+		Consumer<GameContext> fn = ActionResolver.parse(KIMAHRI_24_093R_GRANT, kimahri);
+		assertNotNull(fn, "Kimahri's self-grant should parse");
+		fn.accept(mw.buildGameContext(true));
+
+		assertEquals(3000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 1, 5000, false, false),
+				"the ally is a Forward you control other than Kimahri");
+		assertEquals(5000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 0, 5000, false, false),
+				"the clause excludes Kimahri himself");
+	}
+
+	@Test
+	void theGrantedShieldDoesNotReachAcrossTheTable() {
+		MainWindow mw = new MainWindow();
+		CardData kimahri = makeForward("Kimahri", "Water", 4, 8000);
+		placeP1Forward(mw, kimahri);
+		mw.placeP2CardInForwardZone(makeForward("Opposing Ally", "Fire", 3, 7000));
+
+		ActionResolver.parse(KIMAHRI_24_093R_GRANT, kimahri).accept(mw.buildGameContext(true));
+
+		assertEquals(5000, mw.modifyIncomingDamage(false, ForwardTarget.CardZone.FORWARD, 0, 5000, false, false),
+				"\"you control\" is Kimahri's side, and a protector is only read off the damaged card's own");
+	}
+
+	@Test
+	void theGrantIsUnfilteredWhileThePrintedAbilityKeepsItsCategory() {
+		// The two halves differ by exactly the Category X filter, which is the whole reason the
+		// card grants itself a second copy. Stacked on a Category X Forward, dropped to the
+		// printed one alone on anything else.
+		MainWindow mw = new MainWindow();
+		CardData kimahri = makeFieldAbilityCard("Kimahri", "Water", "Forward", KIMAHRI_24_093R_FIELD);
+		CardData catX    = makeCategoryForward("Yuna", "Water", "X");
+		CardData other   = makeCategoryForward("Vaan", "Wind", "XII");
+		placeP1Forward(mw, kimahri);   // index 0
+		placeP1Forward(mw, catX);      // index 1
+		placeP1Forward(mw, other);     // index 2
+
+		assertEquals(3000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 1, 5000, false, false),
+				"the printed half alone covers a Category X Forward");
+		assertEquals(5000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 2, 5000, false, false),
+				"and passes over everything else");
+
+		ActionResolver.parse(KIMAHRI_24_093R_GRANT, kimahri).accept(mw.buildGameContext(true));
+
+		assertEquals(1000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 1, 5000, false, false),
+				"both shields are live field abilities now, so both apply");
+		assertEquals(3000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 2, 5000, false, false),
+				"the granted copy carries no category, which is what it was granted for");
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Chocobo 20-050C — the warden grant with its two ends swapped
+	//
+	// "When Chocobo enters the field, choose 1 Forward other than Job Chocobo or Card Name Chocobo
+	// you control. As long as it is on the field, Chocobo gains +4000 power."
+	//
+	// Two separate things were wrong with it, and each was silent on its own.
+	//
+	// The followup is the mirror of Heretical Knight Garland 16-066R's standing grant — there the
+	// source sustains the buff and the chosen Forward takes it, here the chosen Forward sustains
+	// it and the source takes it. FOLLOWUP_GAINS_WHILE_NAMED_ON_FIELD is anchored on "As long as
+	// <name>", so this sentence reached neither it nor anything else, and the choice resolved to
+	// no effect at all.
+	//
+	// The exclusion is the other half. "other than Job Chocobo or Card Name Chocobo" arrives as
+	// one phrase, and the selection layer compared it to a card name — which nothing is called —
+	// so the clause excluded nobody and the choice offered the Chocobos it forbids. Read now the
+	// same way meetsJobOrCardNameFilter reads the inclusion spelling of those words: as
+	// alternatives, and only when every prong is qualified.
+	// =========================================================================================
+
+	private static final String CHOCOBO_20_050C_EFFECT =
+			"choose 1 Forward other than Job Chocobo or Card Name Chocobo you control. "
+			+ "As long as it is on the field, Chocobo gains +4000 power.";
+
+	@Test
+	void chocobosMirroredGrantIsNamedApartFromTheWardenGrant() {
+		CardData chocobo = makeForward("Chocobo", "Wind", 2, 5000);
+		assertEquals("ChooseCharacter / SourceGainsWhileChosenOnField",
+				ActionResolver.fullDescription(CHOCOBO_20_050C_EFFECT, chocobo));
+		assertEquals("ChooseCharacter / GainsWhileSourceOnField",
+				ActionResolver.fullDescription(
+						"choose 1 Forward other than Chocobo you control. As long as Chocobo is on "
+						+ "the field, it gains +4000 power.", chocobo),
+				"the sentence that names the source as the warden still reaches its own branch");
+	}
+
+	@Test
+	void chocobosGrantIsDeclinedWhenTheClauseNamesAnotherCard() {
+		// The power lands on the printing that resolved the trigger, so a sentence naming some
+		// other card would be silently rewired to this one.
+		CardData tifa = makeForward("Tifa", "Wind", 2, 4000);
+		assertNotEquals("SourceGainsWhileChosenOnField",
+				ActionResolver.matchedFollowupName(
+						"As long as it is on the field, Chocobo gains +4000 power.", tifa));
+	}
+
+	@Test
+	void chocoboTakesThePowerAndTheChosenForwardHoldsIt() {
+		CardData chocobo = makeForward("Chocobo", "Wind", 2, 5000);
+		ForwardTarget t = fwd(true, 1);
+
+		Consumer<GameContext> fn = ActionResolver.parse(CHOCOBO_20_050C_EFFECT, chocobo);
+		assertNotNull(fn, "Chocobo's standing grant should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of(t));
+		fn.accept(ctx);
+
+		verify(ctx).boostSourceWhileWardenOnField(chocobo, t, 4000,
+				EnumSet.noneOf(CardData.Trait.class));
+	}
+
+	@Test
+	void theBoostStandsUntilTheChosenForwardLeaves() {
+		MainWindow mw = new MainWindow();
+		CardData chocobo = makeForward("Chocobo", "Wind", 2, 5000);
+		CardData ally    = makeForward("Ally", "Wind", 3, 7000);
+		placeP1Forward(mw, chocobo);   // index 0
+		placeP1Forward(mw, ally);      // index 1
+
+		mw.buildGameContext(true).boostSourceWhileWardenOnField(
+				chocobo, fwd(true, 1), 4000, EnumSet.noneOf(CardData.Trait.class));
+
+		assertEquals(9000, mw.effectiveP1ForwardPower(0), "Chocobo holds the power, not the ally");
+		assertEquals(7000, mw.effectiveP1ForwardPower(1));
+
+		mw.breakP1Forward(1);
+		assertEquals(5000, mw.effectiveP1ForwardPower(0),
+				"the Forward that sustained it left, so the power goes with it");
+	}
+
+	@Test
+	void chocoboLeavingDropsTheRecordToo() {
+		MainWindow mw = new MainWindow();
+		CardData chocobo = makeForward("Chocobo", "Wind", 2, 5000);
+		CardData ally    = makeForward("Ally", "Wind", 3, 7000);
+		placeP1Forward(mw, chocobo);
+		placeP1Forward(mw, ally);
+
+		mw.buildGameContext(true).boostSourceWhileWardenOnField(
+				chocobo, fwd(true, 1), 4000, EnumSet.noneOf(CardData.Trait.class));
+		mw.breakP1Forward(0);
+		assertTrue(mw.wardenHeldGrants.isEmpty(),
+				"the grantee took every granted thing with it, so nothing is left to withdraw");
+	}
+
+	@Test
+	void theQualifiedExclusionKeepsBothKindsOfChocoboOutOfTheChoice() {
+		MainWindow mw = new MainWindow();
+		// Job Chocobo under another name, and a card named Chocobo with another Job — the split
+		// the two prongs exist to cover.
+		CardData strayChocobo = makeJobCategoryForward("Stray Chocobo", "Chocobo", "V");
+		CardData namedChocobo = makeJobCategoryForward("Chocobo", "Standard Unit", "V");
+		CardData eligible     = makeJobCategoryForward("Bartz", "Warrior", "V");
+
+		assertTrue(mw.excludedByOtherThanClause(strayChocobo, "Job Chocobo or Card Name Chocobo"),
+				"the Job prong covers it");
+		assertTrue(mw.excludedByOtherThanClause(namedChocobo, "Job Chocobo or Card Name Chocobo"),
+				"the Card Name prong covers it");
+		assertFalse(mw.excludedByOtherThanClause(eligible, "Job Chocobo or Card Name Chocobo"),
+				"neither prong does, so it is choosable");
+	}
+
+	@Test
+	void anUnqualifiedExclusionIsStillReadAsAPlainCardName() {
+		// Every other printing spells the clause as a bare name, and a name must not be re-read as
+		// a Job — that would exclude the wrong cards rather than none, which is the worse failure.
+		MainWindow mw = new MainWindow();
+		CardData garland = makeJobCategoryForward("Heretical Knight Garland", "Knight", "I");
+		CardData other   = makeJobCategoryForward("Garland", "Knight", "I");
+
+		assertTrue(mw.excludedByOtherThanClause(garland, "Heretical Knight Garland"));
+		assertFalse(mw.excludedByOtherThanClause(other, "Heretical Knight Garland"),
+				"a different card of the same Job is not excluded by a name clause");
+		assertFalse(mw.excludedByOtherThanClause(garland, null), "no clause excludes nobody");
+	}
+
+	// =========================================================================================
+
 }

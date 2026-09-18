@@ -1752,6 +1752,33 @@ final class ActionResolverPatterns {
         "your\\s+opponent's\\s+(?<scope>Summons?\\s+or\\s+abilities|Summons?|abilities)[.!]?['\"])?" +
         "[.!]?$"
     );
+    /**
+     * Matches "As long as it is on the field, [CardName] gains +N power[ and [keywords]]." — the
+     * mirror of {@link #FOLLOWUP_GAINS_WHILE_NAMED_ON_FIELD}, and the only printing of it is
+     * 20-050C Chocobo. There the chosen Forward sustains the grant and the card that chose it
+     * takes the power; on its sibling it is the other way round.
+     *
+     * <p>Two sentences that read almost alike and mean opposite things, so both are anchored end
+     * to end and neither can be reached by the other's text: this one opens on "As long as it",
+     * that one on "As long as &lt;name&gt;". Checked next to it and ahead of
+     * {@link #FOLLOWUP_POWER_BOOST} for the same reason it is — that pattern scans with
+     * {@code find()} for the very "+4000 power" this sentence contains, and would read the grant
+     * as an ordinary until-end-of-turn buff on the chosen Forward: wrong card, wrong duration.
+     *
+     * <p>No quoted-clause arm, unlike the sibling. Nothing is printed in this shape with one, and
+     * a grant this engine cannot read is better declined than half-applied.
+     * <ul>
+     *   <li>Group {@code name}   — the card the power lands on, required to be the source itself</li>
+     *   <li>Group {@code amount} — the power granted</li>
+     *   <li>Group {@code traits} — the keyword list, possibly empty</li>
+     * </ul>
+     */
+    static final Pattern FOLLOWUP_SOURCE_GAINS_WHILE_CHOSEN_ON_FIELD = Pattern.compile(
+        "(?i)^As\\s+long\\s+as\\s+(?:it|they)\\s+(?:is|are)\\s+on\\s+the\\s+field,\\s+" +
+        "(?<name>.+?)\\s+gains?\\s+\\+(?<amount>\\d+)\\s+power" +
+        "(?<traits>(?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)" +
+        "[.!]?$"
+    );
     /** Matches "It loses all [its] abilities until the end of the turn." */
     static final Pattern FOLLOWUP_LOSE_ALL_ABILITIES_EOT = Pattern.compile(
         "(?i)It\\s+loses\\s+all\\s+(?:its\\s+)?abilities\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"

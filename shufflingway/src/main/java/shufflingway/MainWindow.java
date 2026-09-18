@@ -14047,6 +14047,45 @@ public class MainWindow {
 		return jobFilter != null && cardNameFilter != null ? jobOk || nameOk : jobOk && nameOk;
 	}
 
+	/** One prong of a qualified "other than …" clause: "Job X" or "Card Name Y". */
+	private static final Pattern OTHER_THAN_QUALIFIED_PRONG = Pattern.compile(
+			"(?i)^(?:Job\\s+(?<job>\\S.*)|Card\\s+Name\\s+(?<name>\\S.*))$");
+
+	/** The separator between those prongs, kept out of the split so each prong arrives whole. */
+	private static final Pattern OTHER_THAN_PRONG_SEPARATOR =
+			Pattern.compile("(?i)\\s+or\\s+(?=(?:Job|Card\\s+Name)\\s)");
+
+	/**
+	 * Whether {@code card} is excluded by the phrase an "other than …" clause carried — the
+	 * selection layer's counterpart to {@link #meetsJobOrCardNameFilter}, and it reads a qualified
+	 * clause the same way: as alternatives, a card excluded by satisfying any one prong.
+	 *
+	 * <p>Nearly every printing names a card outright, which is the exact-name comparison this
+	 * started as and still ends at. Chocobo 20-050C is the one that qualifies its prongs — "other
+	 * than Job Chocobo or Card Name Chocobo" — and that whole phrase matched no card's name under
+	 * string equality, so the clause excluded nothing and the choice offered the Chocobos it forbids.
+	 *
+	 * <p>Read as a disjunction only when <em>every</em> prong is qualified; anything else falls
+	 * through to the name comparison. A card name cannot be re-read as a Job, and a half-understood
+	 * clause is the worse failure of the two: it would exclude the wrong cards rather than none,
+	 * silently narrowing a selection instead of leaving it visibly wide.
+	 */
+	boolean excludedByOtherThanClause(CardData card, String excludeClause) {
+		if (excludeClause == null) return false;
+		String clause = excludeClause.trim();
+		String[] prongs = OTHER_THAN_PRONG_SEPARATOR.split(clause);
+		boolean excluded = false;
+		for (String raw : prongs) {
+			Matcher p = OTHER_THAN_QUALIFIED_PRONG.matcher(raw.trim());
+			if (!p.matches()) return clause.equalsIgnoreCase(card.name());
+			String job = p.group("job");
+			if (job != null && meetsJobFilterEffective(card, job.trim())) excluded = true;
+			String nm = p.group("name");
+			if (nm != null && meetsCardNameFilter(card, nm.trim())) excluded = true;
+		}
+		return excluded;
+	}
+
 	// -------------------------------------------------------------------------
 	// Cannot-be-chosen (ICB) immunity
 	// -------------------------------------------------------------------------

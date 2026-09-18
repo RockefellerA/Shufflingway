@@ -2818,6 +2818,15 @@ public class ActionResolver {
                     && wardenGrantM.group("name").trim().equalsIgnoreCase(source.name()))
                 return "GainsWhileSourceOnField";
         }
+        // Its mirror, where the chosen Forward sustains the grant and the source takes the power
+        // (Chocobo 20-050C). Same position, same source check, and named apart from the one above
+        // because the two put the boost on opposite cards.
+        if (source != null) {
+            Matcher selfGrantM = FOLLOWUP_SOURCE_GAINS_WHILE_CHOSEN_ON_FIELD.matcher(followupText.trim());
+            if (selfGrantM.matches()
+                    && selfGrantM.group("name").trim().equalsIgnoreCase(source.name()))
+                return "SourceGainsWhileChosenOnField";
+        }
         // Mirrors the choose chain, where the two-tier attacker gate is read before every plain
         // action branch: both of its arms end in ordinary followups, so a find() check below would
         // claim one arm and report it as though it were unconditional. Guarded on both arms having
@@ -6105,6 +6114,19 @@ public class ActionResolver {
             final String granted = quoted;
             return ctx -> ctx.grantSelfFieldAbilityUntilEndOfTurn(source, granted);
         }
+        // The field-wide spelling of the same shield: "If a [Category X] Forward you control
+        // [other than Self] is dealt damage, reduce the damage by N instead." — Kimahri 24-093R
+        // hands himself the unfiltered version of his own printed Category X ability for the turn.
+        //
+        // No name check, unlike the two clauses above: this sentence's subject is the protected
+        // Forwards rather than the carrier, and the side it covers is fixed by "you control" —
+        // DamageResolver only reads a protector on the damaged card's own side. Granted verbatim,
+        // so the printed and granted copies go through one reader.
+        Matcher fieldInc = AutoAbilityTriggers.FA_FIELD_DAMAGE_MODIFIER.matcher(quoted.trim());
+        if (fieldInc.matches()) {
+            final String granted = quoted;
+            return ctx -> ctx.grantSelfFieldAbilityUntilEndOfTurn(source, granted);
+        }
         // "[Self] cannot be chosen by Summons or abilities." — Flowering Cactoid 28-068R, handed to
         // itself for the turn along with a Forward body. Not granted as field-ability text: the
         // targeting rules read dedicated sets rather than scanning abilities, which is the same
@@ -8101,6 +8123,8 @@ public class ActionResolver {
             return "SelfOutgoingDamageToOpponentSetsTo";
         if (AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(quoted).matches())
             return "SelfDamageModifier";
+        if (AutoAbilityTriggers.FA_FIELD_DAMAGE_MODIFIER.matcher(quoted.trim()).matches())
+            return "FieldDamageModifier";
         // The broad arm, named after what the granted sentence does rather than after the grant:
         // an auto ability handed over whole is only as good as the effect inside it, so the
         // description carries that name and reports "?" when the effect has no reader.
