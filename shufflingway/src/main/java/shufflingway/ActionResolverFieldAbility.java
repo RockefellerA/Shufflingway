@@ -265,6 +265,31 @@ final class ActionResolverFieldAbility {
         boolean affectsOpponent = m.group("who").toLowerCase(java.util.Locale.ROOT).startsWith("opponent");
         return new ForwardAbilityGrant(affectsOpponent, m.group("ability").trim());
     }
+
+    /**
+     * Recognises "The [Job X | Category Y | Element] Forwards [other than Z] you control gain
+     * [Trait[s] and] "&lt;quotation&gt;."" — Yuna &amp; Tidus PR-111 and Snow &amp; Lightning
+     * PR-158 — and returns a no-op, so {@link ActionResolver#parse} reports the sentence as read
+     * without running anything. Both halves are continuous and reach the engine off
+     * {@link CardData}: the keyword through {@code FieldGrantCalculator}, the quotation through
+     * {@code MainWindow.filteredGrantedAutoAbilities} or {@code MainWindow.maxAttacksPerTurn}.
+     *
+     * <p>Must be dispatched ahead of the choose chain, which is the whole point of the guard rather
+     * than a side effect of it. PR-158's quotation contains "choose 1 Character. Dull it and Freeze
+     * it.", and {@code tryParseChooseCharacter} matches it with {@code find()} — claiming an effect
+     * out of the middle of the sentence and running it with neither the trigger that gates it nor
+     * the grantee it belongs to. The sentence had been reported as {@code ChooseCharacter /
+     * DullAndFreeze} for exactly that reason.
+     *
+     * <p>Claims only what {@link CardData} honours: a quotation neither grant parser accepts leaves
+     * the sentence unread rather than granting the keyword and dropping the rest.
+     */
+    static Consumer<GameContext> tryParseFilteredForwardsQuotedGrant(String text) {
+        if (text == null) return null;
+        if (CardData.parseFilteredAbilityGrant(text) == null
+                && CardData.parseFilteredMaxAttacksGrant(text) == null) return null;
+        return ctx -> { /* continuous field grant — applied off CardData, not run as an effect */ };
+    }
     /**
      * Parses the "At the end of your turn, …" half of a granted ability into an effect that runs for
      * {@code grantee} — the Forward that received it, which is what self-references like "this

@@ -4775,14 +4775,51 @@ public record CardData(
 
     /**
      * The target filter shared by every pattern below that hands a filtered set of Forwards an
-     * always-on permission: "The [Job X | Category Y | Element] Forwards [other than Z] you
-     * control". {@link #FIELD_GRANT_CNB_BY_COST_DIRECT} and {@link #FIELD_GRANT_CNB_BY_COST_QUOTED}
-     * must carry the same groups as each other — their handler reads them off whichever matcher
-     * won, and a group missing from the other would throw.
+     * always-on permission: "The [Job X [type] and Card Name Y | Job X | Category Y | Element]
+     * Forwards [other than Z] you control". Every pattern built on it carries the same groups —
+     * handlers read them off whichever matcher won, and a group missing from one would throw — so
+     * they are read through {@link #filteredForwardsFilter} rather than by hand.
+     *
+     * <p>The job-and-card-name union is listed first and spelled out, because the lazy {@code job}
+     * alternative would otherwise swallow it whole: "Job Warrior Forwards and Card Name Warrior
+     * Forwards you control" backtracks into a job named "Warrior Forwards and Card Name Warrior",
+     * which matches no card, so the grant is parsed and then silently inert. That is the same trap
+     * {@link #FIELD_GRANT_JOB_AND_CARD_NAME_PATTERN} was split out of the generic grant pattern to
+     * avoid — Ilmatalle 27-021C and Gilgamesh 27-079H print the union in this shape.
      */
     private static final String FILTERED_FORWARDS_TARGET =
-        "(?i)^The\\s+(?:Job\\s+(?<job>.+?)|Category\\s+(?<category>.+?)|(?<element>" + ELEMENT_KEYWORD + "))" +
+        "(?i)^The\\s+(?:" +
+        "Job\\s+(?<unionjob>[A-Za-z][A-Za-z\\s''\\-]*?)\\s+" +
+        "(?:Forwards?|Backups?|Monsters?|Characters?)\\s+and\\s+" +
+        "Card\\s+Name\\s+(?<unionname>[A-Za-z][A-Za-z\\s''\\-]*?)" +
+        "|Job\\s+(?<job>.+?)|Category\\s+(?<category>.+?)|(?<element>" + ELEMENT_KEYWORD + "))" +
         "\\s+Forwards?\\s+(?:other\\s+than\\s+(?<except>.+?)\\s+)?you\\s+control\\s+";
+
+    /**
+     * The zero-power {@link FieldPowerGrant} a matched {@link #FILTERED_FORWARDS_TARGET} names,
+     * used purely as a predicate — the same shape {@link #parseIcbTargetFilter} builds, so a
+     * filtered grant inherits the filter engine every other field grant is resolved through rather
+     * than a second reading of "Category Y other than Z".
+     *
+     * <p>Forwards only, because the prefix's target says Forwards. The union arm fills both the job
+     * and the card-name filter, which {@link FieldPowerGrant#appliesToCard} reads as alternatives
+     * when both are set — one grant covering the union exactly once, as Billy 29-048C's does.
+     */
+    private static FieldPowerGrant filteredForwardsFilter(Matcher m, Set<Trait> grantedTraits) {
+        String job      = m.group("unionjob") != null ? m.group("unionjob") : m.group("job");
+        String cardName = m.group("unionname");
+        String category = m.group("category");
+        String element  = m.group("element");
+        String except   = m.group("except");
+        return new FieldPowerGrant(
+                job      != null ? job.trim()      : null,
+                category != null ? category.trim() : null,
+                true, false, false,
+                except   != null ? except.trim()   : null,
+                0, grantedTraits, false, -1, null,
+                element  != null ? element.trim()  : null,
+                cardName != null ? cardName.trim() : null);
+    }
 
     /** The "by a/Forwards of cost N or more/less." tail shared by the two patterns below. */
     private static final String CNB_BY_COST_TAIL =
@@ -4810,25 +4847,41 @@ public record CardData(
     );
 
     /**
-     * "The [Job X | Category Y | Element] Forwards [other than Z] you control gain "&lt;quoted
-     * permission&gt;."" — the same filtered target handed a quotation instead of an unblockability
-     * clause. Yuna &amp; Tidus PR-111 ("The Category Anniversary Forwards other than Yuna &amp;
-     * Tidus you control gain "This Forward can attack 3 times in the same turn."") is the only
-     * corpus printing, and the only one that hands a multi-attack permission to a <em>set</em>
-     * rather than to one named card.
+     * "The [Job X | Category Y | Element] Forwards [other than Z] you control gain [Trait[s] and]
+     * "&lt;quotation&gt;."" — the same filtered target handed a quotation instead of an
+     * unblockability clause. Two corpus printings, one per shape of quotation: Yuna &amp; Tidus
+     * PR-111 ("… gain "This Forward can attack 3 times in the same turn."") hands a multi-attack
+     * permission to a <em>set</em> rather than to one named card, and Snow &amp; Lightning PR-158
+     * ("… gain Haste and "When this Forward attacks, choose 1 Character. Dull it and Freeze it.””)
+     * hands out a keyword and a triggered ability together.
      *
-     * <p>The quotation is captured whole rather than spelled out here, so
-     * {@link #parseFilteredMaxAttacksGrant} can reject one this engine cannot honour. A sentence
-     * whose quotation says something else — Vaan 15-044L's unblockability, read by
-     * {@link #FIELD_GRANT_CNB_BY_COST_QUOTED} above — matches this pattern too and is declined
-     * there, which is why the quotation has to be validated rather than assumed.
+     * <p>The quotation is captured whole rather than spelled out here, so the parsers below can
+     * reject one this engine cannot honour. A sentence whose quotation says something else — Vaan
+     * 15-044L's unblockability, read by {@link #FIELD_GRANT_CNB_BY_COST_QUOTED} above — matches
+     * this pattern too and is declined by both, which is why the quotation has to be validated
+     * rather than assumed.
      *
      * <p>Groups: {@code job}, {@code category} or {@code element}, {@code except} (optional),
-     * {@code quoted}.
+     * {@code traitstext} (optional), {@code quoted}.
      */
     private static final Pattern FIELD_GRANT_FILTERED_QUOTED = Pattern.compile(
-        FILTERED_FORWARDS_TARGET + "gains?\\s+[\"\\u201C](?<quoted>[^\"\\u201D]+)[\"\\u201D]\\s*\\.?\\s*$"
+        FILTERED_FORWARDS_TARGET + "gains?\\s+" +
+        "(?:(?<traitstext>(?:Haste|Brave|First\\s+Strike|Back\\s+Attack)" +
+        "(?:\\s*(?:,|and)\\s*(?:Haste|Brave|First\\s+Strike|Back\\s+Attack))*)\\s+and\\s+)?" +
+        "[\"\\u201C](?<quoted>[^\"\\u201D]+)[\"\\u201D]\\s*\\.?\\s*$"
     );
+
+    /** The keywords a matched {@link #FIELD_GRANT_FILTERED_QUOTED} hands out alongside its quotation. */
+    private static EnumSet<Trait> filteredQuotedTraits(Matcher m) {
+        EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+        String traitsText = m.group("traitstext");
+        if (traitsText == null) return traits;
+        if (ICB_EFFECT_HASTE.matcher(traitsText).find())        traits.add(Trait.HASTE);
+        if (ICB_EFFECT_BRAVE.matcher(traitsText).find())        traits.add(Trait.BRAVE);
+        if (ICB_EFFECT_FIRST_STRIKE.matcher(traitsText).find()) traits.add(Trait.FIRST_STRIKE);
+        if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  traits.add(Trait.BACK_ATTACK);
+        return traits;
+    }
 
     /**
      * The multi-attack permission a {@link #FIELD_GRANT_FILTERED_QUOTED} sentence hands every
@@ -4844,14 +4897,10 @@ public record CardData(
      * twice/N times in the same turn."" into a {@link FilteredMaxAttacksGrant}, or {@code null}
      * when the text is not one.
      *
-     * <p>The filter is a zero-power {@link FieldPowerGrant} used purely as a predicate — the same
-     * shape {@code parseIcbTargetFilter} and the unblockability branch build — so the permission
-     * inherits the filter engine every other field grant is resolved through rather than a second
-     * reading of "Category Y other than Z".
-     *
-     * <p>Forwards only, because the pattern's target says Forwards: the quotation's subject is
-     * written from the grantee's point of view ("This Forward"), which is matched against the
-     * demonstrative wordings exactly as {@link #parseNamedMaxAttacksGrant} does.
+     * <p>The quotation's subject is written from the grantee's point of view ("This Forward"), so
+     * it is matched against the demonstrative wordings exactly as {@link #parseNamedMaxAttacksGrant}
+     * does. Any keyword granted in the same breath travels the ordinary route, as the
+     * {@link #filteredQuotedTarget} filter carries it into {@link #parseFieldPowerGrants}.
      */
     static FilteredMaxAttacksGrant parseFilteredMaxAttacksGrant(String effectText) {
         if (effectText == null) return null;
@@ -4861,20 +4910,45 @@ public record CardData(
         if (!at.matches()) return null;
         if (!at.group("cardname").trim().matches("(?i)This\\s+(?:Forward|Character|Monster|Backup)"))
             return null;
-        String job      = m.group("job");
-        String category = m.group("category");
-        String element  = m.group("element");
-        String except   = m.group("except");
-        FieldPowerGrant filter = FieldPowerGrant.sameSideFiltered(
-                job      != null ? job.trim()      : null,
-                category != null ? category.trim() : null,
-                true, false, false,
-                except   != null ? except.trim()   : null,
-                0, EnumSet.noneOf(Trait.class),
-                element  != null ? element.trim()  : null,
-                EnumSet.noneOf(Trait.class));
         String count = at.group("count");
-        return new FilteredMaxAttacksGrant(filter, count != null ? Integer.parseInt(count) : 2);
+        return new FilteredMaxAttacksGrant(
+                filteredForwardsFilter(m, filteredQuotedTraits(m)),
+                count != null ? Integer.parseInt(count) : 2);
+    }
+
+    /**
+     * The triggered abilities a {@link #FIELD_GRANT_FILTERED_QUOTED} sentence hands every Forward
+     * its filter covers, or {@code null} when the sentence is not one.
+     *
+     * @param filter     which Forwards on the granting player's side the grant reaches; carries the
+     *                   keywords granted in the same breath, so one object covers both halves
+     * @param abilities  the quotation parsed as auto abilities; never empty
+     */
+    record FilteredAbilityGrant(FieldPowerGrant filter, List<AutoAbility> abilities) {}
+
+    /**
+     * Parses "The [filter] Forwards [other than Z] you control gain [Trait[s] and] "&lt;triggered
+     * ability&gt;."" into a {@link FilteredAbilityGrant} — Snow &amp; Lightning PR-158 — or
+     * {@code null} when the text is not one.
+     *
+     * <p>Declines unless the quotation yields at least one auto ability, which is what keeps the
+     * two halves together: a sentence whose quotation the engine cannot read is not claimed here,
+     * so {@link #parseFieldPowerGrants} does not hand out the keyword and silently drop the rest.
+     * That also keeps this parser off {@link #parseFilteredMaxAttacksGrant}'s printing, whose
+     * quotation is a standing permission rather than a trigger and parses to no auto ability.
+     *
+     * <p>The quotation keeps its "this Forward" subject rather than being rewritten per grantee —
+     * {@code AutoAbilityTriggers} already accepts that self-reference on every trigger a granted
+     * ability can carry, for Ellone 27-020R and Ninja 27-104C.
+     */
+    static FilteredAbilityGrant parseFilteredAbilityGrant(String effectText) {
+        if (effectText == null) return null;
+        Matcher m = FIELD_GRANT_FILTERED_QUOTED.matcher(effectText.trim());
+        if (!m.matches()) return null;
+        List<AutoAbility> abilities = parseAutoAbilities(m.group("quoted").trim());
+        if (abilities.isEmpty()) return null;
+        return new FilteredAbilityGrant(
+                filteredForwardsFilter(m, filteredQuotedTraits(m)), List.copyOf(abilities));
     }
 
     /**
@@ -5695,19 +5769,10 @@ public record CardData(
             Matcher qm = FIELD_GRANT_CNB_BY_COST_QUOTED.matcher(seg);
             Matcher fm = dm.find() ? dm : (qm.find() ? qm : null);
             if (fm == null) continue;
-            String job      = fm.group("job");
-            String category = fm.group("category");
-            String element  = fm.group("element");
-            String except   = fm.group("except");
             int costVal     = Integer.parseInt(fm.group("costval"));
             boolean orMore  = !"less".equalsIgnoreCase(fm.group("costcmp"));
-            FieldPowerGrant grantFilter = new FieldPowerGrant(
-                    job      != null ? job.trim()      : null,
-                    category != null ? category.trim() : null,
-                    true, false, false,
-                    except   != null ? except.trim()   : null,
-                    0, java.util.Set.of(), false, -1, null,
-                    element  != null ? element.trim()  : null);
+            FieldPowerGrant grantFilter =
+                    filteredForwardsFilter(fm, EnumSet.noneOf(Trait.class));
             result.add(new IfControlBoost(List.of(), "", "", grantFilter, 0,
                     EnumSet.noneOf(Trait.class), "", false, false, false,
                     new int[]{costVal, orMore ? 1 : 0}));
@@ -6823,6 +6888,19 @@ public record CardData(
                 result.add(new FieldPowerGrant(null, null, true, true, true, null,
                         power, traits, false, -1, null, null,
                         cnM.group("cardname").trim()));
+                continue;
+            }
+
+            // The keyword half of a filtered "gain [Trait] and "<quotation>"" sentence — Snow &
+            // Lightning PR-158's Haste. Claimed only where the quotation is honoured too, the same
+            // condition the named form below imposes: the quoted half reaches the engine through
+            // MainWindow's readers, so granting the keyword off a quotation nobody acts on would
+            // be half an ability. PR-111 names no keyword and so produces no grant here.
+            FilteredAbilityGrant fag = parseFilteredAbilityGrant(seg);
+            FilteredMaxAttacksGrant fmg = fag == null ? parseFilteredMaxAttacksGrant(seg) : null;
+            FieldPowerGrant filtered = fag != null ? fag.filter() : fmg != null ? fmg.filter() : null;
+            if (filtered != null) {
+                if (!filtered.grantedTraits().isEmpty()) result.add(filtered);
                 continue;
             }
 

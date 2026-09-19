@@ -15110,12 +15110,46 @@ public class MainWindow {
 	List<AutoAbility> effectiveAutoAbilities(CardData card) {
 		List<AutoAbility> granted   = grantedAutoAbilities.get(card);
 		List<AutoAbility> selfGrant = damageThresholdGrantedAutoAbilities(card);
+		List<AutoAbility> fieldWide = filteredGrantedAutoAbilities(card);
 		boolean hasGranted = granted != null && !granted.isEmpty();
-		if (!hasGranted && selfGrant.isEmpty()) return card.autoAbilities();
+		if (!hasGranted && selfGrant.isEmpty() && fieldWide.isEmpty()) return card.autoAbilities();
 		List<AutoAbility> all = new ArrayList<>(card.autoAbilities());
 		if (hasGranted) all.addAll(granted);
 		all.addAll(selfGrant);
+		all.addAll(fieldWide);
 		return all;
+	}
+
+	/**
+	 * Abilities another card on {@code card}'s side is currently handing every Forward matching a
+	 * filter — Snow &amp; Lightning PR-158's "The Category Anniversary Forwards other than Snow
+	 * &amp; Lightning you control gain Haste and \"When this Forward attacks, choose 1 Character.
+	 * Dull it and Freeze it.\"".
+	 *
+	 * <p>Read live rather than stored, for the reason {@link #damageThresholdGrantedAutoAbilities}
+	 * is: the grant is continuous, so a Forward that arrives later is covered and one that arrives
+	 * after the granter leaves is not. The Haste granted in the same breath travels the ordinary
+	 * route, through {@code FieldGrantCalculator}, off the {@link FieldPowerGrant} the same sentence
+	 * produces.
+	 *
+	 * <p>The abilities keep the quotation's "this Forward" subject; every trigger dispatcher already
+	 * accepts that self-reference, so no rewriting per grantee is needed.
+	 */
+	private List<AutoAbility> filteredGrantedAutoAbilities(CardData card) {
+		Boolean side = fieldSideOf(card);
+		if (side == null) return List.of();
+		List<AutoAbility> out = null;
+		for (CardData src : fieldCards(side)) {
+			if (src == null || lostAbilitiesCards.contains(src)) continue;
+			for (FieldAbility fa : effectiveFieldAbilities(src)) {
+				CardData.FilteredAbilityGrant g =
+						CardData.parseFilteredAbilityGrant(fa.effectText());
+				if (g == null || !g.filter().appliesToCard(card, jobsStripped(card))) continue;
+				if (out == null) out = new ArrayList<>();
+				out.addAll(g.abilities());
+			}
+		}
+		return out == null ? List.of() : out;
 	}
 
 	/**

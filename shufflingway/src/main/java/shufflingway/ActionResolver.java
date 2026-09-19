@@ -576,6 +576,12 @@ public class ActionResolver {
         result = tryParseChooseAnyNumberReturnToHand(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseChooseCharacter: a filtered Forward grant carries its granted
+        // ability as a quotation, and that chain finds the effect inside it and runs it detached
+        // from both its trigger and its grantee (Snow & Lightning PR-158).
+        result = tryParseFilteredForwardsQuotedGrant(effectText);
+        if (result != null) return result;
+
         // Checked ahead of tryParseChooseCharacter: its "Summons?" target noun would otherwise
         // match bare "Choose 1 Summon. If your opponent doesn't pay..." text first, and its generic
         // followup dispatch's unanchored "Cancel its effect" substring match would misfire on the
@@ -2251,6 +2257,9 @@ public class ActionResolver {
         if (tryParseChooseAsManyAsPutToBzThisTurn(effectText)           != null) return "ChooseAsManyAsPutToBzThisTurn";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)    != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseChooseAnyNumberReturnToHand(effectText)    != null) return "ChooseAnyNumberReturnToHand";
+        // Mirrors parse(): ahead of ChooseCharacter, which finds the effect inside the granted
+        // ability's quotation and names the sentence for it (Snow & Lightning PR-158).
+        if (tryParseFilteredForwardsQuotedGrant(effectText)    != null) return "FilteredForwardsGrant";
         if (tryParseCancelStackEntryUnlessPay(effectText)      != null) return "CancelStackEntryUnlessPay";
         if (tryParseChooseFwdRevealCostParity(effectText)             != null) return "ChooseFwdRevealCostParity";
         if (tryParseChooseForwardsGainAbilityEot(effectText)          != null) return "ChooseForwardsGainAbilityEot";
@@ -3703,6 +3712,10 @@ public class ActionResolver {
             String followupName = matchedFollowupName(mixedM.group("followup").trim(), source);
             return "ChooseTwoMixedTypes / " + (followupName != null ? followupName : "?");
         }
+        // Mirrors parse() and matchedPatternName(): ahead of the ChooseCharacter block, which reads
+        // the effect out of the granted ability's quotation and described Snow & Lightning PR-158
+        // as "ChooseCharacter / DullAndFreeze" — the grant, its filter and its trigger all dropped.
+        if (tryParseFilteredForwardsQuotedGrant(effectText) != null) return "FilteredForwardsGrant";
         // Checked ahead of the ChooseCharacter block: these "choose … Forward(s) …" compounds would
         // otherwise be described as "ChooseCharacter / ?" (their branches aren't recognised followups),
         // keeping the card stuck in "partially parsed" coverage.

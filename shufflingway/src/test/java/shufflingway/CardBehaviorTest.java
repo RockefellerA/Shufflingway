@@ -33631,6 +33631,179 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Snow & Lightning PR-158: "The Category Anniversary Forwards other than Snow & Lightning you
+	// control gain Haste and \"When this Forward attacks, choose 1 Character. Dull it and Freeze
+	// it.\""
+	//
+	// The same filtered target as Yuna & Tidus above, handing out a keyword and a triggered
+	// ability rather than a permission. The halves travel separately — Haste as an ordinary
+	// FieldPowerGrant, the quotation through MainWindow.effectiveAutoAbilities, which every
+	// trigger dispatcher reads — and neither is claimed unless both land.
+	//
+	// The resolver used to describe this as "ChooseCharacter / DullAndFreeze": find() reached
+	// inside the quotation, claimed the dull-and-freeze, and dropped the grant, its filter and the
+	// attack trigger that gates it. The guard that stops that is dispatched ahead of the choose
+	// chain, so a name assertion here is the regression test for it.
+	// =========================================================================================
+
+	private static final String SNOW_LIGHTNING_GRANT =
+			"The Category Anniversary Forwards other than Snow & Lightning you control gain Haste "
+			+ "and \"When this Forward attacks, choose 1 Character. Dull it and Freeze it.\"";
+
+	/** Snow & Lightning on P1 idx 0, with {@code allies} seated after them. */
+	private static MainWindow boardWithSnowAndLightning(CardData... allies) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeAnniversaryAbilityGranter());
+		for (CardData ally : allies) placeP1Forward(mw, ally);
+		return mw;
+	}
+
+	/** A Category Anniversary Forward carrying the PR-158 field ability and the grant it produces. */
+	private static CardData makeAnniversaryAbilityGranter() {
+		return new CardData(null, "Snow & Lightning", "Ice/Lightning", 4, 10000, "Forward",
+				false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(),
+				CardData.parseFieldAbilities(SNOW_LIGHTNING_GRANT, "Forward"), List.of(),
+				CardData.parseFieldPowerGrants(SNOW_LIGHTNING_GRANT, "Forward"),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false,
+				CardData.parseMaxAttacksPerTurn(SNOW_LIGHTNING_GRANT, "Snow & Lightning"),
+				null, "Anniversary", null, SNOW_LIGHTNING_GRANT);
+	}
+
+	@Test
+	void theFilteredAbilityGrantReadsItsFilterAndItsQuotation() {
+		CardData.FilteredAbilityGrant g =
+				CardData.parseFilteredAbilityGrant(SNOW_LIGHTNING_GRANT);
+		assertNotNull(g);
+		assertEquals("Anniversary", g.filter().categoryFilter());
+		assertEquals("Snow & Lightning", g.filter().exceptCardName());
+		assertEquals(Set.of(CardData.Trait.HASTE), g.filter().grantedTraits());
+		assertEquals(1, g.abilities().size());
+		AutoAbility granted = g.abilities().get(0);
+		assertEquals("attacks", granted.trigger());
+		assertEquals("this Forward", granted.triggerCard(),
+				"kept as printed — every dispatcher accepts the self-reference");
+	}
+
+	@Test
+	void theKeywordHalfIsAnOrdinaryFieldGrant() {
+		List<FieldPowerGrant> grants =
+				CardData.parseFieldPowerGrants(SNOW_LIGHTNING_GRANT, "Forward");
+		assertEquals(1, grants.size());
+		FieldPowerGrant g = grants.get(0);
+		assertEquals(Set.of(CardData.Trait.HASTE), g.grantedTraits());
+		assertEquals("Anniversary", g.categoryFilter());
+		assertEquals(0, g.powerBonus(), "the sentence grants no power");
+	}
+
+	@Test
+	void theChooseChainNoLongerClaimsTheQuotation() {
+		assertEquals("FilteredForwardsGrant",
+				ActionResolver.matchedPatternName(SNOW_LIGHTNING_GRANT, null));
+		assertEquals("FilteredForwardsGrant",
+				ActionResolver.fullDescription(SNOW_LIGHTNING_GRANT, null));
+	}
+
+	@Test
+	void aQuotationNeitherGrantParserAcceptsIsLeftUnread() {
+		// Vaan 15-044L opens identically and is read by the unblockability branch instead. Claiming
+		// it here would hand out a keyword off a quotation nothing acts on.
+		String vaan = "The Job Sky Pirate Forwards other than Vaan you control gain "
+				+ "\"This Forward cannot be blocked by a Forward of cost 3 or more.\"";
+		assertNull(CardData.parseFilteredAbilityGrant(vaan));
+		assertNull(ActionResolver.matchedPatternName(vaan, null));
+	}
+
+	@Test
+	void anAnniversaryAllyGainsHasteAndTheAttackTrigger() {
+		MainWindow mw = boardWithSnowAndLightning(
+				makeCategoryForward("Yuna & Tidus", "Wind", "Anniversary"));
+		CardData ally = mw.p1ForwardCards.get(1);
+
+		assertTrue(mw.effectiveP1HasTrait(1, CardData.Trait.HASTE), "the keyword half");
+		assertTrue(mw.effectiveAutoAbilities(ally).stream()
+						.anyMatch(a -> a.trigger().equals("attacks")),
+				"the quoted half");
+	}
+
+	@Test
+	void theAbilityGranterExcludesItself() {
+		MainWindow mw = boardWithSnowAndLightning();
+		CardData granter = mw.p1ForwardCards.get(0);
+
+		assertFalse(mw.effectiveP1HasTrait(0, CardData.Trait.HASTE));
+		assertTrue(mw.effectiveAutoAbilities(granter).isEmpty(),
+				"\"other than Snow & Lightning\" covers both halves");
+	}
+
+	@Test
+	void aForwardOutsideTheCategoryGetsNeitherHalf() {
+		MainWindow mw = boardWithSnowAndLightning(makeCategoryForward("Ally", "Ice", "XIII"));
+		CardData ally = mw.p1ForwardCards.get(1);
+
+		assertFalse(mw.effectiveP1HasTrait(1, CardData.Trait.HASTE));
+		assertTrue(mw.effectiveAutoAbilities(ally).isEmpty());
+	}
+
+	@Test
+	void theGrantedTriggerLapsesWithItsGranter() {
+		MainWindow mw = boardWithSnowAndLightning(
+				makeCategoryForward("Yuna & Tidus", "Wind", "Anniversary"));
+		CardData ally = mw.p1ForwardCards.get(1);
+		assertFalse(mw.effectiveAutoAbilities(ally).isEmpty());
+
+		mw.lostAbilitiesCards.add(mw.p1ForwardCards.get(0));
+		assertTrue(mw.effectiveAutoAbilities(ally).isEmpty(),
+				"a granter that has lost its abilities grants nothing");
+	}
+
+	@Test
+	void anAnniversaryForwardAcrossTheTableGetsNoTrigger() {
+		MainWindow mw = boardWithSnowAndLightning();
+		CardData oppAlly = makeCategoryForward("Yuna & Tidus", "Wind", "Anniversary");
+		mw.gameState.getIdentity().put(oppAlly, false);
+		mw.placeP2CardInForwardZone(oppAlly);
+
+		assertTrue(mw.effectiveAutoAbilities(oppAlly).isEmpty(), "the grant reads \"you control\"");
+	}
+
+	// The same target prefix also has to read the job-and-card-name union, which Ilmatalle 27-021C
+	// and Gilgamesh 27-079H print. A lazy job capture swallows the whole phrase — "Warrior Forwards
+	// and Card Name Warrior" — which matches no card, so the grant parses and is then silently
+	// inert; that is the trap FIELD_GRANT_JOB_AND_CARD_NAME_PATTERN was split out to avoid, and
+	// these two reach the engine through the filtered-grant parsers instead.
+
+	@Test
+	void theJobAndCardNameUnionFillsBothFiltersRatherThanOneLongJob() {
+		CardData.FilteredMaxAttacksGrant g = CardData.parseFilteredMaxAttacksGrant(
+				"The Job Warrior Forwards and Card Name Warrior Forwards you control gain Brave "
+				+ "and \"This Forward can attack twice in the same turn.\"");
+		assertNotNull(g);
+		assertEquals("Warrior", g.filter().jobFilter());
+		assertEquals("Warrior", g.filter().inclCardName());
+		assertEquals(Set.of(CardData.Trait.BRAVE), g.filter().grantedTraits());
+		assertEquals(2, g.maxAttacks());
+	}
+
+	@Test
+	void eitherBranchOfTheUnionQualifies() {
+		// appliesToCard reads two filled filters as alternatives, so a card satisfying one is
+		// covered. ANDing them — which the swallowed-job reading amounted to — covered nobody.
+		CardData.FilteredMaxAttacksGrant g = CardData.parseFilteredMaxAttacksGrant(
+				"The Job Warrior Forwards and Card Name Warrior Forwards you control gain Brave "
+				+ "and \"This Forward can attack twice in the same turn.\"");
+		CardData byJob  = makeJobForward("Bartz", "Wind", "Warrior");
+		CardData byName = makeForward("Warrior", "Fire", 2, 5000);
+		CardData neither = makeJobForward("Vaan", "Wind", "Sky Pirate");
+
+		assertTrue(g.filter().appliesToCard(byJob, false),  "matched on Job");
+		assertTrue(g.filter().appliesToCard(byName, false), "matched on Card Name");
+		assertFalse(g.filter().appliesToCard(neither, false));
+	}
+
+	// =========================================================================================
 	// Clive 26-005H: "Clive gains all the special abilities of the Job Eikon you own removed from
 	// the game."
 	//

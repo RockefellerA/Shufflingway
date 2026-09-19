@@ -608,6 +608,27 @@ public class FieldAbilityParsingTest {
     }
 
     static String describeFieldAbility(FieldAbility fa, CardData source, String typeEn) {
+        // Ahead of the grant parsers below, because a filtered quoted grant has two halves and
+        // those would record only one. Snow & Lightning PR-158's keyword half is an ordinary
+        // FieldPowerGrant, so "FieldPowerGrant [Anniversary Fwds excl.… [HASTE]]" is true as far
+        // as it goes and says nothing about the triggered ability the same sentence hands out;
+        // Yuna & Tidus PR-111 grants no keyword at all and so produces no grant to describe.
+        CardData.FilteredAbilityGrant filteredAbil =
+                CardData.parseFilteredAbilityGrant(fa.effectText());
+        if (filteredAbil != null) {
+            StringBuilder sb = new StringBuilder("FilteredAbilityGrant[")
+                    .append(filteredAbil.filter()).append(':');
+            for (AutoAbility a : filteredAbil.abilities()) {
+                String eff = ActionResolver.fullDescription(a.effectText(), source);
+                sb.append(" on ").append(a.trigger()).append('=').append(eff != null ? eff : "?");
+            }
+            return sb.append(']').toString();
+        }
+        CardData.FilteredMaxAttacksGrant filteredAtk =
+                CardData.parseFilteredMaxAttacksGrant(fa.effectText());
+        if (filteredAtk != null)
+            return "FilteredMaxAttacksGrant[" + filteredAtk.filter()
+                    + ": atk×" + filteredAtk.maxAttacks() + "]";
         // The continuous-boost parsers come first because they are what actually runs for a field
         // ability: a continuous "If all the Characters you control have Ice Element, X gains +2000
         // power" is a standing modifier resolved by IfControlBoost, not a one-shot ActionResolver
