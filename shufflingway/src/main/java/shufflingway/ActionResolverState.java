@@ -852,6 +852,46 @@ final class ActionResolverState {
                 bonus.accept(ctx);
             });
         }
+        // "When you removed N or more cards, choose the same number of <type> as the cards you
+        // removed this way. <action>. [further sentences]" — 21-023L Ultimecia. Here for the same
+        // reason as the two payoffs above: the selection is sized by what this removal took, and
+        // `removed` is the only thing holding that number.
+        Matcher sameNumber = WHEN_REMOVED_CHOOSE_SAME_NUMBER.matcher(tail);
+        if (sameNumber.matches()) {
+            int    threshold  = Integer.parseInt(sameNumber.group("threshold"));
+            String typeRaw    = sameNumber.group("type").trim();
+            String actionText = sameNumber.group("action").trim();
+            String restText   = sameNumber.group("rest").trim();
+
+            BiConsumer<GameContext, List<ForwardTarget>> action = parseTargetAction(actionText, 0);
+            // Every part understood before any is claimed. A readable selection over an
+            // unreadable verb would choose targets and do nothing to them, which reports as
+            // working and is not — and a trailing sentence nobody can read is exactly what the
+            // guard below declines the ability for.
+            Consumer<GameContext> rest = restText.isEmpty() ? null : parse(restText, source);
+            if (action == null || (!restText.isEmpty() && rest == null)) return null;
+
+            String tLc = typeRaw.toLowerCase(Locale.ROOT);
+            final boolean inclFwd = tLc.startsWith("forward") || tLc.startsWith("character");
+            final boolean inclBkp = tLc.startsWith("backup")  || tLc.startsWith("character");
+            final boolean inclMon = tLc.startsWith("monster") || tLc.startsWith("character");
+            final Consumer<GameContext> after = rest;
+            return base.andThen(ctx -> {
+                if (removed[0] < threshold) {
+                    ctx.logEntry("Effect: " + removed[0] + " card(s) removed, " + threshold
+                            + " or more needed — selection skipped");
+                    return;
+                }
+                ctx.logEntry("Effect: Choose " + removed[0] + " " + typeRaw
+                        + " (as many as were removed) — " + actionText);
+                List<ForwardTarget> ts = selectTargets(ctx, removed[0], false,
+                        false, false, null, null, null, false, false,
+                        -1, null, -1, null, inclFwd, inclBkp, inclMon,
+                        null, null, null, null, false, null, false);
+                action.accept(ctx, ts);
+                if (after != null) after.accept(ctx);
+            });
+        }
         // A trailing sentence this parser cannot account for declines the whole ability. Handing it
         // to appendThenClause is not safe here: that helper returns the base unchanged when the
         // tail is not a "Then, …" clause at all, which would drop Sephiroth 11-138S's "or put

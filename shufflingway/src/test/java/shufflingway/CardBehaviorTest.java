@@ -44015,8 +44015,10 @@ public class CardBehaviorTest {
 
 	@Test
 	void andTheSuppressionIsNoLongerAnUnreadTail() {
-		// " + " rather than the compound fallback's bare "+": with the marker strip fixed the
-		// secondary parses as one clause instead of being split sentence by sentence.
+		// Both routes to this description now join with " + ". The secondary reaches the
+		// compound fallback again since "this damage" in the last sentence became a backward
+		// reference, which is what it is — the string is the same either way, and
+		// bahamutBurnsHurtsYouAndSuppressesTheExBurst is what holds the behaviour.
 		assertEquals("ChooseCharacter / Damage + DealPlayerDamageToSelf + ExBurstSuppression",
 				ActionResolver.fullDescription(BAHAMUT_SELF_DAMAGE_SUMMON, null));
 	}
@@ -54160,6 +54162,234 @@ public class CardBehaviorTest {
 		ActionResolver.parse(text, null).accept(ctx);
 
 		verify(ctx, never()).addTargetToHand(any());
+	}
+
+	// -----------------------------------------------------------------------------------------
+	// 21-023L Ultimecia: "remove up to 5 Characters of cost 5 or more in your Break Zone from the
+	// game. When you removed 1 or more cards, choose the same number of Characters as the cards
+	// you removed this way. Dull them and Freeze them. Your opponent discards 1 card."
+	//
+	// This was a fail-open, not a dropped sentence. The Break Zone removal parser declines a tail
+	// it cannot account for, so the whole ability fell through to tryParseRemoveNamedFromGame,
+	// whose lazy name group read "up to 5 Characters of cost 5 or more in your Break Zone" as a
+	// card name and searched the field for it. Nothing happened, and it reported as parsed.
+	//
+	// The selection is sized by what the removal took, which is why the tail belongs to that
+	// parser: split off, "choose the same number of Characters" has no number to read.
+	// -----------------------------------------------------------------------------------------
+
+	private static final String ULTIMECIA_RFG_THEN_CHOOSE =
+			"remove up to 5 Characters of cost 5 or more in your Break Zone from the game. "
+			+ "When you removed 1 or more cards, choose the same number of Characters as the "
+			+ "cards you removed this way. Dull them and Freeze them. "
+			+ "Your opponent discards 1 card.";
+
+	@Test
+	void ultimeciaChoosesAsManyCharactersAsSheRemoved() {
+		ForwardTarget a = fwd(false, 1);
+		ForwardTarget b = fwd(false, 0);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.removeCardsFromBreakZoneFromGame(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any())).thenReturn(2);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(a, b));
+
+		ActionResolver.parse(ULTIMECIA_RFG_THEN_CHOOSE, null).accept(ctx);
+
+		// The count asked for is the count removed, not the printed ceiling of 5.
+		verify(ctx).selectCharacters(eq(2), eq(false), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx).dullAndFreezeTarget(a);
+		verify(ctx).dullAndFreezeTarget(b);
+		verify(ctx).forceOpponentDiscard(1);
+	}
+
+	@Test
+	void ultimeciaSkipsTheSelectionWhenSheRemovedNothing() {
+		// "When you removed 1 or more cards" is a gate, and declining an "up to" removal is a legal
+		// answer — so the dull, the freeze and the discard all have to stay unpaid.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.removeCardsFromBreakZoneFromGame(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any())).thenReturn(0);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+
+		ActionResolver.parse(ULTIMECIA_RFG_THEN_CHOOSE, null).accept(ctx);
+
+		verify(ctx, never()).dullAndFreezeTarget(any());
+		verify(ctx, never()).forceOpponentDiscard(anyInt());
+	}
+
+	@Test
+	void ultimeciaNoLongerSearchesTheFieldForACardNamedAfterHerFilter() {
+		// The shape of the old failure, pinned: the ability must not resolve as a named-card
+		// removal. Its name group is lazy and matches with find(), so it read the entire filter
+		// phrase as a card name.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.removeCardsFromBreakZoneFromGame(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any())).thenReturn(0);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+
+		ActionResolver.parse(ULTIMECIA_RFG_THEN_CHOOSE, null).accept(ctx);
+
+		verify(ctx, never()).removeNamedCardFromGame(any());
+		verify(ctx).removeCardsFromBreakZoneFromGame(eq(5), eq(true), anyBoolean(), anyBoolean(),
+				any(), eq(5), eq("more"), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any());
+	}
+
+	// -----------------------------------------------------------------------------------------
+	// 16-109C Kyrie: "your opponent reveals their hand. Then, look at the top 2 cards of your
+	// deck. Return these to the top and/or bottom of your deck in any order."
+	//
+	// OPPONENT_REVEAL_HAND_PATTERN matches with find(), so it claimed the whole ability off the
+	// first sentence and the look was never reached. Independent-sentence composition could not
+	// rescue it either: the last two sentences are linked by "these", and composition is
+	// all-or-nothing. The tail parsed perfectly on its own the whole time.
+	//
+	// The golden file records no change for this — name and description were already
+	// OpponentRevealHand, and parse outcome never moved.
+	// -----------------------------------------------------------------------------------------
+
+	@Test
+	void kyrieLooksAtHerDeckAfterTheOpponentRevealsTheirHand() {
+		String text = "your opponent reveals their hand. Then, look at the top 2 cards of your "
+				+ "deck. Return these to the top and/or bottom of your deck in any order.";
+		GameContext ctx = mock(GameContext.class);
+
+		ActionResolver.parse(text, null).accept(ctx);
+
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).revealOpponentHand();
+		order.verify(ctx).lookAtTopDeck(argThat(cfg ->
+				cfg.count() == 2 && cfg.action() == LookConfig.LookAction.TOP_OR_BOTTOM_ORDERED));
+	}
+
+	// -----------------------------------------------------------------------------------------
+	// "This damage cannot be reduced." is a modifier on the sentence before it, not an effect.
+	//
+	// 20-053H Number 128 prints the same two sentences twice, once with a trailing restriction and
+	// once without. The restricted copy worked and the bare one did not: independent-sentence
+	// composition claimed the bare text, split the modifier off, and resolved it through the
+	// no-op entry that exists to keep it quiet as a followup — so Gale Cut dealt ordinary
+	// reducible damage. The restricted copy escaped only because "this ability" in its third
+	// sentence tripped the backward-reference guard by accident.
+	// -----------------------------------------------------------------------------------------
+
+	@Test
+	void thisDamageCannotBeReducedBindsToThePrecedingSentence() {
+		String text = "Deal 7000 damage to all the Forwards opponent controls. "
+				+ "This damage cannot be reduced.";
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.isP1()).thenReturn(true);
+		when(ctx.p2ForwardCount()).thenReturn(1);
+		when(ctx.p2Forward(0)).thenReturn(makeForward("Target", "Fire", 3, 7000));
+
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx).damageP2ForwardUnreduced(0, 7000);
+		verify(ctx, never()).damageP2Forward(anyInt(), anyInt());
+	}
+
+	@Test
+	void theRestrictedCopyOfGaleCutIsStillUnreduced() {
+		// The copy that already worked, pinned so a later ordering change cannot trade one for the
+		// other — the two texts take different routes through parse() and always have.
+		String text = "Deal 7000 damage to all the Forwards opponent controls. "
+				+ "This damage cannot be reduced. You can only use this ability if Number 128 "
+				+ "has received 4000 damage or more and only once per turn.";
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.isP1()).thenReturn(true);
+		when(ctx.p2ForwardCount()).thenReturn(1);
+		when(ctx.p2Forward(0)).thenReturn(makeForward("Target", "Fire", 3, 7000));
+
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx).damageP2ForwardUnreduced(0, 7000);
+	}
+
+	// -----------------------------------------------------------------------------------------
+	// "Add it to your hand. If it is <card>, <action> it instead." — 24-085C Mid (XVI).
+	//
+	// The replacement acts on the card this ability just chose, so it has to be applied to that
+	// target. Parsing the inner sentence standalone binds its bare "it" to the source card
+	// instead: Mid was playing himself out of the Break Zone and adding the chosen Cidolfus to
+	// hand as well, so "instead" replaced nothing and the wrong card hit the field.
+	//
+	// None of this is visible to the golden file. Parse outcome, pattern name and description are
+	// identical before and after — fullDescription already said IfAddedCard(PlayOntoField) while
+	// the resolver played the wrong card.
+	// -----------------------------------------------------------------------------------------
+
+	private static final String MID_ADD_OR_PLAY =
+			"Choose 1 Forward of cost 4 or less in your Break Zone. Add it to your hand. "
+			+ "If it is a Card Name Cidolfus, play it onto the field instead.";
+
+	@Test
+	void midPlaysTheChosenCardRatherThanHimself() {
+		ForwardTarget chosen = fwd(true, 0);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.p1BreakZoneCard(0)).thenReturn(makeForward("Cidolfus", "Lightning", 3, 7000));
+
+		ActionResolver.parse(MID_ADD_OR_PLAY, makeForward("Mid (XVI)", "Lightning", 2, 5000))
+				.accept(ctx);
+
+		verify(ctx).playTargetOntoField(chosen);
+	}
+
+	@Test
+	void midsInsteadReplacesTheAddToHand() {
+		// The half that made this a live bug rather than a cosmetic one: the card was reaching
+		// both zones at once.
+		ForwardTarget chosen = fwd(true, 0);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.p1BreakZoneCard(0)).thenReturn(makeForward("Cidolfus", "Lightning", 3, 7000));
+
+		ActionResolver.parse(MID_ADD_OR_PLAY, makeForward("Mid (XVI)", "Lightning", 2, 5000))
+				.accept(ctx);
+
+		verify(ctx, never()).addTargetToHand(any());
+	}
+
+	@Test
+	void midAddsToHandWhenTheChosenCardIsNotNamed() {
+		ForwardTarget chosen = fwd(true, 0);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.p1BreakZoneCard(0)).thenReturn(makeForward("Barret", "Lightning", 3, 7000));
+
+		ActionResolver.parse(MID_ADD_OR_PLAY, makeForward("Mid (XVI)", "Lightning", 2, 5000))
+				.accept(ctx);
+
+		verify(ctx).addTargetToHand(chosen);
+		verify(ctx, never()).playTargetOntoField(any());
+	}
+
+	@Test
+	void sheiransSelfContainedInnerStillRunsStandalone() {
+		// The fallback the target-aware path must not swallow: 26-071C Sheiran's inner effect names
+		// its own card and needs no target, so it is still parsed as a standalone sentence.
+		String text = "choose 1 Category VII Character in your Break Zone. Add it to your hand. "
+				+ "If it is a Card Name Tifa, during this turn, the cost required to cast your "
+				+ "next Card Name Tifa is reduced by 3 (it cannot become 0).";
+		ForwardTarget chosen = fwd(true, 0);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.p1BreakZoneCard(0)).thenReturn(makeForward("Tifa", "Earth", 4, 8000));
+
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx).addTargetToHand(chosen);
+		verify(ctx).applyNextCastCostReduction(argThat(m ->
+				m.amount() == 3 && "Tifa".equals(m.cardNameFilter())));
 	}
 
 	@Test

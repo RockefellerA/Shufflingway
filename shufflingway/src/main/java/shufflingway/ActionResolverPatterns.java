@@ -2252,6 +2252,27 @@ final class ActionResolverPatterns {
         "(?:is|are)\\s+removed\\s+from\\s+the\\s+game\\s+by\\s+this\\s+effect,\\s*(?<effect>.+)$",
         Pattern.DOTALL
     );
+    /**
+     * "When you removed N or more cards, choose the same number of &lt;type&gt; as the cards you
+     * removed this way. &lt;action&gt;." — 21-023L Ultimecia, whose selection is sized by the
+     * removal in the sentence before it.
+     *
+     * <p>The count has to come from the removal at resolution time, which is why this belongs to
+     * the removal parser rather than to a sentence after it. Split off, "choose the same number of
+     * Characters" has no number to read and the chain claimed the whole ability through
+     * {@code tryParseRemoveNamedFromGame} instead — reading "up to 5 Characters of cost 5 or more
+     * in your Break Zone" as a card name to look for on the field, so nothing happened at all.
+     *
+     * <p>Groups: {@code threshold}, {@code type}, {@code action}, and {@code rest} for whatever
+     * further sentences trail it.
+     */
+    static final Pattern WHEN_REMOVED_CHOOSE_SAME_NUMBER = Pattern.compile(
+        "(?i)^[\\s.!]*When\\s+you\\s+removed?\\s+(?<threshold>\\d+)\\s+or\\s+more\\s+cards?,\\s*" +
+        "choose\\s+the\\s+same\\s+number\\s+of\\s+(?<type>Characters?|Forwards?|Backups?|Monsters?)\\s+" +
+        "as\\s+the\\s+cards\\s+you\\s+removed\\s+this\\s+way\\.\\s*" +
+        "(?<action>[^.!]+[.!])\\s*(?<rest>.*)$",
+        Pattern.DOTALL
+    );
     static final Pattern THEN_PLACE_COUNTERS_PER_CARD_REMOVED = Pattern.compile(
         "(?i)^[\\s.!]*Then,?\\s+place\\s+(?<amount>\\d+)\\s+(?<counter>[A-Za-z][A-Za-z ]*?)\\s+" +
         "Counters?\\s+on\\s+(?<oncard>.+?)\\s+for\\s+each\\s+card\\s+you\\s+removed\\s+" +
@@ -3017,6 +3038,20 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_ADD_TO_HAND_CONDITIONAL_SECONDARY = Pattern.compile(
         "(?i)^If\\s+(?:it|the\\s+added\\s+card)\\s+(?:is|has)\\s+(?<cond>[^,]+?)" +
         ",\\s*(?<inner>.+?)[.!]?$",
+        Pattern.DOTALL
+    );
+    /**
+     * The {@code inner} of a {@link #FOLLOWUP_ADD_TO_HAND_CONDITIONAL_SECONDARY} when it replaces
+     * the add to hand rather than adding to it — "play it onto the field <b>instead</b>"
+     * (24-085C Mid). Group {@code action} is the bare action, for {@link #parseTargetAction}.
+     *
+     * <p>Only the replacing form is read here. An inner effect that acts on the chosen card has to
+     * be applied to that target, and without "instead" the printed text would be asking for the
+     * card to be both added to hand and acted on in the Break Zone it has left — so an unrecognised
+     * wording is left to the standalone parse rather than guessed at.
+     */
+    static final Pattern FOLLOWUP_ADD_TO_HAND_INNER_INSTEAD = Pattern.compile(
+        "(?i)^(?<action>.+?)\\s+instead[.!]?$",
         Pattern.DOTALL
     );
 
@@ -9756,7 +9791,12 @@ final class ActionResolverPatterns {
         // Melvien 18-115L's "choose up to 2 Backups and up to 2 other Backups. Activate the former
         // and Freeze the latter." split cleanly into a selection and an orphaned pair of verbs,
         // which is exactly the failure this pattern exists to prevent.
-        "(?i)\\b(?:it|its|them|they|those|these|this\\s+way|instead" +
+        // "this damage" is the modifier form of the same thing: "Deal 7000 damage to all the
+        // Forwards opponent controls. This damage cannot be reduced." (20-053H Number 128) split
+        // into a damage effect and a sentence that parses to a no-op, so the ability dealt
+        // ordinary reducible damage. The modifier is read by the damage parsers themselves, off
+        // the whole text — they only need the text to still be whole when it reaches them.
+        "(?i)\\b(?:it|its|them|they|those|these|this\\s+way|this\\s+damage|instead" +
         "|that\\s+(?:Forward|Backup|Monster|Character|Summon|card|player)" +
         "|if\\s+you\\s+do(?:\\s+so)?|when\\s+you\\s+do(?:\\s+so)?|by\\s+this\\s+effect" +
         "|the\\s+(?:former|latter|first|second)\\b" +

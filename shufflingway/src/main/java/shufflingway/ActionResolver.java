@@ -1607,7 +1607,7 @@ public class ActionResolver {
         result = tryParseRevealHandAndSelectDiscard(effectText);
         if (result != null) return result;
 
-        result = tryParseOpponentRevealHand(effectText);
+        result = tryParseOpponentRevealHand(effectText, source, xValue);
         if (result != null) return result;
 
         result = tryParseEachPlayerRevealCharacterMayPlay(effectText);
@@ -2654,7 +2654,7 @@ public class ActionResolver {
         // Mirrors parse(): ahead of OpponentRevealHand, whose find() takes this text's
         // opening clause and names the ability after half of itself.
         if (tryParseRevealHandAndSelectDiscard(effectText)     != null) return "RevealHandAndSelectDiscard";
-        if (tryParseOpponentRevealHand(effectText)            != null) return "OpponentRevealHand";
+        if (tryParseOpponentRevealHand(effectText, source, 0)            != null) return "OpponentRevealHand";
         if (tryParseEachPlayerRevealCharacterMayPlay(effectText)      != null) return "EachPlayerRevealMayPlay";
         if (tryParseEachPlayerMaySearchForwardMinPower(effectText)     != null) return "EachPlayerMaySearchForwardMinPower";
         if (tryParseRevealTopDeck(effectText, source)         != null) return "RevealTopDeck";
@@ -4165,7 +4165,11 @@ public class ActionResolver {
                         if (d == null) d = matchedFollowupName(s.trim(), source);
                         parts.add(d != null ? d : "?");
                     }
-                    secondaryDesc = String.join("+", parts);
+                    // " + ", as every other composite in this chain joins: the line below uses it
+                    // for the primary, and composeOverSentences for an independently-composed
+                    // ability. A bare "+" here read as a different kind of composition when it was
+                    // only a different route to the same one.
+                    secondaryDesc = String.join(" + ", parts);
                 }
             }
             StringBuilder sb = new StringBuilder("ChooseCharacter / ")
@@ -4557,7 +4561,7 @@ public class ActionResolver {
             return "Opponent reveals cards from their hand; you select 1 for them to discard";
         // Mirrors parse(); see the note in matchedPatternNameOn().
         if (tryParseRevealHandAndSelectDiscard(effectText) != null)         return "RevealHandAndSelectDiscard";
-        if (tryParseOpponentRevealHand(effectText) != null)                 return "OpponentRevealHand";
+        if (tryParseOpponentRevealHand(effectText, source, 0) != null)                 return "OpponentRevealHand";
         if (tryParseEachPlayerRevealCharacterMayPlay(effectText) != null)   return "EachPlayerRevealMayPlay";
         if (tryParseEachPlayerMaySearchForwardMinPower(effectText) != null) return "EachPlayerMaySearchForwardMinPower";
         if (tryParseRevealTopDeck(effectText, source) != null)
@@ -8094,6 +8098,10 @@ public class ActionResolver {
             return "RemoveFromBreakZoneFromGame + PlaceCountersPerCardRemoved";
         if (IF_N_REMOVED_BY_THIS_EFFECT.matcher(tail).matches())
             return "RemoveFromBreakZoneFromGame + IfNRemoved";
+        // Mirrors the branch parse() reads at this position — 21-023L Ultimecia. Without it the
+        // ability was named for the tail it does not have, "+ Then".
+        if (WHEN_REMOVED_CHOOSE_SAME_NUMBER.matcher(tail).matches())
+            return "RemoveFromBreakZoneFromGame + ChooseSameNumberRemoved";
         return "RemoveFromBreakZoneFromGame + Then";
     }
 
@@ -8109,6 +8117,13 @@ public class ActionResolver {
             return "RemoveFromBreakZoneFromGame + IfRemoved(" + counted.group("count")
                     + (counted.group("ormore") != null ? "+" : "") + ": "
                     + describeOrName(counted.group("effect").trim(), source) + ")";
+        Matcher sameNumber = WHEN_REMOVED_CHOOSE_SAME_NUMBER.matcher(tail);
+        if (sameNumber.matches()) {
+            String trailing = sameNumber.group("rest").trim();
+            return "RemoveFromBreakZoneFromGame + ChooseSameNumberRemoved("
+                    + sameNumber.group("action").trim().replaceAll("[.!]$", "")
+                    + (trailing.isEmpty() ? "" : " + " + describeOrName(trailing, source)) + ")";
+        }
         Matcher then = TRAILING_THEN_CLAUSE.matcher(tail);
         String inner = then.matches() ? fullDescription(then.group("rest").trim(), source) : null;
         return "RemoveFromBreakZoneFromGame + " + (inner != null ? inner : "Then");

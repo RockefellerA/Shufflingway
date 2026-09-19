@@ -5228,23 +5228,42 @@ final class ActionResolverChoose {
             final Predicate<CardData> addedCardCond;
             final Consumer<GameContext> conditionalInner;
             final String conditionalInnerText;
+            // "…, play it onto the field instead" acts on the card this ability just chose, so it
+            // is applied to that target rather than parsed as a standalone sentence. A standalone
+            // parse resolves the bare "it" against the source card instead: 24-085C Mid was playing
+            // Mid (XVI) out of the Break Zone rather than the Cidolfus it had chosen, and adding
+            // that Cidolfus to hand as well, because "instead" replaced nothing.
+            final BiConsumer<GameContext, List<ForwardTarget>> conditionalOnTarget;
             if (secondaryText != null) {
                 Matcher condM = FOLLOWUP_ADD_TO_HAND_CONDITIONAL_SECONDARY.matcher(secondaryText);
                 if (condM.matches()) {
                     Predicate<CardData> cond = parseRevealCondition(condM.group("cond").trim());
                     String innerTxt = condM.group("inner").trim();
-                    Consumer<GameContext> inner = cond != null ? parse(innerTxt, source) : null;
-                    addedCardCond       = (cond != null && inner != null) ? cond  : null;
-                    conditionalInner    = (cond != null && inner != null) ? inner : null;
-                    conditionalInnerText = (cond != null && inner != null) ? innerTxt : null;
+                    Matcher addedInsteadM = FOLLOWUP_ADD_TO_HAND_INNER_INSTEAD.matcher(innerTxt);
+                    BiConsumer<GameContext, List<ForwardTarget>> onTarget =
+                            cond != null && addedInsteadM.matches()
+                                    ? parseTargetAction(addedInsteadM.group("action").trim(), xValue)
+                                    : null;
+                    // Only one of the two runs. The standalone parse is consulted just when the
+                    // inner effect is not a replacement acting on the chosen card — 26-071C
+                    // Sheiran's cost reduction names its own card and needs no target.
+                    Consumer<GameContext> inner =
+                            (cond != null && onTarget == null) ? parse(innerTxt, source) : null;
+                    boolean readable = cond != null && (onTarget != null || inner != null);
+                    addedCardCond        = readable ? cond     : null;
+                    conditionalInner     = readable ? inner    : null;
+                    conditionalOnTarget  = readable ? onTarget : null;
+                    conditionalInnerText = readable ? innerTxt : null;
                 } else {
                     addedCardCond        = null;
                     conditionalInner     = null;
+                    conditionalOnTarget  = null;
                     conditionalInnerText = null;
                 }
             } else {
                 addedCardCond        = null;
                 conditionalInner     = null;
+                conditionalOnTarget  = null;
                 conditionalInnerText = null;
             }
 
@@ -5256,12 +5275,28 @@ final class ActionResolverChoose {
                 // Peek at chosen cards before they leave the Break Zone so the conditional
                 // secondary can inspect them.
                 List<CardData> chosenCards = new ArrayList<>();
+                List<ForwardTarget> matched = new ArrayList<>();
                 if (addedCardCond != null) {
                     for (ForwardTarget t : ts) {
                         CardData c = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
-                        if (c != null) chosenCards.add(c);
+                        if (c == null) continue;
+                        chosenCards.add(c);
+                        if (addedCardCond.test(c)) matched.add(t);
                     }
                 }
+
+                if (conditionalOnTarget != null) {
+                    if (!matched.isEmpty())
+                        ctx.logEntry("Condition met (added card) — " + conditionalInnerText);
+                    // One descending pass covering both outcomes, target by target. Adding a card
+                    // to hand and playing one both take it out of the Break Zone, so every index
+                    // below it shifts; running the two groups as separate passes would leave the
+                    // second acting on rows that had moved.
+                    sortedByIdxDesc(ts, true) .forEach(t -> addToHandOrReplace(ctx, t, matched, conditionalOnTarget));
+                    sortedByIdxDesc(ts, false).forEach(t -> addToHandOrReplace(ctx, t, matched, conditionalOnTarget));
+                    return;
+                }
+
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.addTargetToHand(t));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.addTargetToHand(t));
 
@@ -6749,6 +6784,21 @@ final class ActionResolverChoose {
         Consumer<GameContext> warnEffect = ctx -> ctx.logEntry(
                 "[ActionResolver] Choose effect — followup not yet implemented: " + followup);
         return secondary == null ? warnEffect : warnEffect.andThen(secondary);
+    }
+
+    /**
+     * Applies one target of an "Add it to your hand. If it is …, &lt;action&gt; it instead." — the
+     * replacement when the chosen card met the condition, the add to hand when it did not.
+     *
+     * <p>Called per target rather than handed the two groups as lists because {@code instead}
+     * splits one descending pass in two, and both outcomes remove the card from the Break Zone.
+     * {@code onTarget} sorts whatever list it is given, so a singleton is already in order.
+     */
+    private static void addToHandOrReplace(GameContext ctx, ForwardTarget t,
+            List<ForwardTarget> matched,
+            BiConsumer<GameContext, List<ForwardTarget>> onTarget) {
+        if (matched.contains(t)) onTarget.accept(ctx, List.of(t));
+        else ctx.addTargetToHand(t);
     }
 
     /**

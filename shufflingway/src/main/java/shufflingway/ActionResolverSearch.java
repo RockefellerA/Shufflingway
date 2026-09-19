@@ -627,13 +627,29 @@ final class ActionResolverSearch {
             ctx.opponentRevealsSelectOneDiscard(count);
         };
     }
-    /** Parses "Your opponent shows/reveals his/her hand". */
-    static Consumer<GameContext> tryParseOpponentRevealHand(String text) {
+    /**
+     * Parses "Your opponent shows/reveals his/her hand", and chains whatever follows it.
+     *
+     * <p>The chaining is not decoration. This matcher runs with {@code find()}, so without it the
+     * reveal claims the whole ability off its first sentence: 16-109C Kyrie's "Then, look at the
+     * top 2 cards of your deck. Return these to the top and/or bottom of your deck in any order."
+     * was discarded entirely, and independent-sentence composition could not rescue it because
+     * that pair is linked by "these" and composition is all-or-nothing.
+     *
+     * <p>A remainder that does not parse is left undone rather than guessed at, which is the
+     * behaviour this already had for the whole tail.
+     */
+    static Consumer<GameContext> tryParseOpponentRevealHand(String text, CardData source, int xValue) {
         Matcher m = OPPONENT_REVEAL_HAND_PATTERN.matcher(text);
         if (!m.find()) return null;
+        String rest = text.substring(m.end()).trim()
+                .replaceFirst("^[.!]\\s*", "")
+                .replaceFirst("(?i)^Then\\b[,\\s]+", "");
+        Consumer<GameContext> after = rest.isEmpty() ? null : parse(rest, source, xValue);
         return ctx -> {
             ctx.logEntry("Effect: Opponent reveals hand");
             ctx.revealOpponentHand();
+            if (after != null) after.accept(ctx);
         };
     }
     /**
