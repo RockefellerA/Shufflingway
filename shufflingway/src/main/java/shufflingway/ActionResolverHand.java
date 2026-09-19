@@ -1159,7 +1159,7 @@ final class ActionResolverHand {
     /** One "up to 1 &lt;type&gt; in your Break Zone" allowance of the selection above. */
     private static List<ForwardTarget> selectBreakZoneCardOfType(GameContext ctx, String type) {
         String t = type.toLowerCase(Locale.ROOT);
-        return selectTargets(ctx, 1, true, false, false, null, null, "in your Break Zone", false,
+        return selectTargets(ctx, 1, true, false, false, null, null, "in your Break Zone", false, false,
                 -1, null, -1, null,
                 t.startsWith("forward"), t.startsWith("backup"), t.startsWith("monster"),
                 null, null, null, null, false, null, false);

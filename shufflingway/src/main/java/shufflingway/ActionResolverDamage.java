@@ -922,7 +922,7 @@ final class ActionResolverDamage {
                 ctx.applyMassFieldKeywordGrant(grant, true, false, false, true, null, -1, null, null);
             } else {
                 ctx.logEntry("Effect: Choose 1 own Forward — +" + amount + " power and protections until end of turn");
-                List<ForwardTarget> ts = selectTargets(ctx, 1, false, false, true, null, null, null, false,
+                List<ForwardTarget> ts = selectTargets(ctx, 1, false, false, true, null, null, null, false, false,
                         -1, null, -1, null, true, false, false, null, null, null, null, false, null, false);
                 ts.forEach(t -> ctx.boostTarget(t, amount, grant));
             }
@@ -1100,7 +1100,7 @@ final class ActionResolverDamage {
         return ctx -> {
             ctx.logEntry("Choose 1 damaged opponent Forward — break if has special/action ability");
             List<ForwardTarget> ts = selectTargets(ctx, 1, false, true, false,
-                    "damaged", null, null, false, -1, null, -1, null,
+                    "damaged", null, null, false, false, -1, null, -1, null,
                     true, false, false, null, null, null, null, false, null, false);
             if (ts.isEmpty()) return;
             ForwardTarget t = ts.get(0);
@@ -1128,7 +1128,7 @@ final class ActionResolverDamage {
         return ctx -> {
             ctx.logEntry("Effect: Choose 1 Forward — " + dealerName + " deals you " + damageAmount + " damage, then break it if cost ≤ damage");
             List<ForwardTarget> ts = selectTargets(ctx, 1, false,
-                    false, false, null, null, null, false,
+                    false, false, null, null, null, false, false,
                     -1, null, -1, null,
                     true, false, false,
                     null, null, null, null, false, null, false);

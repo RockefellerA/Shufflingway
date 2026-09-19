@@ -39,11 +39,11 @@ final class ActionResolverPower {
             ctx.logEntry("Choose 1 Forward with power ≤ " + powerCeil
                     + " and up to 1 Forward from opponent's Break Zone — Remove from game");
             List<ForwardTarget> fieldTs = selectTargets(ctx, 1, false, false, false,
-                    null, null, null, false,
+                    null, null, null, false, false,
                     -1, null, powerCeil, "less",
                     true, false, false, null, null, null, null, false, null, false);
             List<ForwardTarget> bzTs = selectTargets(ctx, 1, true, false, false,
-                    null, null, "in your opponent's Break Zone", true,
+                    null, null, "in your opponent's Break Zone", true, false,
                     -1, null, -1, null,
                     true, false, false, null, null, null, null, false, null, false);
             List<ForwardTarget> all = new ArrayList<>(fieldTs);
@@ -1192,7 +1192,7 @@ final class ActionResolverPower {
         return ctx -> {
             ctx.logEntry("Effect: Choose 1 Forward other than " + cardName + ", then choose shared power loss");
             List<ForwardTarget> ts = selectTargets(ctx, 1, false,
-                    false, false, null, null, null, false,
+                    false, false, null, null, null, false, false,
                     -1, null, -1, null,
                     true, false, false,
                     null, null, null, cardName, false, null, false);

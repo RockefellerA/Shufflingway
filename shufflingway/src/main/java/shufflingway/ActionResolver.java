@@ -8899,18 +8899,17 @@ public class ActionResolver {
      */
     static final String COST_SUPERLATIVE_HIGHEST = "highest";
 
-    static List<ForwardTarget> selectTargets(GameContext ctx,
-            int maxCount, boolean upTo, boolean opponentOnly, boolean selfOnly,
-            String condition, String element, String zone, boolean opponentZone,
-            int costVal, String costCmp, int powerVal, String powerCmp,
-            boolean inclForwards, boolean inclBackups, boolean inclMonsters,
-            String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
-            String excludeElement, boolean withoutMulticard) {
-        return selectTargets(ctx, maxCount, upTo, opponentOnly, selfOnly, condition, element, zone, opponentZone, false,
-                costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
-                jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, excludeElement, withoutMulticard);
-    }
-
+    /**
+     * Chooses the targets a followup will act on, from the field or — when {@code zone} is
+     * non-null — from a Break Zone.
+     *
+     * <p>{@code opponentZone} and {@code bothZones} name the Break Zone scope and are mutually
+     * exclusive: "either player's Break Zone" sets {@code bothZones} and leaves
+     * {@code opponentZone} false, so the two have to travel together. There is deliberately no
+     * overload that omits {@code bothZones} — one existed, defaulted it to false, and silently
+     * narrowed every card that reaches across the table to the resolving player's own Break Zone
+     * while the log still said "in either player's Break Zone". Every caller states the scope.
+     */
     static List<ForwardTarget> selectTargets(GameContext ctx,
             int maxCount, boolean upTo, boolean opponentOnly, boolean selfOnly,
             String condition, String element, String zone, boolean opponentZone, boolean bothZones,

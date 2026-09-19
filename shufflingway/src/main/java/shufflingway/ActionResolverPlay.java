@@ -53,7 +53,7 @@ final class ActionResolverPlay {
         return ctx -> {
             ctx.logEntry("Effect: Select " + count + " " + name
                     + " in your Break Zone — play onto the field");
-            selectTargets(ctx, count, false, false, false, null, null, "your Break Zone", false,
+            selectTargets(ctx, count, false, false, false, null, null, "your Break Zone", false, false,
                     -1, null, -1, null, true, true, true, null, name, null, null, false, null, false)
                     .stream()
                     .sorted(Comparator.comparingInt(ForwardTarget::idx).reversed())
@@ -89,7 +89,7 @@ final class ActionResolverPlay {
     /** One "up to {@code count} [Element] [type] of cost {@code cost}" pick from the caster's Break Zone. */
     private static List<ForwardTarget> selectFromOwnBreakZone(GameContext ctx, int count, int cost,
             String element, String typeLower) {
-        return selectTargets(ctx, count, true, false, false, null, element, "your Break Zone", false,
+        return selectTargets(ctx, count, true, false, false, null, element, "your Break Zone", false, false,
                 cost, null, -1, null,
                 typeLower.startsWith("forward") || typeLower.startsWith("character"),
                 typeLower.startsWith("backup")  || typeLower.startsWith("character"),

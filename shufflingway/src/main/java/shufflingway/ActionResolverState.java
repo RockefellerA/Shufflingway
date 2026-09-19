@@ -522,7 +522,7 @@ final class ActionResolverState {
             }
             ctx.logEntry("Effect: Choose up to " + count + " Characters (" + counterName + " Counters) — Activate");
             List<ForwardTarget> ts = selectTargets(ctx, count, true,
-                    false, true, null, null, null, false,
+                    false, true, null, null, null, false, false,
                     -1, null, -1, null,
                     true, true, true, null, null, null, null, false, null, false);
             sortedByIdxDesc(ts, true) .forEach(t -> ctx.activateTarget(t));

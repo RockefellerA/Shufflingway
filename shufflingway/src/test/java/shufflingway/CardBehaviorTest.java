@@ -2376,6 +2376,66 @@ public class CardBehaviorTest {
                 any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
     }
 
+    // 19-116C Paine, the same scope carried through the board-state gate instead: "choose 2 cards
+    // from either player's Break Zone. If you control 3 or more Category X Characters, remove them
+    // from the game and draw 1 card."
+    //
+    // The selection runs before the gate is tested, so the mock's failing gate does not hide it —
+    // and nothing else can see this argument. The golden file records parse outcome, pattern name
+    // and description, none of which move when a flag is dropped on the way to the selection layer,
+    // and logChooseHeader is built from bothZones directly, so the log would read "in either
+    // player's Break Zone" over a one-zone offer.
+    @Test
+    void eitherPlayerBreakZoneUnderControlGateOffersBothZones() {
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.selectCharactersFromBreakZone(
+                anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+        )).thenReturn(List.of());
+
+        String text = "choose 2 cards from either player's Break Zone. If you control 3 or more "
+                + "Category X Characters, remove them from the game and draw 1 card.";
+        Consumer<GameContext> fn = ActionResolver.parse(text, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).selectCharactersFromBreakZone(
+                eq(2), anyBoolean(), anyBoolean(), eq(true),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+    }
+
+    // "from your opponent's Break Zone" is the flag's other side: opponentZone is set and
+    // bothZones stays false. Pinned alongside the two above because the derivation suppresses one
+    // when the other holds — a fix that hard-coded bothZones true would satisfy both of those and
+    // only this one would notice.
+    @Test
+    void opponentBreakZoneDoesNotOfferBothZones() {
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.selectCharactersFromBreakZone(
+                anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+        )).thenReturn(List.of());
+
+        String text = "Choose up to 2 cards from your opponent's Break Zone. Remove them from the game.";
+        Consumer<GameContext> fn = ActionResolver.parse(text, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).selectCharactersFromBreakZone(
+                eq(2), eq(true), eq(true), eq(false),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+    }
+
     // =========================================================================================
     // Rubicante: "Name 1 Element. During this turn, if Rubicante is dealt damage by abilities of
     // the named Element, the damage becomes 0 instead." — ability-only element damage

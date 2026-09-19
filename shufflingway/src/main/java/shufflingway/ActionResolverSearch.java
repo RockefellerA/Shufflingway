@@ -647,7 +647,7 @@ final class ActionResolverSearch {
         if (!m.matches()) return null;
         return ctx -> {
             ctx.logEntry("Effect: Choose 1 Forward, reveal top card — even cost→bounce, odd cost→4000 damage + dull + freeze");
-            List<ForwardTarget> ts = selectTargets(ctx, 1, false, false, false, null, null, null, false,
+            List<ForwardTarget> ts = selectTargets(ctx, 1, false, false, false, null, null, null, false, false,
                     -1, null, -1, null, true, false, false, null, null, null, null, false, null, false);
             if (ts.isEmpty()) return;
             ForwardTarget t = ts.get(0);
