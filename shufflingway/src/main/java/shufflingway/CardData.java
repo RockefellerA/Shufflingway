@@ -4774,12 +4774,13 @@ public record CardData(
             "Multi-Element|Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark";
 
     /**
-     * The target filter shared by {@link #FIELD_GRANT_CNB_BY_COST_DIRECT} and
-     * {@link #FIELD_GRANT_CNB_BY_COST_QUOTED}: "The [Job X | Category Y | Element] Forwards
-     * [other than Z] you control". Both patterns must carry the same groups — the handler reads
-     * them off whichever matcher won, and a group missing from the other would throw.
+     * The target filter shared by every pattern below that hands a filtered set of Forwards an
+     * always-on permission: "The [Job X | Category Y | Element] Forwards [other than Z] you
+     * control". {@link #FIELD_GRANT_CNB_BY_COST_DIRECT} and {@link #FIELD_GRANT_CNB_BY_COST_QUOTED}
+     * must carry the same groups as each other — their handler reads them off whichever matcher
+     * won, and a group missing from the other would throw.
      */
-    private static final String CNB_BY_COST_TARGET =
+    private static final String FILTERED_FORWARDS_TARGET =
         "(?i)^The\\s+(?:Job\\s+(?<job>.+?)|Category\\s+(?<category>.+?)|(?<element>" + ELEMENT_KEYWORD + "))" +
         "\\s+Forwards?\\s+(?:other\\s+than\\s+(?<except>.+?)\\s+)?you\\s+control\\s+";
 
@@ -4794,7 +4795,7 @@ public record CardData(
      * {@code costval}, {@code costcmp}.
      */
     private static final Pattern FIELD_GRANT_CNB_BY_COST_DIRECT = Pattern.compile(
-        CNB_BY_COST_TARGET + "cannot\\s+be\\s+blocked\\s+" + CNB_BY_COST_TAIL + "\\s*\\.?\\s*$"
+        FILTERED_FORWARDS_TARGET + "cannot\\s+be\\s+blocked\\s+" + CNB_BY_COST_TAIL + "\\s*\\.?\\s*$"
     );
 
     /**
@@ -4804,9 +4805,77 @@ public record CardData(
      * Groups: same as {@link #FIELD_GRANT_CNB_BY_COST_DIRECT}.
      */
     private static final Pattern FIELD_GRANT_CNB_BY_COST_QUOTED = Pattern.compile(
-        CNB_BY_COST_TARGET + "gain\\s+[\"\\u201C]This\\s+Forward\\s+cannot\\s+be\\s+blocked\\s+" +
+        FILTERED_FORWARDS_TARGET + "gain\\s+[\"\\u201C]This\\s+Forward\\s+cannot\\s+be\\s+blocked\\s+" +
         CNB_BY_COST_TAIL + "[.][\"\\u201D]\\s*\\.?\\s*$"
     );
+
+    /**
+     * "The [Job X | Category Y | Element] Forwards [other than Z] you control gain "&lt;quoted
+     * permission&gt;."" — the same filtered target handed a quotation instead of an unblockability
+     * clause. Yuna &amp; Tidus PR-111 ("The Category Anniversary Forwards other than Yuna &amp;
+     * Tidus you control gain "This Forward can attack 3 times in the same turn."") is the only
+     * corpus printing, and the only one that hands a multi-attack permission to a <em>set</em>
+     * rather than to one named card.
+     *
+     * <p>The quotation is captured whole rather than spelled out here, so
+     * {@link #parseFilteredMaxAttacksGrant} can reject one this engine cannot honour. A sentence
+     * whose quotation says something else — Vaan 15-044L's unblockability, read by
+     * {@link #FIELD_GRANT_CNB_BY_COST_QUOTED} above — matches this pattern too and is declined
+     * there, which is why the quotation has to be validated rather than assumed.
+     *
+     * <p>Groups: {@code job}, {@code category} or {@code element}, {@code except} (optional),
+     * {@code quoted}.
+     */
+    private static final Pattern FIELD_GRANT_FILTERED_QUOTED = Pattern.compile(
+        FILTERED_FORWARDS_TARGET + "gains?\\s+[\"\\u201C](?<quoted>[^\"\\u201D]+)[\"\\u201D]\\s*\\.?\\s*$"
+    );
+
+    /**
+     * The multi-attack permission a {@link #FIELD_GRANT_FILTERED_QUOTED} sentence hands every
+     * Forward its filter covers, or {@code null} when the sentence is not one.
+     *
+     * @param filter      which Forwards on the granting player's side the permission reaches
+     * @param maxAttacks  how many attacks per turn the quotation allows; always &gt; 1
+     */
+    record FilteredMaxAttacksGrant(FieldPowerGrant filter, int maxAttacks) {}
+
+    /**
+     * Parses "The [filter] Forwards [other than Z] you control gain "This Forward can attack
+     * twice/N times in the same turn."" into a {@link FilteredMaxAttacksGrant}, or {@code null}
+     * when the text is not one.
+     *
+     * <p>The filter is a zero-power {@link FieldPowerGrant} used purely as a predicate — the same
+     * shape {@code parseIcbTargetFilter} and the unblockability branch build — so the permission
+     * inherits the filter engine every other field grant is resolved through rather than a second
+     * reading of "Category Y other than Z".
+     *
+     * <p>Forwards only, because the pattern's target says Forwards: the quotation's subject is
+     * written from the grantee's point of view ("This Forward"), which is matched against the
+     * demonstrative wordings exactly as {@link #parseNamedMaxAttacksGrant} does.
+     */
+    static FilteredMaxAttacksGrant parseFilteredMaxAttacksGrant(String effectText) {
+        if (effectText == null) return null;
+        Matcher m = FIELD_GRANT_FILTERED_QUOTED.matcher(effectText.trim());
+        if (!m.matches()) return null;
+        Matcher at = FIELD_CAN_ATTACK_TWICE.matcher(m.group("quoted").trim());
+        if (!at.matches()) return null;
+        if (!at.group("cardname").trim().matches("(?i)This\\s+(?:Forward|Character|Monster|Backup)"))
+            return null;
+        String job      = m.group("job");
+        String category = m.group("category");
+        String element  = m.group("element");
+        String except   = m.group("except");
+        FieldPowerGrant filter = FieldPowerGrant.sameSideFiltered(
+                job      != null ? job.trim()      : null,
+                category != null ? category.trim() : null,
+                true, false, false,
+                except   != null ? except.trim()   : null,
+                0, EnumSet.noneOf(Trait.class),
+                element  != null ? element.trim()  : null,
+                EnumSet.noneOf(Trait.class));
+        String count = at.group("count");
+        return new FilteredMaxAttacksGrant(filter, count != null ? Integer.parseInt(count) : 2);
+    }
 
     /**
      * "[CardName] cannot be blocked." — unconditional permanent unblockability with no condition.

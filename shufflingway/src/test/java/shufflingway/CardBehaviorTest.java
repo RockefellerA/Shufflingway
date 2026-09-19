@@ -33406,8 +33406,8 @@ public class CardBehaviorTest {
 	// Prompto 27-068R: "The Card Name Noctis Forward you control gains Brave and \"This Forward
 	// can attack twice per turn.\""
 	//
-	// The only multi-attack permission in the corpus handed out by a card other than the one that
-	// attacks. Its two halves travel separately: the keyword as an ordinary FieldPowerGrant
+	// A multi-attack permission handed out by a card other than the one that attacks, to a card it
+	// names. Its two halves travel separately: the keyword as an ordinary FieldPowerGrant
 	// filtered by card name, the permission through MainWindow.maxAttacksPerTurn, which scans the
 	// controller's field rather than the attacker's own text. Both are read, so the sentence is
 	// only claimed where it is honoured.
@@ -33503,6 +33503,131 @@ public class CardBehaviorTest {
 		mw.placeP2CardInForwardZone(oppNoctis);
 
 		assertEquals(1, mw.maxAttacksPerTurn(oppNoctis), "the grant reads \"you control\"");
+	}
+
+	// =========================================================================================
+	// Yuna & Tidus PR-111: "The Category Anniversary Forwards other than Yuna & Tidus you control
+	// gain \"This Forward can attack 3 times in the same turn.\""
+	//
+	// The same permission Prompto hands one named card, handed instead to a filtered set. The
+	// sentence grants nothing else, so there is no FieldPowerGrant to carry half of it and
+	// MainWindow.maxAttacksPerTurn is the whole of its wiring. The filter is a zero-power
+	// FieldPowerGrant used as a predicate, so the Category and the "other than" exclusion are
+	// resolved by the same engine every other field grant goes through.
+	//
+	// "Other than Yuna & Tidus" can only ever exclude the granter itself: the unique-name rule
+	// breaks both copies the moment a second one arrives, so no board can hold a second card of
+	// that name to test the filter against.
+	// =========================================================================================
+
+	private static final String YUNA_TIDUS_GRANT =
+			"The Category Anniversary Forwards other than Yuna & Tidus you control gain "
+			+ "\"This Forward can attack 3 times in the same turn.\"";
+
+	/** Yuna & Tidus on P1 idx 0, with {@code allies} seated after her. */
+	private static MainWindow boardWithYunaAndTidus(CardData... allies) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeAnniversaryGranter("Yuna & Tidus"));
+		for (CardData ally : allies) placeP1Forward(mw, ally);
+		return mw;
+	}
+
+	/** A Category Anniversary Forward carrying the PR-111 field ability. */
+	private static CardData makeAnniversaryGranter(String name) {
+		return new CardData(null, name, "Wind/Water", 2, 7000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), CardData.parseFieldAbilities(YUNA_TIDUS_GRANT, "Forward"),
+				List.of(), CardData.parseFieldPowerGrants(YUNA_TIDUS_GRANT, "Forward"),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false,
+				CardData.parseMaxAttacksPerTurn(YUNA_TIDUS_GRANT, name),
+				null, "Anniversary", null, YUNA_TIDUS_GRANT);
+	}
+
+	@Test
+	void theFilteredGrantReadsItsCategoryExclusionAndCount() {
+		CardData.FilteredMaxAttacksGrant g =
+				CardData.parseFilteredMaxAttacksGrant(YUNA_TIDUS_GRANT);
+		assertNotNull(g);
+		assertEquals(3, g.maxAttacks());
+		assertEquals("Anniversary", g.filter().categoryFilter());
+		assertEquals("Yuna & Tidus", g.filter().exceptCardName());
+		assertTrue(g.filter().inclForwards(), "the sentence names Forwards");
+		assertFalse(g.filter().inclBackups());
+		assertFalse(g.filter().inclMonsters());
+	}
+
+	@Test
+	void theSentenceGrantsNoPowerOrKeyword() {
+		// Nothing else travels with the permission, so no ordinary field grant is parsed off it.
+		assertTrue(CardData.parseFieldPowerGrants(YUNA_TIDUS_GRANT, "Forward").isEmpty());
+	}
+
+	@Test
+	void aQuotationThatIsNotAPermissionIsDeclined() {
+		// Vaan 15-044L's sentence opens identically and is read by the unblockability branch; this
+		// parser must not claim it on the strength of the target filter alone.
+		String vaan = "The Job Sky Pirate Forwards other than Vaan you control gain "
+				+ "\"This Forward cannot be blocked by a Forward of cost 3 or more.\"";
+		assertNull(CardData.parseFilteredMaxAttacksGrant(vaan));
+	}
+
+	@Test
+	void anAnniversaryAllyGetsThreeAttacks() {
+		MainWindow mw = boardWithYunaAndTidus(
+				makeCategoryForward("Snow & Lightning", "Ice", "Anniversary"));
+		CardData ally = mw.p1ForwardCards.get(1);
+
+		assertEquals(3, mw.maxAttacksPerTurn(ally));
+	}
+
+	@Test
+	void theGranterExcludesItselfByName() {
+		MainWindow mw = boardWithYunaAndTidus();
+		CardData granter = mw.p1ForwardCards.get(0);
+
+		assertEquals(1, mw.maxAttacksPerTurn(granter), "\"other than Yuna & Tidus\"");
+	}
+
+	@Test
+	void aForwardOfAnotherCategoryIsUnaffected() {
+		MainWindow mw = boardWithYunaAndTidus(makeCategoryForward("Ally", "Wind", "X"));
+		assertEquals(1, mw.maxAttacksPerTurn(mw.p1ForwardCards.get(1)));
+	}
+
+	@Test
+	void theFilteredPermissionLapsesWithItsGranter() {
+		MainWindow mw = boardWithYunaAndTidus(
+				makeCategoryForward("Snow & Lightning", "Ice", "Anniversary"));
+		CardData ally = mw.p1ForwardCards.get(1);
+		assertEquals(3, mw.maxAttacksPerTurn(ally));
+
+		mw.lostAbilitiesCards.add(mw.p1ForwardCards.get(0));
+		assertEquals(1, mw.maxAttacksPerTurn(ally),
+				"a granter that has lost its abilities grants nothing");
+	}
+
+	@Test
+	void anAnniversaryForwardAcrossTheTableIsUnaffected() {
+		MainWindow mw = boardWithYunaAndTidus();
+		CardData oppAlly = makeCategoryForward("Snow & Lightning", "Ice", "Anniversary");
+		mw.gameState.getIdentity().put(oppAlly, false);
+		mw.placeP2CardInForwardZone(oppAlly);
+
+		assertEquals(1, mw.maxAttacksPerTurn(oppAlly), "the grant reads \"you control\"");
+	}
+
+	@Test
+	void theThirdAttackIsActuallyAllowed() {
+		MainWindow mw = boardWithYunaAndTidus(
+				makeCategoryForward("Snow & Lightning", "Ice", "Anniversary"));
+		CardData ally = mw.p1ForwardCards.get(1);
+
+		for (int i = 0; i < 3; i++) {
+			assertTrue(mw.hasAttackRemaining(ally), "attack " + (i + 1) + " of 3");
+			mw.recordAttackDeclared(ally);
+		}
+		assertFalse(mw.hasAttackRemaining(ally), "and no fourth");
 	}
 
 	// =========================================================================================

@@ -15208,16 +15208,43 @@ public class MainWindow {
 		max = Math.max(max, attacksFromDamageThresholdGrant(card));
 		max = Math.max(max, attacksFromOppDullCharsGrant(card));
 		max = Math.max(max, attacksFromNamedGrant(card));
+		max = Math.max(max, attacksFromFilteredGrant(card));
 		return max;
 	}
 
 	/**
+	 * Yuna &amp; Tidus PR-111: "The Category Anniversary Forwards other than Yuna &amp; Tidus you
+	 * control gain \"This Forward can attack 3 times in the same turn.\"" — a multi-attack
+	 * permission handed to a filtered <em>set</em> rather than to one named card, so it is read off
+	 * the controller's field like {@link #attacksFromNamedGrant} rather than off {@code card}'s own
+	 * text. The sentence grants nothing else, so no {@link FieldPowerGrant} is parsed off it and
+	 * this reader is the whole of its wiring.
+	 *
+	 * <p>Returns 0 when nothing on the field grants it, so it never lowers an existing permission.
+	 */
+	private int attacksFromFilteredGrant(CardData card) {
+		Boolean side = fieldSideOf(card);
+		if (side == null) return 0;
+		int best = 0;
+		for (CardData src : fieldCards(side)) {
+			if (src == null || lostAbilitiesCards.contains(src)) continue;
+			for (FieldAbility fa : effectiveFieldAbilities(src)) {
+				CardData.FilteredMaxAttacksGrant g =
+						CardData.parseFilteredMaxAttacksGrant(fa.effectText());
+				if (g != null && g.filter().appliesToCard(card, jobsStripped(card)))
+					best = Math.max(best, g.maxAttacks());
+			}
+		}
+		return best;
+	}
+
+	/**
 	 * Prompto 27-068R: "The Card Name Noctis Forward you control gains Brave and \"This Forward can
-	 * attack twice per turn.\"" — the only multi-attack permission in the corpus handed out by a
-	 * card other than the one that attacks, so it is read off the controller's field rather than
-	 * off {@code card}'s own text. The Brave granted in the same breath travels the ordinary route,
-	 * through {@code FieldGrantCalculator}, off the {@link FieldPowerGrant} the same sentence
-	 * produces.
+	 * attack twice per turn.\"" — a multi-attack permission handed out by a card other than the one
+	 * that attacks, so it is read off the controller's field rather than off {@code card}'s own
+	 * text. The Brave granted in the same breath travels the ordinary route, through
+	 * {@code FieldGrantCalculator}, off the {@link FieldPowerGrant} the same sentence produces.
+	 * {@link #attacksFromFilteredGrant} reads the form that names a filter instead of a card.
 	 *
 	 * <p>Returns 0 when nothing on the field grants it, so it never lowers an existing permission.
 	 */

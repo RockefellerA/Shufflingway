@@ -37,6 +37,221 @@
 
   "cards": [
     {
+      "_note": "Opus XVII starter-deck exclusive; absent from the NA API as of 2026-09.",
+      "serial": "17-131S",
+      "name": "Kain",
+      "type": "Forward",
+      "element": "Fire",
+      "cost": 3,
+      "power": 7000,
+      "rarity": "S",
+      "job": "Dragoon",
+      "category1": "IV",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "Before paying the cost to cast Kain, you can remove 1 Dark Forward in your Break Zone from the game to reduce the cost required to cast Kain by 2.",
+        "[[br]]",
+        "Haste",
+        "[[br]]",
+        "When Kain attacks, Kain gains +2000 power until the end of the turn."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/17/17-131.jpg"
+    },
+    {
+      "_note": "Opus XVII starter-deck exclusive; absent from the NA API as of 2026-09.",
+      "serial": "17-132S",
+      "name": "Zemus",
+      "type": "Forward",
+      "element": "Fire",
+      "cost": 5,
+      "power": 9000,
+      "rarity": "S",
+      "job": "Lunarian",
+      "category1": "IV",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "Remove the top 7 cards of your deck from the game: Choose 1 Forward. Deal it 7000 damage. You can only use this ability once per turn.",
+        "[[br]]",
+        "Remove the top 15 cards of your deck from the game: Choose 1 Forward. Remove it from the game. You can only use this ability once per turn."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/17/17-132.jpg"
+    },
+    {
+      "_note": "Opus XVII starter-deck exclusive; absent from the NA API as of 2026-09.",
+      "serial": "17-133S",
+      "name": "Scarmiglione",
+      "type": "Forward",
+      "element": "Earth",
+      "cost": 2,
+      "power": 5000,
+      "rarity": "S",
+      "job": "Archfiend",
+      "category1": "IV",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "When Scarmiglione enters the field, name 1 Element. Scarmiglione gains \"If Scarmiglione deals damage to a Forward of the named Element, double the damage instead.\" (This effect does not end at the end of the turn.)",
+        "[[br]]",
+        "[[s]]Blood Tap[[/]] 《S》: Choose 2 Forwards. Deal them 4000 damage. If you have received 5 points of damage or more, deal them 7000 damage instead."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/17/17-133.jpg"
+    },
+    {
+      "_note": "Opus XVII starter-deck exclusive; absent from the NA API as of 2026-09.",
+      "serial": "17-134S",
+      "name": "Baigan",
+      "type": "Forward",
+      "element": "Earth",
+      "cost": 4,
+      "power": 8000,
+      "rarity": "S",
+      "job": "Commander",
+      "category1": "MOBIUS",
+      "category2": "IV",
+      "exBurst": true,
+      "multicard": false,
+      "text": [
+        "[[ex]]EX BURST[[/]] When Baigan enters the field, you may search for 1 Card Name Golbez and add it to your hand.",
+        "[[br]]",
+        "Put Baigan into the Break Zone: Choose 1 Forward opponent controls. Break it. You can only use this ability if you control a Card Name Golbez."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/17/17-134.jpg"
+    },
+    {
+      "_note": "Opus XVII starter-deck exclusive; absent from the NA API as of 2026-09.",
+      "serial": "17-135S",
+      "name": "Edge",
+      "type": "Forward",
+      "element": "Lightning",
+      "cost": 4,
+      "power": 8000,
+      "rarity": "S",
+      "job": "Ninja",
+      "category1": "IV",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "When Edge enters the field, choose 1 Forward opponent controls. If you control 4 or more Category IV Characters, break it.",
+        "[[br]]",
+        "[[s]]Mirage[[/]] 《S》《Lightning》: Remove Edge from the game. Then, play Edge onto the field."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/17/17-135.jpg"
+    },
+    {
+      "_note": "Opus XVII starter-deck exclusive; absent from the NA API as of 2026-09.",
+      "serial": "17-136S",
+      "name": "Kain",
+      "type": "Forward",
+      "element": "Lightning",
+      "cost": 3,
+      "power": 7000,
+      "rarity": "S",
+      "job": "Dragoon",
+      "category1": "IV",
+      "exBurst": true,
+      "multicard": false,
+      "text": [
+        "[[ex]]EX BURST[[/]] When Kain enters the field, choose 1 Water Category IV Character in your Break Zone. Add it to your hand.",
+        "[[br]]",
+        "If you don't control a Forward other than Kain, Kain gains +1000 power and Haste."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/17/17-136.jpg"
+    },
+    {
+      "_note": "Opus XVII starter-deck exclusive; absent from the NA API as of 2026-09.",
+      "serial": "17-137S",
+      "name": "Rydia",
+      "type": "Forward",
+      "element": "Water",
+      "cost": 3,
+      "power": 5000,
+      "rarity": "S",
+      "job": "Summoner",
+      "category1": "LOV",
+      "category2": "IV",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "When Rydia enters the field, you may search for 2 Summons each with a different cost. Then, your opponent selects 1 card among them and puts it into the Break Zone. Add the other to your hand.",
+        "[[br]]",
+        "When you cast a Summon, choose 1 Forward opponent controls. It loses 1000 power for each CP required to cast that Summon until the end of the turn."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/17/17-137.jpg"
+    },
+    {
+      "_note": "Opus XVII starter-deck exclusive; absent from the NA API as of 2026-09.",
+      "serial": "17-138S",
+      "name": "Rosa",
+      "type": "Forward",
+      "element": "Water",
+      "cost": 4,
+      "power": 8000,
+      "rarity": "S",
+      "job": "White Mage",
+      "category1": "DFF",
+      "category2": "IV",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "《0》: Select 1 of the 2 following actions. If you control a Card Name Cecil, select up to 2 of the 2 following actions instead. You can only use this ability once per turn.",
+        "[[br]]",
+        "\"Choose 1 Forward. Activate it.\"",
+        "[[br]]",
+        "\"Choose 1 Forward. It gains +1000 power until the end of the turn.\""
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/17/17-138.jpg"
+    },
+    {
+      "_note": "Opus XVII starter-deck exclusive; absent from the NA API as of 2026-09.",
+      "serial": "17-139S",
+      "name": "Cecil",
+      "type": "Forward",
+      "element": "Light",
+      "cost": 3,
+      "power": 8000,
+      "rarity": "S",
+      "job": "Paladin",
+      "category1": "DFF",
+      "category2": "IV",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "If you control 6 or more Category IV Characters, the Category IV Characters you control gain +2000 power and Brave.",
+        "[[br]]",
+        "Dull 2 active Category IV Characters: Choose 1 Forward. Dull it.",
+        "[[br]]",
+        "Dull 4 active Category IV Characters: Choose 1 Forward. Deal it 8000 damage."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/17/17-139.jpg"
+    },
+    {
+      "_note": "Opus XVII starter-deck exclusive; absent from the NA API as of 2026-09.",
+      "serial": "17-140S",
+      "name": "Golbez",
+      "type": "Forward",
+      "element": "Dark",
+      "cost": 6,
+      "power": 9000,
+      "rarity": "S",
+      "job": "Warlock",
+      "category1": "DFF",
+      "category2": "IV",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "You may reduce the cost required to cast Golbez by 2. If you do so, when Golbez enters the field, put Golbez into the Break Zone.",
+        "[[br]]",
+        "When Golbez enters the field, select 1 of the 2 following actions.",
+        "[[br]]",
+        "\"Choose 1 Forward. Break it.\"",
+        "[[br]]",
+        "\"Choose 1 Character other than Light or Dark in your Break Zone. Add it to your hand.\""
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/17/17-140.jpg"
+    },
+    {
       "_note": "Opus XXVII starter-deck exclusive; absent from the NA API as of 2026-09.",
       "serial": "27-122S",
       "name": "Wuk Lamat",
