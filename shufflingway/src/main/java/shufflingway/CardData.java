@@ -278,6 +278,18 @@ public record CardData(
     );
 
     /**
+     * The alternate-cost patterns that can carry an "If you do so, …" clause, in the order
+     * {@link #parseAutoAbilities} strips them.
+     *
+     * <p>Each must declare a {@code followup} group. When that clause is a trigger sentence it is
+     * an ability of the card, gated on the cost having been taken; when it is a bare effect it is
+     * run at cast time by {@link #altFollowupText}. The two readings are complements — see that
+     * method — so no card can be charged for its drawback twice, and none can go uncharged.
+     */
+    private static final List<Pattern> ALT_COST_TRIGGER_FOLLOWUPS =
+            List.of(ALT_COST_SELF_REDUCE, ALT_COST_NONSUMMON);
+
+    /**
      * A discount a card offers itself at cast time, and the printed consequence of taking it.
      * {@code followupText} is a whole sentence, trigger clause included ("when Golbez enters the
      * field, put Golbez into the Break Zone."), because the consequence is not immediate.
@@ -289,7 +301,7 @@ public record CardData(
      *
      * <p>Only the discount is reported here. What taking it costs is an ordinary triggered
      * ability, parsed out of {@link #followupText} by {@link #parseAutoAbilities} and marked
-     * {@link AutoAbility#discountedOnly()} so it fires on a discounted arrival and no other.
+     * {@link AutoAbility#altCostOnly()} so it fires on a discounted arrival and no other.
      */
     public AltSelfReduction altSelfReduction() {
         Matcher m = ALT_COST_SELF_REDUCE.matcher(textEn);
@@ -553,13 +565,25 @@ public record CardData(
     }
 
     /**
-     * Returns the "If you do so" followup effect text attached to the alternate cost, or an
-     * empty string if there is none.
+     * Returns the "If you do so" followup attached to the alternate cost as an effect to run at
+     * cast time, or an empty string when there is none to run.
+     *
+     * <p>Empty is also the answer when the clause is a trigger sentence rather than a bare effect.
+     * Every printing in the corpus states it that way — Cecil 20-075L's "when Cecil enters the
+     * field, Cecil deals you 1 point of damage" — and a trigger sentence is an ability of the card,
+     * registered by {@link #parseAutoAbilities} and gated on the cost having been taken. Running it
+     * here as well is what dealt Cecil's controller two points of damage instead of one.
+     *
+     * <p>"Does it parse as a trigger?" is the whole test, rather than a list of trigger words: that
+     * keeps this reading and the ability reading exact complements, so a wording the ability pass
+     * cannot read still reaches the player here rather than falling between the two.
      */
     public String altFollowupText() {
         Matcher m = ALT_COST_NONSUMMON.matcher(textEn);
-        if (m.find()) { String f = m.group("followup"); return f != null ? f.trim() : ""; }
-        return "";
+        if (!m.find()) return "";
+        String f = m.group("followup");
+        if (f == null || f.isBlank()) return "";
+        return parseAutoAbilities(f.trim()).isEmpty() ? f.trim() : "";
     }
 
     /**
@@ -3896,24 +3920,33 @@ public record CardData(
         List<String> maskedQuotes = new ArrayList<>();
         String textForSearch = truncateAtActionAbilityCost(maskQuotedTriggerSpans(textEn, maskedQuotes));
 
-        // Zeroth pass: "You may reduce the cost required to cast X by N. If you do so, [trigger
-        // sentence]" — the drawback Golbez 17-140S's cast-time discount arms. The trigger behind
-        // "If you do so," is an ordinary one, so it is parsed by this very method rather than by a
-        // pattern of its own (the gate-and-remainder split the opponent's-turn pass below uses),
-        // and every ability it yields is marked as firing only on a discounted arrival.
+        // Zeroth pass: the "If you do so, [trigger sentence]" half of an alternate cast cost —
+        // Golbez 17-140S's optional reduction ("You may reduce the cost required to cast Golbez by
+        // 2. If you do so, when Golbez enters the field, put Golbez into the Break Zone.") and
+        // Cecil 20-075L's instead-of-paying cost ("…to cast Cecil. If you do so, when Cecil enters
+        // the field, Cecil deals you 1 point of damage."). What follows "If you do so," is an
+        // ordinary trigger sentence, so it is parsed by this very method rather than by a pattern
+        // of its own — the gate-and-remainder split the opponent's-turn pass below uses — and every
+        // ability it yields fires only on an arrival that took the cost.
         //
-        // Stripped first, ahead of every other pass: left in place the sentence reads as a plain
-        // "when Golbez enters the field, put Golbez into the Break Zone", and Golbez would break
-        // himself on arrival whether or not the discount was ever taken.
-        Matcher selfReduceM = ALT_COST_SELF_REDUCE.matcher(textForSearch);
-        StringBuffer selfReduceBuf = new StringBuffer();
-        while (selfReduceM.find()) {
-            for (AutoAbility inner : parseAutoAbilities(selfReduceM.group("followup").trim()))
-                result.add(inner.withDiscountedOnly());
-            selfReduceM.appendReplacement(selfReduceBuf, "");
+        // Stripped first, ahead of every other pass. Left in place the clause reads as a plain
+        // "when Golbez enters the field, put Golbez into the Break Zone", and the card pays the
+        // drawback whether or not the cost was ever taken: Cecil dealt his controller a point of
+        // damage on every arrival, and a second one on the alternate cast, where
+        // {@link #altFollowupText} ran the same sentence again as an immediate effect.
+        for (Pattern altCost : ALT_COST_TRIGGER_FOLLOWUPS) {
+            Matcher m = altCost.matcher(textForSearch);
+            StringBuffer buf = new StringBuffer();
+            while (m.find()) {
+                String followup = m.group("followup");
+                if (followup == null) { m.appendReplacement(buf, ""); continue; }
+                for (AutoAbility inner : parseAutoAbilities(followup.trim()))
+                    result.add(inner.withAltCostOnly());
+                m.appendReplacement(buf, "");
+            }
+            m.appendTail(buf);
+            textForSearch = buf.toString();
         }
-        selfReduceM.appendTail(selfReduceBuf);
-        textForSearch = selfReduceBuf.toString();
 
         // First pass: "when [PrimerCard] primes into [TargetCard], [effect]"
         // Also handles "When [Target] [trigger] [, extra] or when [Primer] primes into [Target], [effect]"

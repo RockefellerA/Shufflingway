@@ -65,9 +65,11 @@ import java.util.List;
  * <ul>
  *   <li>{@code castOnly} — fires only when the card was cast from hand.</li>
  *   <li>{@code warpOnly} — fires only when the card entered the field via Warp resolution.</li>
- *   <li>{@code discountedOnly} — fires only when the card was cast under the self-discount it
- *       offers ("You may reduce the cost required to cast Golbez by 2. If you do so, …"). The
- *       discount is optional, so a full-price cast must not arm the drawback that pays for it.</li>
+ *   <li>{@code altCostOnly} — fires only when the card was cast under one of its own alternate
+ *       costs, which is what the "If you do so, …" half of such a cost states: Cecil 20-075L's
+ *       instead-of-paying cost and Golbez 17-140S's optional reduction both buy their discount
+ *       with a triggered ability. Taking the cost is optional, so a full-price cast must not arm
+ *       the drawback that pays for it.</li>
  *   <li>{@code oncePerTurn} — fires at most once per turn (tracked in {@code usedOncePerTurnAbilities}).</li>
  *   <li>{@code yourTurnOnly} — fires only during the ability owner's turn.</li>
  *   <li>{@code opponentTurnOnly} — fires only while the turn belongs to the ability owner's
@@ -94,7 +96,7 @@ public record AutoAbility(
         int     castPaymentMinElements,// > 0: trigger only if the card was cast with ≥ N distinct element types
         boolean castOnly,              // true = "enters the field due to your cast" — only fires when cast from hand
         boolean warpOnly,              // true = "enters the field due to Warp" — only fires when entering via Warp resolution
-        boolean discountedOnly,        // true = only fires when the card was cast under its own optional cost reduction
+        boolean altCostOnly,           // true = only fires when the card was cast under one of its own alternate costs
         int     damageThreshold,       // > 0: only fires when controlling player has ≥ this many damage counters
         // Party-attack filter fields (all ignored when trigger != "party attacks")
         int     partyMinCount,    // ≥ 1: party must have ≥ N qualifying members; 0 = no requirement
@@ -115,7 +117,7 @@ public record AutoAbility(
     public AutoAbility withEffectText(String newEffectText) {
         return new AutoAbility(triggerCard, trigger, youMay, opponentMay, newEffectText,
                 oncePerTurn, yourTurnOnly, opponentTurnOnly, rfpConditionCard, bzConditionCard, bzConditionJob,
-                castPaymentMinElements, castOnly, warpOnly, discountedOnly, damageThreshold,
+                castPaymentMinElements, castOnly, warpOnly, altCostOnly, damageThreshold,
                 partyMinCount, partyCategory, partyJob, partyCardNames);
     }
 
@@ -128,7 +130,7 @@ public record AutoAbility(
     public AutoAbility withOncePerTurn() {
         return oncePerTurn ? this : new AutoAbility(triggerCard, trigger, youMay, opponentMay, effectText,
                 true, yourTurnOnly, opponentTurnOnly, rfpConditionCard, bzConditionCard, bzConditionJob,
-                castPaymentMinElements, castOnly, warpOnly, discountedOnly, damageThreshold,
+                castPaymentMinElements, castOnly, warpOnly, altCostOnly, damageThreshold,
                 partyMinCount, partyCategory, partyJob, partyCardNames);
     }
 
@@ -142,18 +144,18 @@ public record AutoAbility(
         return opponentTurnOnly ? this
                 : new AutoAbility(triggerCard, trigger, youMay, opponentMay, effectText,
                         oncePerTurn, yourTurnOnly, true, rfpConditionCard, bzConditionCard, bzConditionJob,
-                        castPaymentMinElements, castOnly, warpOnly, discountedOnly, damageThreshold,
+                        castPaymentMinElements, castOnly, warpOnly, altCostOnly, damageThreshold,
                         partyMinCount, partyCategory, partyJob, partyCardNames);
     }
 
     /**
-     * A copy of this ability with {@link #discountedOnly()} set — the restriction Golbez 17-140S
-     * states as the "If you do so," half of his cast-time discount. Applied after the fact for the
-     * same reason {@link #withOpponentTurnOnly()} is: what follows "If you do so," is an ordinary
-     * trigger sentence, parsed by the ordinary machinery once the discount clause is lifted off it.
+     * A copy of this ability with {@link #altCostOnly()} set — the restriction an alternate cost
+     * states as its "If you do so," half. Applied after the fact for the same reason
+     * {@link #withOpponentTurnOnly()} is: what follows "If you do so," is an ordinary trigger
+     * sentence, parsed by the ordinary machinery once the cost clause is lifted off it.
      */
-    public AutoAbility withDiscountedOnly() {
-        return discountedOnly ? this
+    public AutoAbility withAltCostOnly() {
+        return altCostOnly ? this
                 : new AutoAbility(triggerCard, trigger, youMay, opponentMay, effectText,
                         oncePerTurn, yourTurnOnly, opponentTurnOnly, rfpConditionCard, bzConditionCard, bzConditionJob,
                         castPaymentMinElements, castOnly, warpOnly, true, damageThreshold,

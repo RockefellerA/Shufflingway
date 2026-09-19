@@ -1589,10 +1589,10 @@ public class MainWindow {
 	/** True while a card is entering the field via Warp resolution; gates warpOnly field abilities. */
 	boolean lastCardWarpedIn = false;
 	/**
-	 * True while a card is being placed after a cast that took the self-discount it prints
-	 * ({@link CardData#altSelfReduction}); gates discountedOnly auto abilities.
+	 * True while a card is being placed after a cast that took one of its own alternate costs;
+	 * gates altCostOnly auto abilities, which is how such a cost states what it is bought with.
 	 */
-	boolean lastCardCastDiscounted = false;
+	boolean lastCardCastViaAltCost = false;
 
 	/** Set when "Take 1 more turn; lose at the end of that turn" fires. */
 	boolean p1ExtraTurnThenLose = false;
@@ -2442,7 +2442,7 @@ public class MainWindow {
 		p2Turn.partyAnyElementThisTurn = false;
 		lastCardWasCast   = false;
 		lastCardWarpedIn  = false;
-		lastCardCastDiscounted = false;
+		lastCardCastViaAltCost = false;
 		// The three transient trigger-event fields, which are declared together and belong
 		// together here. Each is already set and restored in a finally around its own
 		// resolution, so none of them can outlive one -- this is the belt to that brace, and
@@ -9895,7 +9895,6 @@ public class MainWindow {
 		int altC  = card.altCrystalCost();
 		int altCp = card.altCpCost();
 		List<String> altElemsList = card.altCpElements();
-		String followupText       = card.altFollowupText();
 		List<String> bzRemovals   = card.altBzRemovals();
 		boolean backupOnly        = card.altBackupOnlyCp();
 
@@ -9949,13 +9948,9 @@ public class MainWindow {
 		// outright rather than reducing a cost.
 		if (altElemsList.isEmpty() && altC == 0
 				&& (!dullIdxs.isEmpty() || !bzPayment.isEmpty() || !bzReducePayment.isEmpty())) {
-			executeAltDull(dullIdxs);
-			executeAltFieldRemoval(removalSlots);
-			executeAltPutToBz(bzPayment);
-			executeAltPutToBz(bzReducePayment);
-			withSelfReductionArmed(card, () ->
-					executePlay(card, handIdx, Collections.emptyList(), Collections.emptyList(), Map.of()));
-			executeAltFollowup(followupText, card);
+			executeAltPlayAndSend(card, handIdx,
+					altPayment(0, dullIdxs, removalSlots, bzPayment, bzReducePayment, bzRemovals),
+					Collections.emptyList(), Collections.emptyList(), Map.of());
 			return;
 		}
 
@@ -9966,13 +9961,9 @@ public class MainWindow {
 					JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
 					new Object[]{"Confirm", "Cancel"}, "Confirm");
 			if (choice != 0) return;
-			if (altC > 0) { playerSpendCrystals(true, altC); refreshCrystalDisplays(); }
-			executeAltDull(dullIdxs);
-			executeAltFieldRemoval(removalSlots);
-			executeAltPutToBz(bzReducePayment);
-			withSelfReductionArmed(card, () ->
-					executePlay(card, handIdx, Collections.emptyList(), Collections.emptyList(), Map.of()));
-			executeAltFollowup(followupText, card);
+			executeAltPlayAndSend(card, handIdx,
+					altPayment(altC, dullIdxs, removalSlots, bzPayment, bzReducePayment, bzRemovals),
+					Collections.emptyList(), Collections.emptyList(), Map.of());
 			return;
 		}
 
@@ -10007,16 +9998,10 @@ public class MainWindow {
 				backupOnly, gameState.getP1Hand(), payBackups, payStates,
 				payUrls, this::showZoomAt, this::hideZoom,
 				lightDarkDiscardGrants(true),
-				(discards, backups, breaks) -> {
-					if (altC > 0) { playerSpendCrystals(true, altC); refreshCrystalDisplays(); }
-					executeAltDull(dullIdxs);
-					executeAltFieldRemoval(removalSlots);
-					executeAltPutToBz(bzReducePayment);
-					executeAltBzRemovals(bzRemovals);
-					withSelfReductionArmed(card, () ->
-							executePlay(card, handIdx, discards, backups, Map.of(), breaks));
-					executeAltFollowup(followupText, card);
-				}, breakForCpBackupSlots(true)).show();
+				(discards, backups, breaks) -> executeAltPlayAndSend(card, handIdx,
+						altPayment(altC, dullIdxs, removalSlots, bzPayment, bzReducePayment, bzRemovals),
+						discards, backups, breaks),
+				breakForCpBackupSlots(true)).show();
 	}
 
 
@@ -10191,23 +10176,26 @@ public class MainWindow {
 	 * Monster and Backup calls need no such counterpart: neither records anything break-specific,
 	 * so what they already do <em>is</em> the put.
 	 */
-	private void executeAltPutToBz(List<ForwardTarget> targets) {
+	private void executeAltPutToBz(boolean isP1, List<ForwardTarget> targets) {
 		if (targets == null || targets.isEmpty()) return;
+		List<CardData> fwdCards = isP1 ? p1ForwardCards : p2ForwardCards;
+		List<CardData> monCards = isP1 ? p1MonsterCards : p2MonsterCards;
+		CardData[]     bkpCards = isP1 ? p1BackupCards  : p2BackupCards;
 		List<ForwardTarget> sorted = new ArrayList<>(targets);
 		sorted.sort((a, b) -> a.zone() == b.zone() ? Integer.compare(b.idx(), a.idx()) : 0);
 		for (ForwardTarget t : sorted) {
-			pendingCostBreakDestLabel = p1BreakLabel;
+			pendingCostBreakDestLabel = isP1 ? p1BreakLabel : p2BreakLabel;
 			String name = switch (t.zone()) {
-				case FORWARD -> t.idx() < p1ForwardCards.size() ? p1ForwardCards.get(t.idx()).name() : "?";
-				case MONSTER -> t.idx() < p1MonsterCards.size() ? p1MonsterCards.get(t.idx()).name() : "?";
-				default      -> p1BackupCards[t.idx()] != null ? p1BackupCards[t.idx()].name() : "?";
+				case FORWARD -> t.idx() < fwdCards.size() ? fwdCards.get(t.idx()).name() : "?";
+				case MONSTER -> t.idx() < monCards.size() ? monCards.get(t.idx()).name() : "?";
+				default      -> bkpCards[t.idx()] != null ? bkpCards[t.idx()].name() : "?";
 			};
 			switch (t.zone()) {
-				case FORWARD -> putP1ForwardIntoBreakZone(t.idx());
-				case MONSTER -> autoAbilityTriggers.breakP1MonsterSlot(t.idx());
-				default      -> autoAbilityTriggers.breakP1BackupSlot(t.idx());
+				case FORWARD -> { if (isP1) putP1ForwardIntoBreakZone(t.idx()); else putP2ForwardIntoBreakZone(t.idx()); }
+				case MONSTER -> { if (isP1) autoAbilityTriggers.breakP1MonsterSlot(t.idx()); else breakP2MonsterSlot(t.idx()); }
+				default      -> { if (isP1) autoAbilityTriggers.breakP1BackupSlot(t.idx()); else breakP2BackupSlot(t.idx()); }
 			}
-			logEntry("Alt cost: \"" + name + "\" put into the Break Zone");
+			logEntry((isP1 ? "" : "[P2] ") + "Alt cost: \"" + name + "\" put into the Break Zone");
 		}
 	}
 
@@ -10279,12 +10267,14 @@ public class MainWindow {
 	}
 
 	/** Dulls the Forwards reserved by {@link #selectAltDullForwards}. */
-	private void executeAltDull(List<Integer> forwardIdxs) {
+	private void executeAltDull(boolean isP1, List<Integer> forwardIdxs) {
 		if (forwardIdxs == null || forwardIdxs.isEmpty()) return;
+		List<CardState> states = isP1 ? p1ForwardStates : p2ForwardStates;
+		List<CardData>  cards  = isP1 ? p1ForwardCards  : p2ForwardCards;
 		for (int idx : forwardIdxs) {
-			p1ForwardStates.set(idx, CardState.DULL);
-			animateDullForward(idx, null);
-			logEntry("Alt cost: \"" + p1ForwardCards.get(idx).name() + "\" dulled");
+			states.set(idx, CardState.DULL);
+			if (isP1) animateDullForward(idx, null); else animateDullP2Forward(idx, null);
+			logEntry((isP1 ? "" : "[P2] ") + "Alt cost: \"" + cards.get(idx).name() + "\" dulled");
 		}
 	}
 
@@ -10333,62 +10323,167 @@ public class MainWindow {
 	}
 
 	/** Removes the Backups reserved by {@link #selectAltFieldRemoval} from the game. */
-	private void executeAltFieldRemoval(List<Integer> slots) {
+	private void executeAltFieldRemoval(boolean isP1, List<Integer> slots) {
 		if (slots == null || slots.isEmpty()) return;
-		GameContext ctx = buildGameContext(true);
+		GameContext ctx = buildGameContext(isP1);
 		for (int slot : slots)
-			ctx.removeTargetFromGame(new ForwardTarget(true, slot, ForwardTarget.CardZone.BACKUP));
+			ctx.removeTargetFromGame(new ForwardTarget(isP1, slot, ForwardTarget.CardZone.BACKUP));
 	}
 
 	/**
-	 * Removes one BZ card matching each entry in {@code removals} from P1's Break Zone and
-	 * adds it to the permanent Removed-From-Play zone.  Auto-selects the first matching card.
+	 * The Break Zone indices that would pay {@code removals} — one card per entry, the first that
+	 * matches each, which is the auto-selection the alternate cost has always made.
+	 *
+	 * <p>Resolved ahead of being spent, rather than matched again as each card is removed, because
+	 * the answer has to travel: a receiving client re-running the match against its own Break Zone
+	 * could land on different cards the moment the two zones hold equal-looking duplicates in a
+	 * different order. Earlier entries are struck off as they are claimed, so two entries asking
+	 * for the same Element cannot both name one card.
 	 */
-	private void executeAltBzRemovals(List<String> removals) {
-		if (removals.isEmpty()) return;
-		List<CardData> bz = gameState.getP1BreakZone();
+	private List<Integer> selectAltBzRemovals(boolean isP1, List<String> removals) {
+		if (removals.isEmpty()) return List.of();
+		List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+		List<Integer> chosen = new ArrayList<>();
 		for (String req : removals) {
 			String[] parts = req.split(" ", 2);
 			String elem = parts[0], type = parts.length > 1 ? parts[1] : "";
 			for (int i = 0; i < bz.size(); i++) {
+				if (chosen.contains(i)) continue;
 				CardData c = bz.get(i);
-				if (c.containsElement(elem) && matchesAltBzType(c, type)) {
-					bz.remove(i);
-					gameState.addToPermanentRfp(c);
-					logEntry(c.name() + " removed from Break Zone → Removed From Play (alt cost)");
-					refreshP1BreakLabel();
-					refreshP1WarpZoneUI();
-					break;
-				}
+				if (c.containsElement(elem) && matchesAltBzType(c, type)) { chosen.add(i); break; }
 			}
 		}
+		return List.copyOf(chosen);
 	}
 
 	/**
-	 * Runs {@code play} with {@link #lastCardCastDiscounted} raised when {@code card} prints a
-	 * self-discount, so the drawback the discount buys fires on this arrival and on no other.
+	 * Removes the Break Zone cards {@link #selectAltBzRemovals} picked and adds them to the
+	 * permanent Removed-From-Play zone.
 	 *
-	 * <p>Raised around the play rather than latched in a pending field the way the extra costs
-	 * are: a pending flag set before a payment dialog outlives a cancelled payment, and would
-	 * then arm the drawback on whatever the player cast next.
+	 * <p>Highest index first, so each removal cannot renumber the ones still to come.
 	 */
-	private void withSelfReductionArmed(CardData card, Runnable play) {
-		if (card.altSelfReduction() == null) { play.run(); return; }
-		boolean prev = lastCardCastDiscounted;
-		lastCardCastDiscounted = true;
-		try { play.run(); } finally { lastCardCastDiscounted = prev; }
+	private void executeAltBzRemovals(boolean isP1, List<Integer> indices) {
+		if (indices == null || indices.isEmpty()) return;
+		List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+		List<Integer> ordered = new ArrayList<>(indices);
+		ordered.sort(Collections.reverseOrder());
+		for (int idx : ordered) {
+			if (idx < 0 || idx >= bz.size()) continue;
+			CardData c = bz.remove(idx);
+			gameState.addToPermanentRfp(c, isP1);
+			logEntry((isP1 ? "" : "[P2] ") + c.name()
+					+ " removed from Break Zone → Removed From Play (alt cost)");
+		}
+		if (isP1) { refreshP1BreakLabel(); refreshP1WarpZoneUI(); }
+		else      { refreshP2BreakLabel(); refreshP2WarpZoneUI(); }
 	}
 
-	/** Executes the "If you do so" followup effect attached to an alternate cast, if any. */
-	private void executeAltFollowup(String followupText, CardData source) {
+	/**
+	 * Gathers the local player's reserved alternate-cost choices into the payment that will be
+	 * both applied here and sent to the other client.
+	 *
+	 * <p>The two put-into-Break-Zone forms merge into one list: Kefka 4-080L's buys the play
+	 * outright and Kain 9-084H's reduces its cost, but they are handed over identically, and only
+	 * one of them is ever non-empty. The Break Zone removals are resolved to indices here, before
+	 * a single card has moved, so they name the Break Zone the cost is actually paid out of.
+	 */
+	private AltPayment altPayment(int crystals, List<Integer> dullIdxs, List<Integer> removalSlots,
+			List<ForwardTarget> bzPayment, List<ForwardTarget> bzReducePayment,
+			List<String> bzRemovals) {
+		List<ForwardTarget> putToBz = new ArrayList<>(bzPayment);
+		putToBz.addAll(bzReducePayment);
+		return new AltPayment(crystals, dullIdxs, removalSlots, putToBz,
+				selectAltBzRemovals(true, bzRemovals));
+	}
+
+	/**
+	 * Hands over everything {@code payment} names, on {@code isP1}'s board, in the order the card
+	 * texts state their costs in.
+	 *
+	 * <p>One implementation for both clients, run by the caster and again by the receiver against
+	 * the board it holds that player on. A hand-written mirror for the remote side would be two
+	 * readings of one cost, and the moment they drifted the two clients would disagree about who
+	 * still had a Backup — the same reason {@link #executePlay} takes a player rather than
+	 * having a P2 twin.
+	 */
+	private void applyAltPayment(boolean isP1, AltPayment payment) {
+		if (payment == null || payment.isEmpty()) return;
+		if (payment.crystals() > 0) {
+			playerSpendCrystals(isP1, payment.crystals());
+			refreshCrystalDisplays();
+		}
+		executeAltDull(isP1, payment.dullForwards());
+		executeAltFieldRemoval(isP1, payment.removeBackups());
+		executeAltPutToBz(isP1, payment.putToBz());
+		executeAltBzRemovals(isP1, payment.bzRemovals());
+	}
+
+	/**
+	 * Runs {@code play} with {@link #lastCardCastViaAltCost} raised, so a drawback an alternate
+	 * cost arms fires on this arrival and on no other.
+	 *
+	 * <p>Raised around the play rather than latched in a pending field the way the extra costs
+	 * are: a pending flag set before a payment dialog outlives a cancelled payment, and would then
+	 * arm the drawback on whatever the player cast next.
+	 */
+	private void withAltCostArmed(Runnable play) {
+		boolean prev = lastCardCastViaAltCost;
+		lastCardCastViaAltCost = true;
+		try { play.run(); } finally { lastCardCastViaAltCost = prev; }
+	}
+
+	/**
+	 * Executes the "If you do so" followup effect attached to an alternate cast, if any.
+	 *
+	 * <p>Only the bare-effect form reaches here. A followup written as a trigger sentence is an
+	 * ability of the card, fired on arrival by the ordinary enters-the-field dispatch, and
+	 * {@link CardData#altFollowupText} withholds it from this path so it cannot also run twice.
+	 */
+	private void executeAltFollowup(boolean isP1, String followupText, CardData source) {
 		if (followupText == null || followupText.isBlank()) return;
 		Consumer<GameContext> effect = ActionResolver.parse(followupText, source);
 		if (effect != null) {
 			logEntry("[AltCost followup] " + source.name() + " — " + followupText);
-			effect.accept(buildGameContext(true));
+			effect.accept(buildGameContext(isP1));
 		} else {
 			logEntry("[AltCost followup] Unrecognized effect: " + followupText);
 		}
+	}
+
+	/**
+	 * Casts {@code card} under an alternate cost: hands the payment over, plays the card with the
+	 * alternate-cost flag raised, then runs any bare-effect followup.
+	 *
+	 * <p>Parameterised by player for the same reason {@link #executePlay} is — the receiving client
+	 * replays a remote alternate cast through this exact method, so the order a cost is paid in,
+	 * and what the arrival sees when it fires, are decided once rather than twice.
+	 */
+	void executeAltPlay(boolean isP1, CardData card, int handIdx, AltPayment payment,
+			List<Integer> discardIndices, List<Integer> backupDullIndices,
+			Map<Integer, String> backupBreaks,
+			List<ForwardTarget> summonTargets, boolean targetsAreReplayed) {
+		applyAltPayment(isP1, payment);
+		withAltCostArmed(() -> executePlay(isP1, card, handIdx, discardIndices, backupDullIndices,
+				Map.of(), summonTargets, targetsAreReplayed, backupBreaks));
+		executeAltFollowup(isP1, card.altFollowupText(), card);
+	}
+
+	/**
+	 * The local player's alternate cast, which a networked opponent also has to see.
+	 *
+	 * <p>Sent after the play for the same reason an ordinary cast is: a Summon chooses its targets
+	 * on the way to the Stack and those choices have to travel with it. The payment is gathered
+	 * before any of it is spent, so what crosses is what the player chose rather than what the
+	 * board looked like afterwards.
+	 */
+	private void executeAltPlayAndSend(CardData card, int handIdx, AltPayment payment,
+			List<Integer> discardIndices, List<Integer> backupDullIndices,
+			Map<Integer, String> backupBreaks) {
+		lastSummonPreTargets = null;
+		executeAltPlay(true, card, handIdx, payment, discardIndices, backupDullIndices,
+				backupBreaks, null, false);
+		sendToOpponent(RemoteOpponent.playCardAction(card, handIdx, discardIndices,
+				backupDullIndices, Map.of(), lastSummonPreTargets, backupBreaks, payment));
 	}
 
 	private void showWarpPaymentDialog(CardData card, int handIdx) {

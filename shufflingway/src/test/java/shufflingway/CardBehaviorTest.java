@@ -46328,9 +46328,9 @@ public class CardBehaviorTest {
 		CardData golbez = makePricedAutoForward("Golbez", "Dark", 6, 9000, GOLBEZ_17_140S_TEXT);
 		List<AutoAbility> autos = golbez.autoAbilities();
 		assertEquals(2, autos.size(), "the discount sentence yields exactly one ability");
-		assertTrue(autos.get(0).discountedOnly(), "the self-break is what the discount buys");
+		assertTrue(autos.get(0).altCostOnly(), "the self-break is what the discount buys");
 		assertEquals("put Golbez into the Break Zone.", autos.get(0).effectText());
-		assertFalse(autos.get(1).discountedOnly(),
+		assertFalse(autos.get(1).altCostOnly(),
 				"his printed second ability fires on every arrival");
 	}
 
@@ -46339,7 +46339,7 @@ public class CardBehaviorTest {
 		MainWindow mw = new MainWindow();
 		CardData golbez = makePricedAutoForward("Golbez", "Dark", 6, 9000, GOLBEZ_DISCOUNT_ONLY);
 
-		mw.lastCardCastDiscounted = true;
+		mw.lastCardCastViaAltCost = true;
 		placeP1Forward(mw, golbez);
 
 		assertTrue(mw.p1ForwardCards.isEmpty(), "the discount is paid for on arrival");
@@ -46356,6 +46356,190 @@ public class CardBehaviorTest {
 		assertEquals(List.of(golbez), mw.p1ForwardCards,
 				"nothing was discounted, so nothing is owed");
 		assertTrue(mw.gameState.getP1BreakZone().isEmpty());
+	}
+
+
+	// =========================================================================================
+	// Cecil 20-075L: the same shape as Golbez, stated as an instead-of-paying cost.
+	//
+	// "You can pay 《Earth》《Water》 (instead of paying the CP cost) to cast Cecil. If you do so,
+	// when Cecil enters the field, Cecil deals you 1 point of damage." The drawback used to be
+	// charged twice over on the alternate cast — once as an unconditional enters-the-field
+	// ability and once more as an immediate effect run by the cast path — and once on a
+	// full-price cast, which owes nothing at all.
+	// =========================================================================================
+
+	private static final String CECIL_20_075L_TEXT =
+			"You can pay 《Earth》《Water》 (instead of paying the CP cost) to cast Cecil. If you do "
+			+ "so, when Cecil enters the field, Cecil deals you 1 point of damage.";
+
+	@Test
+	void cecilsDrawbackIsAnAbilityOfHisRatherThanAnEffectTheCastPathAlsoRuns() {
+		CardData cecil = makePricedAutoForward("Cecil", "Earth", 5, 8000, CECIL_20_075L_TEXT);
+
+		assertEquals(1, cecil.autoAbilities().size());
+		assertTrue(cecil.autoAbilities().get(0).altCostOnly(),
+				"the damage is what the alternate cost buys");
+		assertEquals("", cecil.altFollowupText(),
+				"a trigger sentence is an ability, so the cast path must not run it as well");
+	}
+
+	/** A MainWindow with cards in P1's deck, so a point of damage has something to draw. */
+	private static MainWindow boardWithP1Deck() {
+		MainWindow mw = new MainWindow();
+		List<CardData> deck = new ArrayList<>();
+		for (int i = 0; i < 10; i++) deck.add(makeForward("Filler " + i, "Fire", 1, 1000));
+		mw.gameState.initializeDeck(deck, List.of(), new java.util.Random(1));
+		return mw;
+	}
+
+	@Test
+	void cecilDealsHisControllerOnePointOfDamageOnAnAlternateCast() {
+		MainWindow mw = boardWithP1Deck();
+		CardData cecil = makePricedAutoForward("Cecil", "Earth", 5, 8000, CECIL_20_075L_TEXT);
+
+		mw.lastCardCastViaAltCost = true;
+		placeP1Forward(mw, cecil);
+
+		assertEquals(1, mw.gameState.getP1DamageZone().size(), "one point, not two");
+	}
+
+	@Test
+	void cecilDealsNoDamageWhenHeWasCastAtFullPrice() {
+		MainWindow mw = boardWithP1Deck();
+		CardData cecil = makePricedAutoForward("Cecil", "Earth", 5, 8000, CECIL_20_075L_TEXT);
+
+		placeP1Forward(mw, cecil);
+
+		assertTrue(mw.gameState.getP1DamageZone().isEmpty(),
+				"the CP cost was paid, so nothing was bought with damage");
+	}
+
+
+	// =========================================================================================
+	// An alternate cast across the wire.
+	//
+	// The play itself always crossed — it goes out as an ordinary PLAY_CARD. What did not was
+	// everything the alternate cost handed over, which no index in that payload accounts for:
+	// Crystals spent, Forwards dulled, Backups removed, cards put into the Break Zone. The
+	// receiving client replayed the play alone, so the two boards disagreed from that point on
+	// about what the caster still had — and about whether a drawback the cost armed had fired.
+	// =========================================================================================
+
+	private static shufflingway.net.MatchSetup wireSetup() {
+		return new shufflingway.net.MatchSetup(1, List.of(), "Deck", "Them", 1L, true, true);
+	}
+
+	/** An inbound-only controller: nothing under test here sends, so the connection is unused. */
+	private static RemoteOpponent inboundOnly(MainWindow mw) {
+		return new RemoteOpponent(mw, null, wireSetup());
+	}
+
+	@Test
+	void anOrdinaryCastCarriesNoAlternateCostAtAll() {
+		CardData card = makeForward("Cast Me", "Wind", 2, 5000);
+		JSONObject payload = RemoteOpponent.playCardAction(card, 0, List.of(), List.of(0),
+				Map.of(), List.of(), Map.of()).payload();
+		assertFalse(payload.has("alt"),
+				"presence is the signal, so an ordinary cast must not carry the key");
+	}
+
+	@Test
+	void anAlternateCastCarriesEverythingItHandedOver() {
+		CardData card = makeForward("Cast Me", "Wind", 2, 5000);
+		AltPayment paid = new AltPayment(2, List.of(1), List.of(3),
+				List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER)), List.of(4));
+
+		JSONObject alt = RemoteOpponent.playCardAction(card, 0, List.of(), List.of(),
+				Map.of(), List.of(), Map.of(), paid).payload().getJSONObject("alt");
+
+		assertEquals(2, alt.getInt("crystals"));
+		assertEquals(1, alt.getJSONArray("dull").getInt(0));
+		assertEquals(3, alt.getJSONArray("removeBackups").getInt(0));
+		assertEquals(4, alt.getJSONArray("bzRemovals").getInt(0));
+		assertEquals("MONSTER", alt.getJSONArray("putToBz").getJSONObject(0).getString("zone"));
+		assertEquals(0, alt.getJSONArray("putToBz").getJSONObject(0).getInt("idx"));
+	}
+
+	@Test
+	void aCostThatHandsNothingOverStillTravels() {
+		// Golbez 17-140S buys his discount with a drawback rather than with anything on the board,
+		// so the payment is empty — and the receiver still has to know the discount was taken.
+		CardData card = makeForward("Golbez", "Dark", 6, 9000);
+		JSONObject payload = RemoteOpponent.playCardAction(card, 0, List.of(), List.of(),
+				Map.of(), List.of(), Map.of(), AltPayment.NOTHING_HANDED_OVER).payload();
+		assertTrue(payload.has("alt"));
+		assertEquals(0, payload.getJSONObject("alt").getInt("crystals"));
+	}
+
+	@Test
+	void anOpponentsAlternateCostIsPaidOutOfTheirOwnBoard() {
+		MainWindow mw = new MainWindow();
+		CardData dulled  = makeForward("Dulled", "Fire", 2, 5000);
+		CardData removed = makePlainBackup("Removed", "Fire", 2);
+		placeP2Forward(mw, dulled);
+		mw.p2BackupCards[1]  = removed;
+		mw.p2BackupStates[1] = CardState.ACTIVE;
+		CardData handedOver = placeP2Monster(mw, "Handed Over", false);
+		mw.gameState.addP2Crystals(3);
+
+		CardData cast = makeForward("Cast Me", "Dark", 2, 5000);
+		mw.gameState.getIdentity().put(cast, false);
+		mw.gameState.getP2Hand().add(cast);
+
+		AltPayment paid = new AltPayment(2, List.of(0), List.of(1),
+				List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER)), List.of());
+		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(cast, 0, List.of(),
+				List.of(), Map.of(), List.of(), Map.of(), paid));
+
+		assertEquals(1, mw.gameState.getP2Crystals(), "3 held, 2 spent");
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "their Forward, not ours");
+		assertNull(mw.p2BackupCards[1], "the Backup was removed from the game");
+		assertTrue(mw.gameState.getP2BreakZone().contains(handedOver));
+		assertTrue(mw.p2ForwardCards.contains(cast), "and the card they cast arrived");
+		assertTrue(mw.p1ForwardCards.isEmpty(), "none of it touched this player's board");
+	}
+
+	/**
+	 * An opponent's triggered ability goes on the Stack on arrival and resolves from there, the
+	 * same as any other. These two assert on the push rather than on the board, because the gate
+	 * being tested is read as the entry is queued — a board assertion would be measuring the
+	 * Stack's resolution schedule instead of whether the drawback was armed.
+	 */
+	private static AutoAbility queuedAutoAbility(MainWindow mw) {
+		StackEntry top = mw.gameState.peekStack();
+		return top == null ? null : top.autoAbility();
+	}
+
+	@Test
+	void anOpponentsDiscountedGolbezArmsHisDrawbackOnThisClientToo() {
+		MainWindow mw = new MainWindow();
+		CardData golbez = makePricedAutoForward("Golbez", "Dark", 6, 9000, GOLBEZ_DISCOUNT_ONLY);
+		mw.gameState.getIdentity().put(golbez, false);
+		mw.gameState.getP2Hand().add(golbez);
+
+		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(golbez, 0, List.of(),
+				List.of(), Map.of(), List.of(), Map.of(), AltPayment.NOTHING_HANDED_OVER));
+
+		assertEquals(List.of(golbez), mw.p2ForwardCards, "their Golbez arrived on their field");
+		AutoAbility queued = queuedAutoAbility(mw);
+		assertNotNull(queued, "the drawback was armed here as well as on the caster's client");
+		assertTrue(queued.altCostOnly());
+		assertEquals("put Golbez into the Break Zone.", queued.effectText());
+	}
+
+	@Test
+	void anOpponentsFullPriceGolbezArmsNothing() {
+		MainWindow mw = new MainWindow();
+		CardData golbez = makePricedAutoForward("Golbez", "Dark", 6, 9000, GOLBEZ_DISCOUNT_ONLY);
+		mw.gameState.getIdentity().put(golbez, false);
+		mw.gameState.getP2Hand().add(golbez);
+
+		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(golbez, 0, List.of(),
+				List.of(), Map.of(), List.of(), Map.of()));
+
+		assertEquals(List.of(golbez), mw.p2ForwardCards);
+		assertNull(queuedAutoAbility(mw), "no alternate cost crossed, so no drawback is owed");
 	}
 
 

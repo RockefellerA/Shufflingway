@@ -197,9 +197,73 @@ class RemoteOpponent implements OpponentController {
 			for (String key : rawBreaks.keySet())
 				breaks.put(Integer.valueOf(key), rawBreaks.getString(key));
 
+		// An alternate cast pays with cards no index in the payload above accounts for, and arms
+		// any drawback its cost buys, so it goes through the path that does both rather than
+		// through the ordinary play.
+		JSONObject rawAlt = payload.optJSONObject("alt");
+		if (rawAlt != null) {
+			AltPayment alt = decodeAltPayment(rawAlt, false);
+			if (!altPaymentFits(alt, card)) return;
+			mw.executeAltPlay(false, card, handIdx, alt,
+					indices(payload, "discards"), indices(payload, "backups"), breaks,
+					summonTargets, targetsAreReplayed);
+			return;
+		}
+
 		mw.executePlay(false, card, handIdx,
 				indices(payload, "discards"), indices(payload, "backups"), overrides,
 				summonTargets, targetsAreReplayed, breaks);
+	}
+
+	/**
+	 * Whether {@code alt} addresses cards this client actually holds on the opponent's board,
+	 * reporting a desync and answering {@code false} when it does not.
+	 *
+	 * <p>Checked before anything is spent, for the reason the hand index above is: acting on a
+	 * payment that has drifted corrupts the board silently, while refusing it is a desync the
+	 * player is told about. The Crystal count is not checked here — {@code playerSpendCrystals}
+	 * floors at zero, and a Crystal total that has drifted is worth reporting through the state
+	 * checksum rather than blocking a play over.
+	 */
+	private boolean altPaymentFits(AltPayment alt, CardData card) {
+		for (int idx : alt.dullForwards()) {
+			if (idx < 0 || idx >= mw.p2ForwardCards.size()) {
+				mw.reportDesync("opponent dulled Forward " + idx + " to cast \"" + card.name()
+						+ "\", but their field holds " + mw.p2ForwardCards.size() + " here");
+				return false;
+			}
+		}
+		for (int slot : alt.removeBackups()) {
+			if (slot < 0 || slot >= mw.p2BackupCards.length || mw.p2BackupCards[slot] == null) {
+				mw.reportDesync("opponent removed Backup " + slot + " to cast \"" + card.name()
+						+ "\", but that slot is empty here");
+				return false;
+			}
+		}
+		for (ForwardTarget t : alt.putToBz()) {
+			boolean ok = switch (t.zone()) {
+				case FORWARD -> t.idx() >= 0 && t.idx() < mw.p2ForwardCards.size();
+				case MONSTER -> t.idx() >= 0 && t.idx() < mw.p2MonsterCards.size();
+				case BACKUP  -> t.idx() >= 0 && t.idx() < mw.p2BackupCards.length
+						&& mw.p2BackupCards[t.idx()] != null;
+				case BREAK_ZONE -> false;
+			};
+			if (!ok) {
+				mw.reportDesync("opponent put " + t.zone() + " " + t.idx()
+						+ " into the Break Zone to cast \"" + card.name()
+						+ "\", but no such card is there here");
+				return false;
+			}
+		}
+		int bzSize = mw.gameState.getP2BreakZone().size();
+		for (int idx : alt.bzRemovals()) {
+			if (idx < 0 || idx >= bzSize) {
+				mw.reportDesync("opponent removed Break Zone card " + idx + " to cast \""
+						+ card.name() + "\", but their Break Zone holds " + bzSize + " here");
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/**
@@ -655,6 +719,20 @@ class RemoteOpponent implements OpponentController {
 	                                 List<Integer> backupDulls, Map<Integer, String> backupElements,
 	                                 List<ForwardTarget> summonTargets,
 	                                 Map<Integer, String> backupBreaks) {
+		return playCardAction(card, handIdx, discards, backupDulls, backupElements, summonTargets,
+				backupBreaks, null);
+	}
+
+	/**
+	 * @param alt what was handed over for an alternate cast, or {@code null} for an ordinary one.
+	 *            Its presence is the signal, not its contents: Golbez 17-140S hands nothing over
+	 *            and still needs the receiver to know his discount was taken, because that is what
+	 *            arms the drawback paying for it.
+	 */
+	static GameAction playCardAction(CardData card, int handIdx, List<Integer> discards,
+	                                 List<Integer> backupDulls, Map<Integer, String> backupElements,
+	                                 List<ForwardTarget> summonTargets,
+	                                 Map<Integer, String> backupBreaks, AltPayment alt) {
 		JSONObject overrides = new JSONObject();
 		backupElements.forEach((slot, element) -> overrides.put(String.valueOf(slot), element));
 		// Backups broken for CP as part of this payment (Sherlotta 8-053H). Its own object rather
@@ -672,7 +750,7 @@ class RemoteOpponent implements OpponentController {
 						.put("zone", t.zone().name()));
 			}
 		}
-		return GameAction.of(ActionType.PLAY_CARD, new JSONObject()
+		JSONObject payload = new JSONObject()
 				.put("handIdx", handIdx)
 				.put("card", card.name())
 				.put("discards", new JSONArray(discards))
@@ -682,7 +760,56 @@ class RemoteOpponent implements OpponentController {
 				// A cast Summon chooses its targets before the opponent may respond, so the choice
 				// belongs to the caster and travels with the play. Always present, so the receiver
 				// can tell "chose nothing" from an older client that never chose at all.
-				.put("summonTargets", targets));
+				.put("summonTargets", targets);
+		// Absent on an ordinary cast, so its mere presence says "this was an alternate cast" and
+		// an empty object stays meaningful.
+		if (alt != null) payload.put("alt", encodeAltPayment(alt));
+		return GameAction.of(ActionType.PLAY_CARD, payload);
+	}
+
+	/**
+	 * Packs an alternate cast's payment for the wire.
+	 *
+	 * <p>Every index addresses the payer's own zones and so crosses unchanged, the same as the
+	 * hand and Backup indices beside it. The put-into-Break-Zone targets travel as zone and slot
+	 * without a side: a card handed over as a cost is always one its own controller had, so the
+	 * receiver reads them against the board it holds that player on.
+	 */
+	private static JSONObject encodeAltPayment(AltPayment alt) {
+		JSONArray putToBz = new JSONArray();
+		for (ForwardTarget t : alt.putToBz())
+			putToBz.put(new JSONObject().put("idx", t.idx()).put("zone", t.zone().name()));
+		return new JSONObject()
+				.put("crystals", alt.crystals())
+				.put("dull", new JSONArray(alt.dullForwards()))
+				.put("removeBackups", new JSONArray(alt.removeBackups()))
+				.put("putToBz", putToBz)
+				.put("bzRemovals", new JSONArray(alt.bzRemovals()));
+	}
+
+	/** Unpacks {@link #encodeAltPayment} against {@code isP1}'s side of this client's board. */
+	private static AltPayment decodeAltPayment(JSONObject alt, boolean isP1) {
+		List<ForwardTarget> putToBz = new ArrayList<>();
+		JSONArray rawPut = alt.optJSONArray("putToBz");
+		if (rawPut != null) {
+			for (int i = 0; i < rawPut.length(); i++) {
+				JSONObject t = rawPut.getJSONObject(i);
+				putToBz.add(new ForwardTarget(isP1, t.getInt("idx"),
+						ForwardTarget.CardZone.valueOf(t.getString("zone"))));
+			}
+		}
+		return new AltPayment(alt.optInt("crystals", 0),
+				jsonInts(alt, "dull"), jsonInts(alt, "removeBackups"),
+				putToBz, jsonInts(alt, "bzRemovals"));
+	}
+
+	/** The integers in {@code payload}'s {@code key} array, or an empty list when it is absent. */
+	private static List<Integer> jsonInts(JSONObject payload, String key) {
+		JSONArray raw = payload.optJSONArray(key);
+		if (raw == null) return List.of();
+		List<Integer> out = new ArrayList<>(raw.length());
+		for (int i = 0; i < raw.length(); i++) out.add(raw.getInt(i));
+		return out;
 	}
 
 	/**

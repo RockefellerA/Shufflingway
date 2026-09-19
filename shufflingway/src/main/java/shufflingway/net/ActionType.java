@@ -24,8 +24,19 @@ public enum ActionType {
 
     // ── Card actions ──────────────────────────────────────────────────────────
     PLAY_CARD,      // payload: { "handIdx": n, "card": "...", "discards": [idx, ...],
-                    //            "backups": [slot, ...], "backupElements": { "slot": "Fire" } }
+                    //            "backups": [slot, ...], "backupElements": { "slot": "Fire" },
+                    //            "alt": { "crystals": n, "dull": [slot, ...],
+                    //                     "removeBackups": [slot, ...],
+                    //                     "putToBz": [{ "idx": n, "zone": "FORWARD" }, ...],
+                    //                     "bzRemovals": [idx, ...] } }
                     //   Indices address zones both clients hold in the same order.
+                    //   "alt" is present only for a cast under one of the card's alternate costs,
+                    //   and carries what that cost handed over — none of which the indices above
+                    //   account for. Its presence is itself the signal: Golbez 17-140S hands
+                    //   nothing over and still sends an empty object, because the receiver has to
+                    //   know the cost was taken to arm the drawback paying for it. What is not a
+                    //   choice (the reduced CP, the drawback itself) is read off the card at both
+                    //   ends rather than sent.
     LB_PLAY,        // payload: { "lbIdx": n, "card": "...", "payment": [lbIdx, ...],
                     //            "discards": [idx, ...], "backups": [slot, ...],
                     //            "backupBreaks": { "slot": "Fire" } }

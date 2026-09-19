@@ -4163,7 +4163,7 @@ final class AutoAbilityTriggers {
 
 		// "If you do so" — only fires when the card was cast under its own optional cost
 		// reduction. The discount is what buys this drawback, so a full-price cast skips it.
-		if (fa.discountedOnly() && !mw.lastCardCastDiscounted) return;
+		if (fa.altCostOnly() && !mw.lastCardCastViaAltCost) return;
 
 		// "only if [card] is removed from the game" — skip if that card is not in the RFP zone
 		if (!fa.rfpConditionCard().isEmpty()) {
