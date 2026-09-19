@@ -2849,6 +2849,31 @@ public class ActionResolver {
         // found inside one of them. 3-138H Ceodore read as "PowerBoost".
         if (FOLLOWUP_SELECT_FROM_FOLLOWING.matcher(followupText.trim()).matches())
             return "SelectFollowingActions";
+        // Mirrors the choose chain, where the pay-or-else gate is read off the whole followup
+        // ahead of every action branch. Named as a gate, the way IfControl and the rest are:
+        // the toll is the ability, and naming it after the action alone describes something the
+        // card does unconditionally — 20-064C Arkasodara read as plain "Break" while only
+        // breaking when the opponent declined to pay 《3》.
+        //
+        // Gated on parseTargetAction exactly as the executor is, so the name cannot claim a text
+        // the effect declines.
+        {
+            Matcher notPayM = FOLLOWUP_IF_OPP_NOT_PAY_ACTION.matcher(followupText.trim());
+            if (notPayM.matches()) {
+                String innerText = notPayM.group("effect").trim();
+                if (parseTargetAction(innerText, 0) != null) {
+                    String inner = matchedFollowupName(innerText, source);
+                    return "IfOpponentNotPay(" + notPayM.group("cost").trim() + ": "
+                            + (inner != null ? inner : "?") + ")";
+                }
+            }
+        }
+        // The plural-verb grant 21-092R Man in Black puts behind that gate. Anchored end to end,
+        // so it can name nothing but this one clause — which is what keeps it clear of the
+        // find()-based CannotAttackOrBlock arm further down, the one the pattern's own note warns
+        // must never see this sentence whole.
+        if (FOLLOWUP_GAINS_QUOTED_CANNOT_ATTACK_OR_BLOCK.matcher(followupText.trim()).matches())
+            return "CannotAttackOrBlock";
         // Mirrors parseChooseFollowup: a quoted grant spanning a sentence is settled here, ahead
         // of every find() check below, so the name cannot come from a clause printed inside the
         // quotation. The permanent shape is the only one that resolves, and only when its clause
@@ -5211,6 +5236,37 @@ public class ActionResolver {
                         else          ctx.setP2ForwardCannotBeBlocked(x.idx());
                     }
                 }
+            };
+        }
+
+        // "It/They gain(s) \"This Forward cannot attack or block.\" until the end of the turn"
+        // — 21-092R Man in Black, whose grant sits behind "If your opponent doesn't pay 《3》".
+        // Beside the arm above and anchored for the same reason: the gate branch hands this the
+        // effect clause alone, so the whole sentence is this grant and nothing else.
+        //
+        // Deliberately not reached by widening FOLLOWUP_CANNOT_ATTACK_OR_BLOCK to take the plural
+        // verb. Both of that pattern's readers scan the unsplit followup with find(), so the
+        // widening would let them take this grant off the tail of the sentence and apply it
+        // however the toll went — see the note on FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_PERSISTENT.
+        if (FOLLOWUP_GAINS_QUOTED_CANNOT_ATTACK_OR_BLOCK.matcher(t).matches())
+            return (ctx, ts) -> {
+                for (ForwardTarget x : ts) {
+                    if (x.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                    if (x.isP1()) { ctx.setP1ForwardCannotAttack(x.idx()); ctx.setP1ForwardCannotBlock(x.idx()); }
+                    else          { ctx.setP2ForwardCannotAttack(x.idx()); ctx.setP2ForwardCannotBlock(x.idx()); }
+                }
+            };
+
+        // "Deal it/them N damage." — the plainest action of all, and it was missing here, which
+        // is what let Hugo 24-064R's damage escape its pay-or-else gate. Anchored, so it claims
+        // only the bare clause; highest index first per side, because a Forward broken by the
+        // damage compacts its row.
+        Matcher dealM = TARGET_ACTION_DEAL_DAMAGE.matcher(t);
+        if (dealM.matches()) {
+            final int dealAmount = Integer.parseInt(dealM.group("amount"));
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(x -> ctx.damageTarget(x, dealAmount));
+                sortedByIdxDesc(ts, false).forEach(x -> ctx.damageTarget(x, dealAmount));
             };
         }
 

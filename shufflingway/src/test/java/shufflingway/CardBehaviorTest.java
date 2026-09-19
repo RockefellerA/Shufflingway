@@ -60104,6 +60104,133 @@ public class CardBehaviorTest {
 	// =========================================================================================
 
 	// =========================================================================================
+	// Man in Black 21-092R — a grant behind a toll, and the toll three cards were not charging
+	//
+	// "choose up to 2 Forwards opponent controls. If your opponent doesn't pay 《3》, they gain
+	// "This Forward cannot attack or block." until the end of the turn."
+	//
+	// The pay-or-else gate branch was already here for Arkasodara 20-064C, and it only claims a
+	// followup whose inner action parseTargetAction can read. Man in Black's inner action is a
+	// quoted grant with a *plural* verb — "they gain" — which nothing in that vocabulary knew, so
+	// the gate declined and the whole followup fell through unread.
+	//
+	// The fix is deliberately not "teach FOLLOWUP_CANNOT_ATTACK_OR_BLOCK the plural verb". Its
+	// own javadoc warns against exactly that, and it is right: both of that pattern's readers
+	// scan the unsplit followup with find(), so the widening would let them lift the grant off
+	// the tail of this sentence and apply it however the toll went. The new pattern is anchored
+	// and reached only through parseTargetAction, which sees the effect clause already cut away
+	// from its gate.
+	//
+	// Wiring it turned up worse. parseTargetAction did not know "deal it N damage" either, so
+	// every card in this family whose inner action was damage had its gate decline and a find()
+	// damage branch run the damage *unconditionally*: Hugo 24-064R and both of Titan (XVI)
+	// 24-058R's abilities dealt their 8000/9000 with no chance to pay. They were named
+	// "ChooseCharacter / Damage" throughout, which reads exactly like a card that does that.
+	// =========================================================================================
+
+	private static final String MAN_IN_BLACK_21_092R_EFFECT =
+			"choose up to 2 Forwards opponent controls. If your opponent doesn't pay 《3》, "
+			+ "they gain \"This Forward cannot attack or block.\" until the end of the turn.";
+	private static final String HUGO_24_064R_EFFECT =
+			"choose 1 Forward opponent controls. If your opponent doesn't pay 《2》, "
+			+ "deal it 8000 damage.";
+	private static final String ARKASODARA_20_064C_EFFECT =
+			"choose 1 dull Forward. If your opponent doesn't pay 《3》, break it.";
+
+	@Test
+	void thePayOrElseGateIsNamedAsAGateRatherThanAsItsAction() {
+		assertEquals("ChooseCharacter / IfOpponentNotPay(3: CannotAttackOrBlock)",
+				ActionResolver.fullDescription(MAN_IN_BLACK_21_092R_EFFECT, null));
+		assertEquals("ChooseCharacter / IfOpponentNotPay(2: Damage)",
+				ActionResolver.fullDescription(HUGO_24_064R_EFFECT, null),
+				"\"Damage\" alone described something Hugo does unconditionally");
+		assertEquals("ChooseCharacter / IfOpponentNotPay(3: Break)",
+				ActionResolver.fullDescription(ARKASODARA_20_064C_EFFECT, null));
+	}
+
+	/** Resolves a pay-or-else choose against a mock that selects {@code chosen}. */
+	private static GameContext resolvePayOrElse(String effect, List<ForwardTarget> chosen) {
+		Consumer<GameContext> fn = ActionResolver.parse(effect, null);
+		assertNotNull(fn, "the pay-or-else effect should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(chosen);
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void manInBlackOffersTheTollRatherThanGrantingOutright() {
+		GameContext ctx = resolvePayOrElse(MAN_IN_BLACK_21_092R_EFFECT,
+				List.of(fwd(false, 0), fwd(false, 1)));
+		verify(ctx).opponentMayPayToPreventAction(eq(3), any());
+		// The grant is inside the callback, so nothing is applied until the toll goes unpaid.
+		verify(ctx, never()).setP2ForwardCannotAttack(anyInt());
+		verify(ctx, never()).setP2ForwardCannotBlock(anyInt());
+	}
+
+	@Test
+	void theUnpaidTollLocksEveryChosenForward() {
+		Consumer<GameContext> fn = ActionResolver.parse(MAN_IN_BLACK_21_092R_EFFECT, null);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(fwd(false, 0), fwd(false, 1)));
+		// Declining to pay runs the callback, which is what "doesn't pay" means.
+		doAnswer(inv -> { ((Runnable) inv.getArgument(1)).run(); return null; })
+				.when(ctx).opponentMayPayToPreventAction(anyInt(), any());
+		fn.accept(ctx);
+
+		verify(ctx).setP2ForwardCannotAttack(0);
+		verify(ctx).setP2ForwardCannotBlock(0);
+		verify(ctx).setP2ForwardCannotAttack(1);
+		verify(ctx).setP2ForwardCannotBlock(1);
+	}
+
+	@Test
+	void hugosDamageNoLongerEscapesItsToll() {
+		// The regression guard for the family. Before "deal it N damage" was in
+		// parseTargetAction's vocabulary, the gate declined and the damage ran outright.
+		GameContext ctx = resolvePayOrElse(HUGO_24_064R_EFFECT, List.of(fwd(false, 0)));
+		verify(ctx).opponentMayPayToPreventAction(eq(2), any());
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void theUnpaidTollDealsHugosDamage() {
+		Consumer<GameContext> fn = ActionResolver.parse(HUGO_24_064R_EFFECT, null);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(fwd(false, 0)));
+		doAnswer(inv -> { ((Runnable) inv.getArgument(1)).run(); return null; })
+				.when(ctx).opponentMayPayToPreventAction(anyInt(), any());
+		fn.accept(ctx);
+
+		verify(ctx).damageTarget(fwd(false, 0), 8000);
+	}
+
+	@Test
+	void theSingularQuotedLockStillReadsThroughItsOwnPattern() {
+		// The find()-based pattern must not have learned the plural verb — that is the widening
+		// its javadoc warns about, and it would let the grant be lifted off Man in Black's tail.
+		assertFalse(ActionResolverPatterns.FOLLOWUP_CANNOT_ATTACK_OR_BLOCK
+						.matcher(MAN_IN_BLACK_21_092R_EFFECT).find(),
+				"the unsplit sentence must stay invisible to the find() reader");
+		assertTrue(ActionResolverPatterns.FOLLOWUP_CANNOT_ATTACK_OR_BLOCK
+						.matcher("it gains \"This Forward cannot attack or block.\" until the end of the turn.").find(),
+				"while the singular printing it was written for still matches");
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
 	// The Demon 20-007L — three options, two of them quietly burning the whole board
 	//
 	// "select 1 of the 3 following actions.

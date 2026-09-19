@@ -3859,6 +3859,40 @@ final class ActionResolverPatterns {
         ")\\.?"
     );
     /**
+     * The same one-turn grant said to a group — "it gains"/"they gain" — anchored end to end, for
+     * {@code parseTargetAction} to apply to a target list that some enclosing clause has already
+     * selected and gated. 21-092R Man in Black is the printing: "If your opponent doesn't pay
+     * 《3》, they gain "This Forward cannot attack or block." until the end of the turn."
+     *
+     * <p>Kept apart from {@link #FOLLOWUP_CANNOT_ATTACK_OR_BLOCK} rather than adding "gain" to
+     * it, and the note on {@link #FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_PERSISTENT} says why: that
+     * pattern's two readers both scan the <em>whole</em> followup with {@code find()}, so a plural
+     * verb there would let them lift this grant off the tail of Man in Black's sentence and apply
+     * it whether or not the toll was paid. Anchored and reached only through
+     * {@code parseTargetAction}, this one can only ever see an effect clause that has already
+     * been cut away from its gate.
+     */
+    /**
+     * "Deal it/them N damage." as a target action — the anchored form, for
+     * {@code parseTargetAction} to apply to a list some enclosing clause has already selected.
+     *
+     * <p>Its absence there is why Hugo 24-064R dealt his 8000 with no toll: the pay-or-else gate
+     * only claims a followup whose action {@code parseTargetAction} can read, so the gate
+     * declined and a {@code find()} damage branch further down took the clause and ran it
+     * unconditionally. Arkasodara 20-064C and Man in Black 21-092R were gated correctly the whole
+     * time, because "break it" and the quoted grant are both in that vocabulary.
+     *
+     * <p>Anchored, unlike {@link #FOLLOWUP_DAMAGE}, and without its "deal it and X" arm: an
+     * action handed to a target list is the whole clause or none of it.
+     */
+    static final Pattern TARGET_ACTION_DEAL_DAMAGE = Pattern.compile(
+        "(?i)^deal\\s+(?:it|them)\\s+(?<amount>\\d+)\\s+damage[.!]?$"
+    );
+    static final Pattern FOLLOWUP_GAINS_QUOTED_CANNOT_ATTACK_OR_BLOCK = Pattern.compile(
+        "(?i)^(?:it|they)\\s+gains?\\s+[\"']This\\s+(?:Forward|Character|Backup|Monster)\\s+" +
+        "cannot\\s+attack\\s+or\\s+block\\.[\"']\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?$"
+    );
+    /**
      * Matches "During this turn, it cannot attack or block, and if it is dealt damage, the damage
      * becomes 0 instead." — 5-081C Cockatrice, the corpus's only printing that pairs the combat
      * lock with a damage shield.
