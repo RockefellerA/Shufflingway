@@ -289,6 +289,15 @@ public class ActionResolver {
         result = tryParseChooseBzCardsRfgElementGate(effectText, source, xValue);
         if (result != null) return result;
 
+        // Must precede tryParseIndependentSentences: its two sentences both parse alone —
+        // "Name 1 Job." names a Job and nothing more, and "Deal N damage to all Forwards
+        // with the named Job." loses its qualifier to DEAL_DAMAGE_TO_FORWARDS's find() and
+        // sweeps both boards. The splitter accepts that pair and The Demon 20-007L burned
+        // every Forward in play, which is why the Job option carried a name in the report
+        // while being the worst-behaved of its three.
+        result = tryParseNameJobOrElementThenDamageMatching(effectText);
+        if (result != null) return result;
+
         // Same reason, generalised: whichever sentence a pattern happens to match claims the whole
         // ability and the rest is discarded. Where every sentence stands alone, resolve them all.
         // Must stay ahead of the effect patterns for the same reason tryParseTrailingDraw does.
@@ -2166,6 +2175,11 @@ public class ActionResolver {
         // name it after the payoff alone — the half that runs unconditionally when the gate is lost.
         if (tryParseChooseBzCardsRfgElementGate(effectText, source, 0) != null)
             return "ChooseBzCardsRfgElementGate";
+        // Mirrors parse(): claimed whole, ahead of the splitter. Both of The Demon 20-007L's
+        // sentences parse alone, so the splitter reports it as "NameJob + DealDamageToForwards"
+        // — a name for an unfiltered sweep of both boards, which is what it used to do.
+        if (tryParseNameJobOrElementThenDamageMatching(effectText) != null)
+            return "NameJobOrElementThenDamageMatching";
         if (tryParseIndependentSentences(effectText, source, 0) != null) {
             String composed = composeOverSentences(effectText, s -> matchedPatternName(s, source));
             if (composed != null) return composed;
@@ -3105,6 +3119,10 @@ public class ActionResolver {
         // Mirrors the choose chain: ahead of PlayOntoField, which this wording does not satisfy.
         if (FOLLOWUP_PLAY_ONTO_OWN_FIELD.matcher(followupText.trim()).matches())      return "PlayOntoOwnField";
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(followupText).find())                    return "PlayOntoField";
+        // Mirrors the choose chain, where this is read off the whole followup: the removal
+        // half alone is a standalone effect and the damage half has no count to scale by.
+        if (FOLLOWUP_RFG_OPP_BZ_DAMAGE_PER_CARD_REMOVED.matcher(followupText.trim()).matches())
+            return "RfgOppBzDamagePerCardRemoved";
         if (FOLLOWUP_ADD_TO_HAND.matcher(followupText).find())                        return "AddToHand";
         if (FOLLOWUP_RETURN_AND_NAMED_TO_OWNERS_HAND.matcher(followupText).find())    return "ReturnAndNamedToOwnersHand";
         if (FOLLOWUP_RETURN_TO_OWNERS_HAND.matcher(followupText).find())              return "ReturnToOwnersHand";
@@ -3467,6 +3485,11 @@ public class ActionResolver {
         // which effect it guards is the thing a reader wants to see.
         if (tryParseChooseBzCardsRfgElementGate(effectText, source, 0) != null)
             return chooseBzCardsRfgElementGateDescription(effectText, source);
+        // Mirrors parse(): claimed whole, ahead of the splitter. Both of The Demon 20-007L's
+        // sentences parse alone, so the splitter reports it as "NameJob + DealDamageToForwards"
+        // — a name for an unfiltered sweep of both boards, which is what it used to do.
+        if (tryParseNameJobOrElementThenDamageMatching(effectText) != null)
+            return "NameJobOrElementThenDamageMatching";
         if (tryParseIndependentSentences(effectText, source, 0) != null) {
             String composed = composeOverSentences(effectText, s -> fullDescription(s, source));
             if (composed != null) return composed;
@@ -3980,6 +4003,11 @@ public class ActionResolver {
             }
             if (FOLLOWUP_SELECT_COUNTER_AND_DOUBLE_SAME_TYPE.matcher(followup.trim()).matches())
                 return "ChooseCharacter / DoubleCounterType";
+            // The Demon 20-007L, for the same reason: the damage sentence is scaled by what the
+            // removal sentence took, so split it reads as an unimplemented followup plus a plain
+            // damage clause — "? + Damage", which names a fixed hit the card never deals.
+            if (FOLLOWUP_RFG_OPP_BZ_DAMAGE_PER_CARD_REMOVED.matcher(followup.trim()).matches())
+                return "ChooseCharacter / RfgOppBzDamagePerCardRemoved";
             // 3-138H Ceodore's modal menu, named off the whole followup before the split below can
             // separate the "Select 1 from the following." header from the options it introduces.
             // Mirrors the choose chain, which suppresses that split for the same reason.

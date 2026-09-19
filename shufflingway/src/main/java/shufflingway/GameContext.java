@@ -2814,9 +2814,15 @@ public interface GameContext {
     void removeSourceCardFromGame(CardData source);
 
     /**
-     * Removes all cards currently in the opponent's Break Zone from the game permanently.
+     * Removes all cards currently in the opponent's Break Zone from the game permanently, and
+     * answers how many that was.
+     *
+     * <p>The count is what The Demon 20-007L scales its damage by — "Deal it 1000 damage for each
+     * card removed by this effect" — and it is reported from here rather than counted by the
+     * caller beforehand because this is the only place that knows what the removal actually took.
+     * Callers with no use for it ignore it.
      */
-    void removeAllOpponentBzFromGame();
+    int removeAllOpponentBzFromGame();
 
     /**
      * Removes every card in <em>both</em> Break Zones from the game permanently — the unqualified

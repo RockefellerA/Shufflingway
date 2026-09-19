@@ -7,6 +7,7 @@ import static shufflingway.ActionResolver.*;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.function.ToIntFunction;
 import java.util.regex.Matcher;
@@ -97,6 +98,61 @@ final class ActionResolverDamage {
             sortedByIdxDesc(ts, false).forEach(t -> damageTargetMaybeUnreduced(ctx, t, perTarget, unreduced));
         };
     }
+    /**
+     * The Demon 20-007L: "Name 1 [Job|Element]. Deal N damage to all Forwards [of|with] the named
+     * [Job|Element]."
+     *
+     * <p>One parser over both sentences. {@link ActionResolverPatterns#DEAL_DAMAGE_TO_FORWARDS}
+     * has only exclusive filters and scans with {@code find()}, so left to it the second sentence
+     * swept every Forward on both boards and the naming in front of it bought nothing — the Job
+     * option carried a name in the report the whole time it was doing that.
+     *
+     * <p>The Job and the Element are read off the printed {@code CardData}, which is the same
+     * reading the exclusive filter beside it uses ({@code c.hasJob(excludeJob)}). It does not see
+     * a Job or Element an effect has changed — 12-105L Yuna "becomes the named Element" would not
+     * be caught. Consistent with the family rather than correct in isolation; {@code GameContext}
+     * exposes no effective-Job or effective-Element accessor to do better, and adding one is a
+     * wider change than this card.
+     *
+     * <p>Sweeps both sides: the text says "all Forwards" with no side named. Highest index first
+     * within each side, because a Forward broken by the damage compacts its row.
+     */
+    static Consumer<GameContext> tryParseNameJobOrElementThenDamageMatching(String text) {
+        Matcher m = NAME_JOB_OR_ELEMENT_THEN_DAMAGE_MATCHING_FORWARDS.matcher(text.trim());
+        if (!m.matches()) return null;
+        String kind = m.group("kind").toLowerCase(Locale.ROOT);
+        // A text that names one thing and filters on the other is declined rather than guessed.
+        if (!kind.equalsIgnoreCase(m.group("kind2"))) return null;
+        final boolean byJob = "job".equals(kind);
+        final int damage = Integer.parseInt(m.group("amount"));
+
+        return ctx -> {
+            String named = byJob ? ctx.selectJobNamedAgainstOpponent()
+                                 : ctx.selectElement("Name 1 Element (deal " + damage
+                                         + " damage to all Forwards of it):");
+            if (named == null || named.isBlank()) {
+                ctx.logEntry("Effect: no " + (byJob ? "Job" : "Element") + " named — no damage");
+                return;
+            }
+            ctx.logEntry("Effect: named " + named + " — deal " + damage
+                    + " damage to all Forwards " + (byJob ? "with that Job" : "of that Element"));
+            for (boolean p1 : new boolean[] { false, true }) {
+                int count = p1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
+                List<Integer> hits = new ArrayList<>();
+                for (int i = 0; i < count; i++) {
+                    CardData c = p1 ? ctx.p1Forward(i) : ctx.p2Forward(i);
+                    if (c == null) continue;
+                    if (byJob ? c.hasJob(named) : c.containsElement(named)) hits.add(i);
+                }
+                for (int i = hits.size() - 1; i >= 0; i--) {
+                    int idx = hits.get(i);
+                    if (p1) { if (idx < ctx.p1ForwardCount()) ctx.damageP1Forward(idx, damage); }
+                    else    { if (idx < ctx.p2ForwardCount()) ctx.damageP2Forward(idx, damage); }
+                }
+            }
+        };
+    }
+
     static Consumer<GameContext> tryParseDealDamageToForwards(String text) {
         Matcher m = DEAL_DAMAGE_TO_FORWARDS.matcher(text);
         if (!m.find() || m.start() != 0) {

@@ -2535,6 +2535,35 @@ final class ActionResolverChoose {
             }
         }
 
+        // --- "Remove all the cards in your opponent's Break Zone from the game. Deal it N damage
+        //      for each card removed by this effect." (The Demon 20-007L) ---
+        // Read off the whole followup, because the damage is scaled by what the removal took and
+        // the ". " split leaves each half useless: the removal is a standalone effect the chain
+        // already knows and the damage has no count. Before this the option chose a Forward and
+        // then logged both halves as unimplemented.
+        {
+            Matcher rfgDmgM = FOLLOWUP_RFG_OPP_BZ_DAMAGE_PER_CARD_REMOVED.matcher(followup.trim());
+            if (rfgDmgM.matches()) {
+                final int per = Integer.parseInt(rfgDmgM.group("amount"));
+                return ctx -> {
+                    ctx.logChooseHeader(choosePrefix + " — empty opponent's Break Zone, then "
+                            + per + " damage per card removed");
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                            jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    // The removal happens whether or not a Forward was chosen — it is its own
+                    // sentence, and an empty board does not stop the Break Zone being emptied.
+                    int removed = ctx.removeAllOpponentBzFromGame();
+                    int total = per * removed;
+                    ctx.logEntry("Effect: " + removed + " card(s) removed — " + total + " damage");
+                    if (total > 0) ts.forEach(t -> ctx.damageTarget(t, total));
+                    // No secondary: this branch has read both sentences, and the split's second
+                    // half is the damage clause it already applied.
+                };
+            }
+        }
+
         // --- "You may pay 《Element》. If you do so, [target action]." ---
         // Checked against the full followup before the primary/secondary split so the conditional is not lost.
         {

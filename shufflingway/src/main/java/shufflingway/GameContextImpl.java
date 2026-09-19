@@ -7940,15 +7940,18 @@ final class GameContextImpl implements GameContext {
 						title, PickGate.ANY).size();
 			}
 
-			@Override public void removeAllOpponentBzFromGame() {
+			@Override public int removeAllOpponentBzFromGame() {
 				List<CardData> bz = isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
+				int removed = 0;
 				while (!bz.isEmpty()) {
 					CardData card = bz.remove(bz.size() - 1);
 					logEntry((isP1 ? "[P2] " : "") + card.name() + " (opponent BZ) → Removed From Game");
 					mw.gameState.addToPermanentRfp(card);
+					removed++;
 				}
 				if (isP1) { mw.refreshP2BreakLabel(); mw.refreshP2WarpZoneUI(); }
 				else      { mw.refreshP1BreakLabel(); mw.refreshP1WarpZoneUI(); }
+				return removed;
 			}
 
 			@Override public void removeAllBreakZonesFromGame() {

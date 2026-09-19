@@ -60104,6 +60104,185 @@ public class CardBehaviorTest {
 	// =========================================================================================
 
 	// =========================================================================================
+	// The Demon 20-007L — three options, two of them quietly burning the whole board
+	//
+	// "select 1 of the 3 following actions.
+	//   "Choose 1 Forward. Remove all the cards in your opponent's Break Zone from the game.
+	//    Deal it 1000 damage for each card removed by this effect."
+	//   "Name 1 Element. Deal 7000 damage to all Forwards of the named Element."
+	//   "Name 1 Job. Deal 8000 damage to all Forwards with the named Job.""
+	//
+	// Option 1 was a benign gap — it chose a Forward and logged both of its sentences as
+	// unimplemented. Options 2 and 3 were not. DEAL_DAMAGE_TO_FORWARDS carries only *exclusive*
+	// filters ("other than Job Y") and scans with find(), so it took the prefix "Deal N damage to
+	// all Forwards" and swept every Forward on both boards with the qualifier dropped.
+	//
+	// Option 3 is the one worth remembering: it was named "NameJob + DealDamageToForwards" in the
+	// report the entire time it was doing that. tryParseIndependentSentences split it in two, and
+	// both halves parse on their own — the naming really does just name, and the sweep really
+	// does sweep. A name on each half, a name on the whole, and the wrong board state.
+	// =========================================================================================
+
+	private static final String DEMON_OPTION_RFG =
+			"Choose 1 Forward. Remove all the cards in your opponent's Break Zone from the game. "
+			+ "Deal it 1000 damage for each card removed by this effect.";
+	private static final String DEMON_OPTION_ELEMENT =
+			"Name 1 Element. Deal 7000 damage to all Forwards of the named Element.";
+	private static final String DEMON_OPTION_JOB =
+			"Name 1 Job. Deal 8000 damage to all Forwards with the named Job.";
+
+	@Test
+	void allThreeOfTheDemonsOptionsAreRead() {
+		CardData demon = makeForward("The Demon", "Fire", 7, 9000);
+		assertEquals("ChooseCharacter / RfgOppBzDamagePerCardRemoved",
+				ActionResolver.fullDescription(DEMON_OPTION_RFG, demon));
+		assertEquals("NameJobOrElementThenDamageMatching",
+				ActionResolver.fullDescription(DEMON_OPTION_ELEMENT, demon));
+		assertEquals("NameJobOrElementThenDamageMatching",
+				ActionResolver.fullDescription(DEMON_OPTION_JOB, demon),
+				"and the Job option is no longer named for the unfiltered sweep it was running");
+	}
+
+	/** Resolves a named-Job/Element sweep over a fixed board, returning the mock it ran against. */
+	private static GameContext resolveDemonSweep(String text, String named, boolean job,
+			List<CardData> p1, List<CardData> p2) {
+		Consumer<GameContext> fn = ActionResolver.parse(text, makeForward("The Demon", "Fire", 7, 9000));
+		assertNotNull(fn, "the named sweep should parse");
+		GameContext ctx = mock(GameContext.class);
+		if (job) when(ctx.selectJobNamedAgainstOpponent()).thenReturn(named);
+		else     when(ctx.selectElement(any())).thenReturn(named);
+		when(ctx.p1ForwardCount()).thenReturn(p1.size());
+		when(ctx.p2ForwardCount()).thenReturn(p2.size());
+		for (int i = 0; i < p1.size(); i++) when(ctx.p1Forward(i)).thenReturn(p1.get(i));
+		for (int i = 0; i < p2.size(); i++) when(ctx.p2Forward(i)).thenReturn(p2.get(i));
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void theElementOptionBurnsOnlyTheNamedElement() {
+		List<CardData> mine = List.of(makeForward("Ice One", "Ice", 3, 7000),
+				makeForward("Fire One", "Fire", 3, 7000));
+		List<CardData> theirs = List.of(makeForward("Ice Two", "Ice", 4, 8000));
+		GameContext ctx = resolveDemonSweep(DEMON_OPTION_ELEMENT, "Ice", false, mine, theirs);
+
+		verify(ctx).damageP1Forward(0, 7000);
+		verify(ctx).damageP2Forward(0, 7000);
+		verify(ctx, never()).damageP1Forward(eq(1), anyInt());
+	}
+
+	@Test
+	void theJobOptionBurnsOnlyTheNamedJob() {
+		List<CardData> mine = List.of(makeJobCategoryForward("Knightly", "Knight", "I"),
+				makeJobCategoryForward("Maged", "Mage", "I"));
+		GameContext ctx = resolveDemonSweep(DEMON_OPTION_JOB, "Knight", true, mine, List.of());
+
+		verify(ctx).damageP1Forward(0, 8000);
+		verify(ctx, never()).damageP1Forward(eq(1), anyInt());
+	}
+
+	@Test
+	void theSweepNoLongerBurnsForwardsTheQualifierExcludes() {
+		// The regression guard for both options. Before this, every Forward on both boards took
+		// the damage regardless of Job or Element.
+		List<CardData> mine = List.of(makeForward("Wind One", "Wind", 3, 7000));
+		List<CardData> theirs = List.of(makeForward("Earth One", "Earth", 3, 7000));
+		GameContext ctx = resolveDemonSweep(DEMON_OPTION_ELEMENT, "Fire", false, mine, theirs);
+
+		verify(ctx, never()).damageP1Forward(anyInt(), anyInt());
+		verify(ctx, never()).damageP2Forward(anyInt(), anyInt());
+	}
+
+	@Test
+	void aMultiElementForwardAnswersToEitherHalf() {
+		List<CardData> mine = List.of(makeForward("Dual", "Fire/Ice", 3, 7000));
+		verify(resolveDemonSweep(DEMON_OPTION_ELEMENT, "Ice", false, mine, List.of()))
+				.damageP1Forward(0, 7000);
+	}
+
+	@Test
+	void namingNothingDealsNoDamage() {
+		GameContext ctx = resolveDemonSweep(DEMON_OPTION_ELEMENT, null, false,
+				List.of(makeForward("Fire One", "Fire", 3, 7000)), List.of());
+		verify(ctx, never()).damageP1Forward(anyInt(), anyInt());
+	}
+
+	@Test
+	void aSentenceThatNamesOneThingAndFiltersOnTheOtherIsDeclined() {
+		// Not something to guess at. Asserted against this parser rather than against parse(),
+		// which is the honest contract: declining hands the text back to the chain, where the
+		// sentence splitter still takes it and runs the unfiltered sweep. No printing has this
+		// shape, and closing it for good needs the chain to know a text is spoken for.
+		assertNull(ActionResolverDamage.tryParseNameJobOrElementThenDamageMatching(
+				"Name 1 Job. Deal 8000 damage to all Forwards of the named Element."));
+		assertNotNull(ActionResolverDamage.tryParseNameJobOrElementThenDamageMatching(DEMON_OPTION_JOB),
+				"while the printed pairing is claimed");
+	}
+
+	@Test
+	void theUnqualifiedSweepStillReadsAsItself() {
+		// The sibling that really does hit everything must be untouched by the guard in front of it.
+		assertEquals("DealDamageToForwards",
+				ActionResolver.matchedPatternName("Deal 9000 damage to all Forwards.", null));
+	}
+
+	@Test
+	void theRemovalScalesTheDamageAndHappensEvenWithNoTarget() {
+		ForwardTarget victim = fwd(false, 0);
+		Consumer<GameContext> fn = ActionResolver.parse(DEMON_OPTION_RFG, null);
+		assertNotNull(fn, "the removal option should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+		when(ctx.removeAllOpponentBzFromGame()).thenReturn(6);
+		fn.accept(ctx);
+
+		verify(ctx).removeAllOpponentBzFromGame();
+		verify(ctx).damageTarget(victim, 6000);
+	}
+
+	@Test
+	void anEmptyOpponentBreakZoneDealsNoDamageButStillEmptiesIt() {
+		ForwardTarget victim = fwd(false, 0);
+		Consumer<GameContext> fn = ActionResolver.parse(DEMON_OPTION_RFG, null);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+		when(ctx.removeAllOpponentBzFromGame()).thenReturn(0);
+		fn.accept(ctx);
+
+		verify(ctx).removeAllOpponentBzFromGame();
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void theRemovalOptionDoesNotRunItsDamageSentenceTwice() {
+		// The branch reads both sentences, so the split's second half must not also resolve as a
+		// secondary — it would be a second helping of the same damage.
+		ForwardTarget victim = fwd(false, 0);
+		Consumer<GameContext> fn = ActionResolver.parse(DEMON_OPTION_RFG, null);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+		when(ctx.removeAllOpponentBzFromGame()).thenReturn(2);
+		fn.accept(ctx);
+
+		verify(ctx, times(1)).damageTarget(victim, 2000);
+		verify(ctx, times(1)).damageTarget(any(), anyInt());
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
 	// Meia 9-095L / Dark Lord 6-016H — a trigger spelled short, and mis-filed for it
 	//
 	// "At the beginning of your Attack Phase, [effect]" is the same trigger as "At the beginning

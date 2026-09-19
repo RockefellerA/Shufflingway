@@ -1918,6 +1918,51 @@ final class ActionResolverPatterns {
         "\\s+(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+power" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
     );
+    /**
+     * The Demon 20-007L's second and third options: "Name 1 [Job|Element]. Deal N damage to all
+     * Forwards [of|with] the named [Element|Job]."
+     *
+     * <p>Read as one effect over both sentences, because the naming is worthless apart from the
+     * sweep it filters and the sweep is <em>wrong</em> apart from the naming.
+     * {@link #DEAL_DAMAGE_TO_FORWARDS} carries only exclusive filters ("other than Job Y") and
+     * matches with {@code find()}, so it took the prefix "Deal 8000 damage to all Forwards" and
+     * ran an unfiltered sweep of both boards with the qualifier dropped. The Job option looked
+     * fine in the report — it was named {@code NameJob + DealDamageToForwards} — while doing
+     * exactly that.
+     *
+     * <p>{@code kind} and {@code kind2} are captured separately and the parser requires them to
+     * agree. A sentence naming a Job and then filtering on an Element is not something to guess
+     * at; declining leaves it visibly unread.
+     * <ul>
+     *   <li>Groups {@code kind} / {@code kind2} — "Job" or "Element", which must match</li>
+     *   <li>Group {@code amount} — the damage dealt to each matching Forward</li>
+     * </ul>
+     */
+    static final Pattern NAME_JOB_OR_ELEMENT_THEN_DAMAGE_MATCHING_FORWARDS = Pattern.compile(
+        "(?i)^Name\\s+1\\s+(?<kind>Job|Element)[.!]\\s+" +
+        "Deal\\s+(?<amount>\\d+)\\s+damage\\s+to\\s+all(?:\\s+the)?\\s+Forwards?\\s+" +
+        "(?:of|with)\\s+the\\s+named\\s+(?<kind2>Job|Element)[.!]?$"
+    );
+    /**
+     * The Demon 20-007L's first option, read off the whole choose followup: "Remove all the cards
+     * in your opponent's Break Zone from the game. Deal it N damage for each card removed by this
+     * effect."
+     *
+     * <p>Both sentences together, because the second one's multiplier is the first one's result.
+     * Split at the ". ", the removal is a standalone effect the chain already knows and the
+     * damage has no count to scale by — which is how this resolved before: the removal half was
+     * declined as an unimplemented followup and the damage half as an unimplemented secondary, so
+     * the option chose a Forward and did nothing at all.
+     * <ul>
+     *   <li>Group {@code amount} — damage per card removed</li>
+     * </ul>
+     */
+    static final Pattern FOLLOWUP_RFG_OPP_BZ_DAMAGE_PER_CARD_REMOVED = Pattern.compile(
+        "(?i)^Remove\\s+all\\s+the\\s+cards\\s+in\\s+your\\s+opponent'?s\\s+Break\\s+Zone\\s+" +
+        "from\\s+the\\s+game[.!]\\s+" +
+        "Deal\\s+it\\s+(?<amount>\\d+)\\s+damage\\s+for\\s+each\\s+card\\s+removed\\s+by\\s+" +
+        "this\\s+effect[.!]?$"
+    );
     /** Matches "It loses all [its] abilities until the end of the turn." */
     static final Pattern FOLLOWUP_LOSE_ALL_ABILITIES_EOT = Pattern.compile(
         "(?i)It\\s+loses\\s+all\\s+(?:its\\s+)?abilities\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
