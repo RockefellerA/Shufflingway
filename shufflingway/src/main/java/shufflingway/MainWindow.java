@@ -1588,6 +1588,11 @@ public class MainWindow {
 	boolean lastCardWasCast = false;
 	/** True while a card is entering the field via Warp resolution; gates warpOnly field abilities. */
 	boolean lastCardWarpedIn = false;
+	/**
+	 * True while a card is being placed after a cast that took the self-discount it prints
+	 * ({@link CardData#altSelfReduction}); gates discountedOnly auto abilities.
+	 */
+	boolean lastCardCastDiscounted = false;
 
 	/** Set when "Take 1 more turn; lose at the end of that turn" fires. */
 	boolean p1ExtraTurnThenLose = false;
@@ -2437,6 +2442,7 @@ public class MainWindow {
 		p2Turn.partyAnyElementThisTurn = false;
 		lastCardWasCast   = false;
 		lastCardWarpedIn  = false;
+		lastCardCastDiscounted = false;
 		// The three transient trigger-event fields, which are declared together and belong
 		// together here. Each is already set and restored in a finally around its own
 		// resolution, so none of them can outlive one -- this is the belt to that brace, and
@@ -8482,6 +8488,7 @@ public class MainWindow {
 		List<DullForwardCost> altDull = card.altDullCosts();
 		CardData.AltPutToBzCost altBz = card.altPutToBzCost();
 		CardData.AltPutToBzReduction altBzReduce = card.altPutToBzReduction();
+		CardData.AltSelfReduction altSelfReduce = card.altSelfReduction();
 		if (card.altCrystalCost() > 0 || card.altCpCost() > 0 || card.altFieldRemoval() != null
 				|| !altDull.isEmpty() || altBz != null || altBzReduce != null) {
 			int ac = card.altCrystalCost();
@@ -8506,8 +8513,13 @@ public class MainWindow {
 					.entrySet().stream().map(en -> (en.getKey().equals("generic") ? en.getValue() + " CP" : en.getValue() + " " + en.getKey() + " CP")).collect(Collectors.joining(" + "));
 			List<String> cond = card.altConditionCardNames();
 			String condStr = cond.isEmpty() ? "" : " [req: " + String.join("/", cond) + "]";
+			// Every other alternate cost names its price in the label above; this one's price is a
+			// drawback that only comes due later, so the printed sentence goes in the label whole
+			// rather than being summarised into something the player has to take on trust.
+			String drawbackStr = altSelfReduce == null ? ""
+					: " [" + altSelfReduce.followupText().replaceAll("[.!]$", "") + "]";
 			String altLabel = "Play (Alt: " + bzReduceStr + bzStr + dullStr + removalStr + crystalStr
-					+ cpStr + condStr + ")";
+					+ cpStr + condStr + ")" + drawbackStr;
 			JMenuItem altItem = new JMenuItem(altLabel);
 			altItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict
 					&& canAffordAltCost(card, handIdx)
@@ -9941,7 +9953,8 @@ public class MainWindow {
 			executeAltFieldRemoval(removalSlots);
 			executeAltPutToBz(bzPayment);
 			executeAltPutToBz(bzReducePayment);
-			executePlay(card, handIdx, Collections.emptyList(), Collections.emptyList(), Map.of());
+			withSelfReductionArmed(card, () ->
+					executePlay(card, handIdx, Collections.emptyList(), Collections.emptyList(), Map.of()));
 			executeAltFollowup(followupText, card);
 			return;
 		}
@@ -9957,7 +9970,8 @@ public class MainWindow {
 			executeAltDull(dullIdxs);
 			executeAltFieldRemoval(removalSlots);
 			executeAltPutToBz(bzReducePayment);
-			executePlay(card, handIdx, Collections.emptyList(), Collections.emptyList(), Map.of());
+			withSelfReductionArmed(card, () ->
+					executePlay(card, handIdx, Collections.emptyList(), Collections.emptyList(), Map.of()));
 			executeAltFollowup(followupText, card);
 			return;
 		}
@@ -9999,7 +10013,8 @@ public class MainWindow {
 					executeAltFieldRemoval(removalSlots);
 					executeAltPutToBz(bzReducePayment);
 					executeAltBzRemovals(bzRemovals);
-					executePlay(card, handIdx, discards, backups, Map.of(), breaks);
+					withSelfReductionArmed(card, () ->
+							executePlay(card, handIdx, discards, backups, Map.of(), breaks));
 					executeAltFollowup(followupText, card);
 				}, breakForCpBackupSlots(true)).show();
 	}
@@ -10347,6 +10362,21 @@ public class MainWindow {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Runs {@code play} with {@link #lastCardCastDiscounted} raised when {@code card} prints a
+	 * self-discount, so the drawback the discount buys fires on this arrival and on no other.
+	 *
+	 * <p>Raised around the play rather than latched in a pending field the way the extra costs
+	 * are: a pending flag set before a payment dialog outlives a cancelled payment, and would
+	 * then arm the drawback on whatever the player cast next.
+	 */
+	private void withSelfReductionArmed(CardData card, Runnable play) {
+		if (card.altSelfReduction() == null) { play.run(); return; }
+		boolean prev = lastCardCastDiscounted;
+		lastCardCastDiscounted = true;
+		try { play.run(); } finally { lastCardCastDiscounted = prev; }
 	}
 
 	/** Executes the "If you do so" followup effect attached to an alternate cast, if any. */

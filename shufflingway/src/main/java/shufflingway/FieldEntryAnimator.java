@@ -109,26 +109,31 @@ final class FieldEntryAnimator {
 	 * Fires {@code card}'s enter-the-field auto abilities, or queues them until its arrival
 	 * animation has finished so no ability popup lands on top of the animation.
 	 *
-	 * <p>The triggers read MainWindow's arrival flags — "was it cast from hand?", "did it Warp in?"
-	 * — at the moment they run, and the placement that set them has long returned by then, so a
-	 * queued run restores the values they had when the card actually arrived.  Without this,
-	 * {@code castOnly} and {@code warpOnly} abilities would silently stop firing.
+	 * <p>The triggers read MainWindow's arrival flags — "was it cast from hand?", "did it Warp in?",
+	 * "was its own discount taken?" — at the moment they run, and the placement that set them has
+	 * long returned by then, so a queued run restores the values they had when the card actually
+	 * arrived.  Without this, {@code castOnly}, {@code warpOnly} and {@code discountedOnly}
+	 * abilities would silently stop firing.
 	 */
 	void fireEntersField(CardData card, boolean isP1, boolean paidExtraCost) {
 		List<Runnable> queue = pending.get(card);
 		if (queue != null) {
 			boolean wasCast  = mw.lastCardWasCast;
 			boolean warpedIn = mw.lastCardWarpedIn;
+			boolean discounted = mw.lastCardCastDiscounted;
 			queue.add(() -> {
 				boolean prevCast = mw.lastCardWasCast;
 				boolean prevWarp = mw.lastCardWarpedIn;
+				boolean prevDiscount = mw.lastCardCastDiscounted;
 				mw.lastCardWasCast  = wasCast;
 				mw.lastCardWarpedIn = warpedIn;
+				mw.lastCardCastDiscounted = discounted;
 				try {
 					mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, isP1, paidExtraCost);
 				} finally {
 					mw.lastCardWasCast  = prevCast;
 					mw.lastCardWarpedIn = prevWarp;
+					mw.lastCardCastDiscounted = prevDiscount;
 				}
 			});
 			return;

@@ -46284,6 +46284,82 @@ public class CardBehaviorTest {
 
 
 	// =========================================================================================
+	// Golbez 17-140S: a cast-time discount whose price is a triggered ability.
+	//
+	// Parsing + board behaviour. His first sentence is the only printing that buys a cost
+	// reduction with a drawback rather than with something handed over, and it used to read as
+	// two separate wrongs at once: an unrecognized field ability, so the discount was never on
+	// offer, and — because "when Golbez enters the field, put Golbez into the Break Zone" is a
+	// perfectly ordinary trigger sentence sitting inside it — an unconditional enters-the-field
+	// ability, so a full-price Golbez broke himself on arrival for nothing.
+	// =========================================================================================
+
+	private static final String GOLBEZ_17_140S_TEXT =
+			"You may reduce the cost required to cast Golbez by 2. If you do so, when Golbez enters "
+			+ "the field, put Golbez into the Break Zone.[[br]] When Golbez enters the field, select "
+			+ "1 of the 2 following actions.[[br]] \"Choose 1 Forward. Break it.\"[[br]] \"Choose 1 "
+			+ "Character other than Light or Dark in your Break Zone. Add it to your hand.\"";
+
+	/**
+	 * The discount sentence on its own. The board tests below place Golbez for real, and his
+	 * printed second ability is a modal two-way choice — left out here so the arrival being
+	 * measured is the drawback and nothing else.
+	 */
+	private static final String GOLBEZ_DISCOUNT_ONLY =
+			"You may reduce the cost required to cast Golbez by 2. If you do so, when Golbez enters "
+			+ "the field, put Golbez into the Break Zone.";
+
+	@Test
+	void golbezsDiscountIsReadAsAnAlternateCostRatherThanAsAnUnreadFieldAbility() {
+		CardData golbez = makePricedAutoForward("Golbez", "Dark", 6, 9000, GOLBEZ_17_140S_TEXT);
+		CardData.AltSelfReduction discount = golbez.altSelfReduction();
+		assertNotNull(discount, "the discount sentence used to be an unrecognized field ability");
+		assertEquals(2, discount.reduction());
+		assertEquals("when Golbez enters the field, put Golbez into the Break Zone.",
+				discount.followupText(), "the drawback is carried whole, trigger clause included");
+		assertEquals(List.of("Dark", "Dark", "Dark", "Dark"), golbez.altCpElements(),
+				"cost 6 reduced by 2");
+		assertTrue(CardData.parseFieldAbilities(GOLBEZ_17_140S_TEXT, "Forward").isEmpty(),
+				"an alternate-cost declaration is not a continuous ability");
+	}
+
+	@Test
+	void golbezsSelfBreakIsMarkedAsTheDiscountsPriceRatherThanAnOrdinaryArrival() {
+		CardData golbez = makePricedAutoForward("Golbez", "Dark", 6, 9000, GOLBEZ_17_140S_TEXT);
+		List<AutoAbility> autos = golbez.autoAbilities();
+		assertEquals(2, autos.size(), "the discount sentence yields exactly one ability");
+		assertTrue(autos.get(0).discountedOnly(), "the self-break is what the discount buys");
+		assertEquals("put Golbez into the Break Zone.", autos.get(0).effectText());
+		assertFalse(autos.get(1).discountedOnly(),
+				"his printed second ability fires on every arrival");
+	}
+
+	@Test
+	void golbezBreaksHimselfOnArrivalWhenTheDiscountWasTaken() {
+		MainWindow mw = new MainWindow();
+		CardData golbez = makePricedAutoForward("Golbez", "Dark", 6, 9000, GOLBEZ_DISCOUNT_ONLY);
+
+		mw.lastCardCastDiscounted = true;
+		placeP1Forward(mw, golbez);
+
+		assertTrue(mw.p1ForwardCards.isEmpty(), "the discount is paid for on arrival");
+		assertEquals(List.of(golbez), mw.gameState.getP1BreakZone());
+	}
+
+	@Test
+	void golbezStaysOnTheFieldWhenHeWasCastAtFullPrice() {
+		MainWindow mw = new MainWindow();
+		CardData golbez = makePricedAutoForward("Golbez", "Dark", 6, 9000, GOLBEZ_DISCOUNT_ONLY);
+
+		placeP1Forward(mw, golbez);
+
+		assertEquals(List.of(golbez), mw.p1ForwardCards,
+				"nothing was discounted, so nothing is owed");
+		assertTrue(mw.gameState.getP1BreakZone().isEmpty());
+	}
+
+
+	// =========================================================================================
 	// Ramza 10-138S, Ardyn 20-001R and Laguna 1-059R: three enters-the-field abilities that were
 	// losing everything after their first clause.
 	//

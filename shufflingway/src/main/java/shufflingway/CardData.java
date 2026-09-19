@@ -254,6 +254,50 @@ public record CardData(
                 m.group("type").trim());
     }
 
+    /**
+     * Matches the cost reduction a card gives itself for nothing handed over at cast time, paid
+     * for instead by a drawback the discount arms: "You may reduce the cost required to cast
+     * Golbez by 2. If you do so, when Golbez enters the field, put Golbez into the Break Zone."
+     * — Golbez 17-140S, the only printing of this shape.
+     *
+     * <p>Its siblings above all name a price on the board — Crystals, a Backup removed from the
+     * game, Forwards dulled, a card handed to the Break Zone — and are unaffordable without it.
+     * This one is always affordable, so {@link #altSelfReduction} reports the drawback rather
+     * than a payment, and the reduced CP still owed goes through {@link #altCpElements()} exactly
+     * as {@link #ALT_COST_PUT_TO_BZ_REDUCE}'s does.
+     *
+     * <p>The "If you do so" clause is required rather than optional. A reduction read without its
+     * price would be a strictly better card than the one printed, and the drawback is the whole
+     * price here — so a printing that words its consequence differently goes unread instead.
+     */
+    private static final Pattern ALT_COST_SELF_REDUCE = Pattern.compile(
+        "(?i)You\\s+may\\s+reduce\\s+the\\s+cost\\s+required\\s+to\\s+cast\\s+.+?\\s+" +
+        "by\\s+(?<reduction>\\d+)[.!]\\s+" +
+        "If\\s+you\\s+do\\s+so,\\s+(?<followup>.+?)" +
+        "(?=\\s*(?:\\[\\[br\\]\\]|$))"
+    );
+
+    /**
+     * A discount a card offers itself at cast time, and the printed consequence of taking it.
+     * {@code followupText} is a whole sentence, trigger clause included ("when Golbez enters the
+     * field, put Golbez into the Break Zone."), because the consequence is not immediate.
+     */
+    public record AltSelfReduction(int reduction, String followupText) {}
+
+    /**
+     * The discount this card offers itself at cast time, or {@code null} when it prints none.
+     *
+     * <p>Only the discount is reported here. What taking it costs is an ordinary triggered
+     * ability, parsed out of {@link #followupText} by {@link #parseAutoAbilities} and marked
+     * {@link AutoAbility#discountedOnly()} so it fires on a discounted arrival and no other.
+     */
+    public AltSelfReduction altSelfReduction() {
+        Matcher m = ALT_COST_SELF_REDUCE.matcher(textEn);
+        if (!m.find()) return null;
+        return new AltSelfReduction(Integer.parseInt(m.group("reduction")),
+                m.group("followup").trim());
+    }
+
     private static final Pattern ALT_COST_PUT_TO_BZ = Pattern.compile(
         "(?i)You\\s+can\\s+put\\s+a\\s+total\\s+of\\s+(?<count>\\d+)\\s+" +
         "(?<types>Forwards?(?:\\s+or\\s+Monsters?)?|Monsters?(?:\\s+or\\s+Forwards?)?|Characters?)\\s+" +
@@ -411,6 +455,8 @@ public record CardData(
         m = ALT_COST_SUMMON_REMOVE_FIELD.matcher(textEn);
         if (m.find()) return reducedCastCpElements(Integer.parseInt(m.group("reduction")));
         m = ALT_COST_PUT_TO_BZ_REDUCE.matcher(textEn);
+        if (m.find()) return reducedCastCpElements(Integer.parseInt(m.group("reduction")));
+        m = ALT_COST_SELF_REDUCE.matcher(textEn);
         if (m.find()) return reducedCastCpElements(Integer.parseInt(m.group("reduction")));
         m = ALT_COST_NONSUMMON.matcher(textEn);
         if (m.find()) return List.copyOf(parseCostTokens(m.group("costs"), crystals));
@@ -3850,6 +3896,25 @@ public record CardData(
         List<String> maskedQuotes = new ArrayList<>();
         String textForSearch = truncateAtActionAbilityCost(maskQuotedTriggerSpans(textEn, maskedQuotes));
 
+        // Zeroth pass: "You may reduce the cost required to cast X by N. If you do so, [trigger
+        // sentence]" — the drawback Golbez 17-140S's cast-time discount arms. The trigger behind
+        // "If you do so," is an ordinary one, so it is parsed by this very method rather than by a
+        // pattern of its own (the gate-and-remainder split the opponent's-turn pass below uses),
+        // and every ability it yields is marked as firing only on a discounted arrival.
+        //
+        // Stripped first, ahead of every other pass: left in place the sentence reads as a plain
+        // "when Golbez enters the field, put Golbez into the Break Zone", and Golbez would break
+        // himself on arrival whether or not the discount was ever taken.
+        Matcher selfReduceM = ALT_COST_SELF_REDUCE.matcher(textForSearch);
+        StringBuffer selfReduceBuf = new StringBuffer();
+        while (selfReduceM.find()) {
+            for (AutoAbility inner : parseAutoAbilities(selfReduceM.group("followup").trim()))
+                result.add(inner.withDiscountedOnly());
+            selfReduceM.appendReplacement(selfReduceBuf, "");
+        }
+        selfReduceM.appendTail(selfReduceBuf);
+        textForSearch = selfReduceBuf.toString();
+
         // First pass: "when [PrimerCard] primes into [TargetCard], [effect]"
         // Also handles "When [Target] [trigger] [, extra] or when [Primer] primes into [Target], [effect]"
         // Matched regions are stripped from textForSearch before the remaining passes run.
@@ -4524,7 +4589,7 @@ public record CardData(
         // an optional ability, declining the prompt would skip the consequence too.
         if (youMay && ActionResolver.isPayOrElseGate(effect)) youMay = false;
         return new AutoAbility(card, trigger, youMay, opponentMay, effect,
-                oncePerTurn, yourTurnOnly, false, rfpConditionCard, bzConditionCard, bzConditionJob, castPaymentMinElements, castOnly, warpOnly, damageThreshold,
+                oncePerTurn, yourTurnOnly, false, rfpConditionCard, bzConditionCard, bzConditionJob, castPaymentMinElements, castOnly, warpOnly, false, damageThreshold,
                 partyMinCount, partyCategory, partyJob, partyCardNames);
     }
 
@@ -8759,6 +8824,7 @@ public record CardData(
             if (ALT_COST_DULL.matcher(seg).find())      continue;
             if (ALT_COST_PUT_TO_BZ.matcher(seg).find()) continue;
             if (ALT_COST_PUT_TO_BZ_REDUCE.matcher(seg).find()) continue;
+            if (ALT_COST_SELF_REDUCE.matcher(seg).find()) continue;
             // "If you cast [card], you may pay 《…》 as an extra cost." — a cast-time option read
             // by {@link #extraCost}, not a field ability. It has no continuous effect of its own;
             // what it does is set the flag a later "if you paid the extra cost" clause reads.
