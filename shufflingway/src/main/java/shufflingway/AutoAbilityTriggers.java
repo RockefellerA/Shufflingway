@@ -436,7 +436,16 @@ final class AutoAbilityTriggers {
 	 * damages whichever player failed to pay it, so the doubler is written to cover either side
 	 * rather than the opponent alone. Readers that ask about damage to a player therefore test for
 	 * "opponent" <em>or</em> "player" — matching on "opponent" alone silently dropped this printing.
-	 * Groups: {@code card}, {@code target} (contains "Forward", "opponent" and/or "player").
+	 * Groups: {@code card}, {@code target} (contains "Forward", "opponent" and/or "player"), and
+	 * {@code telem} — the Element the damaged Forward must have, or {@code null} for any Forward.
+	 *
+	 * <p>{@code telem} sits <em>inside</em> {@code target} on purpose, so every reader that asks
+	 * {@code target.contains("forward")} keeps answering as it did. Only the two readers that can
+	 * double damage to a Forward — {@code DamageResolver.modifyIncomingDamage} and
+	 * {@code MainWindow.fieldAbilityCombatOutgoingMult} — have to test it. The two that ask about
+	 * damage to a <em>player</em> never see it, because an element-qualified clause names no player.
+	 * <b>A reader that doubles to a Forward and ignores {@code telem} doubles against every
+	 * Element</b>, which is strictly stronger than any card that prints this.
 	 */
 	static final Pattern FA_OUTGOING_DAMAGE_DOUBLER = Pattern.compile(
 		"(?i)^If\\s+(?<card>.+?)\\s+deals\\s+damage\\s+to\\s+" +
@@ -445,7 +454,14 @@ final class AutoAbilityTriggers {
 		// round. The reversed arm is listed ahead of the bare "your opponent" so the longer read
 		// is tried first — every reader tests this group with contains(), so an arm naming both
 		// answers to the Forward question and the opponent question alike.
-		"(?<target>a\\s+Forward(?:\\s+or\\s+your\\s+opponent)?" +
+		//
+		// The optional Element belongs to 17-133S Scarmiglione, who names one on entering the
+		// field and is granted this clause with it spelled in. No printing states an Element here
+		// and also names a player, so the qualified arm carries no "or your opponent" tail.
+		// "an" for the two Elements that need it — the clause is generated from the printed
+		// template when the Element is named, and it is logged to the player as granted text.
+		"(?<target>an?\\s+(?:(?<telem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+		"Forward(?:\\s+or\\s+your\\s+opponent)?" +
 		"|your\\s+opponent\\s+or\\s+a\\s+Forward|your\\s+opponent|a\\s+player)" +
 		// "instead" is optional: every printing of this doubler carries it except the one Terra
 		// 1-047R grants itself ("… double the damage"), which is the only corpus text of this

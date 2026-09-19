@@ -40,6 +40,58 @@ final class ActionResolverFieldAbility {
         return grantedSelfFieldAbilityEffect(m.group("quoted").trim(), source);
     }
     /**
+     * "Name 1 Element. [Self] gains "&lt;clause naming the Element&gt;." (This effect does not end
+     * at the end of the turn.)" — 17-133S Scarmiglione.
+     *
+     * <p>The Element is substituted into the clause when the ability resolves, so what reaches
+     * {@link ActionResolver#permanentGrantForSelfClause} is ordinary field-ability text and the
+     * existing readers need no notion of "which Element did this card name". Scarmiglione's own
+     * clause lands on {@code FA_OUTGOING_DAMAGE_DOUBLER}, whose {@code telem} group carries the
+     * Element through to the two readers that can double damage to a Forward.
+     *
+     * <p>Every Element the picker can return is checked at parse time, not when it resolves. A
+     * clause no grant primitive reads back would be granted silently and do nothing — and this
+     * grant is permanent, so it would stay wrong for the rest of the game. Declining here leaves
+     * the ability visibly unparsed instead, which is the fail-closed reading.
+     */
+    static Consumer<GameContext> tryParseNameElementThenGainsQuotedPermanent(String text, CardData source) {
+        if (source == null) return null;
+        String matchOn = stripRestrictionSentences(text);
+        if (matchOn.isEmpty()) matchOn = text;
+        Matcher m = NAME_ELEMENT_THEN_GAINS_QUOTED_PERMANENT.matcher(matchOn.trim());
+        if (!m.matches()) return null;
+        if (!m.group("subject").trim().equalsIgnoreCase(source.name())) return null;
+
+        final String template = m.group("quoted").trim();
+        for (String e : Elements.ALL)
+            if (permanentGrantForSelfClause(namedElementClause(template, e), source) == null) return null;
+
+        return ctx -> {
+            String elem = ctx.selectElement("Name 1 Element (" + source.name() + "):");
+            if (elem == null) return;
+            Consumer<GameContext> grant =
+                    permanentGrantForSelfClause(namedElementClause(template, elem), source);
+            if (grant == null) return;
+            ctx.logEntry("Effect: " + source.name() + " names " + elem);
+            grant.accept(ctx);
+        };
+    }
+
+    /**
+     * Writes the named Element into a granted clause — "a Forward of the named Element" becomes
+     * "a Fire Forward", "an Ice Forward".
+     *
+     * <p>The article is corrected because the result is granted text: it is logged to the player
+     * and read back as an ordinary field ability, so "a Ice Forward" would be visible.
+     */
+    private static String namedElementClause(String template, String element) {
+        String article = "AEIOU".indexOf(Character.toUpperCase(element.charAt(0))) >= 0 ? "an" : "a";
+        return template.replaceAll(
+                "(?i)\\ba\\s+(Forward|Backup|Monster|Character)\\s+of\\s+the\\s+named\\s+Element\\b",
+                article + " " + element + " $1");
+    }
+
+    /**
      * Snovlinka 27-112H's first option: "[Self] gains [keywords] and "[ability]" (This effect
      * does not end at the end of the turn.)" — a keyword and a quoted field ability handed over
      * together, both outlasting the turn.

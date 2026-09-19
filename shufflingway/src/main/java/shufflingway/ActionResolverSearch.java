@@ -628,6 +628,26 @@ final class ActionResolverSearch {
         };
     }
     /**
+     * 17-137S Rydia: "you may search for N Summons each with a different cost. Then, your opponent
+     * selects 1 card among them and puts it into the Break Zone. Add the other to your hand."
+     *
+     * <p>One parser for all three sentences, because they are one effect and each is unreadable
+     * without the others. Before this the last sentence was claimed on its own by
+     * {@code tryParseReturnNamedToHand}, which read "the other" as a card name and searched the
+     * field for it — the search, the opponent's selection and the Break Zone put went with it.
+     */
+    static Consumer<GameContext> tryParseSearchSummonsDiffCostOpponentSelects(String text) {
+        Matcher m = SEARCH_SUMMONS_DIFF_COST_OPPONENT_SELECTS_ONE.matcher(text.trim());
+        if (!m.matches()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Search for " + count + " Summons of different costs — "
+                    + "opponent selects 1 for the Break Zone, the other goes to hand");
+            ctx.searchSummonsDiffCostOpponentSelectsOneBreakRestToHand(count);
+        };
+    }
+
+    /**
      * Parses "Your opponent shows/reveals his/her hand", and chains whatever follows it.
      *
      * <p>The chaining is not decoration. This matcher runs with {@code find()}, so without it the

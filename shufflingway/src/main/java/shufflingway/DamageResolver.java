@@ -149,6 +149,11 @@ class DamageResolver {
 					Matcher fam = AutoAbilityTriggers.FA_OUTGOING_DAMAGE_DOUBLER.matcher(clause);
 					if (!fam.find() || !fam.group("card").trim().equalsIgnoreCase(mw.currentAbilitySource.name())) continue;
 					if (!fam.group("target").toLowerCase().contains("forward")) continue;
+					// 17-133S Scarmiglione doubles only against the Element he named. Read through
+					// the effective Element so a card whose Element was overridden counts as what
+					// it is now, which is what every other Element filter in the engine does.
+					String telem = fam.group("telem");
+					if (telem != null && !mw.effectiveContainsElement(card, telem)) continue;
 					int before = amount;
 					amount *= 2;
 					mw.logEntry(mw.currentAbilitySource.name() + " — outgoing damage doubled (" + before + " → " + amount + ")");

@@ -1031,6 +1031,13 @@ public class ActionResolver {
         result = tryParseGainsQuotedFieldAbilityUntilEot(effectText, source);
         if (result != null) return result;
 
+        // Must precede the permanent grant parsers below: they anchor on "[Self] gains "…"" and
+        // would claim 17-133S Scarmiglione's sentence off its second half, granting a clause still
+        // reading "of the named Element" — which no reader matches, so the doubler would be inert
+        // and the naming would never be asked for.
+        result = tryParseNameElementThenGainsQuotedPermanent(effectText, source);
+        if (result != null) return result;
+
         // Beside its quoted-only sibling below, and ahead of it: that one is anchored on a double
         // quote straight after "gains", which this sentence does not have, so the order is for
         // the reader rather than load-bearing.
@@ -1261,6 +1268,13 @@ public class ActionResolver {
         // and takes the description in front of "to its owner's hand" for a card name, so
         // 13-081H Lightning's pile was looked for on the field under a name no card has.
         result = tryParseReturnRemovedBySourceToOwnersHand(effectText, source);
+        if (result != null) return result;
+
+        // Must precede tryParseReturnNamedToHand: its "Add [name] to your hand" arm claimed
+        // 17-137S Rydia off her last sentence, reading "the other" as a card name. That arm now
+        // declines backward references, so this is belt and braces — but the three sentences are
+        // one effect and the one that owns them should be the one asked first.
+        result = tryParseSearchSummonsDiffCostOpponentSelects(effectText);
         if (result != null) return result;
 
         result = tryParseReturnNamedToHand(effectText);
@@ -2443,6 +2457,10 @@ public class ActionResolver {
         if (tryParseSelfOutgoingDmgBoostThisTurn(effectText, source) != null)   return "SelfOutgoingDmgBoostThisTurn";
         if (tryParseGainOutgoingDmgBoostUntilEot(effectText, source) != null)   return "GainOutgoingDmgBoostUntilEot";
         if (tryParseGainsQuotedFieldAbilityUntilEot(effectText, source) != null) return "GainsQuotedFieldAbilityUntilEot";
+        // Mirrors parse(): ahead of the permanent grants, which would otherwise claim
+        // Scarmiglione 17-133S off the second half of his sentence.
+        if (tryParseNameElementThenGainsQuotedPermanent(effectText, source) != null)
+            return "NameElementThenGainsQuotedPermanent";
         // Mirrors parse(): beside its quoted-only sibling.
         if (tryParseGainsKeywordsAndQuotedAbilityPermanent(effectText, source) != null)
             return "GainsKeywordsAndQuotedAbilityPermanent";
@@ -2513,6 +2531,9 @@ public class ActionResolver {
         // Must precede ReturnNamedToHand, mirroring parse(): that parser takes the description in
         // front of "to its owner's hand" for a card name.
         if (tryParseReturnRemovedBySourceToOwnersHand(effectText, source) != null) return "ReturnRemovedBySourceToOwnersHand";
+        // Mirrors parse(): ahead of the arm that used to claim Rydia 17-137S.
+        if (tryParseSearchSummonsDiffCostOpponentSelects(effectText) != null)
+            return "SearchSummonsDiffCostOpponentSelects";
         if (tryParseReturnNamedToHand(effectText) != null) return "ReturnNamedToHand";
         if (tryParseYouMayRemoveNamedFromGame(effectText, source) != null) return "YouMayRemoveNamedFromGame";
         if (tryParseEndOfOppTurnPlayNamedOntoField(effectText) != null) return "EndOfOppTurnPlayNamedOntoField";
@@ -3246,8 +3267,10 @@ public class ActionResolver {
         // The payoff half of the clause above, which the ". " split reports separately even though
         // the parser resolves the two together.
         if (FOLLOWUP_IF_POWER_BECAME_ZERO_DRAW.matcher(followupText).matches())      return "IfPowerBecameZeroDraw";
-        // Mirrors the choose chain, where this precedes every other reduction branch: they all
-        // find() a bare "it loses N power" inside this sentence and would drop the multiplier.
+        // Mirrors the choose chain, where both of these precede every other reduction branch: they
+        // all find() a bare "it loses N power" inside these sentences and would drop the multiplier.
+        if (FOLLOWUP_POWER_REDUCE_FOR_EACH_CAST_SUMMON_CP.matcher(followupText.trim()).matches())
+            return "PowerReduceForEachCastSummonCp";
         if (FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH_ATTACKER.matcher(followupText.trim()).matches())
             return "PowerReduceForEachAttacker";
         // Mirrors the two handlers: a self-side state count is declined there, so naming it here
@@ -4326,6 +4349,10 @@ public class ActionResolver {
         if (tryParseSelfOutgoingDmgBoostThisTurn(effectText, source) != null)   return "SelfOutgoingDmgBoostThisTurn";
         if (tryParseGainOutgoingDmgBoostUntilEot(effectText, source) != null)   return "GainOutgoingDmgBoostUntilEot";
         if (tryParseGainsQuotedFieldAbilityUntilEot(effectText, source) != null) return "GainsQuotedFieldAbilityUntilEot";
+        // Mirrors parse(): ahead of the permanent grants, which would otherwise claim
+        // Scarmiglione 17-133S off the second half of his sentence.
+        if (tryParseNameElementThenGainsQuotedPermanent(effectText, source) != null)
+            return "NameElementThenGainsQuotedPermanent";
         // Mirrors parse(): beside its quoted-only sibling.
         if (tryParseGainsKeywordsAndQuotedAbilityPermanent(effectText, source) != null)
             return "GainsKeywordsAndQuotedAbilityPermanent";
@@ -4397,6 +4424,9 @@ public class ActionResolver {
         if (tryParseRevealPlayTypeCostOrNamedCostRestBottom(effectText)         != null) return "RevealPlayTypeCostOrNamedCostRestBottom";
         // Must precede ReturnNamedToHand, mirroring parse() and matchedPatternName().
         if (tryParseReturnRemovedBySourceToOwnersHand(effectText, source) != null) return "ReturnRemovedBySourceToOwnersHand";
+        // Mirrors parse(): ahead of the arm that used to claim Rydia 17-137S.
+        if (tryParseSearchSummonsDiffCostOpponentSelects(effectText) != null)
+            return "SearchSummonsDiffCostOpponentSelects";
         if (tryParseReturnNamedToHand(effectText) != null)                   return "ReturnNamedToHand";
         if (tryParseYouMayRemoveNamedFromGame(effectText, source) != null)   return "YouMayRemoveNamedFromGame";
         if (tryParseEndOfOppTurnPlayNamedOntoField(effectText) != null)     return "EndOfOppTurnPlayNamedOntoField";

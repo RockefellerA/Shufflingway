@@ -33110,6 +33110,90 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// =========================================================================================
+	// 17-133S Scarmiglione: "name 1 Element. Scarmiglione gains \"If Scarmiglione deals damage to
+	// a Forward of the named Element, double the damage instead.\" (This effect does not end at
+	// the end of the turn.)"
+	//
+	// The Element is written into the clause when the ability resolves, so what is granted is
+	// ordinary field-ability text and the doubler's existing readers need no notion of "which
+	// Element did this card name". The gate that makes it faithful is the telem group: a reader
+	// that doubles to a Forward and ignores it doubles against every Element, which is strictly
+	// stronger than the card.
+	// =========================================================================================
+
+	private static final String SCARMIGLIONE_NAME_ELEMENT =
+			"name 1 Element. Scarmiglione gains \"If Scarmiglione deals damage to a Forward of "
+			+ "the named Element, double the damage instead.\" "
+			+ "(This effect does not end at the end of the turn.)";
+
+	@Test
+	void scarmiglioneGrantsTheDoublerWithTheNamedElementWrittenIn() {
+		CardData scarmiglione = makeForward("Scarmiglione", "Earth", 2, 5000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selectElement(any())).thenReturn("Fire");
+
+		ActionResolver.parse(SCARMIGLIONE_NAME_ELEMENT, scarmiglione).accept(ctx);
+
+		verify(ctx).grantSelfFieldAbilityPermanently(scarmiglione,
+				"If Scarmiglione deals damage to a Fire Forward, double the damage instead.");
+	}
+
+	@Test
+	void scarmiglionesGrantedClauseTakesTheRightArticle() {
+		// The clause is logged to the player and read back as printed text, so "a Ice Forward"
+		// would be visible. Ice and Earth are the two that need it.
+		CardData scarmiglione = makeForward("Scarmiglione", "Earth", 2, 5000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selectElement(any())).thenReturn("Ice");
+
+		ActionResolver.parse(SCARMIGLIONE_NAME_ELEMENT, scarmiglione).accept(ctx);
+
+		verify(ctx).grantSelfFieldAbilityPermanently(scarmiglione,
+				"If Scarmiglione deals damage to an Ice Forward, double the damage instead.");
+	}
+
+	@Test
+	void scarmiglioneGrantsNothingWhenNoElementIsNamed() {
+		CardData scarmiglione = makeForward("Scarmiglione", "Earth", 2, 5000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selectElement(any())).thenReturn(null);
+
+		ActionResolver.parse(SCARMIGLIONE_NAME_ELEMENT, scarmiglione).accept(ctx);
+
+		verify(ctx, never()).grantSelfFieldAbilityPermanently(any(), any());
+	}
+
+	@Test
+	void theNamedElementDoublerAppliesOnlyToThatElement() {
+		// The fail-open this wiring had to avoid: the reader gates on "forward", and the Element
+		// sits inside that same group, so ignoring it would double against every Forward.
+		MainWindow mw = new MainWindow();
+		CardData scarmiglione = makeForwardWithFieldAbility("Scarmiglione", 2,
+				"If Scarmiglione deals damage to a Fire Forward, double the damage instead.");
+		placeP1Forward(mw, scarmiglione);
+
+		assertEquals(2, mw.fieldAbilityCombatOutgoingMult(
+						scarmiglione, makeForward("Torch", "Fire", 3, 9000)),
+				"a Fire Forward is the named Element");
+		assertEquals(1, mw.fieldAbilityCombatOutgoingMult(
+						scarmiglione, makeForward("Shiva", "Ice", 3, 9000)),
+				"an Ice Forward is not, and must not be doubled");
+	}
+
+	@Test
+	void anUnqualifiedDoublerStillAppliesToEveryElement() {
+		// Backward compatibility for the printings that name no Element: telem is null and the
+		// reader must not start filtering on it.
+		MainWindow mw = new MainWindow();
+		CardData plain = makeForwardWithFieldAbility("Plain", 2,
+				"If Plain deals damage to a Forward, double the damage instead.");
+		placeP1Forward(mw, plain);
+
+		assertEquals(2, mw.fieldAbilityCombatOutgoingMult(plain, makeForward("A", "Fire", 3, 9000)));
+		assertEquals(2, mw.fieldAbilityCombatOutgoingMult(plain, makeForward("B", "Ice", 3, 9000)));
+	}
+
 	// Kefka 23-004R: "Damage 5 -- Kefka gains +2000 power, Haste and \"If Kefka deals damage to a
 	// Forward or your opponent, double the damage instead.\""  The doubler is printed inside the
 	// grant, so every reader of it takes the clause list rather than the sentence alone — and the
@@ -40126,6 +40210,160 @@ public class CardBehaviorTest {
     // party, which is neither side's field. It read as an unimplemented followup, so the ability
     // chose a Forward and did nothing to it.
     // =========================================================================================
+
+    // =========================================================================================
+    // 17-137S Rydia, enters the field: "you may search for 2 Summons each with a different cost.
+    // Then, your opponent selects 1 card among them and puts it into the Break Zone. Add the other
+    // to your hand."
+    //
+    // Three sentences, one effect: the search sizes the offer, the selection splits it, and "the
+    // other" means nothing without the two before it. Read apart, the last sentence was claimed by
+    // tryParseReturnNamedToHand, which took "the other" for a card name and searched the field for
+    // it — so the search, the selection and the Break Zone put were all discarded.
+    //
+    // The searcher naming the two best cards in their deck is the worst way to play it: the
+    // opponent takes whichever half they least want kept.
+    // =========================================================================================
+
+    private static final String RYDIA_17_137S_SEARCH =
+            "search for 2 Summons each with a different cost. Then, your opponent selects 1 card "
+            + "among them and puts it into the Break Zone. Add the other to your hand.";
+
+    @Test
+    void rydiasSearchReachesItsOwnPrimitiveRatherThanANamedCardLookup() {
+        GameContext ctx = mock(GameContext.class);
+
+        Consumer<GameContext> fn = ActionResolver.parse(RYDIA_17_137S_SEARCH, null);
+        assertNotNull(fn, "all three sentences are one effect and have to parse together");
+        fn.accept(ctx);
+
+        verify(ctx).searchSummonsDiffCostOpponentSelectsOneBreakRestToHand(2);
+        verify(ctx, never()).returnNamedCardToYourHand(any());
+    }
+
+    @Test
+    void aLoneSummonIsTakenByTheOpponentAndNothingReachesHand() {
+        // The one end-to-end path that asks nobody anything: with a single eligible Summon there is
+        // no selection to make and nothing left over to be "the other".
+        MainWindow mw = new MainWindow();
+        CardData onlySummon = makeSummon("Shiva", "Ice", 2, "");
+        mw.gameState.getIdentity().put(onlySummon, false);
+        mw.gameState.getP2MainDeck().add(onlySummon);
+
+        mw.searchSummonsDiffCostOpponentSelectsOneBreakRestToHand(false, 2);
+
+        assertTrue(mw.gameState.getP2BreakZone().contains(onlySummon),
+                "the opponent takes the only card on offer");
+        assertTrue(mw.gameState.getP2Hand().isEmpty(), "nothing is left over to keep");
+        assertFalse(mw.gameState.getP2MainDeck().contains(onlySummon), "and it left the deck");
+    }
+
+    @Test
+    void aDeckWithNoSummonsFizzlesWithoutTouchingAnything() {
+        MainWindow mw = new MainWindow();
+        CardData notASummon = makeForward("Cloud", "Ice", 3, 8000);
+        mw.gameState.getIdentity().put(notASummon, false);
+        mw.gameState.getP2MainDeck().add(notASummon);
+
+        mw.searchSummonsDiffCostOpponentSelectsOneBreakRestToHand(false, 2);
+
+        assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+        assertTrue(mw.gameState.getP2Hand().isEmpty());
+        assertEquals(1, mw.gameState.getP2MainDeck().size(), "the Forward stays in the deck");
+    }
+
+    @Test
+    void aBlockedSearchTakesNothing() {
+        MainWindow mw = new MainWindow();
+        CardData summon = makeSummon("Ifrit", "Fire", 3, "");
+        mw.gameState.getIdentity().put(summon, false);
+        mw.gameState.getP2MainDeck().add(summon);
+        mw.turn(false).cannotSearchThisTurn = true;
+
+        mw.searchSummonsDiffCostOpponentSelectsOneBreakRestToHand(false, 2);
+
+        assertEquals(1, mw.gameState.getP2MainDeck().size(), "a blocked search finds nothing");
+        assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+    }
+
+    @Test
+    void theCpuOffersTheDearestSummonOfEachDistinctCost() {
+        List<CardData> pool = List.of(
+                makeSummon("Cheap", "Fire", 1, ""),
+                makeSummon("Mid", "Fire", 3, ""),
+                makeSummon("AlsoMid", "Ice", 3, ""),
+                makeSummon("Dear", "Water", 5, ""));
+
+        List<CardData> picked = MainWindow.aiPickSummonsOfDistinctCost(pool, 2);
+
+        assertEquals(2, picked.size());
+        assertEquals(5, picked.get(0).cost(), "dearest first");
+        assertEquals(3, picked.get(1).cost(), "then the next distinct cost, not a second 3-cost");
+    }
+
+    @Test
+    void theOpponentDeniesTheDearestOnOffer() {
+        List<CardData> offer = List.of(
+                makeSummon("Cheap", "Fire", 1, ""),
+                makeSummon("Dear", "Water", 6, ""));
+
+        assertEquals(1, MainWindow.indexOfDearest(offer),
+                "denying an option means taking the one worth most");
+    }
+
+    // 17-137S Rydia: "When you cast a Summon, choose 1 Forward opponent controls. It loses 1000
+    // power for each CP required to cast that Summon until the end of the turn." The same shape as
+    // Yuna's below — a "for each" that counts neither side's field — and it read as an
+    // unimplemented followup for the same reason, so Rydia chose a Forward and did nothing to it.
+    //
+    // The count is the Summon's printed cost, recorded when it goes on the Stack: the ability
+    // resolves after the cast that woke it has finished, so there is nothing left to ask by then.
+
+    private static final String RYDIA_17_137S_CAST_TRIGGER =
+            "choose 1 Forward opponent controls. It loses 1000 power for each CP required to cast "
+            + "that Summon until the end of the turn.";
+
+    @Test
+    void rydiaScalesTheReductionByTheCastSummonsCost() {
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+        when(ctx.lastCastSummonCost()).thenReturn(3);
+
+        Consumer<GameContext> fn = ActionResolver.parse(RYDIA_17_137S_CAST_TRIGGER, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).reduceTarget(t, 3000, EnumSet.noneOf(CardData.Trait.class));
+        assertEquals("ChooseCharacter / PowerReduceForEachCastSummonCp",
+                ActionResolver.fullDescription(RYDIA_17_137S_CAST_TRIGGER, null));
+    }
+
+    @Test
+    void rydiasMultiplierIsNotDroppedForAFlatReduction() {
+        // The bare "it loses N power" pattern finds its match inside this sentence too, so without
+        // the branch ahead of it a cost-6 Summon would take 1000 power off instead of 6000.
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+        when(ctx.lastCastSummonCost()).thenReturn(6);
+
+        ActionResolver.parse(RYDIA_17_137S_CAST_TRIGGER, null).accept(ctx);
+
+        verify(ctx).reduceTarget(t, 6000, EnumSet.noneOf(CardData.Trait.class));
+        verify(ctx, never()).reduceTarget(t, 1000, EnumSet.noneOf(CardData.Trait.class));
+    }
+
+    @Test
+    void theCastSummonCostIsRecordedBeforeTheTriggersFire() {
+        // The engine half: the ability reads this off MainWindow, and it has to be set by the time
+        // the cast-Summon triggers run rather than after the Stack resolves.
+        MainWindow mw = new MainWindow();
+        assertEquals(0, mw.buildGameContext(true).lastCastSummonCost(),
+                "no Summon cast yet, so the reduction is 0 rather than some other card's number");
+        mw.lastCastSummonCost = 4;
+        assertEquals(4, mw.buildGameContext(true).lastCastSummonCost());
+    }
 
     private static final String YUNA_12_105L_EFFECT =
             "choose 1 Forward. It loses 4000 power for each attacking Forward until the end of the turn.";

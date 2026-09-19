@@ -3335,9 +3335,46 @@ final class ActionResolverPatterns {
     static final Pattern RETURN_NAMED_TO_YOUR_HAND_STANDALONE = Pattern.compile(
         "(?i)Return\\s+(?!(?:it|them)\\b)(?<named>\\S+(?:\\s+\\S+){0,4})\\s+to\\s+your\\s+hand[.!]?"
     );
-    /** Matches "Add [name] to your hand." — named card, not a pronoun or a count. Used for break-zone-origin abilities. */
+    /**
+     * 17-137S Rydia: "[you may] search for N Summons each with a different cost. Then, your
+     * opponent selects 1 card among them and puts it into the Break Zone. Add the other to your
+     * hand."
+     *
+     * <p>All three sentences in one pattern, anchored end to end. They are one effect — the search
+     * sizes the offer, the selection splits it, and "the other" only means anything against the
+     * two before it — and reading any of them alone gets it wrong: the middle sentence taken by
+     * itself has no pool to select from, and the last one sent "the other" to
+     * {@code returnNamedCardToYourHand} as though it were a card name.
+     *
+     * <p>Group: {@code count}.
+     */
+    static final Pattern SEARCH_SUMMONS_DIFF_COST_OPPONENT_SELECTS_ONE = Pattern.compile(
+        "(?i)^(?:you\\s+may\\s+)?search\\s+for\\s+(?<count>\\d+)\\s+Summons?\\s+each\\s+with\\s+a\\s+" +
+        "different\\s+cost\\.\\s*Then,?\\s*your\\s+opponent\\s+selects\\s+1\\s+card\\s+among\\s+them\\s+" +
+        "and\\s+puts\\s+it\\s+into\\s+the\\s+Break\\s+Zone\\.\\s*" +
+        "Add\\s+the\\s+other\\s+to\\s+your\\s+hand[.!]?\\s*$",
+        Pattern.DOTALL
+    );
+    /**
+     * Matches "Add [name] to your hand." — a named card, not a pronoun, a count or a backward
+     * reference. Used for break-zone-origin abilities.
+     *
+     * <p>"the other", "the former" and their kin are excluded for the same reason "it" and "them"
+     * are: the name group feeds {@code returnNamedCardToYourHand}, which searches for a card of
+     * that literal name. 17-137S Rydia's "Add the other to your hand." was claiming her whole
+     * ability and then looking for a card called "the other" — the search, the opponent's
+     * selection and the Break Zone put all discarded with it. Leaving the ability unparsed is the
+     * honest answer until the two-player select behind it exists.
+     *
+     * <p>The excluded words are {@link #DEPENDS_ON_PREVIOUS_SENTENCE}'s backward-reference list.
+     * Every other corpus printing of "Add the … to your hand" is already claimed by a more
+     * specific parser, so nothing but Rydia reaches this.
+     */
     static final Pattern ADD_NAMED_TO_YOUR_HAND = Pattern.compile(
-        "(?i)\\bAdd\\s+(?!(?:it|them|\\d)\\b)(?<named>.+?)\\s+to\\s+your\\s+hand[.!]?"
+        "(?i)\\bAdd\\s+(?!(?:it|them|\\d)\\b)" +
+        "(?!the\\s+(?:other|others|rest|former|latter|first|second" +
+        "|chosen|revealed|added|removed|discarded|selected)\\b)" +
+        "(?<named>.+?)\\s+to\\s+your\\s+hand[.!]?"
     );
     /**
      * Matches "Play [name] onto [the] field [dull]" without requiring a "from Break Zone" qualifier.
@@ -5757,6 +5794,25 @@ final class ActionResolverPatterns {
         "(?<name>[A-Z][A-Za-z''\\-\\s()]+?)\\s+cannot\\s+be\\s+chosen\\s+by\\s+Summons?\\s+or\\s+abilities\\s+of\\s+the\\s+named\\s+Element" +
         "\\s+and\\s+if\\s+[A-Za-z''\\-\\s()]+?is\\s+dealt\\s+damage\\s+by\\s+a\\s+Summon\\s+or\\s+an\\s+ability\\s+of\\s+the\\s+named\\s+Element,\\s+" +
         "the\\s+damage\\s+becomes\\s+0\\s+instead\\s*\\.?"
+    );
+    /**
+     * "Name 1 Element. [Self] gains "&lt;clause naming the Element&gt;." (This effect does not end
+     * at the end of the turn.)" — 17-133S Scarmiglione, who names an Element on entering the field
+     * and keeps a damage doubler against it for the rest of the game.
+     *
+     * <p>The quoted clause must contain "the named Element", which is what ties the two halves
+     * together: without it there is nothing for the naming to feed, and the plain permanent-grant
+     * parsers already own that sentence. The Element is substituted into the clause when the
+     * ability resolves, so what is granted is ordinary field-ability text that the existing
+     * readers understand — no store of "which Element did this card name" is needed.
+     *
+     * <p>Groups: {@code subject}, {@code quoted}.
+     */
+    static final Pattern NAME_ELEMENT_THEN_GAINS_QUOTED_PERMANENT = Pattern.compile(
+        "(?i)^Name\\s+1\\s+Element\\.\\s+(?<subject>[A-Z][A-Za-z''\\-\\s()]+?)\\s+gains\\s+" +
+        "\"(?<quoted>[^\"]*\\bthe\\s+named\\s+Element\\b[^\"]*)\"\\s*" +
+        "\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.\\)\\s*$",
+        Pattern.DOTALL
     );
     /**
      * "Name 1 Element. During this turn, if [CardName] is dealt damage by abilities of the named
@@ -8265,6 +8321,21 @@ final class ActionResolverPatterns {
      * <p>Must be checked before {@link #FOLLOWUP_POWER_REDUCE_BARE}, which finds "it loses 4000
      * power" inside this sentence and would apply a flat reduction, dropping the multiplier.
      */
+    /**
+     * Matches "It loses N power for each CP required to cast that Summon until the end of the
+     * turn." — 17-137S Rydia, whose cast-a-Summon trigger scales with what was cast.
+     *
+     * <p>Separate from {@link #FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH} for the reason its attacker
+     * sibling is: what is counted is neither a field nor a controller, but the cost of the card
+     * whose cast woke the ability.
+     *
+     * <p>Must be checked before {@link #FOLLOWUP_POWER_REDUCE_BARE}, which finds "it loses 1000
+     * power" inside this sentence and would apply a flat reduction, dropping the multiplier.
+     */
+    static final Pattern FOLLOWUP_POWER_REDUCE_FOR_EACH_CAST_SUMMON_CP = Pattern.compile(
+        "(?i)^(?:it|they)\\s+loses?\\s+(?<amount>\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+CP\\s+" +
+        "required\\s+to\\s+cast\\s+that\\s+Summon\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
+    );
     static final Pattern FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH_ATTACKER = Pattern.compile(
         "(?i)^(?:it|they)\\s+loses?\\s+(?<amount>\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+attacking\\s+" +
         "Forward\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"

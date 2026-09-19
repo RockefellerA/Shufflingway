@@ -1,5 +1,9 @@
 package shufflingway;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.IOException;
@@ -219,31 +223,189 @@ public class ActionResolverCharacterizationTest {
 	 * Fails if the parse-outcome column moved. Naming work edits only {@code matchedPatternName()}
 	 * and {@code fullDescription()}, so this column is invariant under it — a diff here means a
 	 * real behaviour change and is reported before any naming churn, which would otherwise bury it.
+	 *
+	 * <p>Three things can move this column and only one of them is a regression, so they are
+	 * counted apart:
+	 * <ul>
+	 *   <li><b>A flip</b> — a record present in both files whose outcome changed. This is the
+	 *       regression the check exists for.</li>
+	 *   <li><b>An appearance</b> — a key the golden file does not have, which means the card
+	 *       database grew since it was written. Nothing the resolver does can invent a record.</li>
+	 *   <li><b>A disappearance</b> — a key the golden file has and the corpus no longer does.
+	 *       Also a corpus change rather than a resolver one, but the rarer direction: a card
+	 *       genuinely removed looks the same here as one the ETL dropped by mistake.</li>
+	 * </ul>
+	 *
+	 * <p>Lumping the three together read every new card as a regression and told the reader to fix
+	 * it before regenerating — which is the opposite of what a grown corpus needs. Counting rows
+	 * rather than comparing file sizes is what makes the distinction hold: five cards added
+	 * alongside five records regressed leaves the size unchanged.
 	 */
 	private static String describeParseOutcomeDiff(Map<String, Rec> before, Map<String, Rec> after) {
-		List<String> moved = new ArrayList<>();
+		List<String> flipped = new ArrayList<>();
+		List<String> appeared = new ArrayList<>();
+		List<String> disappeared = new ArrayList<>();
+		int lostParse = 0;
+
 		for (Rec e : before.values()) {
 			Rec a = after.get(e.key());
-			if (a == null) moved.add("  " + e.key() + "\tRECORD DISAPPEARED (was " + e.parsed() + ")");
-			else if (!e.parsed().equals(a.parsed()))
-				moved.add("  " + e.key() + "\t" + e.parsed() + " -> " + a.parsed());
+			if (a == null) disappeared.add("  " + e.key() + "\tRECORD DISAPPEARED (was " + e.parsed() + ")");
+			else if (!e.parsed().equals(a.parsed())) {
+				flipped.add("  " + e.key() + "\t" + e.parsed() + " -> " + a.parsed());
+				if ("parsed".equals(e.parsed())) lostParse++;
+			}
 		}
+		int appearedUnparsed = 0;
 		for (Rec a : after.values()) {
-			if (!before.containsKey(a.key()))
-				moved.add("  " + a.key() + "\tRECORD APPEARED (" + a.parsed() + ")");
+			if (before.containsKey(a.key())) continue;
+			appeared.add("  " + a.key() + "\tRECORD APPEARED (" + a.parsed() + ")");
+			if ("unparsed".equals(a.parsed())) appearedUnparsed++;
 		}
-		if (moved.isEmpty()) return null;
+		if (flipped.isEmpty() && appeared.isEmpty() && disappeared.isEmpty()) return null;
 
 		StringBuilder sb = new StringBuilder();
-		sb.append("PARSE OUTCOME CHANGED — this is a regression, not a naming fix.\n");
-		sb.append("  ").append(moved.size()).append(" record(s) changed parse outcome.\n");
-		sb.append("  Only matchedPatternName() and fullDescription() should be edited by naming\n");
-		sb.append("  work, and parse() consults neither. Fix this before regenerating ")
-		  .append(GOLDEN).append(".\n");
+		if (lostParse > 0) {
+			sb.append("PARSE OUTCOME CHANGED — this is a regression, not a naming fix.\n");
+			sb.append("  ").append(lostParse).append(" record(s) stopped parsing");
+			if (flipped.size() > lostParse)
+				sb.append(" and ").append(flipped.size() - lostParse).append(" started");
+			sb.append(".\n");
+			sb.append("  Only matchedPatternName() and fullDescription() should be edited by naming\n");
+			sb.append("  work, and parse() consults neither. Fix this before regenerating ")
+			  .append(GOLDEN).append(".\n");
+		} else if (!flipped.isEmpty()) {
+			// Nothing stopped parsing, so nothing was lost. This is what wiring a card looks like,
+			// and calling it a regression sent the reader hunting for a bug they had just fixed.
+			sb.append("PARSE OUTCOME CHANGED — ").append(flipped.size())
+			  .append(" record(s) started parsing, none stopped.\n");
+			sb.append("  That is what closing a gap looks like. Confirm the rows below are the\n");
+			sb.append("  abilities you meant to wire, then regenerate ").append(GOLDEN).append(".\n");
+		} else {
+			sb.append("CORPUS CHANGED — no record flipped parse outcome, so this is not a regression.\n");
+			sb.append("  The golden file predates the card database it is being compared against.\n");
+			sb.append("  Review the rows below, then regenerate ").append(GOLDEN).append(".\n");
+		}
+		if (!appeared.isEmpty())
+			sb.append("  ").append(appeared.size()).append(" new record(s) — the corpus grew")
+			  .append(appearedUnparsed > 0
+					  ? ", " + appearedUnparsed + " of them unparsed (a wiring gap, not a regression)"
+					  : "")
+			  .append(".\n");
+		if (!disappeared.isEmpty())
+			sb.append("  ").append(disappeared.size()).append(" record(s) gone — the corpus shrank.")
+			  .append(" Check these are cards you meant to remove.\n");
 		sb.append("  full output written to ").append(ACTUAL).append('\n');
-		moved.stream().limit(MAX_REPORTED_DIFFS).forEach(m -> sb.append(m).append('\n'));
-		if (moved.size() > MAX_REPORTED_DIFFS) sb.append("  ... further differences suppressed\n");
+
+		// Flips first: when a regression and a corpus change land together, the regression is the
+		// half that must not scroll off the top.
+		List<String> all = new ArrayList<>(flipped);
+		all.addAll(disappeared);
+		all.addAll(appeared);
+		all.stream().limit(MAX_REPORTED_DIFFS).forEach(m -> sb.append(m).append('\n'));
+		if (all.size() > MAX_REPORTED_DIFFS) sb.append("  ... further differences suppressed\n");
 		return sb.toString();
+	}
+
+	// ------------------------------------------------- diff classification (no database needed)
+	//
+	// These run against hand-built record maps rather than the corpus, so they hold whether or not
+	// shufflingway.db is present. The message they pin is the one a reader acts on: a new card
+	// reported as a regression sends them looking for a bug in the resolver, and the correct
+	// response — regenerate — is the one the old wording told them not to take.
+
+	private static Map<String, Rec> recs(String... rows) {
+		return index(List.of(rows));
+	}
+
+	private static String row(String serial, String slot, String parsed) {
+		return serial + "\t" + slot + "\t" + parsed + "\tSomeName\tSomeDesc";
+	}
+
+	@Test
+	void aGrownCorpusIsNotReportedAsARegression() {
+		Map<String, Rec> before = recs(row("1-001H", "auto#0", "parsed"));
+		Map<String, Rec> after = recs(row("1-001H", "auto#0", "parsed"),
+				row("17-133S", "auto#0", "parsed"),
+				row("17-137S", "auto#0", "unparsed"));
+
+		String diff = describeParseOutcomeDiff(before, after);
+		assertNotNull(diff, "the golden file is still stale and has to be regenerated");
+		assertTrue(diff.startsWith("CORPUS CHANGED"), diff);
+		assertTrue(diff.contains("the corpus grew"), diff);
+		assertTrue(diff.contains("1 of them unparsed"), diff);
+		assertFalse(diff.contains("PARSE OUTCOME CHANGED"), diff);
+		assertFalse(diff.contains("Fix this before regenerating"), diff);
+	}
+
+	@Test
+	void anAbilityThatStoppedParsingIsStillReportedAsARegression() {
+		Map<String, Rec> before = recs(row("1-001H", "auto#0", "parsed"));
+		Map<String, Rec> after = recs(row("1-001H", "auto#0", "unparsed"));
+
+		String diff = describeParseOutcomeDiff(before, after);
+		assertNotNull(diff);
+		assertTrue(diff.startsWith("PARSE OUTCOME CHANGED — this is a regression"), diff);
+		assertTrue(diff.contains("1 record(s) stopped parsing"), diff);
+	}
+
+	@Test
+	void anAbilityThatStartedParsingIsAClosedGapRatherThanARegression() {
+		// What wiring a card looks like. Reported, because the golden file still has to be
+		// regenerated and the rows still have to be the ones that were meant.
+		Map<String, Rec> before = recs(row("17-137S", "auto#0", "unparsed"));
+		Map<String, Rec> after = recs(row("17-137S", "auto#0", "parsed"));
+
+		String diff = describeParseOutcomeDiff(before, after);
+		assertNotNull(diff);
+		assertTrue(diff.contains("1 record(s) started parsing, none stopped"), diff);
+		assertFalse(diff.contains("this is a regression"), diff);
+		assertFalse(diff.contains("Fix this before regenerating"), diff);
+	}
+
+	@Test
+	void aLostParseAlongsideAClosedGapIsStillARegression() {
+		Map<String, Rec> before = recs(row("1-001H", "auto#0", "parsed"),
+				row("17-137S", "auto#0", "unparsed"));
+		Map<String, Rec> after = recs(row("1-001H", "auto#0", "unparsed"),
+				row("17-137S", "auto#0", "parsed"));
+
+		String diff = describeParseOutcomeDiff(before, after);
+		assertNotNull(diff);
+		assertTrue(diff.startsWith("PARSE OUTCOME CHANGED — this is a regression"), diff);
+		assertTrue(diff.contains("1 record(s) stopped parsing and 1 started"), diff);
+	}
+
+	@Test
+	void aRegressionAlongsideNewCardsStillLeadsWithTheRegression() {
+		Map<String, Rec> before = recs(row("1-001H", "auto#0", "parsed"));
+		Map<String, Rec> after = recs(row("1-001H", "auto#0", "unparsed"),
+				row("17-133S", "auto#0", "parsed"));
+
+		String diff = describeParseOutcomeDiff(before, after);
+		assertNotNull(diff);
+		assertTrue(diff.startsWith("PARSE OUTCOME CHANGED"), diff);
+		assertTrue(diff.contains("the corpus grew"), diff);
+		// The flip is listed before the appearance, so a card set large enough to fill the
+		// reported window cannot push the regression out of it.
+		assertTrue(diff.indexOf("parsed -> unparsed") < diff.indexOf("RECORD APPEARED"), diff);
+	}
+
+	@Test
+	void aShrunkCorpusIsNotAFlipEither() {
+		Map<String, Rec> before = recs(row("1-001H", "auto#0", "parsed"),
+				row("1-002R", "auto#0", "parsed"));
+		Map<String, Rec> after = recs(row("1-001H", "auto#0", "parsed"));
+
+		String diff = describeParseOutcomeDiff(before, after);
+		assertNotNull(diff);
+		assertTrue(diff.startsWith("CORPUS CHANGED"), diff);
+		assertTrue(diff.contains("the corpus shrank"), diff);
+	}
+
+	@Test
+	void identicalRecordsReportNothing() {
+		Map<String, Rec> same = recs(row("1-001H", "auto#0", "parsed"));
+		assertNull(describeParseOutcomeDiff(same, same));
 	}
 
 	/**

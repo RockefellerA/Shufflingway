@@ -4578,6 +4578,16 @@ public interface GameContext {
     int currentPartyAttackerCount();
 
     /**
+     * The printed CP cost of the Summon whose cast woke the ability now resolving — 17-137S
+     * Rydia's "for each CP required to cast that Summon".
+     *
+     * <p>The printed cost, which is what "required to cast" names: a cost reduction changes what
+     * the player paid, not what the card costs. Reports 0 outside a cast-Summon trigger, which
+     * makes the reduction 0 rather than some other card's number.
+     */
+    int lastCastSummonCost();
+
+    /**
      * Boosts all Forwards (selected by {@code opponentOnly}/{@code selfOnly}) that share
      * any element with the card named {@code cardName} on the caster's own field.
      * Fizzles if the named card is not found on the field.
@@ -4845,6 +4855,26 @@ public interface GameContext {
      * takes it and nothing is left over; with none, the ability fizzles.
      */
     void chooseSummonsDiffCostOpponentSelectsOtherFreeCastRfg(int count);
+
+    /**
+     * 17-137S Rydia: "you may search for {@code count} Summons each with a different cost. Then,
+     * your opponent selects 1 card among them and puts it into the Break Zone. Add the other to
+     * your hand."
+     *
+     * <p>The deck-search sibling of
+     * {@link #chooseSummonsDiffCostOpponentSelectsOtherFreeCastRfg}, and two players decide for
+     * the same reason: the searcher names the pair and the opponent takes the half they least want
+     * kept, so what the search really picks is which two Summons its controller is willing to be
+     * talked down to. Searching for the two best cards in the deck is the worst way to play it.
+     *
+     * <p>What the opponent does is a <em>select</em>, not a choose: the card names them as the one
+     * deciding, and nothing here is on the field for a "cannot be chosen" shield to speak to.
+     *
+     * <p>Optional, as printed — declining the search takes nothing and puts nothing anywhere. A
+     * deck that can field only one Summon of a distinct cost offers that one, the opponent takes
+     * it, and there is nothing left over to be "the other"; a deck with none fizzles.
+     */
+    void searchSummonsDiffCostOpponentSelectsOneBreakRestToHand(int count);
 
     /**
      * 23-124L Eiko: "You may search for 1 Summon and remove it from the game. You can cast it

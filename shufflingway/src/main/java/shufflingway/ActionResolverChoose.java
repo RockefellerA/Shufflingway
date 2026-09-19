@@ -6337,6 +6337,30 @@ final class ActionResolverChoose {
 
         // --- Power reduce for each [state] [element] [type] you control / opponent controls
         //     (must precede plain UNTIL reduce) ---
+        // --- Power reduction scaled by the cast Summon's CP cost (17-137S Rydia) ---
+        // Ahead of every other reduction branch, for the same reason its attacker sibling below is:
+        // they all find() a bare "it loses N power" inside this sentence and would drop the
+        // multiplier, reducing by 1000 whatever was cast.
+        Matcher reduceForEachCpM = FOLLOWUP_POWER_REDUCE_FOR_EACH_CAST_SUMMON_CP.matcher(primaryFollowup.trim());
+        if (reduceForEachCpM.matches()) {
+            int perCp = Integer.parseInt(reduceForEachCpM.group("amount"));
+            return ctx -> {
+                int cost      = ctx.lastCastSummonCost();
+                int reduction = perCp * cost;
+                ctx.logChooseHeader(choosePrefix + " -" + perCp + "×[CP of the cast Summon] until EOT (cost="
+                        + cost + ", reduction=" + reduction + ")");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+                // Descending order: the reduction can break a Forward, which shifts the indices of
+                // every target above it in the same zone.
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.reduceTarget(t, reduction, noTraits));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.reduceTarget(t, reduction, noTraits));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Power reduction scaled by the attacking party (12-105L Yuna) ---
         // Ahead of every other reduction branch: they all find() a bare "it loses N power" inside
         // this sentence and would drop the multiplier.

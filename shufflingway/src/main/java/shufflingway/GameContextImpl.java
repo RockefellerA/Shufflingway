@@ -9274,6 +9274,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public int lastCastSummonCost() {
+				return mw.lastCastSummonCost;
+			}
+
 			@Override public int currentPartyAttackerCount() {
 				List<CardData> party = mw.turn(isP1).currentPartyAttackers;
 				List<CardData> fwds  = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
@@ -9970,6 +9974,10 @@ final class GameContextImpl implements GameContext {
 					any = true;
 				}
 				if (!any) logEntry("No Summon left over — nothing becomes castable");
+			}
+
+			@Override public void searchSummonsDiffCostOpponentSelectsOneBreakRestToHand(int count) {
+				mw.searchSummonsDiffCostOpponentSelectsOneBreakRestToHand(isP1, count);
 			}
 
 			@Override public void searchSummonRfgFreeCastThisTurn(int maxCost, String element) {

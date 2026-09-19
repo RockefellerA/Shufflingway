@@ -1490,6 +1490,22 @@ public class MainWindow {
 	 * has been retrieved.
 	 */
 	final IdentityHashMap<CardData, List<CardData>> cardsRemovedBySource = new IdentityHashMap<>();
+	/**
+	 * The printed CP cost of the Summon most recently put on the Stack, for the abilities whose
+	 * payoff scales with it — 17-137S Rydia's "loses 1000 power for each CP required to cast that
+	 * Summon".
+	 *
+	 * <p>Recorded here rather than handed to the trigger because the ability it feeds resolves off
+	 * the Stack, after the cast that woke it has finished. That is the same reason the
+	 * {@code lastCastPayment*} fields beside it exist, and it carries the same limitation: a second
+	 * Summon cast before the first trigger resolves overwrites it. No printing can reach that
+	 * state — a Summon on the Stack resolves before the next is cast — but a future one that
+	 * could would need the value carried on the StackEntry instead.
+	 *
+	 * <p>The <em>printed</em> cost, which is what "required to cast" names: a discount changes what
+	 * the player paid, not what the card costs.
+	 */
+	int lastCastSummonCost = 0;
 	/** Distinct element types used to pay the most recent card's CP cost; checked by castPaymentMinElements conditions. */
 	int lastCastPaymentDistinctElements = 0;
 	/** Specific element types used to pay the most recent card's CP cost; checked by castPaymentElement conditions. */
@@ -6205,6 +6221,98 @@ public class MainWindow {
 			if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 			animateCardDraw(isP1, 1);
 		}
+	}
+
+	/**
+	 * 17-137S Rydia — see {@link GameContext#searchSummonsDiffCostOpponentSelectsOneBreakRestToHand}.
+	 *
+	 * <p>Resolved locally rather than over the wire, as the rest of the search family is. A deck
+	 * search is hidden information: the opponent's client does not hold the pool it was drawn from,
+	 * so the selection cannot travel as an index the way {@code opponentRevealsSelectOneDiscard}'s
+	 * hand positions do. That limitation belongs to every search here, not to this card.
+	 */
+	void searchSummonsDiffCostOpponentSelectsOneBreakRestToHand(boolean isP1, int count) {
+		if (turn(isP1).cannotSearchThisTurn) {
+			logEntry("Search blocked — opponent cannot search this turn");
+			return;
+		}
+		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+		List<CardData> pool = new ArrayList<>();
+		for (CardData c : deck) if (c.isSummon()) pool.add(c);
+		shuffleDeck(isP1);
+		if (pool.isEmpty()) {
+			logEntry((isP1 ? "" : "[P2] ") + "Search: no Summons found");
+			return;
+		}
+
+		List<CardData> chosen = isP1
+				? cardPickerDialog.pickTwoFromDeckSearchDifferentCost(pool)
+				: aiPickSummonsOfDistinctCost(pool, count);
+		if (chosen.isEmpty()) {
+			logEntry((isP1 ? "" : "[P2] ") + "Search declined — nothing taken");
+			return;
+		}
+		for (CardData c : chosen) {
+			if (isP1) gameState.removeFromP1MainDeck(c);
+			else      deck.remove(c);
+		}
+		StringBuilder found = new StringBuilder();
+		for (CardData c : chosen) {
+			if (found.length() > 0) found.append(", ");
+			found.append(c.name());
+		}
+		logEntry((isP1 ? "" : "[P2] ") + "Search found " + found + " — opponent selects 1 for the Break Zone");
+
+		// The opponent denies the dearest on offer: they are removing an option, so the one worth
+		// most is the one worth denying. The same rule stands in for an unanswered prompt.
+		int denied = indexOfDearest(chosen);
+		if (chosen.size() > 1 && !isP1) {
+			int picked = showCardImageChooser(chosen,
+					"Select 1 card to put into your opponent's Break Zone", false);
+			if (picked >= 0 && picked < chosen.size()) denied = picked;
+		}
+
+		CardData toBreak = chosen.get(denied);
+		addToBreakZone(toBreak);
+		if (isP1) refreshP1BreakLabel(); else refreshP2BreakLabel();
+		logEntry((isP1 ? "" : "[P2] ") + "Opponent selected " + toBreak.name() + " → Break Zone");
+
+		boolean kept = false;
+		for (int i = 0; i < chosen.size(); i++) {
+			if (i == denied) continue;
+			CardData keep = chosen.get(i);
+			playerHand(isP1).add(keep);
+			logEntry((isP1 ? "" : "[P2] ") + keep.name() + " → hand (search)");
+			if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
+			animateCardDraw(isP1, 1);
+			kept = true;
+		}
+		if (!kept) logEntry((isP1 ? "" : "[P2] ") + "Nothing left over — no card added to hand");
+	}
+
+	/** The dearest card in {@code cards}, by position; 0 when the list cannot be read. */
+	static int indexOfDearest(List<CardData> cards) {
+		int best = 0;
+		for (int i = 1; i < cards.size(); i++)
+			if (cards.get(i).cost() > cards.get(best).cost()) best = i;
+		return best;
+	}
+
+	/**
+	 * The CPU's side of a "search for N Summons, each with a different cost" — the dearest it can
+	 * field, one per cost, which is the offer it would rather have either half of.
+	 */
+	static List<CardData> aiPickSummonsOfDistinctCost(List<CardData> pool, int count) {
+		List<CardData> byCostDesc = new ArrayList<>(pool);
+		byCostDesc.sort(java.util.Comparator.comparingInt(CardData::cost).reversed());
+		List<CardData> out = new ArrayList<>();
+		for (CardData c : byCostDesc) {
+			if (out.size() >= count) break;
+			boolean clash = false;
+			for (CardData taken : out) if (taken.cost() == c.cost()) { clash = true; break; }
+			if (!clash) out.add(c);
+		}
+		return out;
 	}
 
 	int showCardImageChooser(List<CardData> cards, String title, boolean allowCancel) {
@@ -11472,6 +11580,8 @@ public class MainWindow {
 		logEntry("[Stack] \"" + card.name() + "\" — Summon on the stack"
 				+ (paidExtraCost ? " (Extra Cost paid)" : ""));
 		turn(isP1).summonsCastThisTurn++;
+		// Before the triggers fire, so an ability woken by this cast reads this Summon's cost.
+		lastCastSummonCost = card.cost();
 		autoAbilityTriggers.triggerAutoAbilitiesForNthSummonCast(isP1, turn(isP1).summonsCastThisTurn);
 		if (castSummonIsCancelledByOpponent(isP1) && cancelStackEntry(entry)) {
 			logEntry((isP1 ? "" : "[P2] ") + "\"" + card.name()
@@ -15544,7 +15654,11 @@ public class MainWindow {
 			for (String clause : CardData.selfPassiveClauses(fa.effectText(), attacker.name())) {
 				m = AutoAbilityTriggers.FA_OUTGOING_DAMAGE_DOUBLER.matcher(clause);
 				if (m.find() && m.group("card").trim().equalsIgnoreCase(attacker.name())
-						&& m.group("target").toLowerCase().contains("forward"))
+						&& m.group("target").toLowerCase().contains("forward")
+						// 17-133S Scarmiglione's named Element, tested the same way the ability
+						// path tests it so combat and ability damage cannot disagree about whom
+						// the doubler applies to.
+						&& (m.group("telem") == null || effectiveContainsElement(target, m.group("telem"))))
 					mult *= 2;
 			}
 		}
