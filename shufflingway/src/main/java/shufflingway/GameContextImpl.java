@@ -350,6 +350,15 @@ final class GameContextImpl implements GameContext {
 				mw.applyDamageToForward(false, idx, scaled, true, false);
 			}
 
+			// Straight delegation to the readers every other gameplay caller already uses, so a
+			// resolver filter and the engine cannot disagree about what a card's Job or Element is.
+			@Override public boolean effectiveHasElement(CardData card, String element) {
+				return mw.effectiveContainsElement(card, element);
+			}
+			@Override public boolean effectiveHasJob(CardData card, String jobFilter) {
+				return mw.meetsJobFilterEffective(card, jobFilter);
+			}
+
 			@Override public void damageP1ForwardUnreduced(int idx, int amount) {
 				int scaled = abilityScaled(amount);
 				if (idx < mw.p1ForwardCards.size()) scaled = applyOutgoingFieldAbilityMult(scaled, mw.p1ForwardCards.get(idx));

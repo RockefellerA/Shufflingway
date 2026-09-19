@@ -188,6 +188,13 @@ final class ActionResolverBreak {
      * <p>Shared rather than equal, because a Multi-Element card is of every Element it prints: a
      * Fire/Ice card and a Fire card are all of the same Element, namely Fire. For the mono-Element
      * cards that make up most of a Break Zone this is plain equality.
+     *
+     * <p>Printed Elements, deliberately, and not {@link GameContext#effectiveHasElement}: the
+     * cards are in the Break Zone on their way out of the game, where no Element-changing effect
+     * stands on them. Asking the effective view about an off-field card is worse than useless —
+     * {@code MainWindow.elementOverrideMap} is keyed by equality and {@code CardData} is a record,
+     * so a Break-Zone copy would inherit an override belonging to a different copy of the same
+     * printing that is on the field.
      */
     private static String sharedElement(List<CardData> cards) {
         for (String e : PickGate.elementsOf(cards.get(0))) {

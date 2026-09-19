@@ -121,6 +121,45 @@ public interface GameContext {
      */
     void damageP2Forward(int idx, int amount);
 
+    // ---- Effective Job and Element ------------------------------------------
+    //
+    // A card's printed Job and Element are on the CardData; what it counts as *right now* is
+    // board state, so it can only be answered here. A filter inside a one-shot effect that asks
+    // the CardData directly gets the printed answer and spares or hits the wrong card —
+    // invisible to the golden file and to both reports, because no parse, name or description
+    // moves. The two accessors below are how a parser asks the live question instead.
+    //
+    // For cards ON THE FIELD only. Two of the three stores behind the Element answer
+    // (MainWindow.elementOverrideMap, permanentExtraJobMap) are keyed by equality rather than by
+    // identity, and CardData is a record — so asking about a copy in hand, deck or the Break Zone
+    // can return an override standing on a different copy of the same printing that is on the
+    // field. Every caller today passes a field card; a filter over a revealed, searched or
+    // Break-Zone card must keep reading the printed value off the CardData.
+
+    /**
+     * Whether {@code card} counts as {@code element} right now — after "becomes the named
+     * Element" (Yuna 12-105L, Yuna 2-138L, Shantotto 7-071R), after Elements gained from the
+     * opposing board (Kimahri 1-103C), and after a self-granted set (Shantotto Re-099L/1-107L).
+     *
+     * <p>Accepts the bar-separated form and {@code "Multi-Element"}, exactly as the printed
+     * {@link CardData#containsElement} does, so a call site converts without changing its filter
+     * string.
+     *
+     * @param card    a card on the field; see the note above for why that matters
+     * @param element the Element to test, or a {@code '|'}-separated set of them
+     */
+    boolean effectiveHasElement(CardData card, String element);
+
+    /**
+     * Whether {@code card} satisfies {@code jobFilter} right now — after a Job grant
+     * (MainWindow.permanentExtraJobMap) and after Exdeath 3-100L has stripped every Job the
+     * opponent controls for the turn, which a Job filter must then pass over.
+     *
+     * @param card      a card on the field; see the note above for why that matters
+     * @param jobFilter the Job to test, or a {@code '|'}-separated set of them
+     */
+    boolean effectiveHasJob(CardData card, String jobFilter);
+
     // ---- Targeted selection -------------------------------------------------
 
     /**

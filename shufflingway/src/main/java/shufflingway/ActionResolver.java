@@ -7350,6 +7350,20 @@ public class ActionResolver {
      *   <li>"[not] a/an Category X [type]"</li>
      * </ul>
      * Returns {@code null} for unrecognised patterns.
+     *
+     * <p>The Job and Element branches read the printed {@link CardData}, not
+     * {@link GameContext#effectiveHasJob} / {@link GameContext#effectiveHasElement}, and that is
+     * correct for every caller rather than a gap left open. The predicate is built once at parse
+     * time and handed to five sentence shapes, and none of them can present a card whose Job or
+     * Element an effect has had the chance to change: the reveal and add-to-hand forms test a card
+     * in the deck or the hand, Alba 12-075R's tests one in a Break Zone, Kiros 6-004C's gates on a
+     * Category — which nothing mutates — and the play-onto-field form tests a card in the instant
+     * it arrives, before anything could stand on it.
+     *
+     * <p>So this stays zone-agnostic on purpose. Converting it would be a regression, not a
+     * completion: the effective accessors are safe only for cards on the field, and handing them a
+     * card in hand or deck can return an override belonging to a different copy of the same
+     * printing — see the zone note on {@code GameContext.effectiveHasElement}.
      */
     static Predicate<CardData> parseRevealCondition(String cond) {
         cond = cond.trim();

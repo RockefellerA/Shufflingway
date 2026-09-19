@@ -107,12 +107,12 @@ final class ActionResolverDamage {
      * swept every Forward on both boards and the naming in front of it bought nothing — the Job
      * option carried a name in the report the whole time it was doing that.
      *
-     * <p>The Job and the Element are read off the printed {@code CardData}, which is the same
-     * reading the exclusive filter beside it uses ({@code c.hasJob(excludeJob)}). It does not see
-     * a Job or Element an effect has changed — 12-105L Yuna "becomes the named Element" would not
-     * be caught. Consistent with the family rather than correct in isolation; {@code GameContext}
-     * exposes no effective-Job or effective-Element accessor to do better, and adding one is a
-     * wider change than this card.
+     * <p>The Job and the Element are the <em>effective</em> ones, through
+     * {@link GameContext#effectiveHasJob} and {@link GameContext#effectiveHasElement}, as the
+     * exclusive filter beside it is: naming an Element has to catch Yuna 12-105L, which became
+     * that Element this turn, and naming a Job has to pass over a Forward Exdeath 3-100L stripped.
+     * Both sweeps read cards straight off the field, which is the only zone those accessors may
+     * be asked about.
      *
      * <p>Sweeps both sides: the text says "all Forwards" with no side named. Highest index first
      * within each side, because a Forward broken by the damage compacts its row.
@@ -142,7 +142,8 @@ final class ActionResolverDamage {
                 for (int i = 0; i < count; i++) {
                     CardData c = p1 ? ctx.p1Forward(i) : ctx.p2Forward(i);
                     if (c == null) continue;
-                    if (byJob ? c.hasJob(named) : c.containsElement(named)) hits.add(i);
+                    if (byJob ? ctx.effectiveHasJob(c, named)
+                              : ctx.effectiveHasElement(c, named)) hits.add(i);
                 }
                 for (int i = hits.size() - 1; i >= 0; i--) {
                     int idx = hits.get(i);
@@ -196,7 +197,7 @@ final class ActionResolverDamage {
                     CardData c = ctx.p2Forward(i);
                     if (c == null) continue;
                     if (!meetsCostFilter(c.cost(), costVal, costCmp)) continue;
-                    if (excludeJob != null && c.hasJob(excludeJob)) continue;
+                    if (excludeJob != null && ctx.effectiveHasJob(c, excludeJob)) continue;
                     if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
                     if (meetsCondition(ctx.p2ForwardState(i), ctx.p2ForwardCurrentDamage(i),
                             ctx.isP2ForwardAttacking(i), ctx.isP2ForwardBlocking(i), condition))
@@ -218,7 +219,7 @@ final class ActionResolverDamage {
                     CardData c = ctx.p1Forward(i);
                     if (c == null) continue;
                     if (!meetsCostFilter(c.cost(), costVal, costCmp)) continue;
-                    if (excludeJob != null && c.hasJob(excludeJob)) continue;
+                    if (excludeJob != null && ctx.effectiveHasJob(c, excludeJob)) continue;
                     if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
                     if (meetsCondition(ctx.p1ForwardState(i), ctx.p1ForwardCurrentDamage(i),
                             ctx.isP1ForwardAttacking(i), ctx.isP1ForwardBlocking(i), condition))
@@ -721,8 +722,12 @@ final class ActionResolverDamage {
         return ctx -> {
             ctx.logEntry("Effect: Own Job " + job + " / Card Name " + cardName
                 + " — damage from Summons/abilities becomes 0 this turn");
+            // The Job is read at damage time rather than now: the shield outlives this resolution
+            // and is asked about Forwards on the field, so a Job granted or stripped in between
+            // has to count. Capturing ctx is what makes that possible — it stays live on the same
+            // board for as long as the turn-scoped filter does.
             ctx.shieldOwnForwardsAbilityDamageFilter(
-                c -> c.hasJob(job) || c.name().equalsIgnoreCase(cardName));
+                c -> ctx.effectiveHasJob(c, job) || c.name().equalsIgnoreCase(cardName));
         };
     }
     /** Parses "[Self] breaks after the attack or the block and doesn't deal any damage." */

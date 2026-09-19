@@ -946,6 +946,11 @@ final class ActionResolverChoose {
         // The two prongs are alternatives, as they are everywhere else this pair of words is
         // printed — see MainWindow.meetsJobOrCardNameFilter, which spells out why the cards named
         // "Samurai" and the cards with Job Samurai are not the same set.
+        //
+        // The printed Job, deliberately, and not GameContext.effectiveHasJob: the card is chosen
+        // in the Break Zone and tested once it is in hand, never on the field, so no Job grant or
+        // Job loss stands on it. See the zone note on those accessors for why asking anyway would
+        // be a bug rather than a no-op.
         {
             Matcher toHandM = FORMER_TO_HAND_IF_JOB_OR_NAME_DAMAGE_LATTER.matcher(effects);
             if (toHandM.matches()) {

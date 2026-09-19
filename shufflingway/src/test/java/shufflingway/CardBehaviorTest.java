@@ -199,6 +199,31 @@ public class CardBehaviorTest {
     private static final String HIEN_HASTE =
             "If you control 5 or more Fire Characters and/or Category XIV Characters, Hien gains Haste.";
 
+    /**
+     * Stubs {@link GameContext#effectiveHasElement} and {@link GameContext#effectiveHasJob} on a
+     * mock context to answer from the printed {@link CardData}.
+     *
+     * <p>Needed by every mock-based test whose filter goes through those accessors. Mockito
+     * answers {@code false} for an unstubbed boolean, so such a filter runs and matches nothing
+     * — which reads as the effect having changed rather than as a missing stub, and is the trap
+     * that makes converting a filter to the effective reading look like a regression.
+     *
+     * <p>The printed answer is the correct stand-in: a mock has no board, so no Element override
+     * and no Job grant or strip can be standing on anything. A test that wants one of those has
+     * to run against a real {@code MainWindow}, and by identity — the stores behind the effective
+     * view are keyed by the instance, and {@code CardData} is a record.
+     */
+    private static void stubPrintedJobAndElement(GameContext ctx) {
+        when(ctx.effectiveHasElement(any(), any())).thenAnswer(inv -> {
+            CardData c = inv.getArgument(0);
+            return c != null && c.containsElement(inv.getArgument(1));
+        });
+        when(ctx.effectiveHasJob(any(), any())).thenAnswer(inv -> {
+            CardData c = inv.getArgument(0);
+            return c != null && c.hasJob(inv.getArgument(1));
+        });
+    }
+
     /** Builds a Forward with an element and a category (no job). */
     private static CardData makeCategoryForward(String name, String element, String category) {
         return new CardData(null, name, element, 3, 7000, "Forward", false, 0, false, false,
@@ -2642,6 +2667,9 @@ public class CardBehaviorTest {
         assertNotNull(fn);
 
         GameContext ctx = mock(GameContext.class);
+        // The captured filter reads the Job back through the context, not off the CardData, so
+        // that the shield sees a Job granted or stripped after it was registered.
+        stubPrintedJobAndElement(ctx);
         fn.accept(ctx);
 
         @SuppressWarnings("unchecked")
@@ -2662,6 +2690,35 @@ public class CardBehaviorTest {
         assertTrue(filter.test(jobDancer), "Job Dancer should be shielded");
         assertTrue(filter.test(namedDancer), "Card Name Dancer should be shielded");
         assertFalse(filter.test(other), "Non-Dancer should not be shielded");
+    }
+
+    @Test
+    void theShieldSeesAJobGrantedAfterItWasRegistered() {
+        // The filter is turn-scoped and outlives this resolution — the card's own text says it
+        // covers Dancers entering later — so the Job has to be read when damage lands rather than
+        // when the shield was registered. Against the printed CardData this assertion is fixed at
+        // registration time and the second half cannot move.
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, makeJobCategoryForward("Latecomer", "Mage", "I"));
+        CardData onField = mw.p1ForwardCards.get(0);
+        GameContext live = mw.buildGameContext(true);
+
+        Consumer<GameContext> fn = ActionResolver.parse(DANCER_SHIELD_TEXT, null);
+        assertNotNull(fn);
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.effectiveHasJob(any(), any())).thenAnswer(inv ->
+                live.effectiveHasJob(inv.getArgument(0), inv.getArgument(1)));
+        fn.accept(ctx);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Predicate<CardData>> captor =
+                ArgumentCaptor.forClass((Class<Predicate<CardData>>) (Class<?>) Predicate.class);
+        verify(ctx).shieldOwnForwardsAbilityDamageFilter(captor.capture());
+        Predicate<CardData> filter = captor.getValue();
+
+        assertFalse(filter.test(onField), "a Mage named Latecomer is neither prong");
+        mw.permanentExtraJobMap.put(onField, "Dancer");
+        assertTrue(filter.test(onField), "and is covered once the Job is granted");
     }
 
     // =========================================================================================
@@ -60574,6 +60631,7 @@ public class CardBehaviorTest {
 		Consumer<GameContext> fn = ActionResolver.parse(text, makeForward("The Demon", "Fire", 7, 9000));
 		assertNotNull(fn, "the named sweep should parse");
 		GameContext ctx = mock(GameContext.class);
+		stubPrintedJobAndElement(ctx);
 		if (job) when(ctx.selectJobNamedAgainstOpponent()).thenReturn(named);
 		else     when(ctx.selectElement(any())).thenReturn(named);
 		when(ctx.p1ForwardCount()).thenReturn(p1.size());
@@ -60623,6 +60681,124 @@ public class CardBehaviorTest {
 		List<CardData> mine = List.of(makeForward("Dual", "Fire/Ice", 3, 7000));
 		verify(resolveDemonSweep(DEMON_OPTION_ELEMENT, "Ice", false, mine, List.of()))
 				.damageP1Forward(0, 7000);
+	}
+
+	// --- Effective Job and Element ---------------------------------------------------------
+	//
+	// The filters above ask the context what a card's Job and Element are *now*, not what the
+	// CardData prints. Nothing in the golden file or either report can see the difference — the
+	// sweep parses, names and describes identically either way, and only the set of Forwards it
+	// burns moves — so these are the only tests that hold the conversion in place.
+	//
+	// The mock supplies the board plumbing and the naming; the two accessors are wired to a real
+	// MainWindow carrying the mutation, which is the part that cannot be faked. Mutations are
+	// applied to the instance on the field: MainWindow.jobsLostCards is identity-keyed and
+	// CardData is a record, so an equal copy would miss.
+
+	/** Resolves a named sweep over {@code p1}, answering Job/Element questions from {@code mw}. */
+	private static GameContext resolveSweepAgainstBoard(MainWindow mw, String text, String named,
+			boolean job, List<CardData> p1) {
+		GameContext live = mw.buildGameContext(true);
+		Consumer<GameContext> fn = ActionResolver.parse(text, makeForward("The Demon", "Fire", 7, 9000));
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.effectiveHasElement(any(), any())).thenAnswer(inv ->
+				live.effectiveHasElement(inv.getArgument(0), inv.getArgument(1)));
+		when(ctx.effectiveHasJob(any(), any())).thenAnswer(inv ->
+				live.effectiveHasJob(inv.getArgument(0), inv.getArgument(1)));
+		if (job) when(ctx.selectJobNamedAgainstOpponent()).thenReturn(named);
+		else     when(ctx.selectElement(any())).thenReturn(named);
+		when(ctx.p1ForwardCount()).thenReturn(p1.size());
+		when(ctx.p2ForwardCount()).thenReturn(0);
+		for (int i = 0; i < p1.size(); i++) when(ctx.p1Forward(i)).thenReturn(p1.get(i));
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void theElementSweepCatchesAForwardThatBecameTheNamedElement() {
+		MainWindow mw = new MainWindow();
+		CardData windling = makeForward("Windling", "Wind", 3, 7000);
+		placeP1Forward(mw, windling);
+		CardData onField = mw.p1ForwardCards.get(0);
+		mw.elementOverrideMap.put(onField, "Fire");
+
+		verify(resolveSweepAgainstBoard(mw, DEMON_OPTION_ELEMENT, "Fire", false, List.of(onField)))
+				.damageP1Forward(0, 7000);
+	}
+
+	@Test
+	void thatSameForwardIsSparedWithoutTheOverride() {
+		// The control for the test above: printed Wind, nothing standing on it, Fire named.
+		MainWindow mw = new MainWindow();
+		CardData windling = makeForward("Windling", "Wind", 3, 7000);
+		placeP1Forward(mw, windling);
+
+		verify(resolveSweepAgainstBoard(mw, DEMON_OPTION_ELEMENT, "Fire", false,
+				List.of(mw.p1ForwardCards.get(0))), never()).damageP1Forward(anyInt(), anyInt());
+	}
+
+	@Test
+	void anOverriddenForwardStillAnswersToItsPrintedElement() {
+		// effectiveContainsElement is printed-or-effective, not effective-instead-of-printed: it
+		// short-circuits on the printed value before consulting the override. So "becomes Fire"
+		// adds Fire rather than replacing Wind, and naming Wind still catches it. Asserted so the
+		// reader's contract is written down somewhere a change to it would trip.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Windling", "Wind", 3, 7000));
+		CardData onField = mw.p1ForwardCards.get(0);
+		mw.elementOverrideMap.put(onField, "Fire");
+
+		verify(resolveSweepAgainstBoard(mw, DEMON_OPTION_ELEMENT, "Wind", false, List.of(onField)))
+				.damageP1Forward(0, 7000);
+	}
+
+	@Test
+	void theJobSweepPassesOverAForwardWhoseJobsWereStripped() {
+		// Exdeath 3-100L. A card with no Job satisfies no Job filter, so naming its printed Job
+		// must now miss it — the one case where the effective answer is strictly narrower.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeJobCategoryForward("Knightly", "Knight", "I"));
+		CardData onField = mw.p1ForwardCards.get(0);
+		mw.jobsLostCards.add(onField);
+
+		verify(resolveSweepAgainstBoard(mw, DEMON_OPTION_JOB, "Knight", true, List.of(onField)),
+				never()).damageP1Forward(anyInt(), anyInt());
+	}
+
+	@Test
+	void theJobSweepCatchesAForwardGrantedThatJob() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeJobCategoryForward("Maged", "Mage", "I"));
+		CardData onField = mw.p1ForwardCards.get(0);
+		mw.permanentExtraJobMap.put(onField, "Knight");
+
+		verify(resolveSweepAgainstBoard(mw, DEMON_OPTION_JOB, "Knight", true, List.of(onField)))
+				.damageP1Forward(0, 8000);
+	}
+
+	@Test
+	void theOtherThanJobExclusionSparesAForwardGrantedThatJob() {
+		// The oldest of the converted filters, and the one most printings use.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeJobCategoryForward("Maged", "Mage", "I"));
+		CardData onField = mw.p1ForwardCards.get(0);
+		mw.permanentExtraJobMap.put(onField, "Knight");
+		GameContext live = mw.buildGameContext(true);
+
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"Deal 5000 damage to all Forwards other than Job Knight.", null);
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.effectiveHasJob(any(), any())).thenAnswer(inv ->
+				live.effectiveHasJob(inv.getArgument(0), inv.getArgument(1)));
+		when(ctx.p1ForwardCount()).thenReturn(1);
+		when(ctx.p2ForwardCount()).thenReturn(0);
+		when(ctx.p1Forward(0)).thenReturn(onField);
+		when(ctx.p1ForwardState(0)).thenReturn(CardState.ACTIVE);
+		fn.accept(ctx);
+
+		verify(ctx, never()).damageP1Forward(anyInt(), anyInt());
 	}
 
 	@Test
