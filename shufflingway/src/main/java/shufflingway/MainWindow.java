@@ -122,6 +122,7 @@ import shufflingway.graphics.CardBreakAnimator;
 import shufflingway.graphics.CardRfpAnimator;
 import shufflingway.graphics.CardSlideAnimator;
 import shufflingway.graphics.CrystalDisplay;
+import shufflingway.graphics.ExBurstGlow;
 import shufflingway.graphics.GradientPanel;
 import shufflingway.graphics.GrayscaleLabel;
 import shufflingway.graphics.HandFanOverlapLayout;
@@ -566,6 +567,11 @@ public class MainWindow {
 	private JPanel[]   p1DamageSlots = new JPanel[7];
 	ShieldIcon         p1ShieldIcon;
 	ShieldIcon         p2ShieldIcon;
+	/**
+	 * Spinning glow over the damage slot whose EX Burst is resolving.  P1 only: an EX Burst never
+	 * reaches the stack, so the opponent has no window to respond in and nothing to read off it.
+	 */
+	private final ExBurstGlow p1ExBurstGlow = new ExBurstGlow();
 
 	// Next-phase button and its glow animation
 	JButton              nextPhaseButton;
@@ -3833,6 +3839,7 @@ public class MainWindow {
 		p2SpentLbIndices.clear();
 
 		// Damage zone
+		p1ExBurstGlow.stop();
 		if (p1DamageSlotPanel != null) {
 			p1DamageSlotPanel.putClientProperty("exBurst", Boolean.FALSE);
 			p1DamageSlotPanel.repaint();
@@ -19877,15 +19884,43 @@ public class MainWindow {
 				} else {
 					shieldIcon.setBounds(0, 0, 0, 0);
 				}
+				if (isP1) {
+					int gi = p1ExBurstGlow.slotIndex();
+					if (gi >= 0 && gi < 7 && damageSlots[gi] != null && damageSlots[gi].getHeight() > 0) {
+						JPanel t = damageSlots[gi];
+						p1ExBurstGlow.setBounds(t.getX(), t.getY(), t.getWidth(), t.getHeight());
+					} else {
+						p1ExBurstGlow.setBounds(0, 0, 0, 0);
+					}
+				}
 			}
 		};
 		layered.add(slotsPanel, JLayeredPane.DEFAULT_LAYER);
 		layered.add(shieldIcon, JLayeredPane.PALETTE_LAYER);
+		if (isP1) layered.add(p1ExBurstGlow, JLayeredPane.PALETTE_LAYER);
 
 		JPanel panel = new JPanel(new BorderLayout(0, 4));
 		panel.setPreferredSize(new Dimension(CARD_W, CARD_H * 2));
 		panel.add(layered, BorderLayout.CENTER);
 		return panel;
+	}
+
+	/**
+	 * Lights P1 damage slot {@code slotIndex} for as long as the EX Burst on that card is
+	 * resolving, and must be paired with {@link #stopExBurstGlow()}.
+	 *
+	 * <p>The whole resolution — the accept/decline dialog, then target selection — runs on the EDT
+	 * inside a nested event loop rather than returning to the caller, and both forms of it keep
+	 * pumping events, so the glow animates and the slot stays lit right through the player's picks.
+	 */
+	void startExBurstGlow(int slotIndex) {
+		if (slotIndex < 0 || slotIndex >= p1DamageSlots.length) return;
+		p1ExBurstGlow.start(slotIndex);
+	}
+
+	/** Fades the EX Burst glow out; safe to call when nothing is lit. */
+	void stopExBurstGlow() {
+		p1ExBurstGlow.stop();
 	}
 
 	Image loadCardbackImage() {

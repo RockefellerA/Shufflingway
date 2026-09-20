@@ -3735,6 +3735,16 @@ final class AutoAbilityTriggers {
 	 * trigger prefix and run the bare effect text.
 	 */
 	void triggerExBurst(CardData card, boolean isP1) {
+		try {
+			triggerExBurstImpl(card, isP1);
+		} finally {
+			// Every exit from the resolution passes through here, including one that throws part
+			// way through an effect — a glow left spinning on a settled board is worse than none.
+			if (isP1) mw.stopExBurstGlow();
+		}
+	}
+
+	private void triggerExBurstImpl(CardData card, boolean isP1) {
 		String effect = card.exBurstEffect();
 		if (effect.isEmpty()) {
 			mw.logEntry("[EX BURST] " + card.name() + " — no parseable effect");
@@ -3748,6 +3758,10 @@ final class AutoAbilityTriggers {
 			mw.logEntry("[EX BURST] Effect not yet implemented: " + effect);
 			return;
 		}
+		// Lit from here rather than from the top of the method: a burst with no effect this engine
+		// can run resolves to a log line, and a glow that blinks on and straight off reads as a
+		// glitch.  From this point there is always a dialog and possibly target picks to make.
+		if (isP1) mw.startExBurstGlow(exBurstDamageSlot(card));
 		if (isP1) {
 			JDialog dlg = new JDialog(mw.frame, "EX Burst — " + card.name(), true);
 			dlg.setResizable(false);
@@ -3825,6 +3839,19 @@ final class AutoAbilityTriggers {
 		if (card.isSummon()) { mw.currentResolutionIsSummon = true; mw.currentSummonSource = card; }
 		try { fn.accept(mw.buildGameContext(isP1, true)); } finally { mw.currentResolutionIsSummon = false; mw.currentSummonSource = null; }
 		triggerAutoAbilitiesForOpponentUsesExBurst(isP1);
+	}
+
+	/**
+	 * P1 damage-zone index of the card whose EX Burst is being resolved, or -1 if it is not there.
+	 *
+	 * <p>Searched by identity from the back, not by {@code indexOf}: {@link CardData} is a record,
+	 * so a second copy of the same printing already in the Damage Zone is {@code equals()} to this
+	 * one and would light the wrong slot.
+	 */
+	private int exBurstDamageSlot(CardData card) {
+		List<CardData> dz = mw.gameState.getP1DamageZone();
+		for (int i = dz.size() - 1; i >= 0; i--) if (dz.get(i) == card) return i;
+		return -1;
 	}
 
 	/**
