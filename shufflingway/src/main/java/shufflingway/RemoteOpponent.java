@@ -210,9 +210,59 @@ class RemoteOpponent implements OpponentController {
 			return;
 		}
 
+		// The surcharge a cast paid, which takes cards out of zones no index above accounts for
+		// and decides whether the arrival's "if you paid the extra cost" clause fires.
+		ExtraPayment extra = null;
+		JSONObject rawExtra = payload.optJSONObject("extra");
+		if (rawExtra != null) {
+			extra = decodeExtraPayment(rawExtra);
+			if (extra == null) {
+				mw.reportDesync("opponent paid an extra cost of a kind this client does not know,"
+						+ " casting \"" + card.name() + "\"");
+				return;
+			}
+			if (!extraPaymentFits(extra, card)) return;
+		}
+
 		mw.executePlay(false, card, handIdx,
 				indices(payload, "discards"), indices(payload, "backups"), overrides,
-				summonTargets, targetsAreReplayed, breaks);
+				summonTargets, targetsAreReplayed, breaks, extra);
+	}
+
+	/**
+	 * Whether {@code extra} addresses cards this client holds on the opponent's board, reporting a
+	 * desync and answering {@code false} when it does not.
+	 *
+	 * <p>Checked against the zones as they stand now, which is when the payment was chosen on the
+	 * casting client too — the play has not started spending yet. The Crystal count is left to
+	 * {@code executePlay}, which already treats a surcharge that has become unaffordable as simply
+	 * unpaid rather than as a reason to refuse the play.
+	 */
+	private boolean extraPaymentFits(ExtraPayment extra, CardData card) {
+		ExtraCost printed = card.extraCost();
+		if (printed == null || printed.type() != extra.type()) {
+			mw.reportDesync("opponent paid a " + extra.type() + " extra cost casting \""
+					+ card.name() + "\", which prints "
+					+ (printed == null ? "no extra cost" : printed.type()) + " here");
+			return false;
+		}
+		int bzSize = mw.gameState.getP2BreakZone().size();
+		for (int idx : extra.bzRemovals()) {
+			if (idx < 0 || idx >= bzSize) {
+				mw.reportDesync("opponent removed Break Zone card " + idx + " as an extra cost for \""
+						+ card.name() + "\", but their Break Zone holds " + bzSize + " here");
+				return false;
+			}
+		}
+		int handSize = mw.gameState.getP2Hand().size();
+		for (int idx : extra.handDiscards()) {
+			if (idx < 0 || idx >= handSize) {
+				mw.reportDesync("opponent discarded hand card " + idx + " as an extra cost for \""
+						+ card.name() + "\", but their hand holds " + handSize + " here");
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/**
@@ -723,16 +773,29 @@ class RemoteOpponent implements OpponentController {
 				backupBreaks, null);
 	}
 
-	/**
-	 * @param alt what was handed over for an alternate cast, or {@code null} for an ordinary one.
-	 *            Its presence is the signal, not its contents: Golbez 17-140S hands nothing over
-	 *            and still needs the receiver to know his discount was taken, because that is what
-	 *            arms the drawback paying for it.
-	 */
 	static GameAction playCardAction(CardData card, int handIdx, List<Integer> discards,
 	                                 List<Integer> backupDulls, Map<Integer, String> backupElements,
 	                                 List<ForwardTarget> summonTargets,
 	                                 Map<Integer, String> backupBreaks, AltPayment alt) {
+		return playCardAction(card, handIdx, discards, backupDulls, backupElements, summonTargets,
+				backupBreaks, alt, null);
+	}
+
+	/**
+	 * @param alt   what was handed over for an alternate cast, or {@code null} for an ordinary one.
+	 *              Its presence is the signal, not its contents: Golbez 17-140S hands nothing over
+	 *              and still needs the receiver to know his discount was taken, because that is
+	 *              what arms the drawback paying for it.
+	 * @param extra what was paid for the card's optional surcharge, or {@code null} when none was.
+	 *              A surcharge and an alternate cost are separate offers on separate menu items,
+	 *              so at most one of these is ever present — but they are separate fields rather
+	 *              than one, because neither is a kind of the other.
+	 */
+	static GameAction playCardAction(CardData card, int handIdx, List<Integer> discards,
+	                                 List<Integer> backupDulls, Map<Integer, String> backupElements,
+	                                 List<ForwardTarget> summonTargets,
+	                                 Map<Integer, String> backupBreaks, AltPayment alt,
+	                                 ExtraPayment extra) {
 		JSONObject overrides = new JSONObject();
 		backupElements.forEach((slot, element) -> overrides.put(String.valueOf(slot), element));
 		// Backups broken for CP as part of this payment (Sherlotta 8-053H). Its own object rather
@@ -764,7 +827,37 @@ class RemoteOpponent implements OpponentController {
 		// Absent on an ordinary cast, so its mere presence says "this was an alternate cast" and
 		// an empty object stays meaningful.
 		if (alt != null) payload.put("alt", encodeAltPayment(alt));
+		if (extra != null) payload.put("extra", encodeExtraPayment(extra));
 		return GameAction.of(ActionType.PLAY_CARD, payload);
+	}
+
+	/**
+	 * Packs an optional surcharge's payment for the wire.
+	 *
+	 * <p>The CP half needs nothing here: a fixed or 《X》 amount is charged through the ordinary
+	 * payment dialog, so the Backups and discards covering it are already in the payload above.
+	 * What travels is the size of the surcharge and the cards it took out of zones the payload
+	 * does not otherwise touch.
+	 */
+	private static JSONObject encodeExtraPayment(ExtraPayment extra) {
+		return new JSONObject()
+				.put("type", extra.type().name())
+				.put("crystals", extra.crystals())
+				.put("x", extra.xValue())
+				.put("bzRemovals", new JSONArray(extra.bzRemovals()))
+				.put("handDiscards", new JSONArray(extra.handDiscards()));
+	}
+
+	/** Unpacks {@link #encodeExtraPayment}, or {@code null} when the type is one this build lacks. */
+	private static ExtraPayment decodeExtraPayment(JSONObject extra) {
+		ExtraCost.Type type;
+		try {
+			type = ExtraCost.Type.valueOf(extra.optString("type", ""));
+		} catch (IllegalArgumentException e) {
+			return null;
+		}
+		return new ExtraPayment(type, extra.optInt("crystals", 0), extra.optInt("x", 0),
+				jsonInts(extra, "bzRemovals"), jsonInts(extra, "handDiscards"));
 	}
 
 	/**

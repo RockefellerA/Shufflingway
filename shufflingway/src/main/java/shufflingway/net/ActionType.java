@@ -28,7 +28,10 @@ public enum ActionType {
                     //            "alt": { "crystals": n, "dull": [slot, ...],
                     //                     "removeBackups": [slot, ...],
                     //                     "putToBz": [{ "idx": n, "zone": "FORWARD" }, ...],
-                    //                     "bzRemovals": [idx, ...] } }
+                    //                     "bzRemovals": [idx, ...] },
+                    //            "extra": { "type": "BZ_REMOVE", "crystals": n, "x": n,
+                    //                       "bzRemovals": [idx, ...],
+                    //                       "handDiscards": [idx, ...] } }
                     //   Indices address zones both clients hold in the same order.
                     //   "alt" is present only for a cast under one of the card's alternate costs,
                     //   and carries what that cost handed over — none of which the indices above
@@ -37,6 +40,15 @@ public enum ActionType {
                     //   know the cost was taken to arm the drawback paying for it. What is not a
                     //   choice (the reduced CP, the drawback itself) is read off the card at both
                     //   ends rather than sent.
+                    //   "extra" is present only for a cast that paid the card's optional
+                    //   surcharge, and says what that surcharge took. Its CP half is not here:
+                    //   a fixed or 《X》 amount is charged through the ordinary payment dialog, so
+                    //   the Backups and discards covering it are in "discards"/"backups" like any
+                    //   other payment, and only the size of it ("x") travels, for the effects that
+                    //   read it back. Its indices address the hand and Break Zone as they stood
+                    //   when the surcharge was chosen, before the play spent anything.
+                    //   "alt" and "extra" are separate offers on separate menu items, so at most
+                    //   one of the two is ever present.
     LB_PLAY,        // payload: { "lbIdx": n, "card": "...", "payment": [lbIdx, ...],
                     //            "discards": [idx, ...], "backups": [slot, ...],
                     //            "backupBreaks": { "slot": "Fire" } }

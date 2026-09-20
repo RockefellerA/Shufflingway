@@ -46544,6 +46544,191 @@ public class CardBehaviorTest {
 
 
 	// =========================================================================================
+	// An extra cost across the wire.
+	//
+	// The same hole as the alternate costs next door, in the other optional-cost family. A
+	// surcharge is paid out of the caster's Break Zone, hand or Crystals, and none of that is
+	// accounted for by the indices an ordinary PLAY_CARD carries — so the receiving client left
+	// those cards where they were. It also never learned that the surcharge had been paid at all,
+	// which is the question every "If you paid the extra cost, …" clause on the arriving card
+	// asks, so the opponent's Samurai resolved as though it had been cast for its printed cost.
+	// =========================================================================================
+
+	private static final String TITAN_18_136S_TEXT =
+			"If you cast Titan, you may remove 1 Forward in your Break Zone from the game as an "
+			+ "extra cost.[[br]] Choose 1 Forward. Deal it damage equal to the power of the Forward "
+			+ "removed by the extra cost.";
+
+	private static final String FENRIR_24_065H_TEXT =
+			"If you cast Fenrir, you may discard 1 card as an extra cost.[[br]]Choose 1 Forward "
+			+ "opponent controls. If its cost is equal to the cost of the card discarded by the "
+			+ "extra cost, break it and draw 1 card.";
+
+	private static final String SAMURAI_27_009C_TEXT =
+			"If you cast Samurai, you may pay 《Wind》《2》 as an extra cost.[[br]]When Samurai "
+			+ "enters the field, choose 1 Forward of cost 6 or more. If you paid the extra cost, "
+			+ "break it.";
+
+	/**
+	 * Bahamut SIN 28-087H's shape, which is the only way a Crystal surcharge is printed: the cost
+	 * rides on the modal choice rather than on an "as an extra cost" sentence.
+	 */
+	private static final String CRYSTAL_SURCHARGE_TEXT =
+			"Select up to 2 of the 2 following actions. If you selected 2 actions, the cost required "
+			+ "to cast Bahamut SIN is increased by 《C》《C》."
+			+ "[[br]]\"Choose 1 active Forward. Break it.\""
+			+ "[[br]]\"Choose 1 Forward of cost 3 or less. Break it.\"";
+
+	/** The paid-extra-cost flag the arrival queued, or null when nothing was queued. */
+	private static Boolean queuedPaidExtraCost(MainWindow mw) {
+		StackEntry top = mw.gameState.peekStack();
+		return top == null ? null : top.paidExtraCost();
+	}
+
+	@Test
+	void anOrdinaryCastCarriesNoExtraCostAtAll() {
+		CardData card = makeForward("Cast Me", "Wind", 2, 5000);
+		JSONObject payload = RemoteOpponent.playCardAction(card, 0, List.of(), List.of(0),
+				Map.of(), List.of(), Map.of()).payload();
+		assertFalse(payload.has("extra"), "nothing was surcharged, so nothing is claimed");
+	}
+
+	@Test
+	void anExtraCostCarriesWhatItTook() {
+		CardData card = makeForward("Cast Me", "Wind", 2, 5000);
+		JSONObject extra = RemoteOpponent.playCardAction(card, 0, List.of(), List.of(),
+				Map.of(), List.of(), Map.of(), null,
+				new ExtraPayment(ExtraCost.Type.BZ_REMOVE, 0, 0, List.of(2, 5), List.of()))
+				.payload().getJSONObject("extra");
+
+		assertEquals("BZ_REMOVE", extra.getString("type"));
+		assertEquals(2, extra.getJSONArray("bzRemovals").getInt(0));
+		assertEquals(5, extra.getJSONArray("bzRemovals").getInt(1));
+	}
+
+	@Test
+	void payingNothingForAnXSurchargeIsDecliningIt() {
+		// Valefor 24-038H. The spinner allows 0, and a cast for 0 extra CP has paid no extra cost —
+		// so the clauses that read the flag must not fire.
+		assertFalse(ExtraPayment.cpX(0).counts(), "X of nothing is not a payment");
+		assertTrue(ExtraPayment.cpX(3).counts());
+		assertTrue(ExtraPayment.bzRemovals(List.of()).counts(),
+				"a selection was made, even if the printing asked for none");
+	}
+
+	@Test
+	void anOpponentsBreakZoneSurchargeIsTakenFromTheirBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData keep      = makeForward("Keep", "Fire", 2, 5000);
+		CardData surcharge = makeForward("Surcharge", "Fire", 3, 7000);
+		mw.gameState.getP2BreakZone().add(keep);
+		mw.gameState.getP2BreakZone().add(surcharge);
+
+		CardData titan = makeSummon("Titan", "Earth", 3, TITAN_18_136S_TEXT);
+		mw.gameState.getIdentity().put(titan, false);
+		mw.gameState.getP2Hand().add(titan);
+
+		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(titan, 0, List.of(),
+				List.of(), Map.of(), List.of(), Map.of(), null,
+				ExtraPayment.bzRemovals(List.of(1))));
+
+		assertEquals(List.of(keep), mw.gameState.getP2BreakZone(),
+				"the card they paid with left their Break Zone");
+		assertTrue(mw.gameState.getP2PermanentRfp().contains(surcharge),
+				"and went out of the game, on their side of it");
+		assertTrue(mw.gameState.getP1BreakZone().isEmpty(), "none of it touched this player");
+	}
+
+	@Test
+	void anOpponentsBreakZoneSurchargeCarriesThePowerItsSummonReadsBack() {
+		// Titan 18-136S deals damage equal to the power of the Forward its extra cost removed,
+		// so that power has to be worked out from the card they actually paid with.
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2BreakZone().add(makeForward("Surcharge", "Earth", 3, 7000));
+		CardData titan = makeSummon("Titan", "Earth", 3, TITAN_18_136S_TEXT);
+		mw.gameState.getIdentity().put(titan, false);
+		mw.gameState.getP2Hand().add(titan);
+
+		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(titan, 0, List.of(),
+				List.of(), Map.of(), List.of(), Map.of(), null,
+				ExtraPayment.bzRemovals(List.of(0))));
+
+		StackEntry queued = mw.gameState.peekStack();
+		assertNotNull(queued, "their Summon is on the Stack here too");
+		assertEquals(7000, queued.extraCostRemovedCardPower());
+		assertTrue(queued.paidExtraCost());
+	}
+
+	@Test
+	void anOpponentsHandSurchargeSurvivesTheHandShiftingUnderIt() {
+		// The surcharge indexes the hand as it stood when it was chosen. By the time it is charged
+		// the hand has lost the card paid for CP and the card being cast, so a slot number read at
+		// that point would name the wrong card — or none at all.
+		MainWindow mw = new MainWindow();
+		CardData paidForCp = makeForward("Paid For CP", "Ice", 1, 5000);
+		CardData surcharge = makeForward("Surcharge",   "Ice", 2, 5000);
+		CardData fenrir    = makeSummon("Fenrir", "Ice", 2, FENRIR_24_065H_TEXT);
+		for (CardData c : List.of(paidForCp, surcharge, fenrir)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2Hand().add(c);
+		}
+
+		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(fenrir, 2, List.of(0),
+				List.of(), Map.of(), List.of(), Map.of(), null,
+				ExtraPayment.handDiscards(List.of(1))));
+
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "one cast, one spent, one surcharged");
+		assertTrue(mw.gameState.getP2BreakZone().contains(surcharge),
+				"the surcharge took the card slot 1 held before the play started");
+	}
+
+	@Test
+	void anOpponentsCrystalSurchargeSpendsTheirCrystals() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.addP2Crystals(3);
+		CardData bahamut = makeSummon("Bahamut SIN", "Lightning", 4, CRYSTAL_SURCHARGE_TEXT);
+		mw.gameState.getIdentity().put(bahamut, false);
+		mw.gameState.getP2Hand().add(bahamut);
+
+		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(bahamut, 0, List.of(),
+				List.of(), Map.of(), List.of(), Map.of(), null, ExtraPayment.crystals(2)));
+
+		assertEquals(1, mw.gameState.getP2Crystals(), "3 held, 2 surcharged");
+		assertEquals(0, mw.gameState.getP1Crystals(), "theirs, not ours");
+	}
+
+	@Test
+	void anOpponentsPaidSurchargeReachesTheArrivalThatAsksAboutIt() {
+		MainWindow mw = new MainWindow();
+		CardData samurai = makePricedAutoBackup("Samurai", "Wind", 3, SAMURAI_27_009C_TEXT);
+		mw.gameState.getIdentity().put(samurai, false);
+		mw.gameState.getP2Hand().add(samurai);
+
+		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(samurai, 0, List.of(),
+				List.of(), Map.of(), List.of(), Map.of(), null, ExtraPayment.cpFixed()));
+
+		assertEquals(Boolean.TRUE, queuedPaidExtraCost(mw),
+				"their Samurai breaks what it chooses, here as well as on their client");
+	}
+
+	@Test
+	void anOpponentsUnpaidSurchargeLeavesTheArrivalOnItsBaseEffect() {
+		MainWindow mw = new MainWindow();
+		CardData samurai = makePricedAutoBackup("Samurai", "Wind", 3, SAMURAI_27_009C_TEXT);
+		mw.gameState.getIdentity().put(samurai, false);
+		mw.gameState.getP2Hand().add(samurai);
+
+		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(samurai, 0, List.of(),
+				List.of(), Map.of(), List.of(), Map.of()));
+
+		// Strip the clause and what is left is "choose 1 Forward of cost 6 or more" — a choice with
+		// nothing to do to what it chooses. So an unpaid Samurai queues nothing, which is the
+		// strongest form of "the break clause does not apply".
+		assertNull(queuedPaidExtraCost(mw), "no surcharge crossed, so the break was never armed");
+	}
+
+
+	// =========================================================================================
 	// Ramza 10-138S, Ardyn 20-001R and Laguna 1-059R: three enters-the-field abilities that were
 	// losing everything after their first clause.
 	//

@@ -1396,22 +1396,6 @@ public class MainWindow {
 	int currentExtraCostRemovedCardPower = 0;
 	/** Power of the Forward revealed from hand to pay the resolving ability's reveal cost (Rinoa 18-097R); 0 otherwise. */
 	int currentRevealedForwardPower = 0;
-	/** BZ cards to remove from the game once the current extra-cost CP payment is confirmed. */
-	private List<CardData> pendingExtraCostBzRemovals = null;
-	/** Hand cards to discard as extra cost once the current CP payment is confirmed (Fenrir). */
-	private List<CardData> pendingExtraCostHandDiscards = null;
-	/** X value chosen for a 《X》 extra cost payment (Valefor). */
-	private int pendingExtraCostXValue = 0;
-	/** Extra CP to add to the payment dialog when the extra cost is 《X》 CP (Valefor). */
-	private int pendingExtraCostExtraCp = 0;
-	/** Fixed CP elements pending for a CP_FIXED extra cost (e.g. "Wind" + 2 generic, Samurai); null when not confirmed. */
-	private List<String> pendingExtraCostCpElements = null;
-	/**
-	 * Crystals pending for a CRYSTAL extra cost (Bahamut SIN 28-087H); 0 when none is pending.
-	 * Spent in {@code executePlay} alongside the other extra-cost payments rather than when the
-	 * player confirms, so cancelling out of the CP dialog that follows leaves them unspent.
-	 */
-	private int pendingExtraCostCrystals = 0;
 	/** Cost of the card discarded as the hand-discard extra cost; 0 if not applicable. */
 	int currentExtraCostDiscardedCardCost = 0;
 	/** The source card of the action ability currently resolving off the stack (null otherwise). */
@@ -9815,29 +9799,32 @@ public class MainWindow {
 	/**
 	 * Opens the appropriate extra-cost selection dialog (BZ removal, hand discard, or X spinner),
 	 * then chains into the normal CP payment dialog.
+	 *
+	 * <p>What the player picks is turned into indices here and carried forward as an
+	 * {@link ExtraPayment} rather than left on a field for the play to find. A field set before a
+	 * payment dialog survives that dialog being cancelled, and would then charge the surcharge to
+	 * whatever was cast next; a value threaded through the callback cannot outlive the cast it
+	 * belongs to.
 	 */
 	private void showExtraCostPlayDialog(CardData card, int handIdx, ExtraCost ec) {
 		switch (ec.type()) {
 			case BZ_REMOVE -> {
-				List<CardData> eligible = gameState.getP1BreakZone().stream()
-						.filter(ec::matches).collect(Collectors.toList());
+				List<CardData> bz = gameState.getP1BreakZone();
+				List<CardData> eligible = bz.stream().filter(ec::matches).collect(Collectors.toList());
 				new ExtraCostBzSelectDialog(frame, card, ec, eligible,
 						this::showZoomAt, this::hideZoom,
-						selectedCards -> {
-							pendingExtraCostBzRemovals = selectedCards;
-							showPaymentDialog(card, handIdx);
-						}).show();
+						selectedCards -> showPaymentDialog(card, handIdx,
+								ExtraPayment.bzRemovals(indexesOf(bz, selectedCards)))).show();
 			}
 			case DISCARD_HAND -> {
 				// Build hand list excluding the card being cast so it cannot be discarded as its own extra cost.
-				List<CardData> handChoices = new ArrayList<>(gameState.getP1Hand());
+				List<CardData> hand = gameState.getP1Hand();
+				List<CardData> handChoices = new ArrayList<>(hand);
 				handChoices.remove(card);
 				new ExtraCostBzSelectDialog(frame, card, ec, handChoices,
 						this::showZoomAt, this::hideZoom,
-						selectedCards -> {
-							pendingExtraCostHandDiscards = selectedCards;
-							showPaymentDialog(card, handIdx);
-						}).show();
+						selectedCards -> showPaymentDialog(card, handIdx,
+								ExtraPayment.handDiscards(indexesOf(hand, selectedCards)))).show();
 			}
 			case CP_X -> {
 				int maxX = gameState.getP1Hand().size() + 8; // generous upper bound
@@ -9846,10 +9833,7 @@ public class MainWindow {
 						new Object[]{"Pay how much extra CP (X)?", spinner},
 						"Extra Cost: " + card.name(), JOptionPane.OK_CANCEL_OPTION);
 				if (result != JOptionPane.OK_OPTION) return;
-				int x = (int) spinner.getValue();
-				pendingExtraCostXValue = x;
-				pendingExtraCostExtraCp = x;
-				showPaymentDialog(card, handIdx);
+				showPaymentDialog(card, handIdx, ExtraPayment.cpX((int) spinner.getValue()));
 			}
 			case CP_FIXED -> {
 				// Fixed, non-negotiable amount — just confirm, no selection needed.
@@ -9857,8 +9841,7 @@ public class MainWindow {
 						"Pay " + ec.description() + " to cast " + card.name() + " with its extra cost?",
 						"Extra Cost: " + card.name(), JOptionPane.OK_CANCEL_OPTION);
 				if (result != JOptionPane.OK_OPTION) return;
-				pendingExtraCostCpElements = ec.cpElements();
-				showPaymentDialog(card, handIdx);
+				showPaymentDialog(card, handIdx, ExtraPayment.cpFixed());
 			}
 			case CRYSTAL -> {
 				// Crystals are not CP, so the payment dialog below never sees them: confirm here,
@@ -9867,10 +9850,26 @@ public class MainWindow {
 						"Pay " + ec.description() + " to cast " + card.name() + " with its extra cost?",
 						"Extra Cost: " + card.name(), JOptionPane.OK_CANCEL_OPTION);
 				if (result != JOptionPane.OK_OPTION) return;
-				pendingExtraCostCrystals = ec.count();
-				showPaymentDialog(card, handIdx);
+				showPaymentDialog(card, handIdx, ExtraPayment.crystals(ec.count()));
 			}
 		}
+	}
+
+	/**
+	 * The positions {@code picked} occupies in {@code zone}, one per pick, in the order picked.
+	 *
+	 * <p>By identity rather than equality, and striking each position off as it is claimed: two
+	 * copies of one printing are {@code equals()} to each other, so a positional lookup that went
+	 * by value would name the same slot twice and leave the other copy unpaid.
+	 */
+	private static List<Integer> indexesOf(List<CardData> zone, List<CardData> picked) {
+		List<Integer> out = new ArrayList<>();
+		for (CardData p : picked) {
+			for (int i = 0; i < zone.size(); i++) {
+				if (zone.get(i) == p && !out.contains(i)) { out.add(i); break; }
+			}
+		}
+		return out;
 	}
 
 	/** @see CostCalculator#canAffordAltCost */
@@ -10379,6 +10378,28 @@ public class MainWindow {
 	}
 
 	/**
+	 * The cards {@code extra} names in {@code isP1}'s Break Zone (when {@code fromBz}) or hand,
+	 * read before the play it pays for has moved anything.
+	 *
+	 * <p>Resolved to cards rather than spent by index, because the two zones shift underneath a
+	 * cast: paying CP puts discarded cards into the Break Zone and takes the cast card out of the
+	 * hand, so a slot number means something different by the time the surcharge is charged.
+	 * Out-of-range entries are dropped rather than throwing — an index that no longer addresses
+	 * anything is a desync the receiving client has already reported.
+	 */
+	private List<CardData> resolveExtraPaymentCards(boolean isP1, ExtraPayment extra, boolean fromBz) {
+		if (extra == null) return List.of();
+		List<Integer> indices = fromBz ? extra.bzRemovals() : extra.handDiscards();
+		if (indices.isEmpty()) return List.of();
+		List<CardData> zone = fromBz
+				? (isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone())
+				: (isP1 ? gameState.getP1Hand()      : gameState.getP2Hand());
+		List<CardData> out = new ArrayList<>();
+		for (int idx : indices) if (idx >= 0 && idx < zone.size()) out.add(zone.get(idx));
+		return out;
+	}
+
+	/**
 	 * Gathers the local player's reserved alternate-cost choices into the payment that will be
 	 * both applied here and sent to the other client.
 	 *
@@ -10805,22 +10826,34 @@ public class MainWindow {
 	}
 
 	void showPaymentDialog(CardData card, int handIdx) {
-		int extraGeneric = pendingExtraCostCpElements == null ? 0
-				: (int) pendingExtraCostCpElements.stream().filter(String::isEmpty).count();
-		int cost = effectiveCastCost(card) + pendingExtraCostExtraCp + extraGeneric;
-		pendingExtraCostExtraCp = 0;
+		showPaymentDialog(card, handIdx, null);
+	}
+
+	/**
+	 * @param extra the surcharge already chosen for this cast, or {@code null} for an ordinary one.
+	 *              Its CP half is folded into the cost asked for here, so the Backups and discards
+	 *              that cover it travel in the play like any other payment; the rest of it travels
+	 *              with the play as its own record.
+	 */
+	void showPaymentDialog(CardData card, int handIdx, ExtraPayment extra) {
+		ExtraCost ec = extra == null ? null : card.extraCost();
+		// Only the generic half of a surcharge is added to the number the dialog asks for; its
+		// named Elements go in as extraElems, which the dialog folds in itself.
+		List<String> surcharge = ec != null && extra.type() == ExtraCost.Type.CP_FIXED
+				? ec.cpElements() : List.of();
+		int cost = effectiveCastCost(card) + (ec == null ? 0 : extra.extraGenericCp(ec));
 		if (cost <= 0) {
-			executePlay(card, handIdx, List.of(), List.of(), Map.of());
+			executePlay(card, handIdx, List.of(), List.of(), Map.of(), Map.of(), extra);
 			return;
 		}
-		String[] extraElems = pendingExtraCostCpElements == null ? null
-				: pendingExtraCostCpElements.stream().filter(e -> !e.isEmpty()).distinct().toArray(String[]::new);
+		String[] extraElems = surcharge.isEmpty() ? null
+				: surcharge.stream().filter(e -> !e.isEmpty()).distinct().toArray(String[]::new);
 		new StandardPaymentDialog(frame, card, handIdx, cost,
 				gameState.getP1Hand(), cpPayableBackupCards(true), p1BackupStates, p1BackupUrls,
 				this::showZoomAt, this::hideZoom,
 				new ArrayList<>(p1ForwardCards),
 				(discards, backups, overrides, breaks) ->
-						executePlay(card, handIdx, discards, backups, overrides, breaks),
+						executePlay(card, handIdx, discards, backups, overrides, breaks, extra),
 				isAnyElementCast(card), extraElems, lightDarkDiscardGrants(true),
 				this::gainedElementsForPayment, breakForCpBackupSlots(true), this::jobsStripped)
 			.show();
@@ -11027,11 +11060,26 @@ public class MainWindow {
 	private void executePlay(CardData card, int cardHandIdx,
 			List<Integer> discardIndices, List<Integer> backupDullIndices,
 			Map<Integer, String> backupElementOverrides, Map<Integer, String> backupBreaks) {
+		executePlay(card, cardHandIdx, discardIndices, backupDullIndices, backupElementOverrides,
+				backupBreaks, null);
+	}
+
+	/**
+	 * @param extra the optional surcharge this cast paid, or {@code null} when it paid none. It
+	 *              travels with the play for the same reason an alternate cost's payment does:
+	 *              the cards it hands over are the caster's own choice, and the receiving client
+	 *              cannot work out which they were.
+	 */
+	private void executePlay(CardData card, int cardHandIdx,
+			List<Integer> discardIndices, List<Integer> backupDullIndices,
+			Map<Integer, String> backupElementOverrides, Map<Integer, String> backupBreaks,
+			ExtraPayment extra) {
 		lastSummonPreTargets = null;
 		executePlay(true, card, cardHandIdx, discardIndices, backupDullIndices,
-				backupElementOverrides, null, false, backupBreaks);
+				backupElementOverrides, null, false, backupBreaks, extra);
 		sendToOpponent(RemoteOpponent.playCardAction(card, cardHandIdx, discardIndices,
-				backupDullIndices, backupElementOverrides, lastSummonPreTargets, backupBreaks));
+				backupDullIndices, backupElementOverrides, lastSummonPreTargets, backupBreaks,
+				null, extra));
 	}
 
 	/**
@@ -11077,6 +11125,24 @@ public class MainWindow {
 			Map<Integer, String> backupElementOverrides,
 			List<ForwardTarget> replayedSummonTargets, boolean targetsAreReplayed,
 			Map<Integer, String> backupBreaks) {
+		executePlay(isP1, card, cardHandIdx, discardIndices, backupDullIndices,
+				backupElementOverrides, replayedSummonTargets, targetsAreReplayed, backupBreaks, null);
+	}
+
+	/**
+	 * @param extra the optional surcharge this cast paid, or {@code null} when it paid none.
+	 *              Applied here on {@code isP1}'s own zones, so a networked opponent's surcharge
+	 *              is spent by this same code against the board this client holds them on.
+	 */
+	void executePlay(boolean isP1, CardData card, int cardHandIdx,
+			List<Integer> discardIndices, List<Integer> backupDullIndices,
+			Map<Integer, String> backupElementOverrides,
+			List<ForwardTarget> replayedSummonTargets, boolean targetsAreReplayed,
+			Map<Integer, String> backupBreaks, ExtraPayment extra) {
+		// Resolved before anything is spent: the surcharge indexes the hand and Break Zone as they
+		// stood when it was chosen, and this play is about to move cards through both.
+		List<CardData> extraBzCards   = resolveExtraPaymentCards(isP1, extra, true);
+		List<CardData> extraHandCards = resolveExtraPaymentCards(isP1, extra, false);
 		String[] elems = card.elements();
 		boolean  isLD  = card.isLightOrDark();
 		CardData[]     backupCards = isP1 ? p1BackupCards  : p2BackupCards;
@@ -11187,67 +11253,57 @@ public class MainWindow {
 		}
 		logEntry((isP1 ? "Played \"" : "[P2] Played \"") + card.name() + "\"");
 
-		// Process pending extra cost payments (set by showExtraCostPlayDialog). These come from
-		// the local player's own payment dialogs, so a replayed opponent play never has any.
-		boolean paidExtraCost = false;
+		// Spend the surcharge this cast chose, on the payer's own zones. The cards were resolved
+		// at the top of this method, before the payment above moved anything through either zone.
+		String logSide = isP1 ? "" : "[P2] ";
+		boolean paidExtraCost = extra != null && extra.counts();
 		int extraCostRemovedPower = 0;
 		int extraCostXVal = 0;
-		if (isP1 && pendingExtraCostBzRemovals != null) {
-			paidExtraCost = true;
-			List<CardData> removed = pendingExtraCostBzRemovals;
-			pendingExtraCostBzRemovals = null;
-			if (!removed.isEmpty()) {
-				extraCostRemovedPower = removed.get(0).power();
-				for (CardData rm : removed) {
-					gameState.getP1BreakZone().remove(rm);
-					gameState.addToPermanentRfp(rm);
-					logEntry("Extra Cost: \"" + rm.name() + "\" removed from game");
+		if (extra != null) {
+			List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+			if (!extraBzCards.isEmpty()) {
+				extraCostRemovedPower = extraBzCards.get(0).power();
+				for (CardData rm : extraBzCards) {
+					bz.remove(rm);
+					gameState.addToPermanentRfp(rm, isP1);
+					logEntry(logSide + "Extra Cost: \"" + rm.name() + "\" removed from game");
 				}
 			}
-		}
-		if (isP1 && pendingExtraCostHandDiscards != null) {
-			paidExtraCost = true;
-			List<CardData> discards = pendingExtraCostHandDiscards;
-			pendingExtraCostHandDiscards = null;
-			for (CardData dc : discards) {
-				gameState.getP1Hand().remove(dc);
-				gameState.getP1BreakZone().add(dc);
-				currentExtraCostDiscardedCardCost = dc.cost();
-				logEntry("Extra Cost: discarded \"" + dc.name() + "\" (cost " + dc.cost() + ")");
+			if (!extraHandCards.isEmpty()) {
+				List<CardData> payerHand = isP1 ? gameState.getP1Hand() : gameState.getP2Hand();
+				for (CardData dc : extraHandCards) {
+					payerHand.remove(dc);
+					bz.add(dc);
+					currentExtraCostDiscardedCardCost = dc.cost();
+					logEntry(logSide + "Extra Cost: discarded \"" + dc.name() + "\" (cost " + dc.cost() + ")");
+				}
+				if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 			}
-			refreshP1HandLabel();
-		}
-		if (isP1 && pendingExtraCostXValue > 0) {
-			paidExtraCost = true;
-			extraCostXVal = pendingExtraCostXValue;
-			pendingExtraCostXValue = 0;
-			logEntry("Extra Cost: paid 《" + extraCostXVal + "》 extra CP");
-		}
-		if (isP1 && pendingExtraCostCpElements != null) {
-			paidExtraCost = true;
-			logEntry("Extra Cost: paid " + ExtraCost.cpFixed(pendingExtraCostCpElements).description());
-			pendingExtraCostCpElements = null;
-		}
-		if (isP1 && pendingExtraCostCrystals > 0) {
-			int crystals = pendingExtraCostCrystals;
-			pendingExtraCostCrystals = 0;
-			// Guarded rather than assumed: the Crystal count can have moved between opening the
-			// menu and confirming the payment, and an unaffordable surcharge simply goes unpaid.
-			if (playerCrystals(true) >= crystals) {
-				paidExtraCost = true;
-				playerSpendCrystals(true, crystals);
-				refreshCrystalDisplays();
-				logEntry("Extra Cost: paid " + ExtraCost.crystals(crystals).description());
-			} else {
-				logEntry("Extra Cost: not enough Crystals — surcharge unpaid");
+			if (extra.xValue() > 0) {
+				extraCostXVal = extra.xValue();
+				logEntry(logSide + "Extra Cost: paid 《" + extraCostXVal + "》 extra CP");
+			}
+			if (extra.type() == ExtraCost.Type.CP_FIXED && card.extraCost() != null)
+				logEntry(logSide + "Extra Cost: paid " + card.extraCost().description());
+			if (extra.crystals() > 0) {
+				// Guarded rather than assumed: the Crystal count can have moved between opening the
+				// menu and confirming the payment, and an unaffordable surcharge simply goes unpaid.
+				if (playerCrystals(isP1) >= extra.crystals()) {
+					playerSpendCrystals(isP1, extra.crystals());
+					refreshCrystalDisplays();
+					logEntry(logSide + "Extra Cost: paid " + ExtraCost.crystals(extra.crystals()).description());
+				} else {
+					paidExtraCost = false;
+					logEntry(logSide + "Extra Cost: not enough Crystals — surcharge unpaid");
+				}
 			}
 		}
 
 		lastCardWasCast = true;
 		if (card.isBackup()) {
-			if (isP1) placeCardInFirstBackupSlot(card, paidExtraCost); else placeP2CardInFirstBackupSlot(card);
+			if (isP1) placeCardInFirstBackupSlot(card, paidExtraCost); else placeP2CardInFirstBackupSlot(card, paidExtraCost);
 		} else if (card.isForward()) {
-			if (isP1) placeCardInForwardZone(card, paidExtraCost); else placeP2CardInForwardZone(card);
+			if (isP1) placeCardInForwardZone(card, paidExtraCost); else placeP2CardInForwardZone(card, paidExtraCost);
 		} else if (card.isMonster()) {
 			if (isP1) placeCardInMonsterZone(card); else placeP2CardInMonsterZone(card);
 		} else if (card.isSummon()) {
@@ -19852,6 +19908,11 @@ public class MainWindow {
 	}
 
 	void placeP2CardInForwardZone(CardData card) {
+		placeP2CardInForwardZone(card, false);
+	}
+
+	/** @param paidExtraCost whether the optional extra cost was paid when casting {@code card} (threaded to its ETB auto-ability). */
+	void placeP2CardInForwardZone(CardData card, boolean paidExtraCost) {
 		if (fieldEntryBecomesRfg(card, false)) return;
 		// A card arriving on the field is a new object: it has taken no damage and dealt none.
 		forgetDamageRecordFor(card);
@@ -19899,13 +19960,18 @@ public class MainWindow {
 		refreshP2ForwardSlot(idx);
 		if (!card.fieldPowerGrants().isEmpty()) refreshFieldGrantDependents(false);
 		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandCardStates();
-		fieldEntryAnimator.fireEntersField(card, false, false);
+		fieldEntryAnimator.fireEntersField(card, false, paidExtraCost);
 		syncBzForwardPlayables(false);
 		sendToBreakZoneByUniquenessRule(card, false);
 		fireOppNoForwardsFieldAbilitiesForCard(card, false);
 	}
 
 	void placeP2CardInFirstBackupSlot(CardData card) {
+		placeP2CardInFirstBackupSlot(card, false);
+	}
+
+	/** @param paidExtraCost whether the optional extra cost was paid when casting {@code card} (threaded to its ETB auto-ability). */
+	void placeP2CardInFirstBackupSlot(CardData card, boolean paidExtraCost) {
 		if (fieldEntryBecomesRfg(card, false)) return;
 		// A card arriving on the field is a new object: it has taken no damage and dealt none.
 		forgetDamageRecordFor(card);
@@ -19915,7 +19981,7 @@ public class MainWindow {
 			p2BackupCards[i]  = card;
 			p2BackupStates[i] = CardState.DULL;
 			refreshP2BackupSlot(i);
-			fieldEntryAnimator.fireEntersField(card, false, false);
+			fieldEntryAnimator.fireEntersField(card, false, paidExtraCost);
 			syncBzForwardPlayables(false);
 			sendToBreakZoneByUniquenessRule(card, false);
 			return;
