@@ -6410,8 +6410,8 @@ final class AutoAbilityTriggers {
 				// says "without paying the cost", and an ability with no costs is exactly that.
 				// Its restrictions travel with it, so a once-per-turn or your-turn-only ability is
 				// no more usable than it was.
-				executeAbilityPayment(eff.withCostsWaived(), source, () -> {},
-						new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), isP1, 0, -1);
+				payAndReport(ability, eff.withCostsWaived(), source, () -> {},
+						new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), isP1, 0, -1, Map.of());
 				return;
 			}
 		}
@@ -6419,8 +6419,8 @@ final class AutoAbilityTriggers {
 		// Zero CP + no X: confirm immediately.  Any S cost is resolved inside executeAbilityPayment,
 		// which prompts when more than one hand card can pay it.
 		if (rawCost.isEmpty() && !eff.hasXCost()) {
-			executeAbilityPayment(eff, source, applyDull, new ArrayList<>(), new ArrayList<>(),
-					autoResolveBzTargets(source, bzCosts, isP1), isP1, 0, -1);
+			payAndReport(ability, eff, source, applyDull, new ArrayList<>(), new ArrayList<>(),
+					autoResolveBzTargets(source, bzCosts, isP1), isP1, 0, -1, Map.of());
 			return;
 		}
 
@@ -6431,13 +6431,51 @@ final class AutoAbilityTriggers {
 				mw.playerHand(isP1), mw.cpPayableBackupCards(isP1), mw.playerBackupStates(isP1), mw.playerBackupUrls(isP1),
 				mw::showZoomAt, mw::hideZoom, proxy, primerName, mw.lightDarkDiscardGrants(isP1),
 				eff.isSpecial() && mw.canPaySpecialCostWithCrystal(source, isP1),
-				(discards, backups, xValue, sCostIdx, breaks) -> executeAbilityPayment(eff, source, applyDull,
+				(discards, backups, xValue, sCostIdx, breaks) -> payAndReport(ability, eff, source, applyDull,
 						discards, backups, autoResolveBzTargets(source, bzCosts, isP1), isP1, xValue,
 						sCostIdx, breaks),
 				mw.breakForCpBackupSlots(isP1))
 			.show();
 	}
 
+
+	/**
+	 * Pays for an activation and, when it was the local player's, tells the opponent about it.
+	 *
+	 * <p>Sent only once the payment has actually committed: {@code executeAbilityPayment} answers
+	 * {@code false} for an activation the player backed out of partway, and an abandoned ability
+	 * never reached a Stack the other client would have to mirror.
+	 *
+	 * <p>{@code printed} is the ability as the card prints it, which is what the index on the wire
+	 * addresses; {@code eff} is that ability with the board's discounts and surcharges applied.
+	 * Only the first is transmitted — the receiver derives the second from its own copy of the
+	 * board, the same way it derives every other cost.
+	 */
+	private boolean payAndReport(ActionAbility printed, ActionAbility eff, CardData source,
+			Runnable applyDull, List<Integer> discardIndices, List<Integer> backupDullIndices,
+			List<ForwardTarget> bzTargets, boolean isP1, int xValue, int sCostHandIdx,
+			Map<Integer, String> backupBreaks) {
+		boolean paid = executeAbilityPayment(eff, source, applyDull, discardIndices,
+				backupDullIndices, bzTargets, isP1, xValue, sCostHandIdx, backupBreaks);
+		if (paid && isP1)
+			mw.sendAbilityActivation(printed, source, new AbilityPayment(discardIndices,
+					backupDullIndices, bzTargets, xValue, sCostHandIdx, backupBreaks));
+		return paid;
+	}
+
+	/**
+	 * Replays a remote player's activation: the same payment, run against the board this client
+	 * holds them on.
+	 *
+	 * <p>The effective cost is recomputed here rather than taken from the wire, so the discount a
+	 * card on their field gives them is read off that field as this client sees it.
+	 */
+	boolean executeRemoteAbilityActivation(ActionAbility ability, CardData source,
+			AbilityPayment payment) {
+		return executeAbilityPayment(mw.effectiveAbilityCost(ability, false), source, () -> {},
+				payment.discards(), payment.backupDulls(), payment.bzTargets(), false,
+				payment.xValue(), payment.sCostHandIdx(), payment.backupBreaks());
+	}
 
 	/**
 	 * Executes a P2 (CPU) action ability with pre-computed payment lists.
@@ -6687,8 +6725,12 @@ final class AutoAbilityTriggers {
 		// did not need is not left in the bank.
 		Set<String> abilityCpToClear = new java.util.LinkedHashSet<>(java.util.Arrays.asList(elems));
 		abilityCpToClear.addAll(mw.breakBackupsForCp(isP1, backupBreaks).keySet());
-		discardIndices.sort(Collections.reverseOrder());
-		for (int di : discardIndices) {
+		// Copied before being reordered. The caller still holds the list it passed and the wire
+		// action is built from it afterwards, so reordering it here would send the other client
+		// a different payment order than the one just spent — and an immutable one would throw.
+		List<Integer> discardRemovalOrder = new ArrayList<>(discardIndices);
+		discardRemovalOrder.sort(Collections.reverseOrder());
+		for (int di : discardRemovalOrder) {
 			CardData discarded = mw.playerHand(isP1).get(di);
 			String cpElem = matchesAnyElement(discarded, elems)
 					? contributingElement(discarded, elems) : (elems.length > 0 ? elems[0] : "");

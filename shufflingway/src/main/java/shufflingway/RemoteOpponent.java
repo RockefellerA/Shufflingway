@@ -112,6 +112,7 @@ class RemoteOpponent implements OpponentController {
 			case PLAY_CARD      -> applyPlayCard(action.payload());
 			case LB_PLAY        -> applyLbPlay(action.payload());
 			case WARP_PLAY      -> applyWarpPlay(action.payload());
+			case ACTIVATE_ABILITY -> applyActivateAbility(action.payload());
 			case DISCARD_HAND   -> applyDiscard(action.payload());
 			case ATTACK         -> applyAttack(action.payload());
 			case BLOCK          -> applyBlock(action.payload());
@@ -978,6 +979,85 @@ class RemoteOpponent implements OpponentController {
 				.put("discards", new JSONArray(discards))
 				.put("backups", new JSONArray(backupDulls))
 				.put("backupBreaks", breaks));
+	}
+
+	/**
+	 * Builds an ACTIVATE_ABILITY for an action ability the local player just used.
+	 *
+	 * <p>{@code at} locates the source on the sender's own field, so it crosses as a zone and a
+	 * slot with no side: what the sender holds, the receiver holds as their opponent's. The
+	 * ability travels as its position among the card's printed action abilities, which both
+	 * clients parse from the same text rather than exchanging.
+	 */
+	static GameAction activateAbilityAction(CardData source, ForwardTarget at, int abilityIdx,
+	                                        AbilityPayment payment) {
+		JSONArray bzTargets = new JSONArray();
+		for (ForwardTarget t : payment.bzTargets())
+			bzTargets.put(new JSONObject().put("idx", t.idx()).put("zone", t.zone().name()));
+		JSONObject breaks = new JSONObject();
+		payment.backupBreaks().forEach((slot, element) -> breaks.put(String.valueOf(slot), element));
+		return GameAction.of(ActionType.ACTIVATE_ABILITY, new JSONObject()
+				.put("zone", at.zone().name())
+				.put("idx", at.idx())
+				.put("card", source.name())
+				.put("ability", abilityIdx)
+				.put("discards", new JSONArray(payment.discards()))
+				.put("backups", new JSONArray(payment.backupDulls()))
+				.put("bzTargets", bzTargets)
+				.put("x", payment.xValue())
+				.put("sCost", payment.sCostHandIdx())
+				.put("backupBreaks", breaks));
+	}
+
+	/**
+	 * The opponent activated an action ability. The card it came off lives here on their side of
+	 * the board in the same slot, and the ability is the same position in the same printed list —
+	 * both checked against the name they sent before anything is spent, the same guard a cast from
+	 * hand gets and for the same reason.
+	 */
+	private void applyActivateAbility(JSONObject payload) {
+		ForwardTarget.CardZone zone;
+		try {
+			zone = ForwardTarget.CardZone.valueOf(payload.optString("zone", ""));
+		} catch (IllegalArgumentException e) {
+			mw.reportDesync("opponent used an ability from a zone this client does not know");
+			return;
+		}
+		int idx = payload.optInt("idx", -1);
+		CardData source = mw.fieldCardAt(false, zone, idx);
+		String expected = payload.optString("card", "");
+		if (source == null || !source.name().equals(expected)) {
+			mw.reportDesync("opponent used an ability of \"" + expected + "\" in their " + zone
+					+ " slot " + idx + ", which holds "
+					+ (source == null ? "nothing" : "\"" + source.name() + "\"") + " here");
+			return;
+		}
+		int abilityIdx = payload.optInt("ability", -1);
+		List<ActionAbility> abilities = source.actionAbilities();
+		if (abilityIdx < 0 || abilityIdx >= abilities.size()) {
+			mw.reportDesync("opponent used ability " + abilityIdx + " of \"" + source.name()
+					+ "\", which prints " + abilities.size() + " here");
+			return;
+		}
+
+		List<ForwardTarget> bzTargets = new ArrayList<>();
+		JSONArray rawBz = payload.optJSONArray("bzTargets");
+		if (rawBz != null) {
+			for (int i = 0; i < rawBz.length(); i++) {
+				JSONObject t = rawBz.getJSONObject(i);
+				bzTargets.add(new ForwardTarget(false, t.getInt("idx"),
+						ForwardTarget.CardZone.valueOf(t.getString("zone"))));
+			}
+		}
+		Map<Integer, String> breaks = new LinkedHashMap<>();
+		JSONObject rawBreaks = payload.optJSONObject("backupBreaks");
+		if (rawBreaks != null)
+			for (String key : rawBreaks.keySet())
+				breaks.put(Integer.valueOf(key), rawBreaks.getString(key));
+
+		mw.autoAbilityTriggers.executeRemoteAbilityActivation(abilities.get(abilityIdx), source,
+				new AbilityPayment(indices(payload, "discards"), indices(payload, "backups"),
+						bzTargets, payload.optInt("x", 0), payload.optInt("sCost", -1), breaks));
 	}
 
 	/**

@@ -237,7 +237,16 @@ public class MainWindow {
 	private boolean localHandKept;
 	private boolean remoteHandKept;
 	// A desync cascades, so only the first one raises a dialog.
-	private boolean desyncReported;
+	/**
+	 * Whether the desync dialog has already been shown, so the follow-on reports a diverged game
+	 * produces do not stack up modals behind it.
+	 *
+	 * <p>Package-private so a test can set it and exercise what {@link #reportDesync} does
+	 * <em>besides</em> the dialog — refusing the move and logging it. Every guard that rejects a
+	 * remote answer ends in that call, and a modal in a headless test run hangs the suite rather
+	 * than failing it, so the refusal paths were otherwise untestable.
+	 */
+	boolean desyncReported;
 	// Side info panel (card preview + Next button + game log)
 	private JPanel        sidePanel;
 	private JPanel        sideWrapper;        // contains resizeHandle + sidePanel
@@ -1577,6 +1586,16 @@ public class MainWindow {
 	 * gates altCostOnly auto abilities, which is how such a cost states what it is bought with.
 	 */
 	boolean lastCardCastViaAltCost = false;
+	/**
+	 * True while a choice is being made that the action carrying its play will transmit itself, so
+	 * {@link #decide} must not also broadcast it.
+	 *
+	 * <p>Exactly one choice is like this: the targets a Summon cast from hand picks on its way to
+	 * the Stack. They ride in that cast's PLAY_CARD, and the receiving client replays them rather
+	 * than asking — so a CHOICE sent here as well would sit in the answer buffer with no waiter,
+	 * which the next question of the same kind would then pick up as its own.
+	 */
+	private boolean choiceTravelsWithThePlay = false;
 
 	/** Set when "Take 1 more turn; lose at the end of that turn" fires. */
 	boolean p1ExtraTurnThenLose = false;
@@ -7778,7 +7797,7 @@ public class MainWindow {
 	List<Integer> decide(PlayerChoice choice) {
 		if (choice.chooserIsP1()) {
 			List<Integer> answer = choice.localAnswer().get();
-			if (opponent instanceof RemoteOpponent remote)
+			if (opponent instanceof RemoteOpponent remote && !choiceTravelsWithThePlay)
 				remote.send(RemoteOpponent.choiceAction(choice.kind(), answer));
 			return answer;
 		}
@@ -7839,6 +7858,50 @@ public class MainWindow {
 					ForwardTarget t = ForwardTarget.fromChoiceCode(code);
 					return t != null && eligible.contains(t);
 				}), "no such card of theirs is eligible here"));
+		List<ForwardTarget> out = new ArrayList<>(answer.size());
+		for (int code : answer) {
+			ForwardTarget t = ForwardTarget.fromChoiceCode(code);
+			if (t != null) out.add(t);
+		}
+		return out;
+	}
+
+	/**
+	 * The player at seat {@code chooserIsP1} picks the targets of an effect they control, from
+	 * anywhere on the board — the ordinary "choose 1 Forward" of most card text.
+	 *
+	 * <p>The board-wide sibling of {@link #selectOwnFieldTargets}. That one asks a player to give
+	 * something of their own up; this one asks the controller of an effect where to point it, and
+	 * the answer may land on either side. Before it existed the remote seat fell through to the
+	 * AI's heuristic on the receiving client, which picks at random among equally good targets —
+	 * so an opponent's "choose 1 Forward. Break it." broke one Forward on their screen and, half
+	 * the time, a different one on yours.
+	 *
+	 * @param eligible   what the effect may point at, as both clients compute it from the same board
+	 * @param maxCount   the most the chooser may pick; {@code Integer.MAX_VALUE} for "any number"
+	 * @param title      names the choice for the player making it
+	 * @param waitPrompt names it for the player waiting on it
+	 * @param localPick  asks the local human
+	 * @param cpuPick    the AI's answer, reached only when the other seat is the built-in opponent
+	 */
+	List<ForwardTarget> selectChosenTargets(boolean chooserIsP1, List<ForwardTarget> eligible,
+	                                        int maxCount, String title, String waitPrompt,
+	                                        Supplier<List<ForwardTarget>> localPick,
+	                                        Supplier<List<ForwardTarget>> cpuPick) {
+		if (eligible.isEmpty()) return List.of();
+		// "Any number of" is a bound the board sets rather than the text, so the legality check
+		// below measures against whichever of the two is smaller.
+		int bound = Math.min(maxCount, eligible.size());
+		List<Integer> answer = decide(PlayerChoice.by(chooserIsP1, ChoiceKind.CHOSEN_TARGETS)
+				.prompting(waitPrompt)
+				.locally(() -> localPick.get().stream().map(ForwardTarget::choiceCode).toList())
+				.byCpu(() -> cpuPick.get().stream().map(ForwardTarget::choiceCode).toList())
+				// The chooser packed the board from their own seat; from here the sides are swapped.
+				.arrivingAs(ForwardTarget::flipChoiceSide)
+				.legalWhen(codes -> codes.size() <= bound && codes.stream().allMatch(code -> {
+					ForwardTarget t = ForwardTarget.fromChoiceCode(code);
+					return t != null && eligible.contains(t);
+				}), "no such target is eligible here"));
 		List<ForwardTarget> out = new ArrayList<>(answer.size());
 		for (int code : answer) {
 			ForwardTarget t = ForwardTarget.fromChoiceCode(code);
@@ -10440,6 +10503,67 @@ public class MainWindow {
 	}
 
 	/**
+	 * Tells a networked opponent that this player activated an action ability off one of their
+	 * field cards, and what they paid for it.
+	 *
+	 * <p>The card is located by zone and slot and the ability by its position among the card's
+	 * printed action abilities — both things the far client reads off the same board and the same
+	 * card text. An ability that is <em>not</em> printed on its card has no such position: a
+	 * granted one, or the Petrification removal the engine synthesises. Those are reported rather
+	 * than quietly skipped, because an activation the other client never hears about is a board
+	 * that has already diverged, and saying so beats discovering it from a checksum later.
+	 */
+	void sendAbilityActivation(ActionAbility ability, CardData source, AbilityPayment payment) {
+		if (!(opponent instanceof RemoteOpponent)) return;
+		ForwardTarget at = findFieldTarget(source, true);
+		int abilityIdx = source.actionAbilities().indexOf(ability);
+		if (at == null || abilityIdx < 0) {
+			reportDesync("\"" + source.name() + "\" used an ability this build cannot describe to "
+					+ "the other client" + (at == null ? " (it is not on the field)"
+					: " (it is granted rather than printed)"));
+			return;
+		}
+		sendToOpponent(RemoteOpponent.activateAbilityAction(source, at, abilityIdx, payment));
+	}
+
+	/**
+	 * Where {@code card} sits on {@code isP1}'s field, by object identity, or {@code null} when it
+	 * is not there. Identity rather than equality because two copies of one printing are equal,
+	 * and it is this instance's slot that has to travel.
+	 */
+	ForwardTarget findFieldTarget(CardData card, boolean isP1) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		for (int i = 0; i < fwds.size(); i++)
+			if (fwds.get(i) == card) return new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD);
+		CardData[] bkps = isP1 ? p1BackupCards : p2BackupCards;
+		for (int i = 0; i < bkps.length; i++)
+			if (bkps[i] == card) return new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP);
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		for (int i = 0; i < mons.size(); i++)
+			if (mons.get(i) == card) return new ForwardTarget(isP1, i, ForwardTarget.CardZone.MONSTER);
+		return null;
+	}
+
+	/** The card in {@code isP1}'s {@code zone} at {@code idx}, or {@code null} when there is none. */
+	CardData fieldCardAt(boolean isP1, ForwardTarget.CardZone zone, int idx) {
+		return switch (zone) {
+			case FORWARD -> {
+				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+				yield idx >= 0 && idx < fwds.size() ? fwds.get(idx) : null;
+			}
+			case MONSTER -> {
+				List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+				yield idx >= 0 && idx < mons.size() ? mons.get(idx) : null;
+			}
+			case BACKUP -> {
+				CardData[] bkps = isP1 ? p1BackupCards : p2BackupCards;
+				yield idx >= 0 && idx < bkps.length ? bkps[idx] : null;
+			}
+			case BREAK_ZONE -> null;
+		};
+	}
+
+	/**
 	 * Runs {@code play} with {@link #lastCardCastViaAltCost} raised, so a drawback an alternate
 	 * cost arms fires on this arrival and on no other.
 	 *
@@ -11287,8 +11411,15 @@ public class MainWindow {
 		} else if (card.isMonster()) {
 			if (isP1) placeCardInMonsterZone(card); else placeP2CardInMonsterZone(card);
 		} else if (card.isSummon()) {
-			showSummonOnStack(card, isP1, extraCostRemovedPower, extraCostXVal, paidExtraCost,
-					replayedSummonTargets, targetsAreReplayed);
+			// The targets chosen here leave with this cast's own PLAY_CARD, so they must not also
+			// go out as a CHOICE — see choiceTravelsWithThePlay.
+			choiceTravelsWithThePlay = true;
+			try {
+				showSummonOnStack(card, isP1, extraCostRemovedPower, extraCostXVal, paidExtraCost,
+						replayedSummonTargets, targetsAreReplayed);
+			} finally {
+				choiceTravelsWithThePlay = false;
+			}
 		}
 		lastCardWasCast = false;
 

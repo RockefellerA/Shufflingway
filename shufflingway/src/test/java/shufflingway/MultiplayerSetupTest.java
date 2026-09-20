@@ -1425,6 +1425,103 @@ class MultiplayerSetupTest {
                 List.of(), List.of(), Map.of(), Map.of()).type());
     }
 
+    // =========================================================================================
+    // Action ability activations across the wire.
+    //
+    // An ability used off a field card never replicated at all — there was no action type for it.
+    // One client watched a Backup dull and an effect resolve that the other had no record of, and
+    // from there the two boards disagreed about the whole Stack.
+    //
+    // What crosses is the card it came off, which of that card's printed abilities it was, and
+    // what was paid. What the ability costs is not sent: both clients read it off the same card
+    // and apply the same board-derived discounts.
+    // =========================================================================================
+
+    private static final String DULL_FOR_POWER =
+            "《Dull》: All the Forwards you control gain +1000 power until the end of the turn.";
+
+    private static CardData abilityBackup(String name, String element, String text) {
+        return new CardData(null, name, element, 2, 0, "Backup", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                CardData.parseActionAbilities(text), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                null, null, null, text);
+    }
+
+    @Test
+    void theActivationActionNamesTheCardTheAbilityAndWhatItCost() {
+        CardData source = abilityBackup("Sage", "Fire", DULL_FOR_POWER);
+        JSONObject payload = RemoteOpponent.activateAbilityAction(source,
+                new ForwardTarget(true, 2, ForwardTarget.CardZone.BACKUP), 0,
+                new AbilityPayment(List.of(1), List.of(3), List.of(
+                        new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER)),
+                        4, 5, Map.of(2, "Ice"))).payload();
+
+        assertEquals("BACKUP", payload.getString("zone"));
+        assertEquals(2, payload.getInt("idx"));
+        assertEquals("Sage", payload.getString("card"));
+        assertEquals(0, payload.getInt("ability"));
+        assertEquals(List.of(1), intList(payload.getJSONArray("discards")));
+        assertEquals(List.of(3), intList(payload.getJSONArray("backups")));
+        assertEquals(4, payload.getInt("x"));
+        assertEquals(5, payload.getInt("sCost"));
+        assertEquals("MONSTER", payload.getJSONArray("bzTargets").getJSONObject(0).getString("zone"));
+        assertEquals("Ice", payload.getJSONObject("backupBreaks").getString("2"));
+    }
+
+    @Test
+    void anOpponentsActivationIsPaidFromTheirOwnBoard() {
+        MainWindow mw = new MainWindow();
+        CardData source = abilityBackup("Sage", "Fire", DULL_FOR_POWER);
+        assertFalse(source.actionAbilities().isEmpty(), "the text has to parse for this to mean anything");
+        mw.p2BackupCards[0]  = source;
+        mw.p2BackupStates[0] = CardState.ACTIVE;
+        RemoteOpponent remote = new RemoteOpponent(mw, null, hostSetup(1L, true));
+
+        remote.onActionReceived(RemoteOpponent.activateAbilityAction(source,
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP), 0,
+                new AbilityPayment(List.of(), List.of(), List.of(), 0, -1, Map.of())));
+
+        assertEquals(1, mw.gameState.stackSize(), "their ability reached the Stack here too");
+        assertFalse(mw.gameState.peekStack().isP1(), "on their side of it");
+        assertEquals("Sage", mw.gameState.peekStack().source().name());
+    }
+
+    @Test
+    void anActivationNamingACardThatIsNotThereIsRefused() {
+        MainWindow mw = new MainWindow();
+        mw.desyncReported = true;   // the refusal's dialog would hold a headless run open
+        CardData source = abilityBackup("Sage", "Fire", DULL_FOR_POWER);
+        RemoteOpponent remote = new RemoteOpponent(mw, null, hostSetup(1L, true));
+
+        // Slot 0 is empty on this client, so the activation addresses nothing.
+        remote.onActionReceived(RemoteOpponent.activateAbilityAction(source,
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP), 0,
+                new AbilityPayment(List.of(), List.of(), List.of(), 0, -1, Map.of())));
+
+        assertEquals(0, mw.gameState.stackSize(),
+                "nothing was pushed — acting on an activation this client cannot place would "
+                + "resolve an effect off a card that is not there");
+    }
+
+    @Test
+    void anAbilityIndexPastWhatTheCardPrintsIsRefused() {
+        MainWindow mw = new MainWindow();
+        mw.desyncReported = true;
+        CardData source = abilityBackup("Sage", "Fire", DULL_FOR_POWER);
+        mw.p2BackupCards[0]  = source;
+        mw.p2BackupStates[0] = CardState.ACTIVE;
+        RemoteOpponent remote = new RemoteOpponent(mw, null, hostSetup(1L, true));
+
+        remote.onActionReceived(RemoteOpponent.activateAbilityAction(source,
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP), 7,
+                new AbilityPayment(List.of(), List.of(), List.of(), 0, -1, Map.of())));
+
+        assertEquals(0, mw.gameState.stackSize(),
+                "the two clients disagree about the card's text, which is worse than a bad index");
+    }
+
     @Test
     void anOpponentsWarpPlayIsReplayedIntoTheirWarpZone() {
         MainWindow mw = new MainWindow();

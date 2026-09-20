@@ -11,6 +11,8 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -252,6 +254,78 @@ class WireProtocolTest {
         solo.onOpponentDisconnected("Connection closed");
         assertFalse(solo.gameState.isP1GameOver(),
                 "there is no peer to lose, and ending the game would be a bug rather than tidiness");
+    }
+
+    @Test
+    void theTargetsAControllerChoosesAreSentToTheOpponentWaitingOnThem() throws InterruptedException {
+        // The other client is parked at the same point in the same effect, so the answer has to
+        // leave this one or that game stops.
+        MainWindow mw = sendingWindow();
+        seatP2Forward(mw, forward("Sephiroth"));
+
+        mw.selectChosenTargets(true,
+                List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)),
+                1, "Choose 1 Forward", "Waiting...",
+                () -> List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)),
+                List::of);
+
+        GameAction sent = next();
+        assertEquals(shufflingway.net.ActionType.CHOICE, sent.type());
+        assertEquals(ChoiceKind.CHOSEN_TARGETS.name(), sent.payload().getString("kind"));
+        assertEquals(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD).choiceCode(),
+                sent.payload().getJSONArray("indices").getInt(0),
+                "packed from this client's seat; the receiver flips it into theirs");
+    }
+
+    @Test
+    void aSummonsTargetsDoNotAlsoTravelAsALooseChoice() throws InterruptedException {
+        // They ride inside the PLAY_CARD that casts it, and the receiving client replays them
+        // rather than asking. A CHOICE sent as well would sit in the answer buffer with no waiter,
+        // for the next question of that kind to pick up as its own.
+        MainWindow mw = sendingWindow();
+        seatP2Forward(mw, forward("Target"));
+        CardData summon = summonChoosingAForward();
+        mw.gameState.getIdentity().put(summon, true);
+        mw.gameState.getP1Hand().add(summon);
+
+        mw.executePlay(true, summon, 0, List.of(), List.of(), Map.of(), null, false, Map.of());
+
+        assertTrue(inbox.isEmpty(),
+                "executePlay's own send is the caller's job, and nothing else may go out from here");
+    }
+
+    /** Seats a Forward on the opponent's field, owned by them, so breaking it can find an owner. */
+    private static void seatP2Forward(MainWindow mw, CardData card) {
+        mw.gameState.getIdentity().put(card, false);
+        mw.placeP2CardInForwardZone(card);
+    }
+
+    /** A main window whose sends leave over {@code host}, so this test's inbox receives them. */
+    private MainWindow sendingWindow() {
+        MainWindow mw = new MainWindow();
+        mw.opponent = new RemoteOpponent(mw, host,
+                new MatchSetup(1, List.of("h1"), "Deck", "Host", 7L, true, true));
+        return mw;
+    }
+
+    private static CardData forward(String name) {
+        return new CardData(null, name, "Fire", 3, 7000, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                null, null, null, "");
+    }
+
+    /** A Summon that picks a target on its way to the Stack, which is what makes the point. */
+    private static CardData summonChoosingAForward() {
+        String text = "Choose 1 Forward. Deal it 7000 damage.";
+        return new CardData(null, "Firaga", "Fire", 2, 0, "Summon", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                null, null, null, text);
     }
 
     @Test

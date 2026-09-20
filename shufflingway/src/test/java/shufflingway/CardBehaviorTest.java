@@ -23,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 
 import shufflingway.dialog.NameSelectionDialogs;
 import shufflingway.graphics.CardAnimation;
+import shufflingway.net.ChoiceKind;
 import org.mockito.InOrder;
 
 /**
@@ -46725,6 +46726,114 @@ public class CardBehaviorTest {
 		// nothing to do to what it chooses. So an unpaid Samurai queues nothing, which is the
 		// strongest form of "the break clause does not apply".
 		assertNull(queuedPaidExtraCost(mw), "no surcharge crossed, so the break was never armed");
+	}
+
+
+	// =========================================================================================
+	// An opponent's target choice across the wire.
+	//
+	// "Choose 1 Forward. Break it." was answered on the receiving client by the AI heuristic,
+	// because the branch picking the answerer asked only whether the effect's controller was P1 —
+	// which is false both for the built-in opponent and for a remote human. The heuristic shuffles
+	// among equally good targets, so an opponent's break took one Forward on their screen and,
+	// half the time, a different one on yours. The boards then drifted with nothing to show for it
+	// until a checksum failed several turns later.
+	//
+	// The choice crosses at push time, not at resolution, because that is when the rules fix a
+	// target: the opponent responds to an ability knowing what it is pointed at.
+	// =========================================================================================
+
+	private static final String SEPHIROTH_20_097C_CHOICE =
+			"Choose 1 Forward other than Sephiroth. Break it.";
+
+	/** A networked seat whose opponent answers only what a test has already delivered. */
+	private static RemoteOpponent seatAgainstRemote(MainWindow mw) {
+		RemoteOpponent remote = new RemoteOpponent(mw, null, wireSetup());
+		mw.opponent = remote;
+		return remote;
+	}
+
+	/** Delivers {@code targets} as the answer the remote player sent, packed from their seat. */
+	private static void remoteChose(RemoteOpponent remote, ForwardTarget... targets) {
+		List<Integer> codes = new ArrayList<>();
+		for (ForwardTarget t : targets) codes.add(t.choiceCode());
+		remote.onActionReceived(RemoteOpponent.choiceAction(ChoiceKind.CHOSEN_TARGETS, codes));
+	}
+
+	private static List<String> forwardNames(List<CardData> cards) {
+		return cards.stream().map(CardData::name).toList();
+	}
+
+	/**
+	 * A board where the opponent's Sephiroth is about to choose, with a Forward on each side to
+	 * choose between. The AI would take the one on this player's side — a break aims at the
+	 * opponent — so an answer naming the other proves the wire was read rather than the heuristic.
+	 */
+	private static MainWindow boardForOpponentsChoice() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Cloud", "Wind", 5, 9000));
+		placeP2Forward(mw, makeForward("Sephiroth", "Dark", 5, 9000));
+		placeP2Forward(mw, makeForward("Sacrifice", "Dark", 2, 5000));
+		return mw;
+	}
+
+	@Test
+	void anOpponentsTargetChoiceIsReadFromTheWireRatherThanGuessed() {
+		MainWindow mw = boardForOpponentsChoice();
+		RemoteOpponent remote = seatAgainstRemote(mw);
+		// From their seat, their own Sacrifice is P1's. The AI on this client would never pick it:
+		// it narrows a break to the opponent's side, and this player's Cloud is eligible.
+		remoteChose(remote, new ForwardTarget(true, 1, ForwardTarget.CardZone.FORWARD));
+
+		resolveAsP2(mw, SEPHIROTH_20_097C_CHOICE, makeForward("Sephiroth", "Dark", 5, 9000));
+
+		assertEquals(List.of("Sephiroth"), forwardNames(mw.p2ForwardCards),
+				"they broke their own Forward, because that is what they chose");
+		assertEquals(List.of("Cloud"), forwardNames(mw.p1ForwardCards),
+				"and the Forward the heuristic would have taken survives");
+	}
+
+	@Test
+	void anOpponentsTargetChoiceIsFlippedIntoThisClientsFrame() {
+		MainWindow mw = boardForOpponentsChoice();
+		RemoteOpponent remote = seatAgainstRemote(mw);
+		// From their seat, this player's Cloud is their opponent's — so they pack it as not-P1.
+		remoteChose(remote, new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD));
+
+		resolveAsP2(mw, SEPHIROTH_20_097C_CHOICE, makeForward("Sephiroth", "Dark", 5, 9000));
+
+		assertTrue(mw.p1ForwardCards.isEmpty(), "their \"opponent's slot 0\" is this client's own");
+		assertEquals(List.of("Sephiroth", "Sacrifice"), forwardNames(mw.p2ForwardCards));
+	}
+
+	@Test
+	void aTargetChoiceNamingSomethingIneligibleIsRefusedRatherThanApproximated() {
+		MainWindow mw = boardForOpponentsChoice();
+		// The refusal reports a desync, whose dialog would hold a headless run open; the report is
+		// pre-marked so what is under test here is the refusal itself.
+		mw.desyncReported = true;
+		RemoteOpponent remote = seatAgainstRemote(mw);
+		// Sephiroth himself, whom "other than Sephiroth" rules out. Acting on the nearest plausible
+		// card instead would put the two boards further apart than doing nothing.
+		remoteChose(remote, new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD));
+
+		resolveAsP2(mw, SEPHIROTH_20_097C_CHOICE, makeForward("Sephiroth", "Dark", 5, 9000));
+
+		assertEquals(List.of("Sephiroth", "Sacrifice"), forwardNames(mw.p2ForwardCards),
+				"nothing broke — an answer this client cannot make sense of is a desync, not a move");
+		assertEquals(List.of("Cloud"), forwardNames(mw.p1ForwardCards));
+	}
+
+	@Test
+	void aSoloGameStillLetsTheAiChoose() {
+		// The routing added a seat, it did not remove one: against the built-in opponent the
+		// heuristic still answers, and it still aims a break at this player's side.
+		MainWindow mw = boardForOpponentsChoice();
+
+		resolveAsP2(mw, SEPHIROTH_20_097C_CHOICE, makeForward("Sephiroth", "Dark", 5, 9000));
+
+		assertTrue(mw.p1ForwardCards.isEmpty(), "the AI takes the opponent's Forward");
+		assertEquals(List.of("Sephiroth", "Sacrifice"), forwardNames(mw.p2ForwardCards));
 	}
 
 

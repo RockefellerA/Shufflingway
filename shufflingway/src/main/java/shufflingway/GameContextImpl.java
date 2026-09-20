@@ -1609,79 +1609,95 @@ final class GameContextImpl implements GameContext {
 						+ (totalCostBudget >= 0 ? " with a total cost of " + totalCostBudget + " or less" : "")
 						+ (tieredDamageLabel > 0 ? " to deal " + tieredDamageLabel + " damage" : "")
 						+ (opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "");
-				if (!isP1) {
-					// AI (P2 controls the effect): auto-select rather than prompting the human.
-					if (eligible.isEmpty()) return List.of();
-					// A budgeted selection spends rather than counts, so it gets its own pick: the
-					// opponent's Forwards, most expensive first, taking each one the budget still
-					// covers. Most expensive first because the budget is spent in printed cost and
-					// the effect that asks for it is a break -- the dearest board presence the
-					// allowance reaches is the one worth removing.
-					if (totalCostBudget >= 0) {
-						List<ForwardTarget> byCostDesc = eligible.stream()
-								.filter(t -> t.isP1() != isP1)
-								.sorted(java.util.Comparator.comparingInt(
-										(ForwardTarget t) -> cardAtTarget(t).cost()).reversed())
-								.toList();
-						List<ForwardTarget> affordable = new ArrayList<>();
-						int spent = 0;
-						for (ForwardTarget t : byCostDesc) {
-							int cost = cardAtTarget(t).cost();
-							if (spent + cost > totalCostBudget) continue;
-							affordable.add(t);
-							spent += cost;
-						}
-						affordable.forEach(t -> logEntry("[AI] chose " + cardAtTarget(t).name()));
-						return fireChosenByOpponentTriggers(affordable);
+				// One question, three ways of answering it: the controller's own client asks them
+				// in a dialog and transmits the answer, a remote controller's client waits for it,
+				// and the AI computes one. Routed through MainWindow.decide so the remote seat is
+				// no longer answered by the heuristic below — which picks at random among equally
+				// good targets, and so broke a different Forward on each client.
+				Supplier<List<ForwardTarget>> cpuPick =
+						() -> aiSelectCharacters(eligible, maxCount, opponentOnly, selfOnly);
+				return fireChosenByOpponentTriggers(mw.selectChosenTargets(isP1, eligible, maxCount,
+						title, "Waiting for your opponent to choose targets...",
+						() -> totalCostBudget >= 0
+								? mw.showForwardSelectWithinTotalCostDialog(eligible, totalCostBudget, title)
+								: mw.showForwardSelectDialog(eligible, maxCount, upTo, title),
+						cpuPick));
+			}
+
+			/**
+			 * The AI's answer to a target selection: which of {@code eligible} it would point the
+			 * effect at. Lifted out of {@link #selectCharacters} unchanged when that method learned
+			 * to route its question by seat — it is now one of three answers rather than the branch
+			 * every non-local seat fell into.
+			 */
+			private List<ForwardTarget> aiSelectCharacters(List<ForwardTarget> eligible, int maxCount,
+					boolean opponentOnly, boolean selfOnly) {
+				if (eligible.isEmpty()) return List.of();
+				// A budgeted selection spends rather than counts, so it gets its own pick: the
+				// opponent's Forwards, most expensive first, taking each one the budget still
+				// covers. Most expensive first because the budget is spent in printed cost and
+				// the effect that asks for it is a break -- the dearest board presence the
+				// allowance reaches is the one worth removing.
+				if (totalCostBudget >= 0) {
+					List<ForwardTarget> byCostDesc = eligible.stream()
+							.filter(t -> t.isP1() != isP1)
+							.sorted(java.util.Comparator.comparingInt(
+									(ForwardTarget t) -> cardAtTarget(t).cost()).reversed())
+							.toList();
+					List<ForwardTarget> affordable = new ArrayList<>();
+					int spent = 0;
+					for (ForwardTarget t : byCostDesc) {
+						int cost = cardAtTarget(t).cost();
+						if (spent + cost > totalCostBudget) continue;
+						affordable.add(t);
+						spent += cost;
 					}
-					// For unqualified targeting, prefer whichever side the effect actually helps or
-					// hurts: buffs go to the AI's own cards, everything else to the opponent's.
-					// Only a preference — if the preferred side has nothing eligible, the AI still
-					// picks from the full pool rather than declining to resolve the effect.
-					List<ForwardTarget> pool = eligible;
-					if (!opponentOnly && !selfOnly) {
-						boolean preferOwn = mw.aiPrefersOwnTargets;
-						List<ForwardTarget> preferred = eligible.stream()
-								.filter(t -> t.isP1() != preferOwn).toList();
-						if (!preferred.isEmpty()) pool = preferred;
-					}
-					// The selection is about to be dealt damage: aim it at an opponent's Character
-					// the damage would actually break. Left to the shuffle below, a 5000-damage
-					// ability is as likely to pick the 7000-power Forward that shrugs it off as
-					// the 5000-power one it would remove — the same cost paid for nothing.
-					// Narrowing the pool rather than sorting it keeps the pick random among the
-					// choices that are equally the best one.
-					boolean orderByPower = false;
-					if (aiDamageTargetHint > 0) {
-						List<ForwardTarget> lethal = pool.stream()
-								.filter(t -> t.isP1() != isP1)
-								.filter(t -> wouldBreakUnderDamage(t, aiDamageTargetHint))
-								.toList();
-						if (!lethal.isEmpty()) { pool = lethal; orderByPower = true; }
-					}
-					List<ForwardTarget> copy = new ArrayList<>(pool);
-					java.util.Collections.shuffle(copy);
-					// Biggest of the breakable first — same cost, strictly more removed — so a
-					// choose of several fills up from the top of the board downwards. The sort is
-					// stable, so the shuffle above still decides between equal Forwards.
-					if (orderByPower)
-						copy.sort(java.util.Comparator.comparingInt(
-								(ForwardTarget t) -> fieldPowerAt(t)).reversed());
-					List<ForwardTarget> picked = List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
-					picked.forEach(t -> {
-						CardData c = switch (t.zone()) {
-							case BACKUP  -> t.isP1() ? mw.p1BackupCards[t.idx()] : mw.p2BackupCards[t.idx()];
-							case MONSTER -> t.isP1() ? mw.p1MonsterCards.get(t.idx()) : mw.p2MonsterCards.get(t.idx());
-							default      -> t.isP1() ? p1Forward(t.idx()) : mw.p2ForwardCards.get(t.idx());
-						};
-						logEntry("[AI] chose " + c.name());
-					});
-					return fireChosenByOpponentTriggers(picked);
+					affordable.forEach(t -> logEntry("[AI] chose " + cardAtTarget(t).name()));
+					return affordable;
 				}
-				List<ForwardTarget> chosen = totalCostBudget >= 0
-						? mw.showForwardSelectWithinTotalCostDialog(eligible, totalCostBudget, title)
-						: mw.showForwardSelectDialog(eligible, maxCount, upTo, title);
-				return fireChosenByOpponentTriggers(chosen);
+				// For unqualified targeting, prefer whichever side the effect actually helps or
+				// hurts: buffs go to the AI's own cards, everything else to the opponent's.
+				// Only a preference — if the preferred side has nothing eligible, the AI still
+				// picks from the full pool rather than declining to resolve the effect.
+				List<ForwardTarget> pool = eligible;
+				if (!opponentOnly && !selfOnly) {
+					boolean preferOwn = mw.aiPrefersOwnTargets;
+					List<ForwardTarget> preferred = eligible.stream()
+							.filter(t -> t.isP1() != preferOwn).toList();
+					if (!preferred.isEmpty()) pool = preferred;
+				}
+				// The selection is about to be dealt damage: aim it at an opponent's Character
+				// the damage would actually break. Left to the shuffle below, a 5000-damage
+				// ability is as likely to pick the 7000-power Forward that shrugs it off as
+				// the 5000-power one it would remove — the same cost paid for nothing.
+				// Narrowing the pool rather than sorting it keeps the pick random among the
+				// choices that are equally the best one.
+				boolean orderByPower = false;
+				if (aiDamageTargetHint > 0) {
+					List<ForwardTarget> lethal = pool.stream()
+							.filter(t -> t.isP1() != isP1)
+							.filter(t -> wouldBreakUnderDamage(t, aiDamageTargetHint))
+							.toList();
+					if (!lethal.isEmpty()) { pool = lethal; orderByPower = true; }
+				}
+				List<ForwardTarget> copy = new ArrayList<>(pool);
+				java.util.Collections.shuffle(copy);
+				// Biggest of the breakable first — same cost, strictly more removed — so a
+				// choose of several fills up from the top of the board downwards. The sort is
+				// stable, so the shuffle above still decides between equal Forwards.
+				if (orderByPower)
+					copy.sort(java.util.Comparator.comparingInt(
+							(ForwardTarget t) -> fieldPowerAt(t)).reversed());
+				List<ForwardTarget> picked = List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
+				picked.forEach(t -> {
+					CardData c = switch (t.zone()) {
+						case BACKUP  -> t.isP1() ? mw.p1BackupCards[t.idx()] : mw.p2BackupCards[t.idx()];
+						case MONSTER -> t.isP1() ? mw.p1MonsterCards.get(t.idx()) : mw.p2MonsterCards.get(t.idx());
+						default      -> t.isP1() ? p1Forward(t.idx()) : mw.p2ForwardCards.get(t.idx());
+					};
+					logEntry("[AI] chose " + c.name());
+				});
+				return picked;
 			}
 
 

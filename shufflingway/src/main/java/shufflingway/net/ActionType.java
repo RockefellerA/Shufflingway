@@ -69,6 +69,18 @@ public enum ActionType {
                     //   on both boards from the same count without being told to.
                     //   No "alt" or "extra": nothing in the corpus prints a Warp cost alongside
                     //   an alternate cost or a surcharge, and they are separate menu items.
+    ACTIVATE_ABILITY, // payload: { "zone": "FORWARD"|"BACKUP"|"MONSTER", "idx": n, "card": "...",
+                    //             "ability": n, "discards": [idx, ...], "backups": [slot, ...],
+                    //             "bzTargets": [{ "idx": n, "zone": "FORWARD" }, ...],
+                    //             "x": n, "sCost": n, "backupBreaks": { "slot": "Fire" } }
+                    //   An action ability the sender activated off one of their own field cards.
+                    //   "zone"/"idx" locate that card on their side, which is the receiver's P2;
+                    //   "ability" indexes the card's printed action abilities, which both clients
+                    //   parse from the same text. What the ability costs is not sent — both ends
+                    //   read it off the card and apply the same board-derived discounts — only
+                    //   what was handed over to pay it.
+                    //   Abilities that are not printed on the card (granted ones, and the
+                    //   Petrification removal) carry no index and are not replicated yet.
     DISCARD_HAND,   // payload: { "indices": [idx, ...] } — a discard with no CP, e.g. the
                     //   end-phase trim to five. Replicated because it renumbers the hand.
     ATTACK,         // payload: { "zone": "FORWARD"|"MONSTER"|"BACKUP", "indices": [n, ...],

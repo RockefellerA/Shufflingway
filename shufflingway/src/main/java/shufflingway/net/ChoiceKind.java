@@ -152,6 +152,27 @@ public enum ChoiceKind {
 	SELECT_GROUP,
 
 	/**
+	 * The targets the sender picked for an effect they control — "choose 1 Forward. Break it."
+	 * Carried as {@code ForwardTarget} choice codes, which name a side and so are flipped into the
+	 * receiver's frame on arrival.
+	 *
+	 * <p>Distinct from {@link #OWN_FIELD_CARD}, which is a pick the sender was made to take out of
+	 * their <em>own</em> cards. This one ranges over the whole board, because most targeting does:
+	 * the same sentence can point at either player's Forwards, and which side it landed on is the
+	 * substance of the answer rather than a detail of it.
+	 *
+	 * <p>The choice is made as the effect goes on the Stack, not as it resolves, because that is
+	 * when the rules fix a target — the opponent responds to an ability knowing what it is pointed
+	 * at. So this crosses at push time, and both clients hold the same target on the Stack for the
+	 * whole of the response window.
+	 *
+	 * <p>Not sent for a Summon cast from hand. That cast chooses its targets on the way to the
+	 * Stack and they already travel inside its PLAY_CARD, so broadcasting them here as well would
+	 * leave an answer buffered that nobody is waiting for.
+	 */
+	CHOSEN_TARGETS,
+
+	/**
 	 * The sender has finished with a combat priority window and passed. Carries nothing — the
 	 * message is the whole answer.
 	 *
