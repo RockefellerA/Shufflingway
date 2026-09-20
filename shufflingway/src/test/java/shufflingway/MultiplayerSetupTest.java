@@ -1316,4 +1316,128 @@ class MultiplayerSetupTest {
 
         assertEquals(hostDigest(seats[0]), joinerDigest(seats[1]));
     }
+
+    // =========================================================================================
+    // Warp plays across the wire.
+    //
+    // A card played from hand into the Warp zone never replicated at all: there was no action
+    // type for it and the confirm path sent nothing. The card stayed in the opponent's hand on
+    // the other client, its counters never started, and the Forward that arrived from the Warp
+    // zone turns later arrived on one board only.
+    //
+    // Its own action rather than a PLAY_CARD because nothing reaches the field. The arrival needs
+    // no action of its own: both clients tick the counters at the start of Main Phase 1, which
+    // ADVANCE_PHASE already replicates.
+    // =========================================================================================
+
+    private static CardData warpForward(String name, String element, List<String> warpCost, int warpValue) {
+        return new CardData(null, name, element, 5, 8000, "Forward", false, 0, false, false,
+                Set.of(), warpValue, warpCost, null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                null, null, null, "");
+    }
+
+    /** Seats a Warp card plus two hand cards to pay with and one Backup to dull. */
+    private static CardData seatWarpHand(MainWindow mw, boolean isP1) {
+        List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+        hand.add(backup("Discard A", "Fire", 3));
+        hand.add(backup("Discard B", "Fire", 3));
+        CardData warped = warpForward("Warp Me", "Fire", List.of("Fire", ""), 2);
+        hand.add(warped);
+        CardData[]  backups = isP1 ? mw.p1BackupCards  : mw.p2BackupCards;
+        CardState[] states  = isP1 ? mw.p1BackupStates : mw.p2BackupStates;
+        backups[0] = backup("Dull Me", "Fire", 2);
+        states[0]  = CardState.ACTIVE;
+        return warped;
+    }
+
+    @Test
+    void aWarpPlayCostsTheSameInEitherSeat() {
+        MainWindow p1Seat = new MainWindow();
+        MainWindow p2Seat = new MainWindow();
+        CardData p1Warped = seatWarpHand(p1Seat, true);
+        CardData p2Warped = seatWarpHand(p2Seat, false);
+
+        p1Seat.executeWarpPlay(true,  p1Warped, 2, List.of(0), List.of(0), Map.of(), Map.of());
+        p2Seat.executeWarpPlay(false, p2Warped, 2, List.of(0), List.of(0), Map.of(), Map.of());
+
+        assertEquals(1, p1Seat.gameState.getP1WarpZone().size());
+        assertEquals(p1Seat.gameState.getP1WarpZone().size(), p2Seat.gameState.getP2WarpZone().size(),
+                "the card reaches the Warp zone on both boards");
+        assertEquals(2, p2Seat.gameState.getP2WarpZone().get(0).counters,
+                "and starts on its printed count, so both clients tick it down together");
+        assertEquals(names(p1Seat.gameState.getP1Hand()), names(p2Seat.gameState.getP2Hand()),
+                "the same card leaves the hand and the same card pays for it");
+        assertEquals(names(p1Seat.gameState.getP1BreakZone()), names(p2Seat.gameState.getP2BreakZone()));
+        assertEquals(CardState.DULL, p2Seat.p2BackupStates[0], "their Backup dulled, on their board");
+        assertEquals(0, p1Seat.gameState.getP1CpForElement("Fire"),
+                "CP generated for the Warp cost is cleared once the cost is paid");
+        assertEquals(p1Seat.gameState.getP1CpForElement("Fire"),
+                     p2Seat.gameState.getP2CpForElement("Fire"));
+    }
+
+    @Test
+    void aWarpPlayClearsOffElementCpOnBothSides() {
+        // The P2 mirror this replaced cleared only the Elements the Warp cost named, so a payment
+        // that banked anything else left it in the bank for the rest of the turn.
+        MainWindow mw = new MainWindow();
+        List<CardData> hand = mw.gameState.getP2Hand();
+        hand.add(backup("Off Element", "Water", 3));
+        CardData warped = warpForward("Warp Me", "Fire", List.of("Fire"), 1);
+        hand.add(warped);
+
+        mw.executeWarpPlay(false, warped, 1, List.of(0), List.of(), Map.of(), Map.of());
+
+        assertEquals(0, mw.gameState.getP2CpForElement("Fire"));
+        assertEquals(0, mw.gameState.getP2CpForElement("Water"),
+                "the Element the cost did not name is cleared too");
+    }
+
+    @Test
+    void aWarpPlayLeavesTheCallersPaymentListUnreordered() {
+        // The wire action is built from the same list after the play runs, so a sort in place here
+        // would send the other client a different payment order than the one just spent.
+        MainWindow mw = new MainWindow();
+        CardData warped = seatWarpHand(mw, false);
+        List<Integer> discards = new ArrayList<>(List.of(0, 1));
+
+        mw.executeWarpPlay(false, warped, 2, discards, List.of(), Map.of(), Map.of());
+
+        assertEquals(List.of(0, 1), discards);
+    }
+
+    @Test
+    void theWarpPlayActionCarriesItsHandIndexAndPayment() {
+        JSONObject payload = RemoteOpponent.warpPlayAction(
+                warpForward("Warp Me", "Fire", List.of("Fire"), 2), 4,
+                List.of(1), List.of(3), Map.of(3, "Fire"), Map.of(2, "Ice")).payload();
+
+        assertEquals(4, payload.getInt("handIdx"));
+        assertEquals("Warp Me", payload.getString("card"));
+        assertEquals(List.of(1), intList(payload.getJSONArray("discards")));
+        assertEquals(List.of(3), intList(payload.getJSONArray("backups")));
+        assertEquals("Fire", payload.getJSONObject("backupElements").getString("3"));
+        assertEquals("Ice", payload.getJSONObject("backupBreaks").getString("2"));
+        assertEquals(ActionType.WARP_PLAY, RemoteOpponent.warpPlayAction(
+                warpForward("Warp Me", "Fire", List.of("Fire"), 2), 0,
+                List.of(), List.of(), Map.of(), Map.of()).type());
+    }
+
+    @Test
+    void anOpponentsWarpPlayIsReplayedIntoTheirWarpZone() {
+        MainWindow mw = new MainWindow();
+        CardData warped = seatWarpHand(mw, false);
+        RemoteOpponent remote = new RemoteOpponent(mw, null, hostSetup(1L, true));
+
+        remote.onActionReceived(RemoteOpponent.warpPlayAction(warped, 2,
+                List.of(0), List.of(0), Map.of(), Map.of()));
+
+        assertEquals(1, mw.gameState.getP2WarpZone().size(), "it reached their Warp zone here too");
+        assertEquals("Warp Me", mw.gameState.getP2WarpZone().get(0).card.name());
+        assertEquals(2, mw.gameState.getP2WarpZone().get(0).counters);
+        assertEquals(CardState.DULL, mw.p2BackupStates[0], "and their Backup paid for it");
+        assertTrue(mw.gameState.getP1WarpZone().isEmpty(), "none of it touched this player");
+    }
 }

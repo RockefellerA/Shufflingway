@@ -57,6 +57,18 @@ public enum ActionType {
                     //   shuffle, so they need no flip — the same reason hand and slot indices do
                     //   not. Separate from PLAY_CARD because nothing leaves a hand: the played
                     //   card and the cards paying for it are turned face up where they sit.
+    WARP_PLAY,      // payload: { "handIdx": n, "card": "...", "discards": [idx, ...],
+                    //            "backups": [slot, ...], "backupElements": { "slot": "Fire" },
+                    //            "backupBreaks": { "slot": "Fire" } }
+                    //   A card played from hand to the sender's Removed-From-Play zone with its
+                    //   Warp counters. Its own action rather than a PLAY_CARD because nothing
+                    //   reaches the field: the card leaves the hand for the Warp zone, and only
+                    //   arrives turns later when its last counter comes off. That arrival needs
+                    //   no action of its own — both clients tick the counters at the start of
+                    //   Main Phase 1, which ADVANCE_PHASE already replicates, so the card enters
+                    //   on both boards from the same count without being told to.
+                    //   No "alt" or "extra": nothing in the corpus prints a Warp cost alongside
+                    //   an alternate cost or a surcharge, and they are separate menu items.
     DISCARD_HAND,   // payload: { "indices": [idx, ...] } — a discard with no CP, e.g. the
                     //   end-phase trim to five. Replicated because it renumbers the hand.
     ATTACK,         // payload: { "zone": "FORWARD"|"MONSTER"|"BACKUP", "indices": [n, ...],

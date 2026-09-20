@@ -111,6 +111,7 @@ class RemoteOpponent implements OpponentController {
 			case ADVANCE_PHASE  -> applyPhaseAdvance(action.payload());
 			case PLAY_CARD      -> applyPlayCard(action.payload());
 			case LB_PLAY        -> applyLbPlay(action.payload());
+			case WARP_PLAY      -> applyWarpPlay(action.payload());
 			case DISCARD_HAND   -> applyDiscard(action.payload());
 			case ATTACK         -> applyAttack(action.payload());
 			case BLOCK          -> applyBlock(action.payload());
@@ -314,6 +315,51 @@ class RemoteOpponent implements OpponentController {
 			}
 		}
 		return true;
+	}
+
+	/**
+	 * The opponent played a card from hand into their Warp zone. Their hand lives here as P2's in
+	 * the same order, so the index identifies the same card — checked against the name they sent
+	 * before anything is spent, the same guard a cast from hand gets and for the same reason.
+	 *
+	 * <p>Nothing reaches the field here. The card sits in their Warp zone under its counters, and
+	 * this client ticks those down on its own at the start of each of their Main Phase 1s, which
+	 * is how it arrives on both boards at the same count without an action for the arrival.
+	 */
+	private void applyWarpPlay(JSONObject payload) {
+		int handIdx = payload.optInt("handIdx", -1);
+		List<CardData> hand = mw.gameState.getP2Hand();
+		if (handIdx < 0 || handIdx >= hand.size()) {
+			mw.reportDesync("opponent Warped hand card " + handIdx + ", but their hand holds "
+					+ hand.size() + " cards here");
+			return;
+		}
+		CardData card     = hand.get(handIdx);
+		String   expected = payload.optString("card", "");
+		if (!card.name().equals(expected)) {
+			mw.reportDesync("opponent Warped \"" + expected + "\" from hand slot " + handIdx
+					+ ", which holds \"" + card.name() + "\" here");
+			return;
+		}
+		if (card.warpValue() <= 0) {
+			mw.reportDesync("opponent Warped \"" + card.name() + "\", which prints no Warp here");
+			return;
+		}
+
+		Map<Integer, String> overrides = new LinkedHashMap<>();
+		JSONObject rawOverrides = payload.optJSONObject("backupElements");
+		if (rawOverrides != null)
+			for (String key : rawOverrides.keySet())
+				overrides.put(Integer.valueOf(key), rawOverrides.getString(key));
+
+		Map<Integer, String> breaks = new LinkedHashMap<>();
+		JSONObject rawBreaks = payload.optJSONObject("backupBreaks");
+		if (rawBreaks != null)
+			for (String key : rawBreaks.keySet())
+				breaks.put(Integer.valueOf(key), rawBreaks.getString(key));
+
+		mw.executeWarpPlay(false, card, handIdx,
+				indices(payload, "discards"), indices(payload, "backups"), overrides, breaks);
 	}
 
 	/**
@@ -931,6 +977,32 @@ class RemoteOpponent implements OpponentController {
 				.put("payment", new JSONArray(payment))
 				.put("discards", new JSONArray(discards))
 				.put("backups", new JSONArray(backupDulls))
+				.put("backupBreaks", breaks));
+	}
+
+	/**
+	 * Builds a WARP_PLAY for a card the local player is playing from hand into their Warp zone.
+	 *
+	 * <p>The same payment shape a cast from hand carries, and for the same reasons — every index
+	 * addresses a zone both clients hold in the same order. What it leaves out is the arrival:
+	 * a Warp play puts no card on the field, and the counters that eventually bring it there are
+	 * ticked independently by both clients off a phase transition they already agree on.
+	 */
+	static GameAction warpPlayAction(CardData card, int handIdx, List<Integer> discards,
+	                                 List<Integer> backupDulls, Map<Integer, String> backupElements,
+	                                 Map<Integer, String> backupBreaks) {
+		JSONObject overrides = new JSONObject();
+		if (backupElements != null)
+			backupElements.forEach((slot, element) -> overrides.put(String.valueOf(slot), element));
+		JSONObject breaks = new JSONObject();
+		if (backupBreaks != null)
+			backupBreaks.forEach((slot, element) -> breaks.put(String.valueOf(slot), element));
+		return GameAction.of(ActionType.WARP_PLAY, new JSONObject()
+				.put("handIdx", handIdx)
+				.put("card", card.name())
+				.put("discards", new JSONArray(discards))
+				.put("backups", new JSONArray(backupDulls))
+				.put("backupElements", overrides)
 				.put("backupBreaks", breaks));
 	}
 

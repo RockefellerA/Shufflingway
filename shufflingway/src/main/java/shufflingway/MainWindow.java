@@ -10525,10 +10525,37 @@ public class MainWindow {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Pays the Warp alternate cost (dulls backups, discards hand cards), removes the card
-	 * from hand, and places it in the Removed-From-Play zone with Warp counters.
+	 * P1's side of a Warp play: runs the shared executor and sends the play to a networked
+	 * opponent, the same pairing {@link #executePlay(CardData, int, List, List, Map, Map)} makes
+	 * for a cast from hand and {@link #executeLbPlay(CardData, int, Set, List, List, Map)} for an
+	 * LB cast.
 	 */
 	private void executeWarpPlay(CardData card, int cardHandIdx,
+			List<Integer> discardIndices, List<Integer> backupDullIndices,
+			Map<Integer, String> elementOverrides, Map<Integer, String> backupBreaks) {
+		executeWarpPlay(true, card, cardHandIdx, discardIndices, backupDullIndices,
+				elementOverrides, backupBreaks);
+		sendToOpponent(RemoteOpponent.warpPlayAction(card, cardHandIdx, discardIndices,
+				backupDullIndices, elementOverrides, backupBreaks));
+	}
+
+	/**
+	 * Pays the Warp alternate cost (dulls backups, discards hand cards), removes the card from
+	 * hand, and places it in the Removed-From-Play zone with Warp counters.
+	 *
+	 * <p>Parameterised by player so a networked opponent's Warp play runs this exact code against
+	 * P2's zones, for the reason {@link #executePlay(boolean, CardData, int, List, List, Map)}
+	 * gives. It was two methods until the wire needed it: a P1 executor and a hand-written P2
+	 * mirror for the AI, which had drifted exactly the way that javadoc warns they do — the mirror
+	 * never learned about break-for-CP payments (Sherlotta 8-053H), and cleared only the Elements
+	 * the Warp cost named rather than every Element the payment banked, so off-Element CP from a
+	 * P2 payment stayed in the bank after the play.
+	 *
+	 * <p>{@code discardIndices} is copied before being reordered. The caller still holds the list
+	 * it passed and the wire action is built from it afterwards, so reordering it here would send
+	 * the other client a different payment order than the one just spent.
+	 */
+	void executeWarpPlay(boolean isP1, CardData card, int cardHandIdx,
 			List<Integer> discardIndices, List<Integer> backupDullIndices,
 			Map<Integer, String> elementOverrides, Map<Integer, String> backupBreaks) {
 		List<String> rawCost = card.warpCost();
@@ -10536,94 +10563,47 @@ public class MainWindow {
 		for (String e : rawCost) costByElem.merge(e, 1, Integer::sum);
 		String[] elems = costByElem.keySet().toArray(String[]::new);
 		Set<String> warpCpToClear = new java.util.LinkedHashSet<>(Arrays.asList(elems));
+		CardData[]     backupCards = isP1 ? p1BackupCards  : p2BackupCards;
+		CardState[]    backupStates= isP1 ? p1BackupStates : p2BackupStates;
+		List<CardData> hand        = isP1 ? gameState.getP1Hand() : gameState.getP2Hand();
 
 		for (int bi : backupDullIndices) {
-			p1BackupStates[bi] = CardState.DULL;
-			animateDullBackup(bi, true);
+			backupStates[bi] = CardState.DULL;
+			if (isP1) animateDullBackup(bi, true); else animateDullP2Backup(bi, true);
 			String cpElem = elementOverrides.containsKey(bi)
 					? elementOverrides.get(bi)
-					: matchesAnyElement(p1BackupCards[bi], elems)
-					? contributingElement(p1BackupCards[bi], elems) : elems[0];
-			gameState.addP1Cp(cpElem, 1);
+					: matchesAnyElement(backupCards[bi], elems)
+					? contributingElement(backupCards[bi], elems) : elems[0];
+			addCp(isP1, cpElem, 1);
 		}
 		// Break-for-CP payments (Sherlotta 8-053H), after the dull step so a Backup paying both
 		// ways is still on the field for it. Its Element joins the clear set below, so CP the Warp
 		// cost did not need is not left in the bank.
-		warpCpToClear.addAll(breakBackupsForCp(true, backupBreaks).keySet());
-		discardIndices.sort(Collections.reverseOrder());
-		for (int di : discardIndices) {
-			CardData discarded = gameState.getP1Hand().get(di);
+		warpCpToClear.addAll(breakBackupsForCp(isP1, backupBreaks).keySet());
+		List<Integer> discardRemovalOrder = new ArrayList<>(discardIndices);
+		discardRemovalOrder.sort(Collections.reverseOrder());
+		for (int di : discardRemovalOrder) {
+			CardData discarded = hand.get(di);
 			String cpElem = matchesAnyElement(discarded, elems)
 					? contributingElement(discarded, elems) : elems[0];
-			gameState.addP1Cp(cpElem, 2);
-			playerBreakFromHand(true,di);
+			addCp(isP1, cpElem, 2);
+			playerBreakFromHand(isP1, di);
 			if (di < cardHandIdx) cardHandIdx--;
 		}
 		for (String e : warpCpToClear) {
-			gameState.spendP1Cp(e, gameState.getP1CpForElement(e));
-			gameState.clearP1Cp(e);
+			spendCp(isP1, e, cpForElement(isP1, e));
+			clearCp(isP1, e);
 		}
-		gameState.removeFromHand(cardHandIdx);
+		if (isP1) gameState.removeFromHand(cardHandIdx); else gameState.removeP2FromHand(cardHandIdx);
 
-		gameState.addToP1WarpZone(card, card.warpValue());
-		logEntry("Played \"" + card.name() + "\" via Warp — " + card.warpValue()
-				+ " counter" + (card.warpValue() != 1 ? "s" : "") + " → Removed From Play");
-		autoAbilityTriggers.triggerAutoAbilitiesForWarpPlaced(card, true);
-		refreshP1HandLabel();
-		refreshP1BreakLabel();
-		refreshP1WarpZoneUI();
-	}
-
-	/**
-	 * P2 equivalent of {@link #executeWarpPlay}: pays the Warp alternate cost (dulls P2
-	 * backups, breaks P2 hand cards), removes the card from P2's hand, and places it in
-	 * P2's Removed-From-Play zone with Warp counters.  Caller is responsible for choosing
-	 * which backups/hand cards satisfy the cost — {@code ComputerPlayer.p2PlanWarpPayment}
-	 * does, and is the only caller.
-	 *
-	 * <p>Unlike {@link #executeWarpPlay} this takes no break-for-CP payments (Sherlotta 8-053H).
-	 * The planner never produces one, so the parameter would be dead; wiring that route would
-	 * mean adding it here and to the planner together.
-	 */
-	void executeP2WarpPlay(CardData card, int cardHandIdx,
-			List<Integer> discardIndices, List<Integer> backupDullIndices,
-			Map<Integer, String> elementOverrides) {
-		List<String> rawCost = card.warpCost();
-		LinkedHashMap<String, Integer> costByElem = new LinkedHashMap<>();
-		for (String e : rawCost) costByElem.merge(e, 1, Integer::sum);
-		String[] elems = costByElem.keySet().toArray(String[]::new);
-
-		for (int bi : backupDullIndices) {
-			p2BackupStates[bi] = CardState.DULL;
-			refreshP2BackupSlot(bi);
-			String cpElem = elementOverrides.containsKey(bi)
-					? elementOverrides.get(bi)
-					: matchesAnyElement(p2BackupCards[bi], elems)
-					? contributingElement(p2BackupCards[bi], elems) : elems[0];
-			gameState.addP2Cp(cpElem, 1);
-		}
-		discardIndices.sort(Collections.reverseOrder());
-		for (int di : discardIndices) {
-			CardData discarded = gameState.getP2Hand().get(di);
-			String cpElem = matchesAnyElement(discarded, elems)
-					? contributingElement(discarded, elems) : elems[0];
-			gameState.addP2Cp(cpElem, 2);
-			playerBreakFromHand(false, di);
-			if (di < cardHandIdx) cardHandIdx--;
-		}
-		for (String e : elems) {
-			gameState.spendP2Cp(e, gameState.getP2CpForElement(e));
-			gameState.clearP2Cp(e);
-		}
-		gameState.removeP2FromHand(cardHandIdx);
-
-		gameState.addToP2WarpZone(card, card.warpValue());
-		logEntry("[P2] Played \"" + card.name() + "\" via Warp — " + card.warpValue()
-				+ " counter" + (card.warpValue() != 1 ? "s" : "") + " → Removed From Play");
-		autoAbilityTriggers.triggerAutoAbilitiesForWarpPlaced(card, false);
-		refreshP2HandCountLabel();
-		refreshP2BreakLabel();
-		refreshP2WarpZoneUI();
+		if (isP1) gameState.addToP1WarpZone(card, card.warpValue());
+		else      gameState.addToP2WarpZone(card, card.warpValue());
+		logEntry((isP1 ? "" : "[P2] ") + "Played \"" + card.name() + "\" via Warp — "
+				+ card.warpValue() + " counter" + (card.warpValue() != 1 ? "s" : "")
+				+ " → Removed From Play");
+		autoAbilityTriggers.triggerAutoAbilitiesForWarpPlaced(card, isP1);
+		if (isP1) { refreshP1HandLabel();      refreshP1BreakLabel(); refreshP1WarpZoneUI(); }
+		else      { refreshP2HandCountLabel(); refreshP2BreakLabel(); refreshP2WarpZoneUI(); }
 	}
 
 	// -------------------------------------------------------------------------

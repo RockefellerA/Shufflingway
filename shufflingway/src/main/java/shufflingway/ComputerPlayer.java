@@ -263,11 +263,12 @@ class ComputerPlayer implements OpponentController {
 	/** Executes a planned P2 hand-cast: dulls backups, discards for CP, pays cost, plays the card. */
 	private void executeP2HandPlay(P2Plan plan) {
 		if (plan.warp()) {
-			// executeP2WarpPlay pays the Warp cost itself — it dulls and discards, banks the CP and
+			// executeWarpPlay pays the Warp cost itself — it dulls and discards, banks the CP and
 			// clears it — so the ordinary payment step is skipped, and it takes the unadjusted hand
-			// index because it shifts that index past its own discards.
-			mw.executeP2WarpPlay(mw.gameState.getP2Hand().get(plan.cardIdx()), plan.cardIdx(),
-					plan.discardIndices(), plan.dullBackups(), plan.backupElements());
+			// index because it shifts that index past its own discards. No break-for-CP payments:
+			// the planner never produces one, so the map it would name is empty.
+			mw.executeWarpPlay(false, mw.gameState.getP2Hand().get(plan.cardIdx()), plan.cardIdx(),
+					plan.discardIndices(), plan.dullBackups(), plan.backupElements(), Map.of());
 			return;
 		}
 		mw.payP2CostViaBackupsAndDiscards(
