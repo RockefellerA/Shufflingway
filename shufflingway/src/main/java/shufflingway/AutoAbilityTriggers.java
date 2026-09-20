@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.IntUnaryOperator;
 import java.util.regex.Matcher;
@@ -4224,82 +4225,11 @@ final class AutoAbilityTriggers {
 		// opponentMay effects run from the opponent's context
 		boolean effectIsP1 = fa.opponentMay() ? !isP1 : isP1;
 
-		// Detect "remove N [Name] Counter(s) from [CardName]. When you do so, [effect]"
-		Matcher ctrM = FA_REMOVE_COUNTER_WHEN_DO_SO.matcher(fa.effectText());
-		if (ctrM.find()) {
-			executeCounterRemovalWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, ctrM);
+		// The "when you do so" family and its siblings resolve here and now rather than going on the
+		// Stack, so the ability source they run under has to be established here — the Stack route
+		// sets it from the entry (MainWindow's isAutoAbility() arm) and these never reach it.
+		if (withAbilitySource(source, () -> dispatchInlineAutoAbility(fa, source, isP1, effectIsP1)))
 			return;
-		}
-
-		// Detect "pay 《X/N》. When you do so, [effect]" — requires a payment dialog before resolving.
-		Matcher payM = FA_PAY_WHEN_DO_SO.matcher(fa.effectText());
-		if (payM.find()) {
-			executePayWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, payM);
-			return;
-		}
-
-		// Detect "remove N [type] [without 《Keyword》] you control from the game. When you do so, [effect]"
-		Matcher rfM = FA_REMOVE_FIELD_WHEN_DO_SO.matcher(fa.effectText());
-		if (rfM.find()) {
-			executeRemoveFieldWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, rfM);
-			return;
-		}
-
-		// Detect "put N [Job/CardName/type] you control into the Break Zone. When you do so, [effect]"
-		Matcher bzM = FA_PUT_INTO_BZ_WHEN_DO_SO.matcher(fa.effectText());
-		if (bzM.find()) {
-			executePutIntoBzWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, bzM);
-			return;
-		}
-
-		// Detect "dull [CardName] if it is active. If/When you do so, [effect]" (self-dull)
-		Matcher dullM = FA_DULL_SELF_IF_DO_SO.matcher(fa.effectText());
-		if (dullM.find()) {
-			executeDullSelfIfDoSoAutoAbility(fa, source, isP1, effectIsP1, dullM);
-			return;
-		}
-
-		// Detect "put [CardName] into the Break Zone. If/When you do so, [effect]" (self-break)
-		Matcher sbzM = FA_PUT_SELF_INTO_BZ_IF_DO_SO.matcher(fa.effectText());
-		if (sbzM.find()) {
-			executePutSelfIntoBzIfDoSoAutoAbility(fa, source, isP1, effectIsP1, sbzM);
-			return;
-		}
-
-		// Detect "choose 1 <target>. You may put 1 <price> into the Break Zone. If you do so, <payoff>"
-		Matcher cbzM = FA_CHOOSE_THEN_MAY_PUT_INTO_BZ.matcher(fa.effectText());
-		if (cbzM.find()) {
-			executeChooseThenMayPutIntoBzAutoAbility(fa, source, isP1, effectIsP1, cbzM);
-			return;
-		}
-
-		// Detect "select [up to] N of the M following actions. "..." "..."..."
-		Matcher selM = FA_SELECT_FOLLOWING_ACTIONS.matcher(fa.effectText());
-		if (selM.find()) {
-			executeSelectFollowingActionsAutoAbility(fa, source, isP1, effectIsP1, selM);
-			return;
-		}
-
-		// Detect "reveal any number of Summons from your hand. When you reveal no Summons, [effect0]. When you reveal N or more Summons, [effectN]."
-		Matcher rvlM = FA_REVEAL_SUMMONS_CONDITIONAL.matcher(fa.effectText());
-		if (rvlM.find()) {
-			executeRevealSummonsConditionalAutoAbility(fa, source, isP1, effectIsP1, rvlM);
-			return;
-		}
-
-		// Detect "reveal any number of Summons from your hand. When you do so, [effect on up to the same number of Characters]."
-		Matcher rvlSameM = FA_REVEAL_SUMMONS_SAME_NUMBER.matcher(fa.effectText());
-		if (rvlSameM.find()) {
-			executeRevealSummonsSameNumberAutoAbility(fa, source, isP1, effectIsP1, rvlSameM);
-			return;
-		}
-
-		// Detect "select the following actions from top to bottom up to the same number of Elements other than X as the cost you paid to cast [CardName]."
-		Matcher dynM = FA_SELECT_FOLLOWING_ACTIONS_DYNAMIC_ELEMENTS.matcher(fa.effectText());
-		if (dynM.find()) {
-			executeSelectFollowingActionsDynamicElements(fa, source, isP1, effectIsP1, dynM);
-			return;
-		}
 
 		// The text this ability will actually resolve, which is not always the text it prints: an
 		// "If you paid the extra cost, …" clause is rewritten into the branch that was taken. Worked
@@ -4384,7 +4314,8 @@ final class AutoAbilityTriggers {
 						&& fa.trigger().equals("is blocked or chosen by opponent's ability"))) {
 			Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
 			mw.logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText());
-			effect.accept(mw.buildGameContext(effectIsP1));
+			// Inline, so the source is established here rather than by the Stack entry.
+			withAbilitySource(source, () -> { effect.accept(mw.buildGameContext(effectIsP1)); return true; });
 			return;
 		}
 
@@ -4419,6 +4350,119 @@ final class AutoAbilityTriggers {
 	// =========================================================================================
 	// "When you do so" auto abilities
 	// =========================================================================================
+
+	/**
+	 * The shapes {@code executeAutoAbilityImpl} resolves itself instead of pushing onto the Stack —
+	 * the ones that have to charge a cost, take a choice or read a revealed hand before their
+	 * sub-effect can be parsed at all. Returns whether one of them claimed {@code fa}.
+	 *
+	 * <p>Ordering is load-bearing in the same way the resolver's chains are: every matcher here uses
+	 * {@code find()}, so a broader shape placed ahead of a narrower one claims its text.
+	 */
+	private boolean dispatchInlineAutoAbility(AutoAbility fa, CardData source, boolean isP1,
+			boolean effectIsP1) {
+		// Detect "remove N [Name] Counter(s) from [CardName]. When you do so, [effect]"
+		Matcher ctrM = FA_REMOVE_COUNTER_WHEN_DO_SO.matcher(fa.effectText());
+		if (ctrM.find()) {
+			executeCounterRemovalWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, ctrM);
+			return true;
+		}
+
+		// Detect "pay 《X/N》. When you do so, [effect]" — requires a payment dialog before resolving.
+		Matcher payM = FA_PAY_WHEN_DO_SO.matcher(fa.effectText());
+		if (payM.find()) {
+			executePayWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, payM);
+			return true;
+		}
+
+		// Detect "remove N [type] [without 《Keyword》] you control from the game. When you do so, [effect]"
+		Matcher rfM = FA_REMOVE_FIELD_WHEN_DO_SO.matcher(fa.effectText());
+		if (rfM.find()) {
+			executeRemoveFieldWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, rfM);
+			return true;
+		}
+
+		// Detect "put N [Job/CardName/type] you control into the Break Zone. When you do so, [effect]"
+		Matcher bzM = FA_PUT_INTO_BZ_WHEN_DO_SO.matcher(fa.effectText());
+		if (bzM.find()) {
+			executePutIntoBzWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, bzM);
+			return true;
+		}
+
+		// Detect "dull [CardName] if it is active. If/When you do so, [effect]" (self-dull)
+		Matcher dullM = FA_DULL_SELF_IF_DO_SO.matcher(fa.effectText());
+		if (dullM.find()) {
+			executeDullSelfIfDoSoAutoAbility(fa, source, isP1, effectIsP1, dullM);
+			return true;
+		}
+
+		// Detect "put [CardName] into the Break Zone. If/When you do so, [effect]" (self-break)
+		Matcher sbzM = FA_PUT_SELF_INTO_BZ_IF_DO_SO.matcher(fa.effectText());
+		if (sbzM.find()) {
+			executePutSelfIntoBzIfDoSoAutoAbility(fa, source, isP1, effectIsP1, sbzM);
+			return true;
+		}
+
+		// Detect "choose 1 <target>. You may put 1 <price> into the Break Zone. If you do so, <payoff>"
+		Matcher cbzM = FA_CHOOSE_THEN_MAY_PUT_INTO_BZ.matcher(fa.effectText());
+		if (cbzM.find()) {
+			executeChooseThenMayPutIntoBzAutoAbility(fa, source, isP1, effectIsP1, cbzM);
+			return true;
+		}
+
+		// Detect "select [up to] N of the M following actions. "..." "..."..."
+		Matcher selM = FA_SELECT_FOLLOWING_ACTIONS.matcher(fa.effectText());
+		if (selM.find()) {
+			executeSelectFollowingActionsAutoAbility(fa, source, isP1, effectIsP1, selM);
+			return true;
+		}
+
+		// Detect "reveal any number of Summons from your hand. When you reveal no Summons, [effect0]. When you reveal N or more Summons, [effectN]."
+		Matcher rvlM = FA_REVEAL_SUMMONS_CONDITIONAL.matcher(fa.effectText());
+		if (rvlM.find()) {
+			executeRevealSummonsConditionalAutoAbility(fa, source, isP1, effectIsP1, rvlM);
+			return true;
+		}
+
+		// Detect "reveal any number of Summons from your hand. When you do so, [effect on up to the same number of Characters]."
+		Matcher rvlSameM = FA_REVEAL_SUMMONS_SAME_NUMBER.matcher(fa.effectText());
+		if (rvlSameM.find()) {
+			executeRevealSummonsSameNumberAutoAbility(fa, source, isP1, effectIsP1, rvlSameM);
+			return true;
+		}
+
+		// Detect "select the following actions from top to bottom up to the same number of Elements other than X as the cost you paid to cast [CardName]."
+		Matcher dynM = FA_SELECT_FOLLOWING_ACTIONS_DYNAMIC_ELEMENTS.matcher(fa.effectText());
+		if (dynM.find()) {
+			executeSelectFollowingActionsDynamicElements(fa, source, isP1, effectIsP1, dynM);
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Runs {@code body} with {@code source} standing as the ability source, restoring whatever was
+	 * there before. Every effect that asks "who is dealing this?" reads
+	 * {@link MainWindow#currentAbilitySource} — the self outgoing boosts and doublers in
+	 * {@link DamageResolver}, the damage credit the "damaged by [X]" printings need, and the card
+	 * name the logs and dialogs label an effect with — so an ability that resolves without it
+	 * silently loses all of them. Saved and restored rather than cleared, because these resolutions
+	 * nest.
+	 */
+	private boolean withAbilitySource(CardData source, BooleanSupplier body) {
+		CardData prevSource  = mw.currentAbilitySource;
+		boolean  prevSpecial = mw.currentAbilityIsSpecial;
+		mw.currentAbilitySource    = source;
+		mw.currentAbilityIsSpecial = false;
+		try {
+			return body.getAsBoolean();
+		} finally {
+			mw.currentAbilitySource    = prevSource;
+			mw.currentAbilityIsSpecial = prevSpecial;
+		}
+	}
+
 	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,
 			boolean isP1, boolean effectIsP1, Matcher m) {
 		int    n           = Integer.parseInt(m.group("n"));

@@ -5994,6 +5994,52 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // An auto ability that AutoAbilityTriggers resolves inline — the "pay 《…》. When you do so, …"
+    // family and its siblings — runs under its own card as the ability source, exactly as the
+    // Stack route does. Ursula 28-001R is the card that showed the gap: her own "Damage 3 -- If
+    // Ursula deals damage to a Forward, the damage increases by 1000 instead." never reached her
+    // trigger's 4000, because every "who is dealing this?" check reads currentAbilitySource and
+    // nothing had set it.
+    // =========================================================================================
+
+    /** Ursula 28-001R, one copy of her twice-printed trigger plus her Damage-3 boost. */
+    private static final String URSULA_TEXT =
+            "When Ursula enters the field, you may pay 《Fire》. When you do so, choose 1 Forward. "
+            + "Deal it 4000 damage.[[br]]"
+            + "Damage 3 -- If Ursula deals damage to a Forward, the damage increases by 1000 instead.";
+
+    /** Builds a Forward whose autoAbilities and fieldAbilities are both parsed from {@code text}. */
+    private static CardData makeAutoAndFieldAbilityForward(String name, String element, int cost,
+            int power, String text) {
+        return new CardData(null, name, element, cost, power, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), CardData.parseAutoAbilities(text), CardData.parseFieldAbilities(text, "Forward"),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                null, null, null, text);
+    }
+
+    @Test
+    void inlineResolvedPayWhenDoSoAbilityRunsUnderItsOwnSource() {
+        // Ursula is P2's, so the AI pays the 《Fire》 without a dialog; P1 holds the only Forward,
+        // which is therefore what her trigger damages.
+        MainWindow mw = new MainWindow();
+        CardData ursula = makeAutoAndFieldAbilityForward("Ursula", "Fire", 2, 5000, URSULA_TEXT);
+
+        List<CardData> dmgZone = mw.gameState.getP2DamageZone();
+        for (int i = 0; i < 3; i++) dmgZone.add(makeForward("D" + i, "Fire", 1, 1000));
+        mw.p2BackupCards[0]  = makePlainBackup("Backup", "Fire", 1);
+        mw.p2BackupStates[0] = CardState.ACTIVE;
+
+        mw.placeCardInForwardZone(makeForward("Amon", "Lightning", 3, 9000)); // P1 idx 0
+        mw.placeP2CardInForwardZone(ursula);                                  // P2 idx 0
+        mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(ursula, false);
+
+        assertEquals(5000, (int) mw.p1ForwardDamage.get(0),
+                "her own Damage-3 boost raises the trigger's 4000 to 5000");
+    }
+
+    // =========================================================================================
     // Breaktouch parity: "deals damage to a Forward, break it" and battle Breaktouch resolve
     // against a Monster/Backup acting as a Forward, not only real Forwards.
     // =========================================================================================
