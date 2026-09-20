@@ -697,8 +697,46 @@ final class ActionResolverSearch {
                     ctx2.logEntry("Odd cost — dealing 4000 damage, dulling and freezing chosen Forward");
                     ctx2.damageTarget(t, 4000);
                     ctx2.dullAndFreezeTarget(t);
-                }
+                },
+                // Mog (VI) prints "Add the revealed card to your hand" after each branch, and the
+                // pattern above requires both copies of that sentence to match.
+                true
             );
+        };
+    }
+    /**
+     * 11-035R Setzer's Slots — "Reveal the top card of your deck. If the revealed card's CP cost
+     * is an odd number, [A]. If the revealed card's CP cost is an even number, [B]."
+     *
+     * <p>Separate from {@link #tryParseRevealTopDeck} because the condition is a parity test on
+     * the revealed card rather than the "If it is/has …" its clause pattern reads, and separate
+     * from {@link #tryParseChooseFwdRevealCostParity} because that one is anchored on a chosen
+     * Forward and on the "Add the revealed card to your hand" trailer this printing lacks — which
+     * is why {@code false} is passed for the disposition.
+     *
+     * <p><b>Both halves must parse before either is claimed.</b> This ability is the reason the
+     * whole family was looked at: {@code tryParseAllFieldEffect} used to reach into the odd branch
+     * with {@code find()}, lift "break all the dull Forwards opponent controls" out from behind
+     * its condition and run it unconditionally — and, reading neither the state nor the side,
+     * break every Character on the table. Claiming one branch here would put that back.
+     */
+    static Consumer<GameContext> tryParseRevealCostParityEffects(String text, CardData source) {
+        Matcher m = REVEAL_COST_PARITY_EFFECTS.matcher(text.trim());
+        if (!m.matches()) return null;
+        // "odd … even" or "even … odd"; a printing repeating one parity twice is a misread.
+        if (m.group("first").equalsIgnoreCase(m.group("second"))) return null;
+
+        Consumer<GameContext> firstFn  = parse(m.group("firsteffect").trim(),  source);
+        Consumer<GameContext> secondFn = parse(m.group("secondeffect").trim(), source);
+        if (firstFn == null || secondFn == null) return null;
+
+        boolean firstIsOdd = m.group("first").equalsIgnoreCase("odd");
+        Consumer<GameContext> onOdd  = firstIsOdd ? firstFn  : secondFn;
+        Consumer<GameContext> onEven = firstIsOdd ? secondFn : firstFn;
+
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top card — odd and even CP cost each do something");
+            ctx.revealTopDeckCostParityEffect(onEven, onOdd, false);
         };
     }
     static Consumer<GameContext> tryParseRevealTopDeck(String text, CardData source) {

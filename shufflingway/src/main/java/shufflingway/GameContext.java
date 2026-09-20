@@ -504,12 +504,18 @@ public interface GameContext {
     void revealTopDeckCard(List<RevealClause> clauses, boolean opponentDeck);
 
     /**
-     * Reveals the top card of the player's deck in a modal popup, applies {@code onEven}
-     * or {@code onOdd} to the game context depending on whether the revealed card's CP cost
-     * is even or odd, then adds the revealed card to the player's hand.
+     * Reveals the top card of the player's deck in a modal popup, then applies {@code onEven} or
+     * {@code onOdd} depending on whether the revealed card's CP cost is even or odd.
+     *
+     * <p>{@code addRevealedToHand} says what becomes of the card afterwards, and the two printings
+     * disagree, so it is not a default either way. 9-117C Mog (VI) prints "Add the revealed card
+     * to your hand" after each branch and passes {@code true}. 11-035R Setzer names no disposition
+     * at all, so his card goes back on top of the deck where it was revealed from — passing
+     * {@code true} for him would hand his controller a card the printing never gives them.
      */
     void revealTopDeckCostParityEffect(java.util.function.Consumer<GameContext> onEven,
-                                       java.util.function.Consumer<GameContext> onOdd);
+                                       java.util.function.Consumer<GameContext> onOdd,
+                                       boolean addRevealedToHand);
 
     /**
      * Each player reveals the top card of their deck. Each player whose revealed card satisfies
@@ -4478,12 +4484,46 @@ public interface GameContext {
      * mirror of — the narrower reading would need the source's identity threaded through the whole
      * filter chain for a case the corpus does not contain.
      */
+    default void applyMassFieldEffect(MassAction action,
+            boolean forwards, boolean backups, boolean monsters,
+            boolean opponentOnly, boolean selfOnly,
+            String element, int costVal, String costCmp, int excludeCostVal,
+            String job, String category, java.util.EnumSet<CardData.Trait> traitFilter,
+            String counterFilter, String excludeName) {
+        applyMassFieldEffect(action, forwards, backups, monsters, opponentOnly, selfOnly,
+                element, costVal, costCmp, excludeCostVal, job, category, traitFilter,
+                counterFilter, excludeName, null, null, null);
+    }
+
+    /**
+     * Same as above but narrowed to cards in a given state and/or of a given printing.
+     *
+     * @param stateFilter {@code "dull"} or {@code "active"} — "Break all the dull Backups"
+     *        (12-023H), "break all the active Forwards" (15-097H). {@code null} applies no state
+     *        restriction. Read off the board, not the printing, which is the only thing it could
+     *        mean: a card's state is not a property of its card face.
+     * @param nameFilter the card name a swept card must carry — 2-092C Phantasmal Harlequin's
+     *        "break all the Card Name Phantasmal Harlequin you control". The include twin of
+     *        {@code excludeName}, and matched the same way. {@code null} matches any name.
+     * @param excludeJob the job a swept card must <em>not</em> have — 29-027L Shantotto's "dull
+     *        and Freeze all the Characters other than Job Mage", the corpus's one printing that
+     *        spares by job rather than by name. Separate from {@code excludeName} because that one
+     *        compares card names, so passing "Mage" to it would spare only a card actually called
+     *        Mage and sweep every Mage the printing protects. Read effectively, like {@code job}.
+     *
+     * <p>Both filters exist because the sweep pattern used to discard the word it could not read
+     * and sweep the whole board instead — including the side restriction, which trails the target
+     * type in that pattern and was lost with it. Five printings were taking both players' entire
+     * fields. A sweep is the last effect that should widen when its filter goes unread, so the
+     * parser now declines any match that names no card type, job, category or card name at all.
+     */
     void applyMassFieldEffect(MassAction action,
             boolean forwards, boolean backups, boolean monsters,
             boolean opponentOnly, boolean selfOnly,
             String element, int costVal, String costCmp, int excludeCostVal,
             String job, String category, java.util.EnumSet<CardData.Trait> traitFilter,
-            String counterFilter, String excludeName);
+            String counterFilter, String excludeName,
+            String stateFilter, String nameFilter, String excludeJob);
 
     /**
      * How many dull cards the most recent {@link #applyMassFieldEffect} with

@@ -12292,7 +12292,8 @@ public class CardBehaviorTest {
 		fn.accept(ctx);
 		verify(ctx).addEndOfOpponentTurnEffect(any());
 		verify(ctx, never()).applyMassFieldEffect(any(), anyBoolean(), anyBoolean(), anyBoolean(),
-				anyBoolean(), anyBoolean(), any(), anyInt(), any(), anyInt(), any(), any(), any(), any());
+				anyBoolean(), anyBoolean(), any(), anyInt(), any(), anyInt(), any(), any(), any(), any(),
+				any(), any(), any(), any());
 	}
 
 	@Test
@@ -12314,7 +12315,8 @@ public class CardBehaviorTest {
 				"break all the Forwards opponent controls with a Doom Counter on them.", null).accept(ctx);
 		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.BREAK),
 				eq(true), eq(false), eq(false), eq(true), eq(false),
-				isNull(), eq(-1), isNull(), eq(-1), isNull(), isNull(), any(), eq("Doom"));
+				isNull(), eq(-1), isNull(), eq(-1), isNull(), isNull(), any(), eq("Doom"),
+				isNull(), isNull(), isNull(), isNull());
 	}
 
 	// End to end on a real board: only the Doom-Countered Forward breaks.
@@ -42031,7 +42033,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.FREEZE), anyBoolean(), anyBoolean(),
 				anyBoolean(), anyBoolean(), anyBoolean(), any(), anyInt(), any(), anyInt(), any(),
-				any(), any(), any());
+				any(), any(), any(), any(), any(), any(), any());
 	}
 
 	@Test
@@ -42044,7 +42046,8 @@ public class CardBehaviorTest {
 		ActionResolver.parse(KEFKA_ICE_ETF, kefka).accept(ctx);
 
 		verify(ctx, never()).applyMassFieldEffect(any(), anyBoolean(), anyBoolean(), anyBoolean(),
-				anyBoolean(), anyBoolean(), any(), anyInt(), any(), anyInt(), any(), any(), any(), any());
+				anyBoolean(), anyBoolean(), any(), anyInt(), any(), anyInt(), any(), any(), any(), any(),
+				any(), any(), any(), any());
 	}
 
 	@Test
@@ -42058,7 +42061,8 @@ public class CardBehaviorTest {
 
 		verify(ctx, never()).opponentMayDiscardCards(anyInt(), any());
 		verify(ctx, never()).applyMassFieldEffect(any(), anyBoolean(), anyBoolean(), anyBoolean(),
-				anyBoolean(), anyBoolean(), any(), anyInt(), any(), anyInt(), any(), any(), any(), any());
+				anyBoolean(), anyBoolean(), any(), anyInt(), any(), anyInt(), any(), any(), any(), any(),
+				any(), any(), any(), any());
 	}
 
 	@Test
@@ -62363,6 +62367,271 @@ public class CardBehaviorTest {
 				+ "Forwards you control gain +3000 power, Brave and \"This Forward can attack "
 				+ "twice in the same turn.\"", null));
 	}
+
+	// =========================================================================================
+	// Sweep filters the pattern could not read — five board wipes.
+	//
+	// ALL_FIELD_EFFECT_PATTERN makes every filter group optional and does not anchor its end, so
+	// a filter word it could not read ended the match early at "all the ": no target type, and —
+	// because "control" trails "targets" — no side restriction either. Five printings were
+	// therefore sweeping both players' entire boards:
+	//
+	//   12-023H  "Break all the dull Backups."                        broke every Character
+	//   15-097H  "break all the active Forwards."                     broke every Character
+	//   11-037L  "dull and Freeze all the active Backups opponent controls."   hit everything
+	//   2-092C   "break all the Card Name Phantasmal Harlequin you control."   broke everything
+	//   11-035R  "break all the dull Forwards opponent controls"      broke everything
+	//
+	// Two arms were added to the pattern (a dull/active state filter and a Card Name filter) and
+	// both now reach applyMassFieldEffect. The general guard is the point, though: the parser
+	// declines any match naming no card type, job, category or card name, so the next filter word
+	// it cannot read fails closed instead of becoming the sixth wipe.
+	//
+	// None of this moves the characterization golden file. All five still parse, still report
+	// AllFieldEffect and still describe the same — only the set they touch changed, which is
+	// exactly the blind spot that file has. These are call-list and real-board tests for that
+	// reason; the golden run passes either way and proves nothing here.
+	// =========================================================================================
+
+	@Test
+	void theDullFilterReachesTheMassEffect() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Break all the dull Backups.", null).accept(ctx);
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.BREAK),
+				eq(false), eq(true), eq(false), eq(false), eq(false),
+				isNull(), eq(-1), isNull(), eq(-1), isNull(), isNull(), any(), isNull(),
+				isNull(), eq("dull"), isNull(), isNull());
+	}
+
+	@Test
+	void theActiveFilterReachesTheMassEffect() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("break all the active Forwards.", null).accept(ctx);
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.BREAK),
+				eq(true), eq(false), eq(false), eq(false), eq(false),
+				isNull(), eq(-1), isNull(), eq(-1), isNull(), isNull(), any(), isNull(),
+				isNull(), eq("active"), isNull(), isNull());
+	}
+
+	@Test
+	void theStateFilterDoesNotCostTheSideRestriction() {
+		// The regression that made these wipes so wide: "control" trails "targets", so a filter
+		// word the pattern could not read left the position short of "opponent controls" too.
+		// 11-037L is the printing that carries a state filter and a side together.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("dull and Freeze all the active Backups opponent controls.", null)
+				.accept(ctx);
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.DULL_AND_FREEZE),
+				eq(false), eq(true), eq(false), eq(true), eq(false),
+				isNull(), eq(-1), isNull(), eq(-1), isNull(), isNull(), any(), isNull(),
+				isNull(), eq("active"), isNull(), isNull());
+	}
+
+	@Test
+	void theCardNameFilterReachesTheMassEffectAndKeepsItsSide() {
+		// 2-092C Phantasmal Harlequin. The Card Name arm must not swallow the space in front of
+		// "you control": "targets" has no leading \s+ of its own but "control" does, so consuming
+		// it unconditionally read the name correctly and then swept both players' Harlequins.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("break all the Card Name Phantasmal Harlequin you control.", null)
+				.accept(ctx);
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.BREAK),
+				eq(true), eq(true), eq(true), eq(false), eq(true),
+				isNull(), eq(-1), isNull(), eq(-1), isNull(), isNull(), any(), isNull(),
+				isNull(), isNull(), eq("Phantasmal Harlequin"), isNull());
+	}
+
+	@Test
+	void aSweepThatNamesNothingItSweepsIsDeclined() {
+		// The guard, stated directly. No target type, job, category or card name is not a sweep
+		// of everything — it is a filter the pattern could not read, and the only honest answer
+		// is to leave the ability unparsed.
+		assertNull(ActionResolver.parse("Break all the bouncy Forwards.", null),
+				"an unreadable filter word must fail closed, not widen the sweep");
+	}
+
+	@Test
+	void theFamiliarUnfilteredSweepsStillParse() {
+		// The guard must not have taken the ordinary wordings with it.
+		assertNotNull(ActionResolver.parse("Break all the Forwards.", null));
+		assertNotNull(ActionResolver.parse("Activate all the Forwards you control.", null));
+		assertNotNull(ActionResolver.parse("dull and Freeze all the Characters opponent controls.", null));
+		assertNotNull(ActionResolver.parse("Break all the Job Dragoon Forwards.", null));
+	}
+
+	// End to end on a real board: the state filter spares the cards not in that state, and the
+	// side restriction still holds.
+	@Test
+	void onlyDullBackupsAreBroken() {
+		MainWindow mw = new MainWindow();
+		CardData dozing = makePlainBackup("Dozing", "Fire", 2);
+		CardData awake  = makePlainBackup("Awake",  "Fire", 2);
+		// Breaking a card reads its owner out of the identity map, so a Backup dropped straight
+		// into the slot array has to be registered the way placeP1Forward registers a Forward.
+		mw.gameState.getIdentity().put(dozing, true);
+		mw.gameState.getIdentity().put(awake,  true);
+		mw.p1BackupCards[0] = dozing;
+		mw.p1BackupCards[1] = awake;
+		mw.p1BackupStates[0] = CardState.DULL;
+		mw.p1BackupStates[1] = CardState.ACTIVE;
+
+		ActionResolver.parse("Break all the dull Backups.", null).accept(mw.buildGameContext(true));
+
+		assertNull(mw.p1BackupCards[0], "the dull Backup is broken");
+		assertNotNull(mw.p1BackupCards[1], "the active Backup is untouched");
+	}
+
+	@Test
+	void onlyActiveForwardsAreBroken() {
+		MainWindow mw = new MainWindow();
+		CardData awake  = makeForward("Awake",  "Fire", 3, 7000);
+		CardData dozing = makeForward("Dozing", "Fire", 3, 7000);
+		placeP1Forward(mw, awake);
+		placeP1Forward(mw, dozing);
+		mw.p1ForwardStates.set(1, CardState.DULL);
+
+		ActionResolver.parse("break all the active Forwards.", null).accept(mw.buildGameContext(true));
+
+		assertEquals(List.of(dozing), mw.p1ForwardCards,
+				"only the active Forward breaks; the dull one stays");
+	}
+
+	@Test
+	void theHarlequinSweepTakesOnlyItsOwnPrintingAndOnlyYourSide() {
+		MainWindow mw = new MainWindow();
+		CardData mine   = makeForward("Phantasmal Harlequin", "Dark", 2, 5000);
+		CardData other  = makeForward("Bystander",            "Dark", 2, 5000);
+		CardData theirs = makeForward("Phantasmal Harlequin", "Dark", 2, 5000);
+		placeP1Forward(mw, mine);
+		placeP1Forward(mw, other);
+		placeP2Forward(mw, theirs);
+
+		ActionResolver.parse("break all the Card Name Phantasmal Harlequin you control.", null)
+				.accept(mw.buildGameContext(true));
+
+		assertEquals(List.of(other), mw.p1ForwardCards,
+				"your own Harlequin breaks, the card beside it does not");
+		assertEquals(List.of(theirs), mw.p2ForwardCards,
+				"\"you control\" stops at the table edge");
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// "other than <name>" on a sweep — 15 printings, every one of them sweeping too wide.
+	//
+	// The sparing clause a sweep carries so it does not take its own source with it. The pattern
+	// had no arm for it, so the match ended at the target type and the clause was dropped — and
+	// because "control" sits past this position, the side restriction went with it. "Activate all
+	// the Forwards other than Sabin you control" activated every Forward on the table, the
+	// opponent's included, and Sabin along with them.
+	//
+	// applyMassFieldEffect already had excludeName; only the pattern could not feed it.
+	// =========================================================================================
+
+	@Test
+	void theSparingClauseReachesTheMassEffect() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Activate all the Forwards other than Sabin you control.", null).accept(ctx);
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.ACTIVATE),
+				eq(true), eq(false), eq(false), eq(false), eq(true),
+				isNull(), eq(-1), isNull(), eq(-1), isNull(), isNull(), any(), isNull(),
+				eq("Sabin"), isNull(), isNull(), isNull());
+	}
+
+	@Test
+	void aSparedNameDoesNotEatTheJobInFrontOfIt() {
+		// "Activate all the Job Moogle other than Nono you control" — the Job arm ran straight
+		// through the sparing clause and read its job as "Moogle other than Nono", which matches
+		// no card, so the sweep did nothing and Nono was spared only by accident.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Activate all the Job Moogle other than Nono you control.", null).accept(ctx);
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.ACTIVATE),
+				eq(true), eq(true), eq(false), eq(false), eq(true),
+				isNull(), eq(-1), isNull(), eq(-1), eq("Moogle"), isNull(), any(), isNull(),
+				eq("Nono"), isNull(), isNull(), isNull());
+	}
+
+	@Test
+	void sparingByJobGoesToItsOwnParameterNotToTheNameOne() {
+		// 29-027L Shantotto spares a job, not a card name. Routed to excludeName it would spare
+		// only a card actually called "Job Mage" — nothing — and sweep every Mage she protects.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("dull and Freeze all the Characters other than Job Mage.", null).accept(ctx);
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.DULL_AND_FREEZE),
+				eq(true), eq(true), eq(true), eq(false), eq(false),
+				isNull(), eq(-1), isNull(), eq(-1), isNull(), isNull(), any(), isNull(),
+				isNull(), isNull(), isNull(), eq("Mage"));
+	}
+
+	@Test
+	void theCostSparingClauseStillReachesItsOwnParameter() {
+		// The name arm is ordered after the cost twin and must not have taken it.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Break all the Forwards other than cost 3.", null).accept(ctx);
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.BREAK),
+				eq(true), eq(false), eq(false), eq(false), eq(false),
+				isNull(), eq(-1), isNull(), eq(3), isNull(), isNull(), any(), isNull(),
+				isNull(), isNull(), isNull(), isNull());
+	}
+
+	// End to end: the source survives its own sweep, and so does the other side.
+	@Test
+	void sabinsSweepSparesSabinAndTheOpponent() {
+		MainWindow mw = new MainWindow();
+		CardData sabin = makeForward("Sabin", "Fire", 4, 8000);
+		CardData ally  = makeForward("Ally",  "Fire", 3, 7000);
+		CardData enemy = makeForward("Enemy", "Fire", 3, 7000);
+		placeP1Forward(mw, sabin);
+		placeP1Forward(mw, ally);
+		placeP2Forward(mw, enemy);
+		mw.p1ForwardStates.set(0, CardState.DULL);
+		mw.p1ForwardStates.set(1, CardState.DULL);
+		mw.p2ForwardStates.set(0, CardState.DULL);
+
+		ActionResolver.parse("Activate all the Forwards other than Sabin you control.", null)
+				.accept(mw.buildGameContext(true));
+
+		assertEquals(CardState.DULL,   mw.p1ForwardStates.get(0), "Sabin spares himself");
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(1), "the Forward beside him wakes");
+		assertEquals(CardState.DULL,   mw.p2ForwardStates.get(0), "\"you control\" stops at the table edge");
+	}
+
+	// =========================================================================================
+	// "[sweep] and draw N cards" — 11-035R Setzer's even branch and 17-102L Hooded Man.
+	//
+	// A sweep and a draw joined by a plain "and", with no threshold counting what the sweep did
+	// (which is the separate ALL_FIELD_ACTIVATE_THEN_DRAW shape 19-102L Refia prints). Under
+	// find() the sweep parser claimed the first half of both printings and dropped the draw.
+	// =========================================================================================
+
+	@Test
+	void theDrawJoinedToASweepIsNotDropped() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("activate all the Backups you control and draw 1 card.", null).accept(ctx);
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.ACTIVATE),
+				eq(false), eq(true), eq(false), eq(false), eq(true),
+				isNull(), eq(-1), isNull(), eq(-1), isNull(), isNull(), any(), isNull(),
+				isNull(), isNull(), isNull(), isNull());
+		verify(ctx).drawCards(1);
+	}
+
+	@Test
+	void theSweepAndTheDrawAreOneAbilityOrNeither() {
+		// The sweep half is delegated, so a sweep the parser declines must not resolve as a bare
+		// draw — the fail-closed half of the compound.
+		assertNull(ActionResolver.parse("Break all the bouncy Forwards and draw 2 cards.", null));
+	}
+
+	@Test
+	void refiasThresholdDrawStillReachesItsOwnParser() {
+		// The unconditional compound is dispatched near the threshold one and shares its prefix.
+		assertEquals("AllFieldActivateThenDraw", ActionResolver.matchedPatternName(
+				"Activate all the Characters you control. When 4 or more dull Characters are "
+				+ "activated by this effect, draw 1 card.", null));
+	}
+
+	// =========================================================================================
 
 	// =========================================================================================
 

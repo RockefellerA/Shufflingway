@@ -3865,7 +3865,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void revealTopDeckCostParityEffect(java.util.function.Consumer<GameContext> onEven,
-					java.util.function.Consumer<GameContext> onOdd) {
+					java.util.function.Consumer<GameContext> onOdd, boolean addRevealedToHand) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				if (deck.isEmpty()) { logEntry((isP1 ? "" : "[P2] ") + "Reveal: deck is empty."); return; }
 				CardData card = deck.pollFirst();
@@ -3929,6 +3929,15 @@ final class GameContextImpl implements GameContext {
 						+ " — applying " + (even ? "even" : "odd") + " branch");
 				(even ? onEven : onOdd).accept(this);
 
+				if (!addRevealedToHand) {
+					// Named no disposition, so it goes back where it was revealed from. Pushed
+					// rather than dropped: the card was already taken off the deck above to be
+					// shown, and losing it here would mill the player one card per use.
+					deck.addFirst(card);
+					if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
+					logEntry((isP1 ? "" : "[P2] ") + card.name() + " returned to the top of the deck");
+					return;
+				}
 				if (isP1) {
 					mw.gameState.getP1Hand().add(card);
 					mw.animateCardDraw(true, 1);
@@ -8981,13 +8990,34 @@ final class GameContextImpl implements GameContext {
 				return false;
 			}
 
+			/**
+			 * Whether {@code st} answers a {@code "dull"} / {@code "active"} sweep filter.
+			 * A null filter matches every state, and an unrecognised one matches none — the
+			 * parser only ever passes the two words, so a third could only be a mistake, and a
+			 * sweep is the last effect that should widen when its filter goes unread.
+			 */
+			private boolean meetsStateFilter(CardState st, String stateFilter) {
+				if (stateFilter == null) return true;
+				return switch (stateFilter.toLowerCase(java.util.Locale.ROOT)) {
+					case "dull"   -> st == CardState.DULL;
+					case "active" -> st == CardState.ACTIVE;
+					default       -> false;
+				};
+			}
+
+			/** Whether {@code c} answers a "Card Name X" sweep filter; null matches any name. */
+			private boolean meetsNameFilter(CardData c, String nameFilter) {
+				return nameFilter == null || c.name().equalsIgnoreCase(nameFilter);
+			}
+
 			@Override
 			public void applyMassFieldEffect(GameContext.MassAction action,
 					boolean forwards, boolean backups, boolean monsters,
 					boolean opponentOnly, boolean selfOnly,
 					String element, int costVal, String costCmp, int excludeCostVal,
 					String job, String category, EnumSet<CardData.Trait> traitFilter,
-					String counterFilter, String excludeName) {
+					String counterFilter, String excludeName,
+					String stateFilter, String nameFilter, String excludeJob) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				// Reset for every action, not just ACTIVATE, so a later sweep of any kind cannot
@@ -9003,8 +9033,11 @@ final class GameContextImpl implements GameContext {
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
+							if (!meetsNameFilter(c, nameFilter)) continue;
+							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
+							if (!meetsStateFilter(mw.p1ForwardStates.get(i), stateFilter)) continue;
 							if (!forwardHasAnyTrait(true, i, traitFilter)) continue;
 							switch (action) {
 								case BREAK          -> breakP1Forward(i);
@@ -9030,6 +9063,8 @@ final class GameContextImpl implements GameContext {
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
+							if (!meetsNameFilter(c, nameFilter)) continue;
+							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							// The state-change actions delegate to the single-target primitives
@@ -9037,6 +9072,7 @@ final class GameContextImpl implements GameContext {
 							// and becomes-active watchers hang, so a sweep that set the state here
 							// was invisible to 13-109R Hope; the Forward arm above has always
 							// delegated, which is why only these two rows were dark.
+							if (!meetsStateFilter(mw.p1BackupStates[i], stateFilter)) continue;
 							ForwardTarget slot = new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP);
 							switch (action) {
 								case BREAK -> {
@@ -9065,8 +9101,11 @@ final class GameContextImpl implements GameContext {
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
+							if (!meetsNameFilter(c, nameFilter)) continue;
+							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
+							if (!meetsStateFilter(mw.p1MonsterStates.get(i), stateFilter)) continue;
 							ForwardTarget slot = new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER);
 							switch (action) {
 								case BREAK -> {
@@ -9105,8 +9144,11 @@ final class GameContextImpl implements GameContext {
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
+							if (!meetsNameFilter(c, nameFilter)) continue;
+							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
+							if (!meetsStateFilter(mw.p2ForwardStates.get(i), stateFilter)) continue;
 							if (!forwardHasAnyTrait(false, i, traitFilter)) continue;
 							switch (action) {
 								case BREAK          -> breakP2Forward(i);
@@ -9129,8 +9171,11 @@ final class GameContextImpl implements GameContext {
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
+							if (!meetsNameFilter(c, nameFilter)) continue;
+							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
+							if (!meetsStateFilter(mw.p2BackupStates[i], stateFilter)) continue;
 							ForwardTarget slot = new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP);
 							switch (action) {
 								case BREAK -> {
@@ -9159,6 +9204,9 @@ final class GameContextImpl implements GameContext {
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
+							if (!meetsNameFilter(c, nameFilter)) continue;
+							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
+							if (!meetsStateFilter(mw.p2MonsterStates.get(i), stateFilter)) continue;
 							ForwardTarget slot = new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER);
 							switch (action) {
 								case BREAK -> {

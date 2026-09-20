@@ -501,6 +501,29 @@ final class ActionResolverFieldAbility {
     }
 
     /**
+     * The unconditional twin of {@link #tryParseAllFieldActivateThenDraw}: "[sweep] and draw N
+     * cards", joined by a plain "and" with no threshold counting what the sweep did — 11-035R
+     * Setzer's even branch and 17-102L Hooded Man.
+     *
+     * <p>The sweep half is delegated to {@link #tryParseAllFieldEffect}, as it is above, so a
+     * sweep that parser declines is declined here too rather than resolving as a bare draw.
+     * <b>Must precede {@link #tryParseAllFieldEffect} in every dispatch chain</b>: that one
+     * matches with {@code find()} and claims the sweep on its own, dropping the draw.
+     */
+    static Consumer<GameContext> tryParseAllFieldEffectAndDraw(String text) {
+        Matcher m = ALL_FIELD_EFFECT_AND_DRAW.matcher(text.trim());
+        if (!m.matches()) return null;
+        Consumer<GameContext> sweep = tryParseAllFieldEffect(m.group("sweep"));
+        if (sweep == null) return null;
+        int draw = Integer.parseInt(m.group("draw"));
+        return ctx -> {
+            sweep.accept(ctx);
+            ctx.logEntry("Effect: Draw " + draw + " card(s)");
+            ctx.drawCards(draw);
+        };
+    }
+
+    /**
      * Parses 14-062L Titan, Lord of Crags: "Break all the Forwards with power less than [Self].
      * When N or more Forwards are put from the field into the Break Zone by this effect, [Self]
      * deals your opponent M point(s) of damage."
@@ -614,6 +637,16 @@ final class ActionResolverFieldAbility {
         // power parameter to carry it, and honouring the sweep without it is the board wipe this
         // guard exists to prevent. tryParseBreakForwardsBelowSelfPower reads the one printing.
         if (m.group("powercmp") != null) return null;
+        // A sweep that names nothing it sweeps can only be a misparse. Every filter group in the
+        // pattern is optional and its end is unanchored, so a filter word the regex cannot read
+        // ends the match early at "all the " — and because "control" trails "targets", the side
+        // restriction is dropped with it and the sweep takes both players' whole boards. Five
+        // printings were doing exactly that; the state and Card Name arms now read four of the
+        // words involved, and this guard is what makes the next unread one fail closed instead of
+        // becoming the sixth. The corpus check is tools/probes/SweepScan.java, which must print
+        // nothing.
+        if (m.group("targets") == null && m.group("job") == null
+                && m.group("category") == null && m.group("name") == null) return null;
 
         String rawAction = m.group("action").toLowerCase().replaceAll("\\s+", " ");
         GameContext.MassAction action = switch (rawAction) {
@@ -658,6 +691,25 @@ final class ActionResolverFieldAbility {
         String counterRaw    = m.group("counter");
         String counterFilter = counterRaw != null ? counterRaw.trim() : null;
 
+        String stateRaw    = m.group("state");
+        String stateFilter = stateRaw != null ? stateRaw.trim().toLowerCase() : null;
+        String nameRaw     = m.group("name");
+        String nameFilter  = nameRaw != null ? nameRaw.trim() : null;
+
+        String excludeRaw  = m.group("excludename");
+        String excludeName = excludeRaw != null ? excludeRaw.trim() : null;
+        // "other than Job Mage" spares a job, not a card name — 29-027L Shantotto, the corpus's
+        // one printing of it. Routed to its own parameter rather than to excludeName, which
+        // compares names and would spare only a card actually called "Job Mage": nothing, leaving
+        // the sweep to take every Mage the printing protects. A Category exclusion has no printing
+        // and no parameter, so it is still declined rather than half-applied.
+        Matcher xj = excludeName != null ? SWEEP_EXCLUDE_JOB.matcher(excludeName) : null;
+        boolean excludesJob = xj != null && xj.matches();
+        if (excludeName != null && !excludesJob
+                && excludeName.matches("(?i)^Category\\b.*")) return null;
+        final String excludeJob      = excludesJob ? xj.group("job").trim() : null;
+        final String excludeCardName = excludesJob ? null : excludeName;
+
         String actionLabel = switch (action) {
             case BREAK           -> "Break";
             case DULL            -> "Dull";
@@ -670,21 +722,28 @@ final class ActionResolverFieldAbility {
             // exhaustive over the enum, which is what made the compiler point at this line.
             case REMOVE_FROM_GAME -> "Remove from the game";
         };
-        String tgtLabel     = targets != null ? targets : (job != null ? "Job " + job : category != null ? "Cat " + category : "all");
+        String tgtLabel     = targets != null ? targets
+                : job != null ? "Job " + job
+                : category != null ? "Cat " + category
+                : "Card Name " + nameFilter;
+        String stateLabel   = stateFilter != null ? " " + stateFilter : "";
+        String nameLabel    = nameFilter != null && targets != null ? " named " + nameFilter : "";
         String costLabel    = costVal >= 0
                 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
         String exclLabel    = excludeCostVal >= 0 ? " [not cost " + excludeCostVal + "]" : "";
+        String exclNameLbl  = excludeCardName != null ? " [not " + excludeCardName + "]" : "";
+        String exclJobLbl   = excludeJob != null ? " [not Job " + excludeJob + "]" : "";
         String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
         String traitLabel   = traitStr != null ? " with " + traitStr.trim() : "";
         String counterLabel = counterFilter != null ? " with a " + counterFilter + " Counter" : "";
-        String logMsg = actionLabel + " all " + tgtLabel + traitLabel + costLabel + exclLabel
-                + controlLabel + counterLabel;
+        String logMsg = actionLabel + " all" + stateLabel + " " + tgtLabel + nameLabel
+                + traitLabel + costLabel + exclLabel + exclNameLbl + exclJobLbl + controlLabel + counterLabel;
 
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldEffect(action, inclForwards, inclBackups, inclMonsters,
                     opponentOnly, selfOnly, element, costVal, costCmp, excludeCostVal, job, category,
-                    traitFilter, counterFilter);
+                    traitFilter, counterFilter, excludeCardName, stateFilter, nameFilter, excludeJob);
         };
     }
     /**

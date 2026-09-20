@@ -7234,6 +7234,27 @@ final class ActionResolverPatterns {
         Pattern.DOTALL
     );
     /**
+     * 11-035R Setzer's Slots: "Reveal the top card of your deck. If the revealed card's CP cost is
+     * an odd number, [odd]. If the revealed card's CP cost is an even number, [even]." — the
+     * standalone twin of {@link #CHOOSE_FWD_REVEAL_COST_PARITY_PATTERN}, which reads the same
+     * parity test under a "Choose 1 Forward" header and an "Add the revealed card to your hand"
+     * trailer that this printing does not carry.
+     *
+     * <p>Anchored end to end and written with both orders, because Setzer prints odd first and
+     * nothing says the next printing will. Both halves are captured so the parser can require
+     * each to parse before claiming either: the odd half is a sweep and the even half a compound,
+     * and half of this ability read as the whole of it is how the sweep came to run unconditionally
+     * in the first place.
+     */
+    static final Pattern REVEAL_COST_PARITY_EFFECTS = Pattern.compile(
+        "(?i)^Reveal\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck[.!]\\s*" +
+        "If\\s+the\\s+revealed\\s+card's\\s+CP\\s+cost\\s+is\\s+an?\\s+(?<first>odd|even)\\s+number,\\s*" +
+        "(?<firsteffect>.+?)[.!]\\s*" +
+        "If\\s+the\\s+revealed\\s+card's\\s+CP\\s+cost\\s+is\\s+an?\\s+(?<second>odd|even)\\s+number,\\s*" +
+        "(?<secondeffect>.+?)[.!]?$",
+        Pattern.DOTALL
+    );
+    /**
      * Anchored prefix that confirms the effect text is a deck-reveal ability.
      * Group {@code who} captures the deck owner phrase so callers can tell
      * whether it is the ability user's own deck or the opponent's.
@@ -8395,6 +8416,30 @@ final class ActionResolverPatterns {
         "by\\s+this\\s+effect,\\s*draw\\s+(?<draw>\\d+)\\s+cards?[.!]?$");
 
     /**
+     * Splits "Job X" out of a sweep's "other than …" clause, so the exclusion can be routed to
+     * {@code excludeJob} rather than to {@code excludeName}. 29-027L Shantotto's "dull and Freeze
+     * all the Characters other than Job Mage" is the corpus's one printing.
+     */
+    static final Pattern SWEEP_EXCLUDE_JOB = Pattern.compile("(?i)^Job\\s+(?<job>.+)$");
+
+    /**
+     * The unconditional twin of {@link #ALL_FIELD_ACTIVATE_THEN_DRAW}: a sweep and a draw joined
+     * by a plain "and", with no threshold counting what the sweep did. 11-035R Setzer's even
+     * branch ("activate all Characters other than Setzer you control and draw 2 cards") and
+     * 17-102L Hooded Man's ("activate all the Backups you control and draw 1 card") are the two
+     * printings.
+     *
+     * <p>Anchored end to end, and the sweep half is handed back to {@code tryParseAllFieldEffect}
+     * rather than re-read here, so the two can never describe different sweeps — the same reason
+     * the threshold twin above does it. Under {@code find()} the sweep parser claimed the first
+     * half of both printings and dropped the draw.
+     */
+    static final Pattern ALL_FIELD_EFFECT_AND_DRAW = Pattern.compile(
+        "(?i)^(?<sweep>(?:Break|Activate|dull\\s+and\\s+freeze|dull|freeze)\\s+all\\s+.+?)" +
+        "\\s+and\\s+draw\\s+(?<draw>\\d+)\\s+cards?[.!]?$",
+        Pattern.DOTALL);
+
+    /**
      * Matches mass-effect actions on all field cards of a given type:
      * "[action] all [the] [element] [targets] [of cost X [or less|more]] [other than cost Y] [control]"
      * <ul>
@@ -8484,13 +8529,45 @@ final class ActionResolverPatterns {
         // The guard sits in front of the optional "the", not behind it. Behind it, find() simply
         // declined to consume "the", read "all " followed by nothing, and matched anyway.
         "all\\s+(?!(?:the\\s+)?other\\b)(?:the\\s+)?" +
+        // State filter, ahead of every other narrowing because that is where the printings put it:
+        // "Break all the dull Backups", "break all the active Forwards". Every group below is
+        // optional and the pattern does not anchor its end, so before this arm existed the regex
+        // stopped at "all the ", matched with no target type and no side, and the sweep took both
+        // players' whole boards — 12-023H and 15-097H broke every Character on the table, 11-037L
+        // dulled and froze every one. The side restriction went with it: "control" trails
+        // "targets", so a filter word the pattern could not read left the position short of
+        // "opponent controls" too.
+        //
+        // "dull" is safe here despite also being an action word: the action alternation is matched
+        // first, at the start of the text, so "Break all the dull Backups" reads action=Break.
+        "(?:(?<state>dull|active)\\s+)?" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
-        "(?:Job\\s+(?<job>.+?)(?=\\s+(?:Forwards?|Backups?|Characters?|you\\b|opponent\\b)|\\s*[.!]?$))?" +
+        // Same shape as the Job arm below, and terminated the same way. 2-092C Phantasmal
+        // Harlequin's "break all the Card Name Phantasmal Harlequin you control" is a sweep of one
+        // printing, not of the board — read as the latter it broke both players' entire fields.
+        // The trailing space is consumed only when a target type follows, because "targets" has no
+        // leading \s+ of its own but "control" does. Consuming it unconditionally read the name
+        // correctly and then dropped "you control" — 2-092C broke both players' Harlequins.
+        // "other\b" terminates both of these, or a Job/name runs straight through the sparing
+        // clause that follows it: "Activate all the Job Moogle other than Nono you control" read
+        // its job as "Moogle other than Nono", which matches no card, so the sweep did nothing at
+        // all and Nono was spared only by accident.
+        "(?:Card\\s+Name\\s+(?<name>.+?)(?=\\s+(?:Forwards?|Backups?|Characters?|you\\b|opponent\\b|other\\b)|\\s*[.!]?$)" +
+        "(?:\\s+(?=Forwards?|Backups?|Characters?))?)?" +
+        "(?:Job\\s+(?<job>.+?)(?=\\s+(?:Forwards?|Backups?|Characters?|you\\b|opponent\\b|other\\b)|\\s*[.!]?$))?" +
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)?" +
         "(?:\\s+with\\s+(?<trait>(?:Haste|First\\s+Strike|Brave)(?:\\s*(?:,\\s*(?:or\\s+)?|\\s+or\\s+)(?:Haste|First\\s+Strike|Brave))*))?" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
         "(?:\\s+other\\s+than\\s+cost\\s+(?<excludecost>\\d+))?" +
+        // "other than <name>", the sparing clause 15 printings carry so a sweep does not take its
+        // own source with it — "Activate all the Forwards other than Sabin you control". Without
+        // this arm the regex ended at the target type, dropped the exclusion, and dropped the side
+        // with it (control trails this position), so every one of those 15 swept both players'
+        // whole boards and included the card that printed the ability. Ordered after the cost twin
+        // so "other than cost 3" keeps reaching that one.
+        "(?:\\s+other\\s+than\\s+(?!cost\\b)(?<excludename>[^.!]+?)" +
+        "(?=\\s+(?:you\\s+control|(?:your\\s+)?opponent\\s+controls?)\\b|\\s*[.!]|\\s*$))?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
         // Trails the control clause, unlike the trait filter above it: "break all the Forwards
         // opponent controls with a Doom Counter on them". Without this the regex ended at

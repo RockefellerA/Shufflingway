@@ -880,6 +880,37 @@ public class ActionResolver {
         result = tryParseEffectThenConditionalInstead(effectText, source, xValue);
         if (result != null) return result;
 
+        // Ahead of every mass-power parser: this text carries "all the Forwards opponent controls
+        // lose 7000 power" inside a branch, and those matchers are unanchored — AllFieldPowerBoost
+        // claimed it and applied the loss with the reveal and the condition never read.
+        //
+        // Must also precede tryParseRevealTopDeck just below, which reads the same
+        // "Reveal the top card … If it is X, …" shape more generally and would claim this text
+        // first, resolving its branches as bare effects and losing the Forward/otherwise split.
+        result = tryParseRevealOpponentTopBranchOnType(effectText);
+        if (result != null) return result;
+
+        // Must precede tryParseAllFieldEffect. "Reveal the top card of your deck. If it is X,
+        // <sweep>." puts a sweep in the middle of a sentence, and a find() parser reaching in
+        // takes it out from behind its condition and runs it unconditionally — 9-120L Rosa
+        // activated every Forward her controller had with no reveal and no Water check, 19-069R
+        // dulled and froze the opponent's whole board off its *second* branch. This parser was
+        // 750 lines below the sweep and never got the chance. It reads the header and every
+        // clause or declines, so hoisting it cannot claim a text it only half understands.
+        result = tryParseRevealTopDeck(effectText, source);
+        if (result != null) return result;
+
+        // Must precede tryParseAllFieldEffect for the same reason, and 11-035R Setzer is the
+        // printing that showed it: the sweep in his odd branch was being lifted out from behind
+        // its condition and run every time the ability was used.
+        result = tryParseRevealCostParityEffects(effectText, source);
+        if (result != null) return result;
+
+        // Must precede tryParseAllFieldEffect: that one claims the sweep on its own under find()
+        // and drops the draw joined to it by "and".
+        result = tryParseAllFieldEffectAndDraw(effectText);
+        if (result != null) return result;
+
         result = tryParseAllFieldEffect(effectText);
         if (result != null) return result;
 
@@ -899,12 +930,6 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParsePartyForwardsPowerBoost(effectText);
-        if (result != null) return result;
-
-        // Ahead of every mass-power parser: this text carries "all the Forwards opponent controls
-        // lose 7000 power" inside a branch, and those matchers are unanchored — AllFieldPowerBoost
-        // claimed it and applied the loss with the reveal and the condition never read.
-        result = tryParseRevealOpponentTopBranchOnType(effectText);
         if (result != null) return result;
 
         // Must precede tryParseAllFieldPowerBoost only for tidiness -- that pattern needs a power
@@ -1628,9 +1653,6 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseEachPlayerMaySearchForwardMinPower(effectText);
-        if (result != null) return result;
-
-        result = tryParseRevealTopDeck(effectText, source);
         if (result != null) return result;
 
         result = tryParseStandaloneDamageShields(effectText, source);
@@ -2408,6 +2430,16 @@ public class ActionResolver {
         // Mirrors parse(): ahead of AllFieldEffect, which would otherwise name the ability after
         // the base sentence alone and hide the replacement clause from the golden file.
         if (tryParseEffectThenConditionalInstead(effectText, source, 0) != null) return "ConditionalInstead";
+        // Mirrors parse(): ahead of AllFieldEffect, which would otherwise name a reveal-and-branch
+        // ability after the sweep it lifts out of the middle of one of the branches.
+        // Mirrors parse(): ahead of RevealTopDeck, which reads the same "Reveal the top card …
+        // If it is X, …" shape more generally and would name this text after its own branches.
+        if (tryParseRevealOpponentTopBranchOnType(effectText) != null) return "RevealOpponentTopBranchOnType";
+        if (tryParseRevealTopDeck(effectText, source)         != null) return "RevealTopDeck";
+        if (tryParseRevealCostParityEffects(effectText, source) != null) return "RevealCostParityEffects";
+        // Mirrors parse(): ahead of AllFieldEffect, which names the sweep alone and leaves the
+        // draw out of the report.
+        if (tryParseAllFieldEffectAndDraw(effectText)         != null) return "AllFieldEffectAndDraw";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText, source) != null) {
             String trimmed = effectText.trim();
@@ -2421,7 +2453,6 @@ public class ActionResolver {
         if (tryParseAllForwardsSameElementAsNamedPowerBoost(effectText) != null) return "AllForwardsSameElementAsNamedPowerBoost";
         if (tryParsePartyForwardsPowerBoost(effectText) != null) return "PartyForwardsPowerBoost";
         if (tryParseAllOppForwardsLoseTraitsEot(effectText) != null) return "AllOppForwardsLoseTraitsEot";
-        if (tryParseRevealOpponentTopBranchOnType(effectText) != null) return "RevealOpponentTopBranchOnType";
         // Mirrors parse(): ahead of AllFieldPowerBoost, whose two filters mean a conjunction.
         if (tryParseAllElementAndCategoryPowerBoost(effectText) != null)
             return "AllElementAndCategoryPowerBoost";
@@ -2678,7 +2709,6 @@ public class ActionResolver {
         if (tryParseOpponentRevealHand(effectText, source, 0)            != null) return "OpponentRevealHand";
         if (tryParseEachPlayerRevealCharacterMayPlay(effectText)      != null) return "EachPlayerRevealMayPlay";
         if (tryParseEachPlayerMaySearchForwardMinPower(effectText)     != null) return "EachPlayerMaySearchForwardMinPower";
-        if (tryParseRevealTopDeck(effectText, source)         != null) return "RevealTopDeck";
         if (tryParseStandaloneDamageShields(effectText, source) != null) return "StandaloneDamageShields";
         if (tryParseDualSearchJobAndTypeDontShareElements(effectText)      != null) return "DualSearchDontShareElements";
         if (tryParseSearchElementOrCategoryCharsDiffCost(effectText)       != null) return "SearchElementOrCategoryCharsDiffCost";
@@ -4283,6 +4313,26 @@ public class ActionResolver {
                         + (upDesc != null ? upDesc : "?") + ")";
             }
         }
+        // Mirrors parse(): ahead of AllFieldEffect, which would otherwise describe a
+        // reveal-and-branch ability as the bare sweep it lifts out of one of the branches.
+        // Mirrors parse(): ahead of the mass power reader below, which finds the power loss inside
+        // this text's first branch and describes the whole ability as that sweep — and ahead of
+        // RevealTopDeck, which reads the same shape more generally.
+        if (tryParseRevealOpponentTopBranchOnType(effectText) != null) return "RevealOpponentTopBranchOnType";
+        if (tryParseRevealTopDeck(effectText, source) != null)
+            return revealTopDeckDescription(effectText, source) + restrictionDesc(effectText);
+        if (tryParseRevealCostParityEffects(effectText, source) != null) {
+            Matcher pm = REVEAL_COST_PARITY_EFFECTS.matcher(effectText.trim());
+            if (!pm.matches()) return "RevealCostParityEffects";
+            String firstDesc  = fullDescription(pm.group("firsteffect").trim(),  source);
+            String secondDesc = fullDescription(pm.group("secondeffect").trim(), source);
+            return "RevealCostParityEffects / " + pm.group("first").toLowerCase() + ": "
+                    + (firstDesc != null ? firstDesc : "?") + ", "
+                    + pm.group("second").toLowerCase() + ": "
+                    + (secondDesc != null ? secondDesc : "?");
+        }
+        // Mirrors parse(): ahead of AllFieldEffect, which describes the sweep alone.
+        if (tryParseAllFieldEffectAndDraw(effectText) != null)              return "AllFieldEffectAndDraw";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText, source) != null) {
             String trimmed = effectText.trim();
@@ -4298,9 +4348,6 @@ public class ActionResolver {
             String inner = bzGateM.matches() ? fullDescription(bzGateM.group("effect").trim(), source) : null;
             return "IfBreakZoneCount(" + (inner != null ? inner : "?") + ")";
         }
-        // Mirrors parse(): ahead of the mass power reader below, which finds the power loss
-        // inside this text's first branch and describes the whole ability as that sweep.
-        if (tryParseRevealOpponentTopBranchOnType(effectText) != null) return "RevealOpponentTopBranchOnType";
         // Mirrors parse() and matchedPatternName(): kept beside the mass power effect it shares a
         // board with, though the pattern below needs a power figure and could not claim it.
         if (tryParseAllOppForwardsLoseTraitsEot(effectText) != null) return "AllOppForwardsLoseTraitsEot";
@@ -4594,8 +4641,6 @@ public class ActionResolver {
         if (tryParseOpponentRevealHand(effectText, source, 0) != null)                 return "OpponentRevealHand";
         if (tryParseEachPlayerRevealCharacterMayPlay(effectText) != null)   return "EachPlayerRevealMayPlay";
         if (tryParseEachPlayerMaySearchForwardMinPower(effectText) != null) return "EachPlayerMaySearchForwardMinPower";
-        if (tryParseRevealTopDeck(effectText, source) != null)
-            return revealTopDeckDescription(effectText, source) + restrictionDesc(effectText);
         if (tryParseStandaloneDamageShields(effectText, source) != null)    return "StandaloneDamageShields";
         if (tryParseDualSearchJobAndTypeDontShareElements(effectText) != null) return "DualSearchDontShareElements";
         if (tryParseSearchNElementSummonsDiffCost(effectText)         != null) return "SearchNElementSummonsDiffCost";
@@ -7468,13 +7513,20 @@ public class ActionResolver {
             return negated ? pred.negate() : pred;
         }
 
-        // 5. Simple type
+        // 5. Simple type, or a union of two — "If it is a Summon or Monster, draw 4 cards"
+        // (19-069R Emperor (FFL), the corpus's only type disjunction). Without the second arm the
+        // whole ability was declined by tryParseRevealTopDeck, which requires every clause to
+        // build, and tryParseAllFieldEffect took it instead: the opponent's board was dulled and
+        // frozen unconditionally, off a branch that had not been chosen.
         Matcher typeM = Pattern.compile(
-            "(?i)^(Forward|Character|Backup|Summon|Monster)$"
+            "(?i)^(Forward|Character|Backup|Summon|Monster)" +
+            "(?:\\s+or\\s+(?:an?\\s+)?(?<or>Forward|Character|Backup|Summon|Monster))?$"
         ).matcher(cond);
         if (typeM.matches()) {
-            String type = typeM.group(1);
-            pred = card -> meetsTypeCheck(card, type);
+            String type   = typeM.group(1);
+            String orType = typeM.group("or");
+            pred = card -> meetsTypeCheck(card, type)
+                    || (orType != null && meetsTypeCheck(card, orType));
             return negated ? pred.negate() : pred;
         }
 
