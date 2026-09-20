@@ -2007,25 +2007,39 @@ public class ActionResolver {
         String[] sentences = effectText.split("(?<=\\.)\\s+(?=[A-Z])");
         if (sentences.length > 1) {
             List<Consumer<GameContext>> consumers = new ArrayList<>();
+            // Whether a sentence ahead of the current one was dropped. A back-reference is only
+            // orphaned once that has happened; while every sentence so far has resolved, the
+            // referent is present and composing is what this fallback is for.
+            boolean droppedEarlier = false;
             for (String s : sentences) {
                 // "Then" and "Then," are the same connective. The comma form was left in place and
                 // then failed to parse, which would have kept 14-101R Ultros's second half unread
                 // even once the mill stopped claiming it.
                 String trimmed = s.trim().replaceAll("(?i)^Then\\b[,\\s]+", "");
+                // A sentence that refers back to one already dropped has lost what it refers to.
+                // The same argument as the "When you do so, …" break below, one step earlier: the
+                // referent is gone rather than unresolved, so the payoff would run measured against
+                // nothing. 17-079L Shadow Lord is the printing — "When 3 or more Forwards are put
+                // from the field into the Break Zone by this effect, Shadow Lord deals you 1 point
+                // of damage" composed on past the sweep it counts, which had just been declined for
+                // carrying a filter the sweep pattern cannot read, and dealt its controller the
+                // damage every time with nothing having been broken at all.
+                if (droppedEarlier && DEPENDS_ON_PREVIOUS_SENTENCE.matcher(trimmed).find()) break;
                 // A bare "Break it." reached here is the followup of a Choose in an earlier
                 // sentence (7-057R Gnash, 2-099L Edea), not an action on a trigger's preloaded
                 // target. Resolving it standalone would act on nothing while making the whole
                 // ability report as handled — worse than leaving it unparsed.
-                if (isTriggeredTargetAction(trimmed)) continue;
+                if (isTriggeredTargetAction(trimmed)) { droppedEarlier = true; continue; }
                 // "Add it to your hand." is the same trap one card later: standing alone it is
                 // Gogo 24-022H's whole effect and names the card the trigger watched break, but
                 // reached *here* it is the followup of a Choose the chain above could not read
                 // (14-073R Muraga Fennes), and salvaging the triggering card instead of the chosen
                 // one is both wrong and invisible. Gogo's own text is a single sentence and never
                 // arrives at this fallback.
-                if (isTriggeringBrokenCardSalvage(trimmed)) continue;
+                if (isTriggeringBrokenCardSalvage(trimmed)) { droppedEarlier = true; continue; }
                 Consumer<GameContext> c = parse(trimmed, source, xValue);
                 if (c != null) { consumers.add(c); continue; }
+                droppedEarlier = true;
                 // Dropping an unparsed sentence is safe while the sentences are independent, but
                 // an unresolved "When you do so, …" gates everything after it. Composing past it
                 // would grant that payoff for free — 20-078H Noctis would take +2000 power without

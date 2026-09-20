@@ -625,6 +625,33 @@ final class ActionResolverFieldAbility {
     }
 
     /**
+     * Whether a sweep match consumed its own clause to the end, rather than stopping on a word
+     * {@link ActionResolverPatterns#ALL_FIELD_EFFECT_PATTERN} could not read and leaving the rest
+     * of the clause to be discarded by {@code find()}.
+     *
+     * <p>True when the match ends on a sentence terminator (its optional trailing {@code [.!]} was
+     * taken, so whatever follows is a separate sentence), or at the end of the text, or on the
+     * punctuation that begins one. Anything else is an unread qualifier.
+     *
+     * <p>A trailing bare "instead" is the one exception, and it is not a qualifier at all: it
+     * belongs to the replacement construction around the sweep — "Activate it. If you have cast
+     * Card Name Alexander this turn, activate all the Backups you control instead." (1-082R, and
+     * 8-050C and 23-081C the same way). The sweep itself is complete before the word; refusing it
+     * would take the upgrade off three printings whose filters are read correctly.
+     *
+     * <p>The corpus check is {@code tools/probes/SweepGuardScan.java}.
+     */
+    private static boolean clauseReadWhole(String text, Matcher m) {
+        String matched = m.group();
+        if (matched.endsWith(".") || matched.endsWith("!")) return true;
+        String rest = text.substring(m.end()).trim();
+        if (rest.isEmpty()) return true;
+        if (SWEEP_TRAILING_INSTEAD.matcher(rest).matches()) return true;
+        char c = rest.charAt(0);
+        return c == '.' || c == '!' || c == '"';
+    }
+
+    /**
      * Parses "[action] all [the] [element] [targets] [of cost X] [control]".
      *
      * <p>Supported actions: Break, dull, freeze, dull and freeze, Activate.
@@ -647,6 +674,20 @@ final class ActionResolverFieldAbility {
         // nothing.
         if (m.group("targets") == null && m.group("job") == null
                 && m.group("category") == null && m.group("name") == null) return null;
+        // The same hole one level in: the guard above refuses a sweep that names nothing, but a
+        // sweep can also name a target type and then drop a qualifier standing after it. The match
+        // stops at the last word the pattern can read and find() discards the rest of the clause,
+        // so the sweep runs wider than the printing — and, since "control" trails the filter
+        // position, usually on both sides as well. 17-079L Shadow Lord broke every Forward on the
+        // table for want of "with named Job", 5-063H lost "and 10 opponent controls", 11-138S lost
+        // "with 8000 power or less" and 15-097H dropped the second half of a two-sided compound.
+        //
+        // Reaching a sentence terminator is what says the clause was read whole, and it is also
+        // what keeps this guard off the sweeps that are merely followed by another sentence: a
+        // trailing "You can only use this ability …" restriction is a CardData concern and lies
+        // beyond a period the match already consumed, as does the "They gain …" back-reference
+        // that 17-017H Sabin and 5-099H Illua still owe. Those keep parsing their sweep.
+        if (!clauseReadWhole(text, m)) return null;
 
         String rawAction = m.group("action").toLowerCase().replaceAll("\\s+", " ");
         GameContext.MassAction action = switch (rawAction) {

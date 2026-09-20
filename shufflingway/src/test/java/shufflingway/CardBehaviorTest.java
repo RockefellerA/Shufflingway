@@ -62806,5 +62806,141 @@ public class CardBehaviorTest {
 	// =========================================================================================
 
 	// =========================================================================================
+	// Tier two of the sweep guard: a sweep that names a target type and then drops a qualifier
+	// standing after it. The earlier guard refuses a sweep naming nothing at all; these name
+	// something and still take the board, because ALL_FIELD_EFFECT_PATTERN does not anchor its
+	// end and find() discards whatever it could not read — including, since "control" trails the
+	// filter position, the side restriction.
+	//
+	// The golden file sees these as parse-outcome changes because they now decline outright. What
+	// it cannot see is the reason, so the printings are named here one per assertion.
+	// =========================================================================================
+
+	@Test
+	void aSweepThatLeavesAnUnreadQualifierIsDeclined() {
+		// 17-079L Shadow Lord — the filter is the answer to the naming sentence in front of it,
+		// which nothing reads, so the sweep ran with no Job filter and broke every Forward on the
+		// table, both sides.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"Break all the Forwards with named Job and Job Standard Unit."),
+				"an unread Job filter must fail closed");
+		// 11-138S — a power filter in a wording the powercmp arm does not read. That arm already
+		// declines rather than honours a power filter; this is the same decision for the second
+		// spelling of it.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"dull all the Forwards opponent controls with 8000 power or less."),
+				"\"with 8000 power or less\" must fail closed, as \"with power less than X\" does");
+		// 2-043C — the filter is a count of cards on the field, which applyMassFieldEffect's fixed
+		// costVal cannot express at all. Declining is the whole of the fix.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"Dull all the Forwards with a cost equal to the number of Job Moogle you control."),
+				"a dynamic cost filter must fail closed");
+		// 5-063H — a two-value cost filter. The unread "and 10" left the match short of "opponent
+		// controls", so it broke cost-5 Characters on both sides and missed cost 10 entirely.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"Break all the Characters of cost 5 and 10 opponent controls."),
+				"an unread second cost value must fail closed, side restriction included");
+		// 3-037H / B-027 Zalera, the Death Seraph. Not in the survey that produced this work: the
+		// scan behind it walked the three ability lists, and a Summon carries its whole effect in
+		// CardData.summonEffect() instead. The characterization file is what caught it.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"Break all the dull Forwards of costs 2, 3, 5, 7, 11, and 13 opponent controls."),
+				"a cost-list filter must fail closed");
+		// 15-097H — a two-sided compound. Reading only the first half is both a wipe of the wrong
+		// set and a silent loss of the second.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"break all the Forwards opponent controls and all the Backups you control."),
+				"a two-sided compound must fail closed rather than resolve half of itself");
+	}
+
+	@Test
+	void aSweepFollowedByAnotherSentenceIsNotRefused() {
+		// The guard keys on reaching a sentence terminator, which is what keeps it off the two
+		// families that legitimately carry a following sentence. A trailing use-restriction is a
+		// CardData concern (11-046R Killer Bee), and a "They gain …" back-reference is a payoff
+		// this family still owes (17-017H Sabin) — neither is an unread qualifier of the sweep,
+		// and both lie beyond a period the match already consumed.
+		assertNotNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"Activate all Characters you control. You can only use this ability if 3 or more "
+				+ "Monster Counters are placed on Killer Bee."),
+				"a trailing use-restriction is not a dropped filter");
+		assertNotNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"Activate all the Forwards other than Sabin you control. They gain +2000 power "
+				+ "until the end of the turn."),
+				"a trailing back-reference is not a dropped filter");
+	}
+
+	@Test
+	void aTrailingInsteadIsNotAnUnreadQualifier() {
+		// 1-082R Alexander, and 8-050C and 23-081C the same way: "instead" belongs to the
+		// replacement construction around the sweep, not to the sweep, whose filters are read
+		// correctly. Refusing it would take the upgrade off all three.
+		assertNotNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"activate all the Backups you control instead."),
+				"a trailing \"instead\" is the enclosing construction, not a dropped filter");
+	}
+
+	@Test
+	void anExplicitTargetTypeAfterAJobIsRead() {
+		// The Job arm was missing the space-consuming lookahead its Card Name twin carries, so
+		// the match stopped on the space before "Forwards", read no target type, and swept as a
+		// job-only filter — which includes Backups. Caught by the tier-two guard, which saw the
+		// dropped word as an unread qualifier, because that is exactly what it was.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Break all the Job Dragoon Forwards.", null).accept(ctx);
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.BREAK),
+				eq(true), eq(false), eq(false), eq(false), eq(false),
+				isNull(), eq(-1), isNull(), eq(-1), eq("Dragoon"), isNull(), any(), isNull(),
+				isNull(), isNull(), isNull(), isNull());
+	}
+
+	// =========================================================================================
+	// Two fail-opens the tier-two guard exposed by declining the sweep in front of them.
+	// =========================================================================================
+
+	@Test
+	void theSelfDamageSubjectCannotSpanASentence() {
+		// DEAL_PLAYER_DAMAGE_TO_SELF's parser uses matches(), which reads as an anchor, but its
+		// subject group was ".+?" — and that matches periods, so the anchor bought nothing and a
+		// whole multi-sentence ability was claimed off its last clause. 17-079L Shadow Lord
+		// resolved to the damage rider alone once his sweep stopped claiming him.
+		assertFalse(ActionResolverPatterns.DEAL_PLAYER_DAMAGE_TO_SELF.matcher(
+				"Break all the Forwards. Shadow Lord deals you 1 point of damage.").matches(),
+				"the subject may not span a sentence boundary");
+		assertTrue(ActionResolverPatterns.DEAL_PLAYER_DAMAGE_TO_SELF.matcher(
+				"Shadow Lord deals you 1 point of damage.").matches(),
+				"the ordinary one-sentence wording still reads");
+	}
+
+	@Test
+	void shadowLordNamesHisJobAndStopsThere() {
+		// The end state for 17-079L until his sweep is wired: the naming is printed and happens,
+		// the sweep is unread, and the payoff that counts what the sweep broke is withheld rather
+		// than paid out against nothing. Before the tier-two guard he broke every Forward on the
+		// table; between that guard and this one he dealt himself the damage every time instead.
+		List<String> calls = callsMadeBy(
+				"name 1 Job. Break all the Forwards with named Job and Job Standard Unit. "
+				+ "When 3 or more Forwards are put from the field into the Break Zone by this "
+				+ "effect, Shadow Lord deals you 1 point of damage.");
+		assertEquals(List.of("selectJobNamedAgainstOpponent"), calls,
+				"the naming is all that is implemented, and all that may run");
+	}
+
+	@Test
+	void aBackReferenceIsNotComposedPastADroppedSentence() {
+		// The compound-sentence fallback drops sentences it cannot parse so the implemented parts
+		// still fire, which is safe only while the sentences are independent. A sentence that
+		// refers back to one just dropped has lost its referent, so composing it runs a payoff
+		// measured against nothing — the same argument as the "When you do so, …" break beside it.
+		List<String> calls = callsMadeBy(
+				"Draw 1 card. Break all the bouncy Forwards. When 3 or more Forwards are put "
+				+ "from the field into the Break Zone by this effect, Rancour deals you 1 point "
+				+ "of damage.");
+		assertTrue(calls.contains("drawCards"), "the sentence ahead of the drop still fires");
+		assertFalse(calls.contains("dealDamageToSelf"),
+				"the rider counts what the dropped sweep broke, so it may not run");
+	}
+
+	// =========================================================================================
 
 }

@@ -8423,6 +8423,13 @@ final class ActionResolverPatterns {
     static final Pattern SWEEP_EXCLUDE_JOB = Pattern.compile("(?i)^Job\\s+(?<job>.+)$");
 
     /**
+     * What may follow a sweep's match without being an unread qualifier: a bare "instead", which
+     * belongs to the replacement construction around the sweep rather than to the sweep. Read by
+     * {@code ActionResolverFieldAbility.clauseReadWhole}.
+     */
+    static final Pattern SWEEP_TRAILING_INSTEAD = Pattern.compile("(?i)^instead\\s*[.!]?$");
+
+    /**
      * The unconditional twin of {@link #ALL_FIELD_ACTIVATE_THEN_DRAW}: a sweep and a draw joined
      * by a plain "and", with no threshold counting what the sweep did. 11-035R Setzer's even
      * branch ("activate all Characters other than Setzer you control and draw 2 cards") and
@@ -8555,7 +8562,13 @@ final class ActionResolverPatterns {
         // all and Nono was spared only by accident.
         "(?:Card\\s+Name\\s+(?<name>.+?)(?=\\s+(?:Forwards?|Backups?|Characters?|you\\b|opponent\\b|other\\b)|\\s*[.!]?$)" +
         "(?:\\s+(?=Forwards?|Backups?|Characters?))?)?" +
-        "(?:Job\\s+(?<job>.+?)(?=\\s+(?:Forwards?|Backups?|Characters?|you\\b|opponent\\b|other\\b)|\\s*[.!]?$))?" +
+        // The space before an explicit target type is consumed here for the same reason it is in
+        // the Card Name arm above, and it was missing: "targets" has no leading \s+ of its own, so
+        // "Break all the Job Dragoon Forwards" left the match sitting on that space, read no
+        // target type, and swept as a job-only filter — which includes Backups. The word was
+        // being dropped in silence, the sweep merely happened to stay on one side of the table.
+        "(?:Job\\s+(?<job>.+?)(?=\\s+(?:Forwards?|Backups?|Characters?|you\\b|opponent\\b|other\\b)|\\s*[.!]?$)" +
+        "(?:\\s+(?=Forwards?|Backups?|Characters?))?)?" +
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)?" +
         "(?:\\s+with\\s+(?<trait>(?:Haste|First\\s+Strike|Brave)(?:\\s*(?:,\\s*(?:or\\s+)?|\\s+or\\s+)(?:Haste|First\\s+Strike|Brave))*))?" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
@@ -10014,9 +10027,18 @@ final class ActionResolverPatterns {
      * <ul>
      *   <li>Group {@code amount} — number of damage points dealt to the ability user</li>
      * </ul>
+     *
+     * <p>The subject is {@code [^.!]+?} rather than {@code .+?} so it cannot span a sentence
+     * boundary. Its parser uses {@code matches()}, which reads as an anchor, but {@code .+?}
+     * matches periods — so the anchor bought nothing and the pattern behaved like {@code find()}
+     * over a whole multi-sentence ability, claiming it off its last clause and discarding
+     * everything in front. 17-079L Shadow Lord resolved to this damage rider alone, with his
+     * naming and his sweep dropped and the "when 3 or more … by this effect" condition on the
+     * rider gone with them; 16-089H Zack lost the Character he plays. The corpus check is
+     * {@code tools/probes/SelfDamageScan.java}.
      */
     static final Pattern DEAL_PLAYER_DAMAGE_TO_SELF = Pattern.compile(
-        "(?i)(?:.+?\\s+deals?\\s+you|receive)\\s+(?<amount>\\d+)\\s+points?\\s+of\\s+damage[.!]?"
+        "(?i)(?:[^.!]+?\\s+deals?\\s+you|receive)\\s+(?<amount>\\d+)\\s+points?\\s+of\\s+damage[.!]?"
     );
 
     // =========================================================================================
