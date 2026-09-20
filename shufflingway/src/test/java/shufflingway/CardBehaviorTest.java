@@ -46322,8 +46322,11 @@ public class CardBehaviorTest {
 		assertEquals(2, discount.reduction());
 		assertEquals("when Golbez enters the field, put Golbez into the Break Zone.",
 				discount.followupText(), "the drawback is carried whole, trigger clause included");
-		assertEquals(List.of("Dark", "Dark", "Dark", "Dark"), golbez.altCpElements(),
-				"cost 6 reduced by 2");
+		// Generic, not Dark. This assertion read "Dark" x4 until playtesting found the discounted
+		// cast could never be selected: there is no way to produce Dark CP, so four Dark CP is a
+		// cost no board meets. See "a discounted cast of a Dark card" near the end of this file.
+		assertEquals(List.of("", "", "", ""), golbez.altCpElements(),
+				"cost 6 reduced by 2, owed as generic because any Element pays for a Dark card");
 		assertTrue(CardData.parseFieldAbilities(GOLBEZ_17_140S_TEXT, "Forward").isEmpty(),
 				"an alternate-cost declaration is not a continuous ability");
 	}
@@ -62629,6 +62632,175 @@ public class CardBehaviorTest {
 		assertEquals("AllFieldActivateThenDraw", ActionResolver.matchedPatternName(
 				"Activate all the Characters you control. When 4 or more dull Characters are "
 				+ "activated by this effect, draw 1 card.", null));
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// 17-136S Kain / 9-101R Adel (VIII): "If you don't control a Forward other than [Self],
+	// [Self] gains …" — the own-side twin of the "if your opponent doesn't control Forwards"
+	// condition, and the only shape whose "other than" narrows the *count* rather than the
+	// target.
+	//
+	// Reported from playtesting: Kain alone on P2's side did not gain +1000 power or Haste. The
+	// sentence parsed — ActionResolver named it IfControlCondOtherThan — but it only ever landed
+	// in fieldAbilities, and nothing that computes power or traits reads that list. It needed to
+	// be an IfControlBoost, where the exclusion rides on exceptCardName and icbConditionsMet
+	// hands it to controlConditionMetExcluding.
+	//
+	// Both printings ask whether they stand alone. Neither can ever satisfy the condition read
+	// without its exclusion — each is itself a Forward on the field being counted.
+	// =========================================================================================
+
+	private static final String KAIN_17_136S_ALONE =
+			"If you don't control a Forward other than Kain, Kain gains +1000 power and Haste.";
+
+	private static final String ADEL_9_101R_ALONE =
+			"If you don't control a Forward other than Adel (VIII), Adel (VIII) gains +1000 power "
+			+ "and \"When Adel (VIII) attacks, you may discard 1 card. When you do so, choose 1 "
+			+ "Forward opponent controls. Return it to its owner's hand.\"";
+
+	@Test
+	void kainsSolitudeConditionBecomesAnIfControlBoost() {
+		List<IfControlBoost> boosts = CardData.parseIfControlBoosts(KAIN_17_136S_ALONE, "Forward");
+		assertEquals(1, boosts.size(), "the sentence used to stop at fieldAbilities");
+
+		IfControlBoost icb = boosts.get(0);
+		assertEquals("Kain", icb.exceptCardName(), "the exclusion narrows the count, not the target");
+		assertEquals(1000, icb.powerBonus());
+		assertTrue(icb.grantedTraits().contains(CardData.Trait.HASTE));
+
+		ControlCondition cond = icb.conditions().get(0);
+		assertEquals(0, cond.minCount());
+		assertTrue(cond.exactCount(), "\"don't control\" is exactly zero, not \"zero or more\"");
+		assertEquals("Forward", cond.cardType());
+		assertFalse(cond.opponentControls(), "it asks about your own field");
+	}
+
+	// The reported scenario, on a real board and on P2's side, which is where it was seen.
+	@Test
+	void kainAloneOnP2sSideGainsThePowerAndHaste() {
+		MainWindow mw = new MainWindow();
+		CardData kain = makeIfControlForward("Kain", "Lightning", 3, 7000, KAIN_17_136S_ALONE);
+		placeP2Forward(mw, kain);
+
+		assertEquals(8000, mw.effectiveP2ForwardPower(0), "+1000 while he stands alone");
+		assertTrue(mw.effectiveP2HasTrait(0, CardData.Trait.HASTE), "and Haste with it");
+	}
+
+	@Test
+	void aSecondForwardTakesItBackAway() {
+		MainWindow mw = new MainWindow();
+		CardData kain = makeIfControlForward("Kain", "Lightning", 3, 7000, KAIN_17_136S_ALONE);
+		placeP2Forward(mw, kain);
+		placeP2Forward(mw, makeForward("Company", "Lightning", 2, 5000));
+
+		assertEquals(7000, mw.effectiveP2ForwardPower(0), "he is no longer alone");
+		assertFalse(mw.effectiveP2HasTrait(0, CardData.Trait.HASTE));
+	}
+
+	@Test
+	void theOpponentsForwardsAreNotCompany() {
+		// "you don't control" reads the holder's own field. Kain on P2's side is unaffected by
+		// what P1 has out, which is the half controlConditionMetExcluding picks by side.
+		MainWindow mw = new MainWindow();
+		CardData kain = makeIfControlForward("Kain", "Lightning", 3, 7000, KAIN_17_136S_ALONE);
+		placeP2Forward(mw, kain);
+		placeP1Forward(mw, makeForward("Across the table", "Fire", 2, 5000));
+
+		assertEquals(8000, mw.effectiveP2ForwardPower(0));
+		assertTrue(mw.effectiveP2HasTrait(0, CardData.Trait.HASTE));
+	}
+
+	@Test
+	void theSameConditionWorksOnP1sSide() {
+		MainWindow mw = new MainWindow();
+		CardData kain = makeIfControlForward("Kain", "Lightning", 3, 7000, KAIN_17_136S_ALONE);
+		placeP1Forward(mw, kain);
+
+		assertEquals(8000, mw.effectiveP1ForwardPower(0));
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.HASTE));
+	}
+
+	@Test
+	void adelCarriesHerQuotedAbilityThroughTheSameCondition() {
+		// Her payload is a quoted attack trigger rather than a keyword. IfControlBoost.specialText
+		// carries it and AutoAbilityTriggers fires it for "When [name] attacks", so the condition
+		// has to admit a grant whose only effect is that text.
+		List<IfControlBoost> boosts = CardData.parseIfControlBoosts(ADEL_9_101R_ALONE, "Forward");
+		assertEquals(1, boosts.size());
+
+		IfControlBoost icb = boosts.get(0);
+		assertEquals("Adel (VIII)", icb.exceptCardName(), "a parenthesised name survives the split");
+		assertEquals(1000, icb.powerBonus());
+		assertTrue(icb.specialText().startsWith("When Adel (VIII) attacks"),
+				"the quoted trigger is kept, not dropped for the power alone");
+	}
+
+	// =========================================================================================
+	// 17-140S Golbez: a discounted cast of a Dark card is payable with CP of any Element.
+	//
+	// Reported from playtesting: the 4 CP option never became selectable. The discount path built
+	// its remaining CP out of the card's own Elements, so a 6-cost Dark card reduced by 2 asked
+	// for four *Dark* CP — a cost no board can meet, because there is no way to produce Light or
+	// Dark CP. canAffordCard already had this right for the full-price cast; only the discounted
+	// path disagreed with it.
+	// =========================================================================================
+
+	/** Reuses {@link #GOLBEZ_DISCOUNT_ONLY} — the discount sentence without his modal arrival. */
+	private static CardData golbez() {
+		return makeForwardWithText("Golbez", "Dark", 6, 9000, GOLBEZ_DISCOUNT_ONLY);
+	}
+
+	@Test
+	void golbezOwesHisReducedCostAsGenericCp() {
+		CardData g = golbez();
+		assertTrue(g.isLightOrDark());
+		assertEquals(4, g.altCpCost(), "6 reduced by 2");
+		assertEquals(List.of("", "", "", ""), g.altCpElements(),
+				"generic, not Dark — any Element's CP pays for a Light or Dark card");
+	}
+
+	@Test
+	void fourBackupsOfAnyElementCoverTheDiscountedCast() {
+		MainWindow mw = new MainWindow();
+		CardData g = golbez();
+		for (int i = 0; i < 4; i++) {
+			CardData b = makePlainBackup("Source " + i, "Fire", 2);
+			mw.gameState.getIdentity().put(b, true);
+			mw.p1BackupCards[i] = b;
+			mw.p1BackupStates[i] = CardState.ACTIVE;
+		}
+
+		assertTrue(mw.costs.canAffordAltCost(g, -1),
+				"four Fire Backups pay a Dark card's four CP");
+	}
+
+	@Test
+	void threeSourcesAreStillShort() {
+		MainWindow mw = new MainWindow();
+		CardData g = golbez();
+		for (int i = 0; i < 3; i++) {
+			CardData b = makePlainBackup("Source " + i, "Fire", 2);
+			mw.gameState.getIdentity().put(b, true);
+			mw.p1BackupCards[i] = b;
+			mw.p1BackupStates[i] = CardState.ACTIVE;
+		}
+
+		assertFalse(mw.costs.canAffordAltCost(g, -1),
+				"the any-Element allowance is not a discount on the count");
+	}
+
+	@Test
+	void aNonLightDarkDiscountKeepsItsElementRequirement() {
+		// The allowance is a property of Light and Dark, not of discounted casts generally — an
+		// Earth card reduced the same way still owes Earth.
+		CardData earth = makeForwardWithText("Grounded", "Earth", 6, 9000,
+				"You may reduce the cost required to cast Grounded by 2. If you do so, when "
+				+ "Grounded enters the field, put Grounded into the Break Zone.");
+
+		assertFalse(earth.isLightOrDark());
+		assertEquals(List.of("Earth", "Earth", "Earth", "Earth"), earth.altCpElements());
 	}
 
 	// =========================================================================================

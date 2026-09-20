@@ -480,12 +480,21 @@ public record CardData(
      * element string per CP and drawn from the card's own elements (multi-element cards
      * alternate). Shared by the Crystal and field-removal alternate costs, which differ only in
      * what is handed over to earn the reduction.
+     *
+     * <p>A Light or Dark card owes that CP as <b>generic</b>, because the rules let any Element's
+     * CP pay for one — there is no way to produce Light or Dark CP to pay with. Read off the card
+     * elements like everything else, 17-140S Golbez's discounted cast asked for four <em>Dark</em>
+     * CP, which is a cost no board can meet, so the option never became selectable.
+     * {@code canAffordCard} already had this right for the full-price cast; only the discounted
+     * path disagreed with it.
      */
     private List<String> reducedCastCpElements(int reduction) {
         int altCp = Math.max(0, cost - reduction);
         List<String> elems = new ArrayList<>();
         String[] cardElems = elements();
-        for (int i = 0; i < altCp; i++) elems.add(cardElems.length > 0 ? cardElems[i % cardElems.length] : "");
+        boolean anyElement = isLightOrDark();
+        for (int i = 0; i < altCp; i++)
+            elems.add(anyElement || cardElems.length == 0 ? "" : cardElems[i % cardElems.length]);
         return List.copyOf(elems);
     }
 
@@ -4813,6 +4822,27 @@ public record CardData(
     );
 
     /**
+     * "If you don't control a [type] other than [Self], [target] gains [effects]." — the own-side
+     * twin of {@link #IF_OPP_CTRL_NO_FWD_BOOST}, and the only shape in the corpus whose exclusion
+     * narrows the *count* rather than the target: 17-136S Kain and 9-101R Adel (VIII), each asking
+     * whether they stand alone.
+     *
+     * <p>The exclusion is mandatory rather than optional. Without it the condition reads "if you
+     * control no Forwards at all", which the card carrying it can never satisfy — it is a Forward
+     * on that very field — so a printing without the clause would be a grant that never fires, and
+     * is left unread instead.
+     *
+     * <p>Groups: {@code type}, {@code except} (the excluded card name), {@code target},
+     * {@code effects}.
+     */
+    private static final Pattern IF_SELF_CTRL_NO_OTHER_BOOST = Pattern.compile(
+        "(?i)^If\\s+you\\s+(?:don'?t|do\\s+not)\\s+control\\s+(?:any\\s+|a\\s+)?" +
+        "(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+" +
+        "other\\s+than\\s+(?<except>.+?),\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
+    );
+
+    /**
      * "If you have a 《C》, [target] gains [effects]."
      * Groups: {@code target}, {@code effects}.
      */
@@ -5659,6 +5689,45 @@ public record CardData(
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
                             powerBonus, traits, "", false, false, false, null, 0, 0, false, 0, minFwds));
+                }
+                continue;
+            }
+
+            // "If you don't control a Forward other than [Self], [target] gains [effects]."
+            // 17-136S Kain and 9-101R Adel (VIII). The exclusion narrows what is counted, not what
+            // is granted, so it rides on the IfControlBoost's exceptCardName — which is what
+            // icbConditionsMet hands to controlConditionMetExcluding. Without a branch here the
+            // sentence stayed in fieldAbilities, where nothing computing power or traits reads it,
+            // and both cards stood alone without ever gaining anything.
+            Matcher selfNoOtherM = IF_SELF_CTRL_NO_OTHER_BOOST.matcher(seg);
+            if (selfNoOtherM.find()) {
+                String exceptName = selfNoOtherM.group("except").trim();
+                String targetName = selfNoOtherM.group("target").trim();
+                String effectsStr = selfNoOtherM.group("effects").trim();
+                String typeWord   = selfNoOtherM.group("type").trim();
+                // Singularised to the printed card type the ControlCondition filter expects.
+                String noneType   = typeWord.replaceAll("(?i)s$", "");
+
+                // "exactly 0 of this type on your own field, once the excluded card is set aside"
+                ControlCondition noneCond = new ControlCondition(
+                        List.of(), 0, true, noneType, null, null, null, 0,
+                        List.of(), false, null, null, false, false, false, 0);
+
+                Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
+                int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
+                Matcher quotedM = IF_CTRL_EFFECT_QUOTED.matcher(effectsStr);
+                String specialText = quotedM.find() ? quotedM.group(1).trim() : "";
+                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+                if (ICB_EFFECT_HASTE.matcher(effectsStr).find())        traits.add(Trait.HASTE);
+                if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        traits.add(Trait.BRAVE);
+                if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
+                if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  traits.add(Trait.BACK_ATTACK);
+
+                if (powerBonus != 0 || !traits.isEmpty() || !specialText.isEmpty()) {
+                    FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
+                    result.add(new IfControlBoost(List.of(noneCond), exceptName, targetName,
+                            targetFilter, powerBonus, traits, specialText,
+                            false, false, false, null));
                 }
                 continue;
             }
