@@ -103,6 +103,31 @@ public class SidePanelResizeTest {
 	}
 
 	@Test
+	void anOversizedCardImageDoesNotWidenTheLimits() throws Exception {
+		// 23 printings are stored at 2x rather than 429x600 -- the 27-12xS starter set (Zack 27-123S
+		// among them) and a run of PR promos. Drawing one of those as the opening hand previewed it
+		// first, and the bounds were taken from whatever that first image measured: the maximum went
+		// to 858 and the minimum to 643, which the clamp then applied, snapping the sidebar out to a
+		// width past its own maximum and leaving it undraggable back.
+		MainWindow mw = new MainWindow();
+		int minBefore = intField(mw, "minSidePanelW");
+		int maxBefore = intField(mw, "maxSidePanelW");
+		int widthBefore = intField(mw, "sidePanelW");
+
+		invoke(mw, "sizePreviewPanel", new Class<?>[]{int.class, int.class},
+				2 * NATIVE_CARD_W, 2 * NATIVE_CARD_H);
+
+		assertEquals(minBefore, intField(mw, "minSidePanelW"),
+				"a 2x scan must not raise the minimum");
+		assertEquals(maxBefore, intField(mw, "maxSidePanelW"),
+				"nor the maximum: the limit belongs to the standard printing, not to the draw order");
+		assertEquals(widthBefore, intField(mw, "sidePanelW"),
+				"and the panel stays where the player left it");
+		assertEquals(NATIVE_CARD_W, intField(mw, "nativeImgW"), "the measurement is capped");
+		assertEquals(NATIVE_CARD_H, intField(mw, "nativeImgH"), "and its aspect ratio preserved");
+	}
+
+	@Test
 	void startingAGameDoesNotResizeThePanel() throws Exception {
 		MainWindow mw = new MainWindow();
 		// The player drags the divider all the way out before starting anything.

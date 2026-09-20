@@ -8409,14 +8409,23 @@ public class MainWindow {
 	 * so the clamp below is a no-op for as long as that constant matches the stored images; it is
 	 * kept for the case where it stops matching, which is the only way the width could find itself
 	 * out of range.
+	 *
+	 * <p>The measurement is capped at {@link #NATIVE_CARD_W}, because the stored images are not
+	 * uniform: 23 printings — the 27-12xS starter set and a run of PR promos — are held at 2x,
+	 * 858x1200. Uncapped, whichever card happened to be previewed first decided the panel's
+	 * limits, so drawing one of those as the opening hand raised the maximum to 858 and, with it,
+	 * the minimum to 643 — which the clamp below then applied, snapping the sidebar out to a width
+	 * the player could not drag back. Capping keeps the self-correction that matters (a stored
+	 * image smaller than the constant still narrows the bounds) while leaving the maximum a
+	 * property of the standard printing rather than of the draw order.
 	 */
 	private void sizePreviewPanel(int imgW, int imgH) {
-		if (previewSized) return;
+		if (previewSized || imgW <= 0 || imgH <= 0) return;
 		previewSized  = true;
-		nativeImgW    = imgW;
-		nativeImgH    = imgH;
-		minSidePanelW = (int)(imgW * 0.75) + SIDE_MARGIN;
-		maxSidePanelW = imgW + SIDE_MARGIN;
+		nativeImgW    = Math.min(imgW, NATIVE_CARD_W);
+		nativeImgH    = (int) Math.round(imgH * (double) nativeImgW / imgW);
+		minSidePanelW = (int)(nativeImgW * 0.75) + SIDE_MARGIN;
+		maxSidePanelW = nativeImgW + SIDE_MARGIN;
 		// Re-run regardless of whether the clamp moves it: previewH is derived from nativeImgH,
 		// which was an estimate until a moment ago.
 		setSidePanelWidth(clampSidePanelW(sidePanelW));
