@@ -19625,10 +19625,8 @@ public class MainWindow {
 		// Prime — visible only when not yet primed
 		CardData fwd = p1ForwardCards.get(idx);
 		if (fwd.hasPriming() && p1ForwardPrimedTop.get(idx) == null) {
-			GameState.GamePhase phase = gameState.getCurrentPhase();
-			boolean isMainPhase = phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.MAIN_2;
 			JMenuItem primeItem = new JMenuItem("Prime (" + fwd.primingTarget() + ")");
-			primeItem.setEnabled(isMainPhase && priming.canAffordPrimingCost(fwd)
+			primeItem.setEnabled(priming.primingTimingWindowOpen() && priming.canAffordPrimingCost(fwd)
 					&& !priming.primingTargetOnField(fwd.primingTarget(), true));
 			primeItem.addActionListener(ae -> priming.showPrimingPaymentDialog(fwd, idx));
 			menu.add(primeItem);

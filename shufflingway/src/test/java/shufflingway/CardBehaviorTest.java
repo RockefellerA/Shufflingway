@@ -7752,6 +7752,87 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Priming is a Main Phase action: its controller's own Main Phase, Stack empty. The gate used
+    // to read the phase alone, and the phase belongs to the game rather than to a player — P2's
+    // Main Phase is a Main Phase to P1 too — so P1 could prime on the opponent's turn at any
+    // priority window they were handed, and in response to something on the Stack.
+    // =========================================================================================
+
+    @Test
+    void primingIsOfferedInYourOwnMainPhaseWithAnEmptyStack() {
+        MainWindow mw = new MainWindow();
+        advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+        assertTrue(mw.priming.primingTimingWindowOpen(), "Main Phase 1 on your own turn");
+
+        advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_2);
+        assertTrue(mw.priming.primingTimingWindowOpen(), "and Main Phase 2 likewise");
+    }
+
+    @Test
+    void primingIsNotOfferedOnTheOpponentsTurn() {
+        MainWindow mw = new MainWindow();
+        advanceTo(mw, GameState.Player.P2, GameState.GamePhase.MAIN_1);
+        assertFalse(mw.priming.primingTimingWindowOpen(),
+                "P2's Main Phase is still a Main Phase — the turn player is what decides");
+
+        advanceTo(mw, GameState.Player.P2, GameState.GamePhase.MAIN_2);
+        assertFalse(mw.priming.primingTimingWindowOpen(), "and the same for their Main Phase 2");
+    }
+
+    @Test
+    void primingIsNotOfferedOutsideAMainPhase() {
+        MainWindow mw = new MainWindow();
+        for (GameState.GamePhase phase : List.of(GameState.GamePhase.ACTIVE, GameState.GamePhase.DRAW,
+                GameState.GamePhase.ATTACK, GameState.GamePhase.END)) {
+            advanceTo(mw, GameState.Player.P1, phase);
+            assertFalse(mw.priming.primingTimingWindowOpen(), phase + " is not a Main Phase");
+        }
+    }
+
+    @Test
+    void primingIsNotOfferedWhileTheStackHolds() {
+        MainWindow mw = new MainWindow();
+        advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+        CardData summon = makeSummon("Firaga", "Fire", 2, "Choose 1 Forward. Deal it 7000 damage.");
+        mw.gameState.pushStack(new StackEntry(summon, null, null, true, 0, false, null, false,
+                false, 0, 0, null));
+
+        assertFalse(mw.priming.primingTimingWindowOpen(),
+                "a Main Phase action waits for the Stack to empty");
+    }
+
+    // =========================================================================================
+    // The Priming payment dialog's running total. Its element segments and its generic "any"
+    // segment were joined by hand against a "first segment?" flag the generic branch never
+    // cleared, so a cost with no element in it — Dion 24-109R's 《3》 — printed the
+    // nothing-to-pay fallback straight onto the end of its own segment: "(any: 3/3free)".
+    // =========================================================================================
+
+    @Test
+    void primeCpLabelReadsAGenericOnlyCost() {
+        // Dion 24-109R — Priming "Bahamut (XVI)" -- 《3》, four CP produced against it.
+        assertEquals("Prime CP: 4 / 3  (any: 3/3)",
+                Priming.primeCpLabel(4, 3, new String[0], Map.of(), Map.of(), 4, 3));
+    }
+
+    @Test
+    void primeCpLabelReadsAMixedCost() {
+        // Clive 24-005L — Priming "Ifrit (XVI)" -- 《Fire》《1》, nothing produced yet.
+        assertEquals("Prime CP: 0 / 2  (Fire: 0/1, any: 0/1)",
+                Priming.primeCpLabel(0, 2, new String[]{"Fire"}, Map.of(), Map.of("Fire", 1), 0, 1));
+        // And the same cost once a Fire backup and a discard have paid it out.
+        assertEquals("Prime CP: 3 / 2  (Fire: 1/1, any: 1/1)",
+                Priming.primeCpLabel(3, 2, new String[]{"Fire"}, Map.of("Fire", 1), Map.of("Fire", 1), 2, 1));
+    }
+
+    @Test
+    void primeCpLabelReadsAnElementOnlyCost() {
+        // Shiva 26-042H — Priming "Shiva (XVI)" -- 《Ice》《Ice》, no generic part at all.
+        assertEquals("Prime CP: 1 / 2  (Ice: 1/2)",
+                Priming.primeCpLabel(1, 2, new String[]{"Ice"}, Map.of("Ice", 1), Map.of("Ice", 2), 0, 0));
+    }
+
+    // =========================================================================================
     // Odin (XVI) 29-118L / 24-112L: "When Barnabas (XVI) primes into Odin (XVI), Odin (XVI) gains
     // "<ability>" (This effect does not end at the end of the turn.)"  Two things were wrong:
     // parseAutoAbilities deleted quoted trigger-bearing spans outright, so the grant read

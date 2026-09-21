@@ -133,6 +133,48 @@ class Priming {
 	boolean canAffordPrimingCost(CardData card) { return mw.costs.canAffordPrimingCost(card); }
 
 	/**
+	 * True when P1 currently holds a window in which they may prime. Priming is a Main Phase action:
+	 * it may be taken only during its controller's own Main Phase 1 or Main Phase 2, and only while
+	 * the Stack is empty.
+	 *
+	 * <p>All three conditions are load-bearing and the phase alone is not enough — the phase is a
+	 * property of the game, not of a player, so P2's Main Phase reads as a Main Phase to P1 too.
+	 * Checking it by itself let P1 prime during the opponent's turn at any priority window they were
+	 * handed. This is the same shape as {@link MainWindow#castTimingWindowOpen} reduced to its
+	 * non-Summon-speed arm, which is what a Main Phase action is.
+	 */
+	boolean primingTimingWindowOpen() {
+		GameState.GamePhase phase = mw.gameState.getCurrentPhase();
+		return (phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.MAIN_2)
+				&& mw.gameState.getCurrentPlayer() == GameState.Player.P1
+				&& mw.gameState.getStack().isEmpty();
+	}
+
+	/**
+	 * The running-total line of the Priming payment dialog: what has been produced against what the
+	 * cost asks, broken down into one segment per Element the cost names plus an {@code any} segment
+	 * for its generic part — "Prime CP: 1 / 2  (Fire: 1/1, any: 0/1)".
+	 *
+	 * <p>{@code genericPaid} is clamped to {@code genericNeeded}: any amount of CP may be produced
+	 * when paying a cost, and the excess is wasted rather than counting toward a requirement that is
+	 * already met. The running total ahead of the parenthesis is left unclamped, so overpaying still
+	 * reads as the "4 / 3" it is.
+	 *
+	 * <p>A cost that names nothing at all is a cost of nothing and never opens the dialog, so at
+	 * least one segment is always present.
+	 */
+	static String primeCpLabel(int total, int totalCost, String[] elems,
+			Map<String, Integer> cpByElem, Map<String, Integer> costByElem,
+			int genericPaid, int genericNeeded) {
+		List<String> segments = new ArrayList<>();
+		for (String en : elems)
+			segments.add(en + ": " + cpByElem.getOrDefault(en, 0) + "/" + costByElem.get(en));
+		if (genericNeeded > 0)
+			segments.add("any: " + Math.min(genericPaid, genericNeeded) + "/" + genericNeeded);
+		return "Prime CP: " + total + " / " + totalCost + "  (" + String.join(", ", segments) + ")";
+	}
+
+	/**
 	 * Payment dialog for the Priming ability cost. On confirm, searches the
 	 * main deck for the target card and places it on top of the priming forward.
 	 */
@@ -203,20 +245,8 @@ class Priming {
 					.allMatch(en -> en.getValue() >= costByElem.getOrDefault(en.getKey(), 0));
 			confirmBtn.setEnabled(total >= totalCost && satisfied);
 
-			StringBuilder sb = new StringBuilder("Prime CP: " + total + " / " + totalCost + "  (");
-			boolean first = true;
-			for (String en : elems) {
-				if (!first) sb.append(", ");
-				sb.append(en).append(": ").append(cpByElem.getOrDefault(en, 0)).append("/").append(costByElem.get(en));
-				first = false;
-			}
-			if (genericNeeded > 0) {
-				if (!first) sb.append(", ");
-				sb.append("any: ").append(Math.min(extraCp, (int) genericNeeded)).append("/").append((int) genericNeeded);
-			}
-			if (first) sb.append("free");
-			sb.append(")");
-			cpLabel.setText(sb.toString());
+			cpLabel.setText(primeCpLabel(total, totalCost, elems, cpByElem, costByElem,
+					extraCp, (int) genericNeeded));
 
 			for (int i = 0; i < backupLbls.size(); i++) {
 				JLabel lbl = backupLbls.get(i); boolean sel = selectedBackups.contains(backupSlots.get(i));
