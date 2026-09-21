@@ -38,8 +38,6 @@ import scraper.CardDatabase;
 
 import shufflingway.CardData;
 import shufflingway.Elements;
-import shufflingway.FontLoader;
-import shufflingway.UiScale;
 
 /**
  * Static factory methods for the "Name an Element", "Name a Job", and "Name an Element and Job" dialogs.
