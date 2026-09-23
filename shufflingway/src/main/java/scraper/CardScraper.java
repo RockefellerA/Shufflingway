@@ -302,7 +302,7 @@ public class CardScraper {
             int corrected = db.applyMulticardCorrections();
             System.out.printf("Applied %d multicard correction(s)%n", corrected);
             // Cards the API does not carry — promos, starter exclusives — from
-            // resources/non_api_cards.json. Last, so these upsert over the API sweep.
+            // data/non_api_cards.json. Last, so these upsert over the API sweep.
             int nonApi = db.saveNonApiCards();
             System.out.printf("Saved %d non-API card(s)%n", nonApi);
         } catch (SQLException e) {

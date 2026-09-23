@@ -18,7 +18,7 @@ import org.json.JSONObject;
  * Loads hand-authored card data for printings the official Square Enix API does not return —
  * promos, starter-deck exclusives, pre-release cards.
  *
- * <p>The data lives in {@code /resources/non_api_cards.json}, whose {@code _readme} block is the
+ * <p>The data lives in {@code /data/non_api_cards.json}, whose {@code _readme} block is the
  * authoring reference. Everything here is validation: the file is edited by hand, so a typo has
  * to fail the ETL rather than quietly produce a card that is missing an ability or has no
  * element. Unknown keys are rejected for that reason — {@code "catagory1"} would otherwise drop
@@ -31,7 +31,7 @@ import org.json.JSONObject;
 public final class NonApiCards {
 
     /** Classpath location of the packaged data file. */
-    private static final String RESOURCE = "/resources/non_api_cards.json";
+    private static final String RESOURCE = "/data/non_api_cards.json";
 
     /** Working-directory override, checked first so edits don't need a rebuild. */
     private static final Path OVERRIDE = Path.of("non_api_cards.json");

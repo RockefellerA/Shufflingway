@@ -76,7 +76,7 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing
-          $png  = [System.Drawing.Image]::FromFile((Resolve-Path "src\main\resources\resources\shufflingway.png"))
+          $png  = [System.Drawing.Image]::FromFile((Resolve-Path "src\main\resources\images\shufflingway.png"))
           $bmp  = New-Object System.Drawing.Bitmap(256, 256)
           $g    = [System.Drawing.Graphics]::FromImage($bmp)
           $g.DrawImage($png, 0, 0, 256, 256)
@@ -155,15 +155,15 @@ jobs:
       - name: Convert icon PNG to ICNS
         run: |
           mkdir -p Shufflingway.iconset
-          sips -z 16   16   src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_16x16.png
-          sips -z 32   32   src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_16x16@2x.png
-          sips -z 32   32   src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_32x32.png
-          sips -z 64   64   src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_32x32@2x.png
-          sips -z 128  128  src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_128x128.png
-          sips -z 256  256  src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_128x128@2x.png
-          sips -z 256  256  src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_256x256.png
-          sips -z 512  512  src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_256x256@2x.png
-          sips -z 512  512  src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_512x512.png
+          sips -z 16   16   src/main/resources/images/shufflingway.png --out Shufflingway.iconset/icon_16x16.png
+          sips -z 32   32   src/main/resources/images/shufflingway.png --out Shufflingway.iconset/icon_16x16@2x.png
+          sips -z 32   32   src/main/resources/images/shufflingway.png --out Shufflingway.iconset/icon_32x32.png
+          sips -z 64   64   src/main/resources/images/shufflingway.png --out Shufflingway.iconset/icon_32x32@2x.png
+          sips -z 128  128  src/main/resources/images/shufflingway.png --out Shufflingway.iconset/icon_128x128.png
+          sips -z 256  256  src/main/resources/images/shufflingway.png --out Shufflingway.iconset/icon_128x128@2x.png
+          sips -z 256  256  src/main/resources/images/shufflingway.png --out Shufflingway.iconset/icon_256x256.png
+          sips -z 512  512  src/main/resources/images/shufflingway.png --out Shufflingway.iconset/icon_256x256@2x.png
+          sips -z 512  512  src/main/resources/images/shufflingway.png --out Shufflingway.iconset/icon_512x512.png
           iconutil -c icns Shufflingway.iconset
 
       - name: Run jpackage (DMG)
@@ -228,7 +228,7 @@ jobs:
             --main-jar         shufflingway.jar \
             --main-class       shufflingway.MainWindow \
             --java-options     "--enable-native-access=ALL-UNNAMED" \
-            --icon             src/main/resources/resources/shufflingway.png \
+            --icon             src/main/resources/images/shufflingway.png \
             --linux-shortcut \
             --type             deb \
             --dest             target/dist
