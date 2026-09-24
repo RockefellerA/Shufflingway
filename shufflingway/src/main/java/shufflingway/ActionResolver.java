@@ -2178,11 +2178,13 @@ public class ActionResolver {
 
     /** Returns the name of the first pattern that matches {@code effectText}, or {@code null}. */
     public static String matchedPatternName(String effectText, CardData source) {
-        // Leading normalisations parse() applies before dispatching. This method had no preamble
-        // at all, so it decided the name from different text than parse() matched against.
-        // parse()'s EX BURST strip is deliberately not mirrored, and is now merely redundant rather
-        // than load-bearing: it used to cost the ExBurstSuppression name on a sub-clause opening
-        // "EX Bursts of cards …", which stripExBurstPrefix's word boundary now leaves alone.
+        // Leading normalisations parse() applies before dispatching, so the name is decided from the
+        // same text parse() matched against. The EX BURST strip matters to the anchored parsers: an
+        // EX BURST Summon such as 1-172C Moogle ("EX BURST Draw 2 cards, then discard 1 card …")
+        // is resolved by one, and with the marker left on the front it matched nothing here.
+        // stripExBurstPrefix's word boundary leaves a clause opening "EX Bursts of cards …" alone,
+        // so the ExBurstSuppression name is unaffected.
+        effectText = stripExBurstPrefix(effectText);
         effectText = effectText.replaceFirst("(?i)^Then,?\\s+", "").trim();
         effectText = effectText.replaceFirst("(?i)^also\\s+", "").trim();
 
@@ -7246,6 +7248,7 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseCancelAutoAbilityTriggeredFrom(String text) {
         Matcher m = CANCEL_AUTO_ABILITY_TRIGGERED_FROM.matcher(text.trim());
         if (!m.matches()) return null;
+        boolean returnSource  = m.group("returnit") != null;
         boolean opponentsOnly = m.group("opponents") != null;
         String  typeLower     = m.group("type").toLowerCase(Locale.ROOT);
         int     costVal       = m.group("cost") != null ? Integer.parseInt(m.group("cost")) : -1;
@@ -7265,8 +7268,12 @@ public class ActionResolver {
                 return costIsMore ? from.cost() >= costVal : from.cost() <= costVal;
             };
             ctx.logEntry("Effect: Cancel an auto-ability triggered from " + described);
-            ctx.cancelFilteredAbilityOnStack(filter,
+            StackEntry cancelled = ctx.cancelFilteredAbilityOnStack(filter,
                     "Choose an auto-ability triggered from " + described + " to cancel:", false);
+            // "That Forward" is the one the cancelled ability came from. Nothing cancelled means
+            // nothing to point at, and a card that has left the field is not returned.
+            if (returnSource && cancelled != null)
+                ctx.returnCardToOwnersHandIfOnField(cancelled.source());
         };
     }
 

@@ -3084,7 +3084,7 @@ final class GameContextImpl implements GameContext {
 				mw.showStackWindowIfNeeded();
 			}
 
-			@Override public void cancelFilteredAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt, boolean requiresControllerTarget) {
+			@Override public StackEntry cancelFilteredAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt, boolean requiresControllerTarget) {
 				java.util.function.Predicate<StackEntry> fullFilter = requiresControllerTarget
 						? ActionResolver.withControllerTargetRequirement(filter, isP1)
 						: filter;
@@ -3094,7 +3094,7 @@ final class GameContextImpl implements GameContext {
 						.collect(java.util.stream.Collectors.toList());
 				if (targets.isEmpty()) {
 					logEntry("No matching abilities on the stack to cancel");
-					return;
+					return null;
 				}
 				StackEntry chosen;
 				if (targets.size() == 1) {
@@ -3104,20 +3104,20 @@ final class GameContextImpl implements GameContext {
 					for (int i = 0; i < targets.size(); i++) options[i] = describeStackEntry(targets.get(i));
 					Object sel = JOptionPane.showInputDialog(mw.frame,
 							prompt, "Cancel Effect", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-					if (sel == null) return;
+					if (sel == null) return null;
 					int idx = java.util.Arrays.asList(options).indexOf(sel.toString());
-					if (idx < 0) return;
+					if (idx < 0) return null;
 					chosen = targets.get(idx);
 				} else {
 					chosen = targets.stream().filter(e -> e.isP1())
 							.reduce((a, b) -> b).orElse(targets.get(targets.size() - 1));
 					logEntry("[AI] Chose to cancel: " + chosen.source().name());
 				}
-				if (mw.cancelStackEntry(chosen)) {
-					String type = chosen.isSummon() ? "Summon" : chosen.isAutoAbility() ? "auto-ability"
-							: chosen.isSpecialAbility() ? "special ability" : "action ability";
-					logEntry("Effect: " + chosen.source().name() + "'s " + type + " effect will be cancelled");
-				}
+				if (!mw.cancelStackEntry(chosen)) return null;
+				String type = chosen.isSummon() ? "Summon" : chosen.isAutoAbility() ? "auto-ability"
+						: chosen.isSpecialAbility() ? "special ability" : "action ability";
+				logEntry("Effect: " + chosen.source().name() + "'s " + type + " effect will be cancelled");
+				return chosen;
 			}
 
 			/**
@@ -8131,6 +8131,18 @@ final class GameContextImpl implements GameContext {
 						}
 					});
 				}
+			}
+
+			@Override public boolean returnCardToOwnersHandIfOnField(CardData card) {
+				if (card == null) return false;
+				for (boolean side : new boolean[] { true, false }) {
+					ForwardTarget slot = mw.findFieldSlot(card, side);
+					if (slot == null) continue;
+					ActionResolver.returnTargetsToOwnersHand(this, List.of(slot));
+					return true;
+				}
+				logEntry(card.name() + " is no longer on the field — not returned");
+				return false;
 			}
 
 			@Override public void returnNamedCardToOwnersHand(String cardName) {

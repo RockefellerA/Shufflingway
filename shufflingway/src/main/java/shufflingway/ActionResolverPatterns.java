@@ -564,22 +564,32 @@ final class ActionResolverPatterns {
     /**
      * Matches "Choose 1 auto-ability triggered from [your opponent's] [a] [type] [of cost N or
      * less/more]. Cancel its effect." — 27-048R Seven (a Forward of cost 5 or less) and 16-058R
-     * Fina (any Forward).
+     * Fina (any Forward), and 18-096C Leviathan.
+     *
+     * <p>Leviathan's paid branch adds "Return that Forward to its owner's hand." once
+     * {@link ActionResolver#applyExtraCostPaid} has lifted it out of its "If you paid the extra
+     * cost and that Forward is on the field" clause — group {@code returnit}. "That Forward" is the
+     * card the cancelled ability was triggered from, so it is read in the same pattern: alone, the
+     * sentence has no Forward to point at, and {@code tryParseReturnNamedToHand} used to take the
+     * whole text and look for a card called "that Forward", dropping the cancel with it.
      *
      * <p>The cancel twin of {@link #COPY_CHOSEN_AUTO_ABILITY_ON_STACK}, and enforced like it.
      * {@link #CANCEL_ABILITY_ON_STACK} has no room for "triggered from" between its type and its
      * period, so these fell to the compound fallback, which read "Cancel its effect." alone —
      * cancelling with nothing chosen — and now refuses to.
-     * Groups: {@code opponents}, {@code type}, {@code cost}, {@code cmp}.
+     * Groups: {@code opponents}, {@code type}, {@code cost}, {@code cmp}, {@code returnit}.
      */
     static final Pattern CANCEL_AUTO_ABILITY_TRIGGERED_FROM = Pattern.compile(
         "(?i)^Choose\\s+1\\s+auto[- ]ability\\s+triggered\\s+from\\s+" +
         "(?<opponents>your\\s+opponent's\\s+)?(?:an?\\s+)?" +
         "(?<type>Forward|Backup|Monster|Character)" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<cmp>less|more))?[.!]\\s*" +
+        "Cancel\\s+its\\s+effect[.!]?" +
+        "(?<returnit>\\s*Return\\s+that\\s+(?:Forward|Backup|Monster|Character)\\s+to\\s+its\\s+" +
+        "owner's\\s+hand[.!]?)?" +
         // A trailing usage restriction is ActionAbility's to enforce, not part of the effect —
         // Fina's "You can only use this ability if you control 4 or more Wind Backups and …".
-        "Cancel\\s+its\\s+effect[.!]?(?:\\s*You\\s+can\\s+only\\s+use\\s+this\\s+ability\\b[^.!]*[.!]?)?\\s*$"
+        "(?:\\s*You\\s+can\\s+only\\s+use\\s+this\\s+ability\\b[^.!]*[.!]?)?\\s*$"
     );
     /**
      * Matches "When [Self] is put from the field into the Break Zone during this turn, return
@@ -3362,9 +3372,14 @@ final class ActionResolverPatterns {
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
         "[.!]?(?:\\s*Return\\s+them\\s+to\\s+their\\s+owners?'?s?\\s+hands?[.!]?)?"
     );
-    /** Matches "Return [name] to its owner's hand." — named card, not a pronoun. */
+    /**
+     * Matches "Return [name] to its owner's hand." — named card, not a pronoun or a back-reference.
+     * "that Forward" is excluded with "it" and "them": read as a name it matched no card, and since
+     * this is found anywhere in the text, it claimed the whole of 18-096C Leviathan and dropped the
+     * cancel ahead of it.
+     */
     static final Pattern RETURN_NAMED_TO_OWNERS_HAND = Pattern.compile(
-        "(?i)Return\\s+(?!(?:it|them)\\b)(?<named>.+?)\\s+to\\s+its\\s+owner(?:'s|s')?\\s+hand[.!]?"
+        "(?i)Return\\s+(?!(?:it|them|that|this|those|these)\\b)(?<named>.+?)\\s+to\\s+its\\s+owner(?:'s|s')?\\s+hand[.!]?"
     );
     /**
      * Matches "Return [name] to your hand." — named card, not a pronoun.  The name is limited to

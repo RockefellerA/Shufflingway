@@ -63517,6 +63517,80 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 18-096C Leviathan: "Choose 1 auto-ability triggered from a Forward. Cancel its effect. If you
+	// paid the extra cost and that Forward is on the field, return that Forward to its owner's
+	// hand." The paid branch used to resolve as the return alone, looking for a card called "that
+	// Forward" — so paying the extra cost bought nothing and cost the cancel.
+	// =========================================================================================
+
+	private static final String LEVIATHAN_18_096C =
+			"Choose 1 auto-ability triggered from a Forward. Cancel its effect. If you paid the extra "
+			+ "cost and that Forward is on the field, return that Forward to its owner's hand.";
+
+	@Test
+	void leviathanPaidCancelsAndReturnsTheForwardTheAbilityCameFrom() {
+		CardData from = makeForward("Trigger Source", "Fire", 4, 7000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.isP1()).thenReturn(true);
+		when(ctx.cancelFilteredAbilityOnStack(any(), any(), eq(false))).thenReturn(autoEntryFrom(from, false));
+
+		ActionResolver.parse(ActionResolver.applyExtraCostPaid(LEVIATHAN_18_096C)).accept(ctx);
+
+		verify(ctx).cancelFilteredAbilityOnStack(any(), any(), eq(false));
+		verify(ctx).returnCardToOwnersHandIfOnField(from);
+	}
+
+	@Test
+	void leviathanPaidReturnsNothingWhenNothingWasCancelled() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.isP1()).thenReturn(true);
+		when(ctx.cancelFilteredAbilityOnStack(any(), any(), eq(false))).thenReturn(null);
+
+		ActionResolver.parse(ActionResolver.applyExtraCostPaid(LEVIATHAN_18_096C)).accept(ctx);
+
+		verify(ctx, never()).returnCardToOwnersHandIfOnField(any());
+	}
+
+	@Test
+	void leviathanUnpaidOnlyCancels() {
+		CardData from = makeForward("Trigger Source", "Fire", 4, 7000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.isP1()).thenReturn(true);
+		when(ctx.cancelFilteredAbilityOnStack(any(), any(), eq(false))).thenReturn(autoEntryFrom(from, false));
+
+		ActionResolver.parse(ActionResolver.stripExtraCostClause(LEVIATHAN_18_096C)).accept(ctx);
+
+		verify(ctx).cancelFilteredAbilityOnStack(any(), any(), eq(false));
+		verify(ctx, never()).returnCardToOwnersHandIfOnField(any());
+		verify(ctx, never()).returnNamedCardToOwnersHand(any());
+	}
+
+	@Test
+	void leviathanPrintedTextIsNotReadAsAReturnOfACardCalledThatForward() {
+		// The runtime only ever parses the text after the extra-cost rewrite. Read as printed, the
+		// payoff's condition is unknowable, so the whole ability declines rather than returning.
+		assertNull(ActionResolver.parse(LEVIATHAN_18_096C));
+	}
+
+	@Test
+	void theReturnedForwardIsTheCardItselfNotAnotherCopy() {
+		// Identity, because CardData is a record: two copies of one printing are equal(), and the
+		// copy still on the field is not "that Forward" once the one the ability came from is gone.
+		MainWindow mw = new MainWindow();
+		CardData onField = makeForward("Twin", "Fire", 3, 7000);
+		CardData gone    = makeForward("Twin", "Fire", 3, 7000);
+		placeP2Forward(mw, onField);
+		GameContext ctx = mw.buildGameContext(true);
+
+		assertFalse(ctx.returnCardToOwnersHandIfOnField(gone), "the card that left is not on the field");
+		assertEquals(List.of(onField), mw.p2ForwardCards, "and the copy that stayed is not taken instead");
+
+		assertTrue(ctx.returnCardToOwnersHandIfOnField(onField));
+		assertTrue(mw.p2ForwardCards.isEmpty());
+		assertTrue(mw.gameState.getP2Hand().stream().anyMatch(c -> c == onField), "back to its owner's hand");
+	}
+
+	// =========================================================================================
 	// 15-052C Chocobo: "Choose 1 Forward forming a party."
 	// =========================================================================================
 

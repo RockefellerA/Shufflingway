@@ -325,7 +325,14 @@ public interface GameContext {
     void copyChosenAutoAbilityOnStack(java.util.function.Predicate<StackEntry> filter,
             String prompt, CardData newSource);
 
-    void cancelFilteredAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt, boolean requiresControllerTarget);
+    /**
+     * Chooses one Stack entry matching {@code filter} and cancels it.
+     *
+     * @return the entry that was cancelled, or {@code null} when nothing matched, the choice was
+     *     declined, or the cancel did not take. Leviathan 18-096C reads it to find "that Forward",
+     *     the card the cancelled auto-ability was triggered from.
+     */
+    StackEntry cancelFilteredAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt, boolean requiresControllerTarget);
 
     /**
      * The plural form of {@link #cancelFilteredAbilityOnStack}: lets the resolving player pick as
@@ -2990,6 +2997,16 @@ public interface GameContext {
      * P1-zone cards go to P1's hand; P2-zone cards go to P2's hand.
      */
     void returnNamedCardToOwnersHand(String cardName);
+
+    /**
+     * Returns {@code card} to its owner's hand if that very card — by identity, not by name — is
+     * on either player's field; does nothing otherwise. Leviathan 18-096C's "if … that Forward is
+     * on the field, return that Forward to its owner's hand": a Forward that has since left the
+     * field, or another copy of it, must not be the one returned.
+     *
+     * @return whether the card was found on the field and returned
+     */
+    boolean returnCardToOwnersHandIfOnField(CardData card);
 
     /**
      * Searches the field for a card matching {@code cardName} and returns it to your (P1's) hand.
