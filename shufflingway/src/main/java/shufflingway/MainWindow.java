@@ -1617,7 +1617,7 @@ public class MainWindow {
 				try {
 					MainWindow window = new MainWindow();
 					window.frame.setVisible(true);
-					ImageIcon icon40 = new ImageIcon(getClass().getResource("/resources/shufflingway.png"));
+					ImageIcon icon40 = new ImageIcon(getClass().getResource("/images/shufflingway.png"));
 					window.frame.setIconImage(icon40.getImage());
 				} catch (Exception e) {
 					AppLogger.log("Startup exception", e);
@@ -18179,7 +18179,8 @@ public class MainWindow {
 			p2AutoPassTimer = null;
 			runWhenBoardSettled(() -> {
 				// On P1's turn: let the opponent activate any reactive shields before passing.
-				if (gameState.getCurrentPlayer() == GameState.Player.P1) {
+				// No opponent means a bare window (tests), where there is no one to ask.
+				if (gameState.getCurrentPlayer() == GameState.Player.P1 && opponent != null) {
 					opponent.requestReactiveShields(() -> {
 						phaseTracker.setHasPriority(true);
 						onDone.run();
@@ -19946,7 +19947,7 @@ public class MainWindow {
 				System.err.println("Custom cardback file not found: " + customPath);
 			}
 		}
-		return new ImageIcon(getClass().getResource("/resources/cardback/default.jpg")).getImage();
+		return new ImageIcon(getClass().getResource("/cardback/default.jpg")).getImage();
 	}
 
 	LookAtDeckDialogs lookDialogs() {

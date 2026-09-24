@@ -160,7 +160,7 @@ public class DeckManager extends JFrame {
         super("Deck Manager");
         setSize(UiScale.scale(1600), UiScale.scale(800));
         setLocationRelativeTo(parent);
-        java.net.URL iconUrl = getClass().getResource("/resources/shufflingway.png");
+        java.net.URL iconUrl = getClass().getResource("/images/shufflingway.png");
         if (iconUrl != null) setIconImage(new javax.swing.ImageIcon(iconUrl).getImage());
         setLayout(new BorderLayout(4, 4));
 
@@ -1114,7 +1114,7 @@ public class DeckManager extends JFrame {
     private Map<String, String> getPrCardMap() {
         if (prCardMap != null) return prCardMap;
         prCardMap = new HashMap<>();
-        try (InputStream is = getClass().getResourceAsStream("/resources/pr_cards.txt")) {
+        try (InputStream is = getClass().getResourceAsStream("/data/pr_cards.txt")) {
             if (is == null) return prCardMap;
             try (BufferedReader br = new BufferedReader(new InputStreamReader(is))) {
                 String line;
@@ -1246,7 +1246,7 @@ public class DeckManager extends JFrame {
     private JButton buildStarterDeckButton() {
         int iconSize = UiScale.scale(16);
         JButton btn = new JButton();
-        try (InputStream is = getClass().getResourceAsStream("/resources/pocket.png")) {
+        try (InputStream is = getClass().getResourceAsStream("/images/pocket.png")) {
             if (is != null) {
                 Image img = new javax.swing.ImageIcon(is.readAllBytes()).getImage()
                         .getScaledInstance(iconSize, iconSize, Image.SCALE_SMOOTH);
@@ -1265,13 +1265,13 @@ public class DeckManager extends JFrame {
     }
 
     /**
-     * Reads {@code /resources/starter_decks.txt} and returns all defined decks.
+     * Reads {@code /data/starter_decks.txt} and returns all defined decks.
      * Format: {@code [Deck Name]} header lines followed by {@code N serial} card lines.
      * Blank lines and lines starting with {@code #} are ignored.
      */
     private List<StarterDeck> loadStarterDecks() {
         List<StarterDeck> result = new ArrayList<>();
-        try (InputStream is = getClass().getResourceAsStream("/resources/starter_decks.txt")) {
+        try (InputStream is = getClass().getResourceAsStream("/data/starter_decks.txt")) {
             if (is == null) return result;
             try (BufferedReader br = new BufferedReader(new InputStreamReader(is))) {
                 String deckName = null;
@@ -1310,7 +1310,7 @@ public class DeckManager extends JFrame {
         if (decks.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                     "No preconstructed decks are defined yet.\n" +
-                    "Add deck definitions to resources/starter_decks.txt.",
+                    "Add deck definitions to data/starter_decks.txt.",
                     "No Preconstructed Decks", JOptionPane.INFORMATION_MESSAGE);
             return;
         }

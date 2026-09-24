@@ -10,7 +10,7 @@ import java.io.InputStream;
 public class FontLoader {
 
     /** Classpath directory holding the bundled UI fonts (.otf/.ttf). */
-    private static final String FONT_DIR = "/resources/fonts";
+    private static final String FONT_DIR = "/fonts";
 
     /**
      * Bundled file for the numeric badges baked onto card art — the damage and power pills, the
