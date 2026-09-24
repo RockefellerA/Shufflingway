@@ -18179,7 +18179,8 @@ public class MainWindow {
 			p2AutoPassTimer = null;
 			runWhenBoardSettled(() -> {
 				// On P1's turn: let the opponent activate any reactive shields before passing.
-				if (gameState.getCurrentPlayer() == GameState.Player.P1) {
+				// No opponent means a bare window (tests), where there is no one to ask.
+				if (gameState.getCurrentPlayer() == GameState.Player.P1 && opponent != null) {
 					opponent.requestReactiveShields(() -> {
 						phaseTracker.setHasPriority(true);
 						onDone.run();
