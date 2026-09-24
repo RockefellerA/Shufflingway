@@ -13,6 +13,11 @@ public enum ActionType {
     GAME_SETUP,     // payload: { "seed": <long>, "hostGoesFirst": <bool>, "debug": <bool> }
                     //   Host-authored. The seed drives both decks' shuffles on both clients;
                     //   "debug" is whether the Debug menu is usable during the match.
+    DEBUG,          // payload: { "op": "spawn" | "hand" | "clearHand" | "zone" | "clearZone"
+                    //                   | "counter" | "state" | "break" | "damage", ... }
+                    //   A Debug-menu change, in a game whose host enabled debugging. Sides are
+                    //   from the sender's seat ("p1" = the sender); the receiver flips them.
+                    //   See DebugUtility.applyOp for each op's fields.
     NEW_GAME_REQUEST, // payload: {}
                     //   Mid-session: the sender wants to abandon the game in progress and start a
                     //   new one on the same connection. The receiver is asked to pick a deck.

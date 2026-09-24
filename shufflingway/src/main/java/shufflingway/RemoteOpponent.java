@@ -119,6 +119,8 @@ class RemoteOpponent implements OpponentController {
 			case BLOCK          -> applyBlock(action.payload());
 			case CHOICE         -> applyChoice(action.payload());
 			case PRIORITY_OFFER -> mw.holdPriorityForPhaseOffer();
+			// Taken in turn with the opponent's plays, so it lands where they made it.
+			case DEBUG          -> applyDebug(action.payload());
 			// A goodbye, sent while the socket is still open. Acting on it is what turns a drop
 			// into an explanation — the close that follows carries no reason at all.
 			case DISCONNECT     -> mw.onOpponentDisconnected(
@@ -126,6 +128,19 @@ class RemoteOpponent implements OpponentController {
 			default             -> { return false; }
 		}
 		return true;
+	}
+
+	/**
+	 * A change the opponent made from their Debug menu. Applied only when this match allows
+	 * debugging: a change arriving in a game whose host left it off means their board has been
+	 * edited and this one has not, which is a desync.
+	 */
+	private void applyDebug(JSONObject payload) {
+		if (!setup.debugEnabled()) {
+			mw.reportDesync("opponent used the Debug menu, but debugging is off for this game");
+			return;
+		}
+		mw.debugUtility.applyRemote(payload);
 	}
 
 	/** The opponent discarded from hand without generating CP (the end-phase trim to five). */
