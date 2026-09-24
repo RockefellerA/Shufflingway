@@ -112,6 +112,7 @@ class RemoteOpponent implements OpponentController {
 			case PLAY_CARD      -> applyPlayCard(action.payload());
 			case LB_PLAY        -> applyLbPlay(action.payload());
 			case WARP_PLAY      -> applyWarpPlay(action.payload());
+			case PRIME          -> applyPrime(action.payload());
 			case ACTIVATE_ABILITY -> applyActivateAbility(action.payload());
 			case DISCARD_HAND   -> applyDiscard(action.payload());
 			case ATTACK         -> applyAttack(action.payload());
@@ -361,6 +362,65 @@ class RemoteOpponent implements OpponentController {
 
 		mw.executeWarpPlay(false, card, handIdx,
 				indices(payload, "discards"), indices(payload, "backups"), overrides, breaks);
+	}
+
+	/**
+	 * The opponent primed one of their Forwards. Everything is checked against this board before
+	 * anything is spent: the primer in the slot, that it is not already primed, the card taken
+	 * from the deck, and that the new deck order is a rearrangement of exactly what is left.
+	 */
+	private void applyPrime(JSONObject payload) {
+		int slot = payload.optInt("slot", -1);
+		if (slot < 0 || slot >= mw.p2ForwardCards.size()) {
+			mw.reportDesync("opponent primed Forward " + slot + ", but they hold "
+					+ mw.p2ForwardCards.size() + " Forwards here");
+			return;
+		}
+		CardData primer = mw.p2ForwardCards.get(slot);
+		String expected = payload.optString("card", "");
+		if (!primer.name().equals(expected)) {
+			mw.reportDesync("opponent primed \"" + expected + "\" in Forward slot " + slot
+					+ ", which holds \"" + primer.name() + "\" here");
+			return;
+		}
+		if (primer.primingTarget() == null || mw.p2ForwardPrimedTop.get(slot) != null) {
+			mw.reportDesync("opponent primed \"" + primer.name() + "\", which cannot be primed here");
+			return;
+		}
+
+		List<CardData> before = new ArrayList<>(mw.gameState.getP2MainDeck());
+		int found = payload.optInt("found", -1);
+		CardData chosen = null;
+		if (found >= 0) {
+			if (found >= before.size()) {
+				mw.reportDesync("opponent primed with deck card " + found + ", but their deck holds "
+						+ before.size() + " cards here");
+				return;
+			}
+			chosen = before.get(found);
+			if (!chosen.name().equals(payload.optString("chosen", ""))
+					|| !chosen.name().equalsIgnoreCase(primer.primingTarget())) {
+				mw.reportDesync("opponent primed \"" + primer.name() + "\" with \""
+						+ payload.optString("chosen", "") + "\", which is \"" + chosen.name()
+						+ "\" in that deck position here");
+				return;
+			}
+		}
+		List<Integer> order = indices(payload, "deck");
+		int expectedSize = before.size() - (chosen != null ? 1 : 0);
+		java.util.Set<Integer> seen = new java.util.HashSet<>();
+		boolean orderOk = order.size() == expectedSize;
+		for (int i : order) orderOk &= i >= 0 && i < before.size() && i != found && seen.add(i);
+		if (!orderOk) {
+			mw.reportDesync("opponent's deck after Priming does not match the " + expectedSize
+					+ " cards left in it here");
+			return;
+		}
+		List<CardData> newOrder = new ArrayList<>(order.size());
+		for (int i : order) newOrder.add(before.get(i));
+
+		mw.priming.executeRemotePriming(primer, slot, indices(payload, "discards"),
+				indices(payload, "backups"), chosen, newOrder);
 	}
 
 	/**
@@ -1084,6 +1144,34 @@ class RemoteOpponent implements OpponentController {
 				.put("backups", new JSONArray(backupDulls))
 				.put("backupElements", overrides)
 				.put("backupBreaks", breaks));
+	}
+
+	/**
+	 * Builds a PRIME for a Priming the local player has just settled.
+	 *
+	 * <p>{@code deckBefore} and {@code deckAfter} are the main deck either side of the search and
+	 * shuffle. The card that left is found by identity — two copies of a printing are equal
+	 * records but different cards — and the new order is written as positions in the old one.
+	 */
+	static GameAction primeAction(CardData primer, int slot, List<Integer> discards,
+	                              List<Integer> backupDulls, List<CardData> deckBefore,
+	                              List<CardData> deckAfter) {
+		java.util.IdentityHashMap<CardData, Integer> position = new java.util.IdentityHashMap<>();
+		for (int i = 0; i < deckBefore.size(); i++) position.put(deckBefore.get(i), i);
+		JSONArray order = new JSONArray();
+		java.util.Set<Integer> kept = new java.util.HashSet<>();
+		for (CardData c : deckAfter) { int i = position.get(c); order.put(i); kept.add(i); }
+		int found = -1;
+		for (int i = 0; i < deckBefore.size(); i++) if (!kept.contains(i)) { found = i; break; }
+		JSONObject payload = new JSONObject()
+				.put("slot", slot)
+				.put("card", primer.name())
+				.put("discards", new JSONArray(discards))
+				.put("backups", new JSONArray(backupDulls))
+				.put("found", found)
+				.put("deck", order);
+		if (found >= 0) payload.put("chosen", deckBefore.get(found).name());
+		return GameAction.of(ActionType.PRIME, payload);
 	}
 
 	/**

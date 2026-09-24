@@ -3,6 +3,7 @@ package shufflingway;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import shufflingway.net.ActionType;
 import shufflingway.net.ChoiceKind;
 import shufflingway.net.ConnectionListener;
 import shufflingway.net.GameAction;
@@ -341,5 +343,103 @@ class WireProtocolTest {
                 "JSON escaping is what keeps a newline inside a value from ending the line");
         assertEquals(3, arrived.payload().getInt("handIdx"));
         assertTrue(inbox.isEmpty(), "one action was sent, so exactly one should have arrived");
+    }
+
+    // =========================================================================================
+    // Priming used to be local only: the primed Forward and the card it fetched never reached the
+    // opponent's board, and their copy of the deck kept the searched card in it.
+    // =========================================================================================
+
+    /** A Forward that primes into {@code target} for nothing, so no payment dialog opens. */
+    private static CardData primer(String name, String target) {
+        return new CardData(null, name, "Fire", 3, 7000, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), target, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                null, null, null, "");
+    }
+
+    private static final List<String> PRIMING_DECK = List.of("Filler A", "Ifrit", "Filler B", "Filler C", "Filler D");
+
+    /** A receiving window holding the sender's primer and deck on its P2 side, in the same order. */
+    private static MainWindow receiverOfPriming() {
+        MainWindow rx = new MainWindow();
+        seatP2Forward(rx, primer("Primer", "Ifrit"));
+        for (String n : PRIMING_DECK) {
+            CardData c = forward(n);
+            rx.gameState.getIdentity().put(c, false);
+            rx.gameState.getP2MainDeck().add(c);
+        }
+        return rx;
+    }
+
+    private static List<String> names(java.util.Collection<CardData> cards) {
+        return cards.stream().map(CardData::name).toList();
+    }
+
+    @Test
+    void aPrimingReachesTheOpponentWithTheCardItFetchedAndTheDeckItLeft() throws InterruptedException {
+        MainWindow tx = sendingWindow();
+        CardData primer = primer("Primer", "Ifrit");
+        tx.gameState.getIdentity().put(primer, true);
+        tx.placeCardInForwardZone(primer);
+        for (String n : PRIMING_DECK) {
+            CardData c = forward(n);
+            tx.gameState.getIdentity().put(c, true);
+            tx.gameState.getP1MainDeck().add(c);
+        }
+
+        tx.priming.executePriming(primer, 0, new ArrayList<>(), new ArrayList<>());
+        assertEquals("Ifrit", tx.p1ForwardPrimedTop.get(0).name(), "primed locally, as before");
+
+        GameAction arrived = next();
+        assertEquals(ActionType.PRIME, arrived.type());
+        assertEquals(1, arrived.payload().getInt("found"), "Ifrit sat second in the deck searched");
+
+        MainWindow rx = receiverOfPriming();
+        new RemoteOpponent(rx, null, new MatchSetup(1, List.of("h1"), "Deck", "Host", 7L, false, false))
+                .onActionReceived(arrived);
+
+        assertEquals("Ifrit", rx.p2ForwardPrimedTop.get(0).name(), "topped on the opponent's board too");
+        assertEquals(names(tx.gameState.getP1MainDeck()), names(rx.gameState.getP2MainDeck()),
+                "the same deck, in the same order the sender shuffled it into");
+        assertEquals(PRIMING_DECK.size() - 1, rx.gameState.getP2MainDeck().size());
+    }
+
+    @Test
+    void aPrimingThatFindsNothingStillSendsTheShuffledDeck() throws InterruptedException {
+        MainWindow tx = sendingWindow();
+        CardData primer = primer("Primer", "Shiva");
+        tx.gameState.getIdentity().put(primer, true);
+        tx.placeCardInForwardZone(primer);
+        for (String n : PRIMING_DECK) tx.gameState.getP1MainDeck().add(forward(n));
+
+        tx.priming.executePriming(primer, 0, new ArrayList<>(), new ArrayList<>());
+
+        GameAction arrived = next();
+        assertEquals(-1, arrived.payload().getInt("found"));
+        assertFalse(arrived.payload().has("chosen"));
+        assertEquals(PRIMING_DECK.size(), arrived.payload().getJSONArray("deck").length());
+    }
+
+    @Test
+    void aPrimingWhoseDeckDoesNotMatchIsRefusedBeforeAnythingMoves() {
+        MainWindow rx = receiverOfPriming();
+        rx.desyncReported = true;   // keeps the desync dialog from opening under the test
+        List<CardData> before = new ArrayList<>(rx.gameState.getP2MainDeck());
+        // Their deck, per the sender, is one card longer than the one this client holds.
+        List<CardData> theirs = new ArrayList<>(before);
+        theirs.add(forward("Filler E"));
+        List<CardData> after = new ArrayList<>(theirs);
+        after.remove(1);
+        GameAction action = RemoteOpponent.primeAction(primer("Primer", "Ifrit"), 0, List.of(), List.of(),
+                theirs, after);
+
+        new RemoteOpponent(rx, null, new MatchSetup(1, List.of("h1"), "Deck", "Host", 7L, false, false))
+                .onActionReceived(action);
+
+        assertNull(rx.p2ForwardPrimedTop.get(0));
+        assertEquals(names(before), names(rx.gameState.getP2MainDeck()), "nothing moved");
     }
 }
