@@ -1931,11 +1931,10 @@ public class MainWindow {
 		p1LimitButton.setPreferredSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p1LimitButton.setMinimumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p1LimitButton.setMaximumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
+		// Opens at any time: whether each card can be cast right now is lbCastBlocked's call, the
+		// same one a card in hand gets, and the dialog shows the rest as blocked.
 		p1LimitButton.addActionListener(e -> {
-			GameState.GamePhase phase = gameState.getCurrentPhase();
-			boolean isMainPhase = phase == GameState.GamePhase.MAIN_1
-					|| phase == GameState.GamePhase.MAIN_2;
-			if (!gameState.getP1LbDeck().isEmpty() && isMainPhase && !gameState.isP1GameOver()) showLbDialog();
+			if (!gameState.getP1LbDeck().isEmpty() && !gameState.isP1GameOver()) showLbDialog();
 		});
 
 		p1RemoveLabel = new GrayscaleLabel("");
@@ -7608,13 +7607,20 @@ public class MainWindow {
 	 * gate — {@code cannotCastThisTurn}'s own javadoc says so — and the LB deck was the one that
 	 * did not, which let a player cast out of it on a turn they could not cast at all.
 	 * {@code ComputerPlayer.findLbPlayPlan} had the same hole on the other side of the table.
+	 *
+	 * <p>Timing is here for the same reason, and was the larger hole: the LB deck asked nothing
+	 * about <em>when</em>, so a Forward could be cast out of it on the opponent's turn. It now
+	 * asks {@link #castTimingWindowOpen} as a card in hand does — a Character only in P1's own
+	 * Main Phase with the stack empty, a Summon at any priority window P1 holds. The Summon ban
+	 * and target check and the free Backup slot were missing likewise, and are the hand's too.
 	 */
 	boolean lbCastBlocked(CardData card) {
-		return p1CastLimitReached()
+		return !castTimingWindowOpen(card)
+				|| p1CastLimitReached()
 				|| !castRestrictionMet(card)
-				|| ((card.isForward() || card.isBackup() || card.isMonster())
-					&& ((!card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name(), true))
-						|| isLightDarkConflict(card)));
+				|| summonCastBlocked(card, true)
+				|| characterCastConflict(card)
+				|| (card.isBackup() && !hasAvailableBackupSlot());
 	}
 
 	private void showLbDialog() {
@@ -18315,7 +18321,8 @@ public class MainWindow {
 	}
 
 	/**
-	 * Whether some unspent card in P1's LB deck could be cast now: it is not barred, enough other
+	 * Whether some unspent card in P1's LB deck could be cast now: it is not barred (timing
+	 * included), enough other
 	 * unspent LB cards remain to pay its LB cost, and its CP cost can be met.
 	 */
 	private boolean p1HasCastableLbCard() {
@@ -18325,7 +18332,6 @@ public class MainWindow {
 			if (spentLbIndices.contains(i)) continue;
 			CardData c = lb.get(i);
 			if (lbCastBlocked(c) || unspent - 1 < c.lbCost()) continue;
-			if (c.isBackup() && !hasAvailableBackupSlot()) continue;
 			if (effectiveCastCost(c) > 0 && !canAffordCard(c, -1)) continue;
 			return true;
 		}
