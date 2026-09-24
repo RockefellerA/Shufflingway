@@ -131,6 +131,7 @@ import shufflingway.graphics.HandFanPanel;
 import shufflingway.graphics.PlayerHandFanPanel;
 import shufflingway.graphics.ShieldIcon;
 import shufflingway.graphics.TraitTab;
+import shufflingway.graphics.TintedToggleButton;
 import shufflingway.graphics.TriangleIcon;
 import shufflingway.menu.DebugMenu;
 import shufflingway.menu.FileMenu;
@@ -252,6 +253,8 @@ public class MainWindow {
 	// Side info panel (card preview + Next button + game log)
 	private JPanel        sidePanel;
 	private JPanel        sideWrapper;        // contains resizeHandle + sidePanel
+	private JPanel        nextBtnRow;         // the Auto/Wait stack beside the Next/Attack/Skip buttons
+	private JPanel        autoAdvanceStack;   // Auto over Wait, on the side panel's outer edge
 	private JPanel        resizeHandle;       // draggable divider between board and sidebar
 	private JPanel        cardPreviewPanel;   // custom-painted card preview
 	private BufferedImage previewImage;       // current card to draw (null = empty)
@@ -2203,13 +2206,40 @@ public class MainWindow {
 		nextBtnPanel.add(attackButton);
 		nextBtnPanel.add(skipAttackButton);
 
+		// Auto / Wait — whether Main Phases with nothing left to do move on by themselves. One of
+		// the two is always pressed in, and only the pressed one is tinted, so the choice reads at
+		// a glance without either button shouting while it is not the one in force.
+		TintedToggleButton autoBtn = new TintedToggleButton("Auto", new Color(60, 200, 80));
+		TintedToggleButton waitBtn = new TintedToggleButton("Wait", new Color(255, 215, 0));
+		autoBtn.setToolTipText("Main Phases with no card to play or ability to use move on by themselves");
+		waitBtn.setToolTipText("Main Phases wait for you to click Next");
+		javax.swing.ButtonGroup autoAdvanceGroup = new javax.swing.ButtonGroup();
+		for (TintedToggleButton b : List.of(autoBtn, waitBtn)) {
+			b.setFont(FontLoader.loadPixelFont(10));
+			b.setFocusPainted(false);
+			b.setMargin(new Insets(1, 4, 1, 4));
+			autoAdvanceGroup.add(b);
+		}
+		(AppSettings.isAutoAdvanceMainPhases() ? autoBtn : waitBtn).setSelected(true);
+		autoBtn.addActionListener(e -> { AppSettings.setAutoAdvanceMainPhases(true);  AppSettings.save(); });
+		waitBtn.addActionListener(e -> { AppSettings.setAutoAdvanceMainPhases(false); AppSettings.save(); });
+		autoAdvanceStack = new JPanel(new GridLayout(2, 1, 0, 2));
+		autoAdvanceStack.add(autoBtn);
+		autoAdvanceStack.add(waitBtn);
+
+		// The Auto/Wait stack sits on the side panel's outer edge and the three phase buttons stay
+		// centred in what is left; applySidePanelSide moves the stack when the panel changes sides.
+		nextBtnRow = new JPanel(new BorderLayout());
+		nextBtnRow.add(nextBtnPanel, BorderLayout.CENTER);
+		placeAutoAdvanceStack("right".equals(AppSettings.getSidePanelSide()));
+
 		phaseTracker = new PhaseTracker();
 
 		JPanel sideNorth = new JPanel();
 		sideNorth.setLayout(new BoxLayout(sideNorth, BoxLayout.Y_AXIS));
 		sideNorth.add(cardPreviewPanel);
 		sideNorth.add(phaseTracker);
-		sideNorth.add(nextBtnPanel);
+		sideNorth.add(nextBtnRow);
 
 		// Game log (scrollable, fills the rest of the side panel)
 		gameLog = new JTextArea();
@@ -2340,10 +2370,25 @@ public class MainWindow {
 	 *
 	 * @param side {@code "left"} or {@code "right"}
 	 */
+	/**
+	 * Puts the Auto/Wait stack on the side panel's outer edge: the left with the panel on the left
+	 * of the board, the right with it on the right. The vertical padding matches the phase
+	 * buttons' row gap, so the stack spans the same height as the Next button beside it.
+	 */
+	private void placeAutoAdvanceStack(boolean right) {
+		if (nextBtnRow == null || autoAdvanceStack == null) return;
+		nextBtnRow.remove(autoAdvanceStack);
+		autoAdvanceStack.setBorder(BorderFactory.createEmptyBorder(8, right ? 0 : 8, 8, right ? 8 : 0));
+		nextBtnRow.add(autoAdvanceStack, right ? BorderLayout.EAST : BorderLayout.WEST);
+		nextBtnRow.revalidate();
+		nextBtnRow.repaint();
+	}
+
 	private void applySidePanelSide(String side) {
 		if (sidePanel == null) return;
 		if (sideWrapper != null) frame.getContentPane().remove(sideWrapper);
 		boolean right = "right".equals(side);
+		placeAutoAdvanceStack(right);
 		sidePanel.setBorder(null);
 		resizeHandle.setCursor(Cursor.getPredefinedCursor(
 				UiScale.factor < 1.0 ? Cursor.DEFAULT_CURSOR

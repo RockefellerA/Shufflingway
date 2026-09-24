@@ -295,29 +295,6 @@ public class PreferencesDialog extends JDialog {
 		counterSection.setAlignmentX(Component.LEFT_ALIGNMENT);
 		contentPanel.add(counterSection);
 
-		// ── Gameplay ─────────────────────────────────────────────────────────
-		contentPanel.add(javax.swing.Box.createVerticalStrut(8));
-
-		JPanel gameplayPanel = new JPanel();
-		gameplayPanel.setLayout(new BoxLayout(gameplayPanel, BoxLayout.Y_AXIS));
-		gameplayPanel.setBorder(BorderFactory.createTitledBorder(
-				BorderFactory.createEtchedBorder(), "Gameplay",
-				TitledBorder.LEFT, TitledBorder.TOP));
-
-		JCheckBox autoAdvanceBox = new JCheckBox("Auto-advance Main Phases with no plays",
-				AppSettings.isAutoAdvanceMainPhases());
-		autoAdvanceBox.setToolTipText(
-				"Move on from a Main Phase automatically when you have no card to play or ability to use.");
-		autoAdvanceBox.addActionListener(e -> {
-			AppSettings.setAutoAdvanceMainPhases(autoAdvanceBox.isSelected());
-			AppSettings.save();
-		});
-		autoAdvanceBox.setAlignmentX(Component.LEFT_ALIGNMENT);
-		gameplayPanel.add(autoAdvanceBox);
-
-		gameplayPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-		contentPanel.add(gameplayPanel);
-
 		// ── Multiplayer ──────────────────────────────────────────────────────
 		contentPanel.add(javax.swing.Box.createVerticalStrut(8));
 
