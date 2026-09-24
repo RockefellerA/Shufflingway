@@ -2160,7 +2160,7 @@ public class MainWindow {
 		cardPreviewPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY));
 
 		// Attack button (enabled only during P1's Attack Phase with a selection)
-		attackButton = new JButton("Attack");
+		attackButton = new MatchNextHeightButton("Attack");
 		attackButton.setFont(FontLoader.loadPixelFont(12));
 		attackButton.setEnabled(false);
 		attackButton.setFocusPainted(false);
@@ -2187,7 +2187,7 @@ public class MainWindow {
 		});
 
 		// Skip button — ends the attack phase without declaring another attacker
-		skipAttackButton = new JButton("Skip");
+		skipAttackButton = new MatchNextHeightButton("Skip");
 		skipAttackButton.setFont(FontLoader.loadPixelFont(12));
 		skipAttackButton.setEnabled(false);
 		skipAttackButton.setFocusPainted(false);
@@ -19393,6 +19393,33 @@ public class MainWindow {
 	// Attack execution
 	// -------------------------------------------------------------------------
 
+	/**
+	 * A two-word button label stacked on two centred lines. The Attack button is as tall as Next,
+	 * which has room for two, so "Party Attack" and "Take Damage" grow the button downwards into
+	 * that room instead of sideways — on one line they widened the row past the side panel at
+	 * 1440p. Both are only ever shown on an enabled button, so the HTML label's own colour (which
+	 * ignores the disabled grey) never shows.
+	 */
+	private static String twoLineLabel(String first, String second) {
+		return "<html><center>" + first + "<br>" + second + "</center></html>";
+	}
+
+	/**
+	 * A phase-row button at least as tall as {@link #nextPhaseButton}, whose label and pointer
+	 * stack on two lines. Keeping Attack and Skip level with it gives the Attack button the height
+	 * a two-line label needs, and the row one height whatever the labels say.
+	 */
+	private final class MatchNextHeightButton extends JButton {
+		MatchNextHeightButton(String text) { super(text); }
+
+		@Override public Dimension getPreferredSize() {
+			Dimension d = super.getPreferredSize();
+			if (nextPhaseButton != null)
+				d.height = Math.max(d.height, nextPhaseButton.getPreferredSize().height);
+			return d;
+		}
+	}
+
 	private void refreshAttackButton() {
 		if (attackButton == null) return;
 		boolean inAttack = gameState.getCurrentPhase() == GameState.GamePhase.ATTACK;
@@ -19401,14 +19428,14 @@ public class MainWindow {
 		if (p1InBlockDeclaration()) {
 			// Block declaration mode: P1 chooses a blocker by clicking a forward
 			boolean hasBlocker = p1BlockerSelection >= 0 || p1BlockerMonsterIdx >= 0 || p1BlockerBackupIdx >= 0;
-			attackButton.setText(hasBlocker ? "Block" : "Take Damage");
+			attackButton.setText(hasBlocker ? "Block" : twoLineLabel("Take", "Damage"));
 			attackButton.setEnabled(true);
 		} else {
 			int n = p1AttackSelection.size();
 			boolean hasAnyAttacker = n > 0 || p1MonsterAttackIdx >= 0 || p1BackupAttackIdx >= 0;
 			attackButton.setEnabled(inAttack && p1Turn && hasAnyAttacker && attackSubStep == 1
 					&& !p1AttackDeclarationInFlight());
-			attackButton.setText(n > 1 ? "Party Attack" : "Attack");
+			attackButton.setText(n > 1 ? twoLineLabel("Party", "Attack") : "Attack");
 		}
 
 		if (skipAttackButton != null)
