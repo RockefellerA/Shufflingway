@@ -437,8 +437,8 @@ class Priming {
 	 * opponent, and tops the primed Forward with it.
 	 *
 	 * <p>Sent before the card is placed, so the opponent holds the Priming before any trigger it
-	 * sets off asks them anything. The deck is sent as its new order rather than left to each
-	 * client's own shuffle, which would put the two copies of this deck in different orders.
+	 * sets off asks them anything. The shuffle draws from this deck's shared stream, so the
+	 * opponent's replay comes out the same; the new order goes along so they can check that.
 	 */
 	private void finishLocalPriming(CardData card, int slotIdx, CardData chosen, LocalPriming sent) {
 		if (chosen != null) mw.gameState.removeFromP1MainDeck(chosen);
@@ -452,18 +452,31 @@ class Priming {
 	}
 
 	/**
-	 * The opponent's Priming, replayed from their PRIME action: the same payment, the deck put in
-	 * the order they shuffled it into, and {@code chosen} (null when their search found nothing)
+	 * The opponent's Priming, replayed from their PRIME action: the same payment, the same card
+	 * out of the deck, the same shuffle, and {@code chosen} (null when their search found nothing)
 	 * on top of their Forward in {@code slotIdx}. {@link RemoteOpponent} has already checked that
 	 * every index fits this board.
+	 *
+	 * <p>The deck is shuffled here from its own stream rather than simply set to the order they
+	 * sent: the shuffle is what keeps this client's stream for their deck level with theirs, so
+	 * the next search shuffles the same way on both sides. {@code sentDeckOrder} is then the
+	 * check — a different order means the two copies had already drifted apart.
 	 */
 	void executeRemotePriming(CardData card, int slotIdx, List<Integer> discardIndices,
-			List<Integer> backupDullIndices, CardData chosen, List<CardData> newDeckOrder) {
+			List<Integer> backupDullIndices, CardData chosen, List<CardData> sentDeckOrder) {
 		payPrimingCost(false, card, new ArrayList<>(discardIndices), new ArrayList<>(backupDullIndices));
 		java.util.Deque<CardData> deck = mw.gameState.getP2MainDeck();
-		deck.clear();
-		deck.addAll(newDeckOrder);
-		mw.refreshP2DeckLabel();
+		if (chosen != null) deck.removeIf(c -> c == chosen);
+		mw.shuffleDeck(false);
+		List<CardData> shuffled = new ArrayList<>(deck);
+		boolean same = shuffled.size() == sentDeckOrder.size();
+		for (int i = 0; same && i < shuffled.size(); i++) same = shuffled.get(i) == sentDeckOrder.get(i);
+		if (!same) {
+			mw.reportDesync("opponent's deck after Priming is in a different order here");
+			deck.clear();
+			deck.addAll(sentDeckOrder);
+			mw.refreshP2DeckLabel();
+		}
 		if (chosen != null) applyPrimedCard(chosen, card, slotIdx, false);
 		else mw.logEntry("[P2] Priming: \"" + card.primingTarget() + "\" not found in deck — no card placed");
 		mw.refreshP2HandCountLabel();

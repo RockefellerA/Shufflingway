@@ -6093,7 +6093,7 @@ final class GameContextImpl implements GameContext {
 				logEntry(prefix + "Reveal top " + take + " card(s): " +
 						revealed.stream().map(CardData::name).collect(Collectors.joining(", ")) +
 						" (Job " + job + " matches: " + matchCount + ")");
-				java.util.Collections.shuffle(revealed);
+				java.util.Collections.shuffle(revealed, mw.deckRandom(isP1));
 				for (CardData c : revealed) { deck.addLast(c); logEntry(c.name() + " → bottom of deck"); }
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
 				return matchCount;
@@ -6112,7 +6112,7 @@ final class GameContextImpl implements GameContext {
 						+ revealed.stream().map(CardData::name).collect(Collectors.joining(", "))
 						+ " (" + elements.size() + " different Element(s): "
 						+ String.join(", ", new java.util.TreeSet<>(elements)) + ")");
-				java.util.Collections.shuffle(revealed);
+				java.util.Collections.shuffle(revealed, mw.deckRandom(isP1));
 				for (CardData c : revealed) { deck.addLast(c); logEntry(c.name() + " → bottom of deck"); }
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
 				return elements.size();
@@ -6121,7 +6121,7 @@ final class GameContextImpl implements GameContext {
 			@Override public void shuffleDeck() {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				List<CardData> list = new java.util.ArrayList<>(deck);
-				java.util.Collections.shuffle(list);
+				java.util.Collections.shuffle(list, mw.deckRandom(isP1));
 				deck.clear();
 				deck.addAll(list);
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
@@ -7091,7 +7091,7 @@ final class GameContextImpl implements GameContext {
 					mw.lookDialogs().revealAddUpToMatchingRestBottom(rest, deck, isP1, 0,
 							null, null, null, null, -1, null, null);
 				} else {
-					java.util.Collections.shuffle(rest);
+					java.util.Collections.shuffle(rest, mw.deckRandom(isP1));
 					for (CardData c : rest) {
 						deck.addLast(c);
 						logEntry(c.name() + " → bottom of deck");
@@ -11244,7 +11244,7 @@ final class GameContextImpl implements GameContext {
 						logEntry("Deck exhausted after " + found.size() + " of " + count + " — played what was found");
 				}
 				if (!passed.isEmpty()) {
-					java.util.Collections.shuffle(passed);
+					java.util.Collections.shuffle(passed, mw.deckRandom(isP1));
 					for (CardData c : passed) deck.addLast(c);
 					logEntry(passed.size() + " revealed card(s) shuffled to bottom of deck");
 				}
@@ -11469,7 +11469,7 @@ final class GameContextImpl implements GameContext {
 					logEntry("No " + selectedType + " found in deck — deck exhausted");
 				}
 				if (!revealed.isEmpty()) {
-					java.util.Collections.shuffle(revealed);
+					java.util.Collections.shuffle(revealed, mw.deckRandom(isP1));
 					for (CardData c : revealed) deck.addLast(c);
 					logEntry(revealed.size() + " revealed card(s) shuffled to bottom of deck");
 				}
@@ -11506,7 +11506,7 @@ final class GameContextImpl implements GameContext {
 					logEntry("No " + elem1 + " or " + elem2 + " card found — deck exhausted, nothing added to hand");
 				}
 				if (!revealed.isEmpty()) {
-					java.util.Collections.shuffle(revealed);
+					java.util.Collections.shuffle(revealed, mw.deckRandom(isP1));
 					for (CardData c : revealed) deck.addLast(c);
 					logEntry(revealed.size() + " revealed card(s) shuffled to bottom of deck");
 				}

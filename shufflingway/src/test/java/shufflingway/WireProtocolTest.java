@@ -2,6 +2,7 @@ package shufflingway;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -390,6 +391,9 @@ class WireProtocolTest {
             tx.gameState.getP1MainDeck().add(c);
         }
 
+        // One deck, one stream, on both clients — as a match hands them out.
+        tx.p1DeckRandom = new java.util.Random(5);
+
         tx.priming.executePriming(primer, 0, new ArrayList<>(), new ArrayList<>());
         assertEquals("Ifrit", tx.p1ForwardPrimedTop.get(0).name(), "primed locally, as before");
 
@@ -398,9 +402,11 @@ class WireProtocolTest {
         assertEquals(1, arrived.payload().getInt("found"), "Ifrit sat second in the deck searched");
 
         MainWindow rx = receiverOfPriming();
+        rx.p2DeckRandom = new java.util.Random(5);
         new RemoteOpponent(rx, null, new MatchSetup(1, List.of("h1"), "Deck", "Host", 7L, false, false))
                 .onActionReceived(arrived);
 
+        assertFalse(rx.desyncReported, "the replayed shuffle came out as the sender's did");
         assertEquals("Ifrit", rx.p2ForwardPrimedTop.get(0).name(), "topped on the opponent's board too");
         assertEquals(names(tx.gameState.getP1MainDeck()), names(rx.gameState.getP2MainDeck()),
                 "the same deck, in the same order the sender shuffled it into");
@@ -441,5 +447,55 @@ class WireProtocolTest {
 
         assertNull(rx.p2ForwardPrimedTop.get(0));
         assertEquals(names(before), names(rx.gameState.getP2MainDeck()), "nothing moved");
+    }
+
+    // =========================================================================================
+    // Mid-game shuffles. Both clients run every effect that shuffles a deck, and each shuffled
+    // with its own unseeded Random, so the first search put the two copies of a deck in different
+    // orders. Each deck now shuffles from one stream both clients hold.
+    // =========================================================================================
+
+    private static final List<String> SHUFFLED_DECK =
+            List.of("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L");
+
+    /** Two clients' views of one player's deck: theirs as P1 on {@code owner}, as P2 on {@code other}. */
+    private static MainWindow[] bothViewsOfOneDeck(long seed) {
+        MainWindow owner = new MainWindow(), other = new MainWindow();
+        for (String n : SHUFFLED_DECK) {
+            owner.gameState.getP1MainDeck().add(forward(n));
+            other.gameState.getP2MainDeck().add(forward(n));
+        }
+        owner.p1DeckRandom = new java.util.Random(seed);
+        other.p2DeckRandom = new java.util.Random(seed);
+        return new MainWindow[] { owner, other };
+    }
+
+    @Test
+    void aDeckShuffledByAnEffectComesOutTheSameOnBothClients() {
+        MainWindow[] views = bothViewsOfOneDeck(11);
+        // Twice, because a stream that only agreed on the first draw would still split them later.
+        for (int round = 0; round < 2; round++) {
+            views[0].buildGameContext(true).shuffleDeck();
+            views[1].buildGameContext(false).shuffleDeck();
+            assertEquals(names(views[0].gameState.getP1MainDeck()), names(views[1].gameState.getP2MainDeck()));
+        }
+        assertNotEquals(SHUFFLED_DECK, names(views[0].gameState.getP1MainDeck()), "and it did shuffle");
+    }
+
+    @Test
+    void revealedCardsShuffledToTheBottomLandTheSameOnBothClients() {
+        MainWindow[] views = bothViewsOfOneDeck(12);
+        views[0].buildGameContext(true).revealTopNCountJobPlaceAllAtBottom(5, "Warrior");
+        views[1].buildGameContext(false).revealTopNCountJobPlaceAllAtBottom(5, "Warrior");
+        assertEquals(names(views[0].gameState.getP1MainDeck()), names(views[1].gameState.getP2MainDeck()));
+    }
+
+    @Test
+    void aSearchThatFindsNothingShufflesTheSameOnBothClients() {
+        // MainWindow.shuffleDeck, the primitive the deck searches call once they are done.
+        MainWindow[] views = bothViewsOfOneDeck(13);
+        views[0].shuffleDeck(true);
+        views[1].shuffleDeck(false);
+        assertEquals(names(views[0].gameState.getP1MainDeck()), names(views[1].gameState.getP2MainDeck()));
     }
 }
