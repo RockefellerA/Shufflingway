@@ -6439,6 +6439,9 @@ final class AutoAbilityTriggers {
 	void addAbilityMenuItems(JPopupMenu menu, CardData card, boolean isFrozen,
 			CardState state, int playedTurn, Runnable applyDull, boolean isP1) {
 		forEachFieldAbility(card, isFrozen, state, playedTurn, isP1, (ability, activatorIsP1, abilityEnabled) -> {
+			// The human only ever acts as P1. P2's own abilities are P2's to use — the CPU's or the
+			// remote player's — so a P2 card offers only what P1 may activate on it.
+			if (!activatorIsP1) return;
 			String label = abilityEnabled ? mw.buildAbilityMenuLabelHtml(ability) : mw.buildAbilityMenuLabel(ability);
 			if (activatorIsP1 != isP1) {
 				String suffix = " (pay your own cost)";
