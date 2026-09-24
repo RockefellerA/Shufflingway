@@ -76,9 +76,9 @@ public enum ActionType {
                     //   "found" is the position, in their main deck as it stood before the search,
                     //   of the card that came out onto the Forward — -1 when the search found none,
                     //   and then "chosen" is absent. "deck" is the deck afterwards, each entry a
-                    //   position in that same before-search deck. The order travels rather than
-                    //   being left to a shuffle on each client, which would put the two copies of
-                    //   the deck in different orders; both already hold it, so it reveals nothing.
+                    //   position in that same before-search deck. The receiver shuffles from its
+                    //   own stream for this deck, as the sender did, and checks the result against
+                    //   "deck"; both already hold the deck, so it reveals nothing.
     ACTIVATE_ABILITY, // payload: { "zone": "FORWARD"|"BACKUP"|"MONSTER", "idx": n, "card": "...",
                     //             "ability": n, "discards": [idx, ...], "backups": [slot, ...],
                     //             "bzTargets": [{ "idx": n, "zone": "FORWARD" }, ...],
