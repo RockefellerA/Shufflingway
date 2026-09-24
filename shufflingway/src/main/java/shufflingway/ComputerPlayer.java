@@ -942,7 +942,7 @@ class ComputerPlayer implements OpponentController {
 		for (Map.Entry<CardData, PlayableEntry> entry : entries) {
 			CardData card = entry.getKey();
 			PlayableEntry pe = entry.getValue();
-			int reducedCost = pe.effectiveCost(card);
+			int reducedCost = mw.borrowedCastCost(card, pe, false);
 
 			// Respect uniqueness / Light-Dark / backup-slot legality so borrowed casts can't create field collisions.
 			boolean isChar = card.isForward() || card.isBackup() || card.isMonster();

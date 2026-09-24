@@ -3322,7 +3322,7 @@ public class MainWindow {
 		for (Map.Entry<CardData, PlayableEntry> en : entries) {
 			final CardData cd = en.getKey();
 			final PlayableEntry pe = en.getValue();
-			final int cost = pe.effectiveCost(cd);
+			final int cost = borrowedCastCost(cd, pe, true);
 
 			// Apply the same play legality the hand-cast path enforces (uniqueness, Light/Dark, backup slot).
 			boolean isCharacter   = cd.isForward() || cd.isBackup() || cd.isMonster();
@@ -4233,7 +4233,7 @@ public class MainWindow {
 				return backupCp + gameState.getP1Hand().size() * 2 >= cost;
 			}
 			public int bzPlayCost(CardData card) {
-				return hasBzPlay(card) ? bzPlayableP1.get(card).effectiveCost(card) : -1;
+				return hasBzPlay(card) ? borrowedCastCost(card, bzPlayableP1.get(card), true) : -1;
 			}
 			public boolean isAbilityEnabled(ActionAbility ability, CardData card) {
 				return autoAbilityTriggers.canActivateBzAbility(ability, card, true);
@@ -9220,6 +9220,21 @@ public class MainWindow {
 
 	/** @see CostCalculator#computeSelfCostUnits */
 	private int computeSelfCostUnits(SelfCostModifier mod, boolean isP1) { return costs.computeSelfCostUnits(mod, isP1); }
+
+	/**
+	 * What a borrowed cast costs — a card {@code isP1} may cast out of the Break Zone or the
+	 * removed-from-game zone under {@code entry}: the entry's own discount, then the field's cost
+	 * reductions, exactly as a card cast from hand gets them.
+	 *
+	 * <p>{@link PlayableEntry#effectiveCost} alone knew only the entry, so a field discount never
+	 * reached these cards: 29-008L Zidane's two removed cards cost their printed CP with
+	 * Sterne Leonis's "The cost required to cast your Forwards is reduced by 1" on the field. A free
+	 * cast stays free; the field cannot make it cost anything.
+	 */
+	int borrowedCastCost(CardData card, PlayableEntry entry, boolean isP1) {
+		if (entry.freeCast()) return 0;
+		return applyFieldReductions(entry.effectiveCost(card), card, isP1);
+	}
 
 	int applyFieldReductions(int cost, CardData card, boolean isP1) {
 		for (int s = 0; s < 2; s++) {

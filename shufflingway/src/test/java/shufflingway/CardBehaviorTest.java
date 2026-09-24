@@ -63663,4 +63663,72 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Field cost reductions on borrowed casts. 29-008L Zidane's two removed cards are cast out of
+	// the removed-from-game zone, priced by their PlayableEntry — which knew only its own discount,
+	// so Sterne Leonis's "The cost required to cast your Forwards is reduced by 1" never reached
+	// them. MainWindow.borrowedCastCost applies the field's reductions on top, as a hand cast gets.
+	// =========================================================================================
+
+	private static final String STERNE_LEONIS_TEXT =
+			"The cost required to cast your Forwards is reduced by 1 (it cannot become 0).[[br]]   "
+			+ "Remove 4 Forwards in the Break Zone from the game: Select 1 of the 3 following actions."
+			+ "[[br]]   \"Choose 1 Forward. Deal it 7000 damage.\" \"Choose 1 Monster. Break it.\" "
+			+ "\"Until the end of the turn, all the Forwards you control gain +4000 power and Brave.\"";
+
+	/** Zidane's removal for {@code isP1}, with {@code deck} on top of their deck in order. */
+	private static void zidaneRemoves(MainWindow mw, boolean isP1, List<CardData> deck) {
+		for (CardData c : deck) {
+			mw.gameState.getIdentity().put(c, isP1);
+			(isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).add(c);
+		}
+		mw.buildGameContext(isP1).removeTopCardsOfDeckFromGameCastableThisTurn(deck.size(), null, 0, false);
+	}
+
+	@Test
+	void sterneLeonisDiscountsZidanesRemovedForwards() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		CardData forward = makeForward("Removed Forward", "Fire", 3, 7000);
+		CardData summon  = makeJobCard("Removed Summon", "Fire", "Summon", null);
+		zidaneRemoves(mw, true, List.of(forward, summon));
+
+		assertEquals(2, mw.borrowedCastCost(forward, mw.bzPlayableP1.get(forward), true),
+				"3, reduced by 1 — as it would be from hand");
+		assertEquals(3, mw.borrowedCastCost(summon, mw.bzPlayableP1.get(summon), true),
+				"\"your Forwards\": a Summon is not discounted");
+	}
+
+	@Test
+	void sterneLeonisCannotTakeABorrowedForwardToZero() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		CardData one = makeForward("One", "Fire", 1, 3000);
+		zidaneRemoves(mw, true, List.of(one));
+
+		assertEquals(1, mw.borrowedCastCost(one, mw.bzPlayableP1.get(one), true), "(it cannot become 0)");
+	}
+
+	@Test
+	void theOpponentsSterneLeonisDoesNotDiscountYourBorrowedForwards() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		CardData forward = makeForward("Removed Forward", "Fire", 3, 7000);
+		zidaneRemoves(mw, true, List.of(forward));
+
+		assertEquals(3, mw.borrowedCastCost(forward, mw.bzPlayableP1.get(forward), true));
+	}
+
+	@Test
+	void theCpusBorrowedForwardsGetItsOwnSterneLeonisDiscount() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		CardData forward = makeForward("Removed Forward", "Fire", 3, 7000);
+		zidaneRemoves(mw, false, List.of(forward));
+
+		assertEquals(2, mw.borrowedCastCost(forward, mw.bzPlayableP2.get(forward), false));
+	}
+
+	// =========================================================================================
+
 }
