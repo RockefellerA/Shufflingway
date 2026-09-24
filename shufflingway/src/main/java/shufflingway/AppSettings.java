@@ -213,6 +213,19 @@ public final class AppSettings {
     }
 
     /**
+     * Whether P1's Main Phases advance by themselves when there is nothing left to do in them, and
+     * the opponent's Main Phase priority windows pass likewise. Defaults to {@code true}.
+     */
+    public static boolean isAutoAdvanceMainPhases() {
+        return Boolean.parseBoolean(props.getProperty("gameplay.auto.advance.main.phases", "true"));
+    }
+
+    /** Sets the Main Phase auto-advance flag (call {@link #save()} to persist). */
+    public static void setAutoAdvanceMainPhases(boolean enabled) {
+        props.setProperty("gameplay.auto.advance.main.phases", Boolean.toString(enabled));
+    }
+
+    /**
      * Master switch for the Debug section in the Preferences dialog. The Debug section (and any
      * individual debug toggles) are hidden unless {@code settings.ini} contains {@code debug=1}.
      * There is intentionally no setter — users opt in by editing the file by hand.

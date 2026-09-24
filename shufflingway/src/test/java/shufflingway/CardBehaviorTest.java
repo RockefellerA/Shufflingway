@@ -7284,6 +7284,8 @@ public class CardBehaviorTest {
         // P2 has not yet passed, so nobody may act.
         assertFalse(mw.castTimingWindowOpen(jinnai), "no window before P2 passes priority");
 
+        // In hand, so the window has something to be spent on and does not pass itself.
+        mw.gameState.getP1Hand().add(jinnai);
         mw.offerP1MainPhasePriority(() -> {});
         assertTrue(mw.castTimingWindowOpen(jinnai), "Back Attack may be cast in P2's Main Phase");
         assertFalse(mw.castTimingWindowOpen(grunt),  "an ordinary Forward may not");
@@ -7359,6 +7361,8 @@ public class CardBehaviorTest {
 
         // P2's Main Phase with priority: both halves agree, which is the only time Gogo is castable.
         advanceTo(mw, GameState.Player.P2, GameState.GamePhase.MAIN_1);
+        // In hand, so the window has something to be spent on and does not pass itself.
+        mw.gameState.getP1Hand().add(gogo);
         mw.offerP1MainPhasePriority(() -> {});
         assertTrue(mw.castTimingWindowOpen(gogo));
         assertTrue(mw.castRestrictionMet(gogo));

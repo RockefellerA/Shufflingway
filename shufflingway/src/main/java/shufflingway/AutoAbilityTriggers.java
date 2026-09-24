@@ -6438,6 +6438,49 @@ final class AutoAbilityTriggers {
 	 */
 	void addAbilityMenuItems(JPopupMenu menu, CardData card, boolean isFrozen,
 			CardState state, int playedTurn, Runnable applyDull, boolean isP1) {
+		forEachFieldAbility(card, isFrozen, state, playedTurn, isP1, (ability, activatorIsP1, abilityEnabled) -> {
+			String label = abilityEnabled ? mw.buildAbilityMenuLabelHtml(ability) : mw.buildAbilityMenuLabel(ability);
+			if (activatorIsP1 != isP1) {
+				String suffix = " (pay your own cost)";
+				label = label.startsWith("<html>") ? label.replace("</html>", suffix + "</html>") : label + suffix;
+			}
+			JMenuItem item = new JMenuItem(label);
+			item.setEnabled(abilityEnabled);
+			// Reuses the caller's dull runnable, so a granted "《Dull》: …" ability (e.g. Machinist's)
+			// dulls its grantee Forward when activated.
+			item.addActionListener(ae ->
+					showActionAbilityPaymentDialog(ability, card, applyDull, activatorIsP1));
+			menu.add(item);
+		});
+	}
+
+	/**
+	 * Whether P1 could use any action ability {@code card} offers from the field right now — the
+	 * question {@link #addAbilityMenuItems} answers per item, asked of the card as a whole. For a
+	 * P2 card only its "each player can use this ability" abilities count, since those are the
+	 * only ones P1 can reach.
+	 */
+	boolean hasUsableFieldAbility(CardData card, boolean isFrozen, CardState state, int playedTurn, boolean isP1) {
+		boolean[] found = { false };
+		forEachFieldAbility(card, isFrozen, state, playedTurn, isP1, (ability, activatorIsP1, enabled) -> {
+			if (enabled && activatorIsP1) found[0] = true;
+		});
+		return found[0];
+	}
+
+	/** One entry of a card's field ability menu: the ability, who pays for it, and whether it is usable now. */
+	@FunctionalInterface
+	private interface FieldAbilityVisitor {
+		void visit(ActionAbility ability, boolean activatorIsP1, boolean enabled);
+	}
+
+	/**
+	 * Walks every action ability {@code card} offers from the field, in menu order, with the
+	 * activation verdict for each. Shared by the menu and {@link #hasUsableFieldAbility} so the
+	 * two cannot disagree about what the player can do.
+	 */
+	private void forEachFieldAbility(CardData card, boolean isFrozen, CardState state, int playedTurn,
+			boolean isP1, FieldAbilityVisitor visitor) {
 		if (mw.lostAbilitiesCards.contains(card)) return;
 		// Printed abilities first, then the ones borrowed from the removed-from-game zone (Clive
 		// 26-005H). Borrowed specials join this list rather than the temp-granted one below so they
@@ -6470,39 +6513,18 @@ final class AutoAbilityTriggers {
 			// from P1's own resources instead of P2's (P2's hand/backups aren't human-interactive).
 			boolean activatorIsP1 = (!isP1 && ability.usableByEitherPlayer()) ? true : isP1;
 
-			boolean abilityEnabled = phaseOk && mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, activatorIsP1);
-			String label = abilityEnabled ? mw.buildAbilityMenuLabelHtml(ability) : mw.buildAbilityMenuLabel(ability);
-			if (activatorIsP1 != isP1) {
-				String suffix = " (pay your own cost)";
-				label = label.startsWith("<html>") ? label.replace("</html>", suffix + "</html>") : label + suffix;
-			}
-			JMenuItem item = new JMenuItem(label);
-			item.setEnabled(abilityEnabled);
-			item.addActionListener(ae ->
-					showActionAbilityPaymentDialog(ability, card, applyDull, activatorIsP1));
-			menu.add(item);
+			visitor.visit(ability, activatorIsP1,
+					phaseOk && mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, activatorIsP1));
 		}
 
-		for (ActionAbility ability : tempAbilities) {
-			boolean abilityEnabled = isMainPhase && mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, isP1);
-			JMenuItem item = new JMenuItem(abilityEnabled ? mw.buildAbilityMenuLabelHtml(ability) : mw.buildAbilityMenuLabel(ability));
-			item.setEnabled(abilityEnabled);
-			// Reuse the caller's dull runnable so a granted "《Dull》: …" ability (e.g. Machinist's) dulls
-			// its grantee Forward when activated.
-			item.addActionListener(ae ->
-					showActionAbilityPaymentDialog(ability, card, applyDull, isP1));
-			menu.add(item);
-		}
+		for (ActionAbility ability : tempAbilities)
+			visitor.visit(ability, isP1,
+					isMainPhase && mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, isP1));
 
 		ActionAbility petrifyRemoval = petrificationRemovalAbility();
-		if (petrified && petrifyRemoval != null) {
-			boolean abilityEnabled = isMainPhase && mw.canActivateAbility(petrifyRemoval, isFrozen, state, playedTurn, card, isP1);
-			JMenuItem item = new JMenuItem(abilityEnabled ? mw.buildAbilityMenuLabelHtml(petrifyRemoval) : mw.buildAbilityMenuLabel(petrifyRemoval));
-			item.setEnabled(abilityEnabled);
-			item.addActionListener(ae ->
-					showActionAbilityPaymentDialog(petrifyRemoval, card, applyDull, isP1));
-			menu.add(item);
-		}
+		if (petrified && petrifyRemoval != null)
+			visitor.visit(petrifyRemoval, isP1,
+					isMainPhase && mw.canActivateAbility(petrifyRemoval, isFrozen, state, playedTurn, card, isP1));
 	}
 
 	/** Lazily-parsed "《5》: Remove all Petrification Counters from this Forward." — Medusa's granted ability. */

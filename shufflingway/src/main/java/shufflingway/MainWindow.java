@@ -69,6 +69,7 @@ import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.MenuSelectionManager;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
@@ -682,6 +683,9 @@ public class MainWindow {
 	boolean  effectProgress = true;
 
 	private Timer         p2AutoPassTimer;
+	/** Polls for a Main Phase P1 has nothing left to do in; see {@link #pollMainPhaseAutoAdvance}. */
+	private Timer         mainPhaseAutoAdvanceTimer;
+	private final MainPhaseAutoAdvance mainPhaseAutoAdvance = new MainPhaseAutoAdvance(MAIN_PHASE_AUTO_ADVANCE_DELAY_MS);
 	/** Non-null while P1 holds priority during P2's main phase; callback advances to the next phase. */
 	private Runnable      p1PriorityInP2MainOnDone = null;
 	/**
@@ -2417,6 +2421,7 @@ public class MainWindow {
 		stackWindowGeneration++;
 		if (stackCountdownTimer  != null) { stackCountdownTimer.stop();    stackCountdownTimer  = null; }
 		if (p2AutoPassTimer      != null) { p2AutoPassTimer.stop();         p2AutoPassTimer      = null; }
+		mainPhaseAutoAdvance.reset();
 		// Dispose any floating windows.
 		if (summonStackWindow    != null) { summonStackWindow.dispose();    summonStackWindow    = null; }
 		if (openingHandPopup     != null) { openingHandPopup.dispose();     openingHandPopup     = null; }
@@ -2898,6 +2903,7 @@ public class MainWindow {
 		if (!localHandKept || !remoteHandKept || gameState.getCurrentPhase() != null) return;
 		boolean p1GoesFirst = matchSetup.localGoesFirst();
 		gameState.startFirstTurn(p1GoesFirst ? GameState.Player.P1 : GameState.Player.P2);
+		startMainPhaseAutoAdvance();
 		refreshPhaseTracker();
 		refreshP1HandLabel();
 		if (p1GoesFirst) {
@@ -3105,6 +3111,7 @@ public class MainWindow {
 			GameState.Player firstPlayer = p1GoesFirst
 					? GameState.Player.P1 : GameState.Player.P2;
 			gameState.startFirstTurn(firstPlayer);
+			startMainPhaseAutoAdvance();
 			refreshPhaseTracker();
 			refreshP1HandLabel();
 			if (p1GoesFirst) {
@@ -3252,16 +3259,86 @@ public class MainWindow {
 	 * fan that says yes over a menu that says no is worse than either answer alone.
 	 */
 	private boolean canCastFromHand(CardData card, int handIdx) {
-		boolean isCharacter = card.isForward() || card.isBackup() || card.isMonster();
-		boolean nameConflict = isCharacter && !card.multicard()
-				&& hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name(), true);
-		boolean lightDarkConflict = isCharacter && isLightDarkConflict(card);
-		return castTimingWindowOpen(card) && !nameConflict && !lightDarkConflict
+		return castTimingWindowOpen(card) && !characterCastConflict(card)
 				&& canAffordCard(card, handIdx)
 				&& (!card.isBackup() || hasAvailableBackupSlot())
 				&& castRestrictionMet(card)
 				&& !summonCastBlocked(card, true)
 				&& !p1CastLimitReached();
+	}
+
+	/**
+	 * Whether {@code card} is a Character that cannot enter P1's field right now: a same-name
+	 * Character is already there, or it would break the Light/Dark rule.
+	 */
+	private boolean characterCastConflict(CardData card) {
+		boolean isCharacter = card.isForward() || card.isBackup() || card.isMonster();
+		if (!isCharacter) return false;
+		boolean nameConflict = !card.multicard()
+				&& hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name(), true);
+		return nameConflict || isLightDarkConflict(card);
+	}
+
+	// The hand menu's alternative play routes. Each is the enabling rule for one "Play (…)" item in
+	// onHandCardClicked, named so p1HandCardHasAnyPlay asks exactly what the menu asks.
+
+	/** "Play (Warp N)": the card has Warp and its Warp cost can be paid now. */
+	private boolean canWarpFromHand(CardData card, int handIdx) {
+		return card.hasWarp() && castTimingWindowOpen(card) && canAffordWarpCost(card, handIdx)
+				&& castRestrictionMet(card) && !summonCastBlocked(card, true) && !p1CastLimitReached();
+	}
+
+	/**
+	 * The extra cost the hand menu offers {@code card} a route for, or {@code null}. Extra costs
+	 * were originally summon-only; CP_FIXED (e.g. "pay 《Wind》《2》 as an extra cost") also appears
+	 * on Forward/Character "enters the field" abilities (e.g. Samurai).
+	 */
+	private static ExtraCost offeredExtraCost(CardData card) {
+		ExtraCost ec = card.extraCost();
+		return ec != null && (card.isSummon() || ec.type() == ExtraCost.Type.CP_FIXED) ? ec : null;
+	}
+
+	/** "Play (Extra Cost: …)": the card and its extra cost can both be paid now. */
+	private boolean canPayExtraCostFromHand(CardData card, int handIdx, ExtraCost ec) {
+		return castTimingWindowOpen(card) && !summonCastBlocked(card, true)
+				&& canAffordCard(card, handIdx) && canAffordExtraCost(card, handIdx, ec) && !p1CastLimitReached();
+	}
+
+	/** Whether {@code card} prints any alternative cost, so the hand menu offers a "Play (Alt: …)" item. */
+	private static boolean hasAltCost(CardData card) {
+		return card.altCrystalCost() > 0 || card.altCpCost() > 0 || card.altFieldRemoval() != null
+				|| !card.altDullCosts().isEmpty() || card.altPutToBzCost() != null
+				|| card.altPutToBzReduction() != null;
+	}
+
+	/** "Play (Alt: …)": the card's alternative cost can be paid now. */
+	private boolean canPayAltCostFromHand(CardData card, int handIdx) {
+		return castTimingWindowOpen(card) && !characterCastConflict(card)
+				&& canAffordAltCost(card, handIdx)
+				&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card)
+				&& !summonCastBlocked(card, true) && !p1CastLimitReached();
+	}
+
+	/** "Play (Discard N Job X)": a field grant lets {@code card} be cast by discarding, and it can be now. */
+	private boolean canDiscardCastFromHand(CardData card, int handIdx, FieldDiscardCastEntry grant) {
+		return castTimingWindowOpen(card) && !characterCastConflict(card)
+				&& hasEligibleJobInHand(grant.job(), handIdx, grant.count())
+				&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card)
+				&& !summonCastBlocked(card, true) && !p1CastLimitReached();
+	}
+
+	/** Whether any item on the card's hand menu would be enabled right now. */
+	private boolean p1HandCardHasAnyPlay(CardData card, int handIdx) {
+		if (canCastFromHand(card, handIdx) || canWarpFromHand(card, handIdx)) return true;
+		ExtraCost ec = offeredExtraCost(card);
+		if (ec != null && canPayExtraCostFromHand(card, handIdx, ec)) return true;
+		if (hasAltCost(card) && canPayAltCostFromHand(card, handIdx)) return true;
+		for (FieldDiscardCastEntry grant : findDiscardCastGrants(card, true))
+			if (canDiscardCastFromHand(card, handIdx, grant)) return true;
+		for (ActionAbility ability : card.actionAbilities())
+			if (ability.whileCardInHand() && autoAbilityTriggers.canActivateHandAbility(ability, card, true))
+				return true;
+		return false;
 	}
 
 	/** The gold "PLAYABLE n" control that opens {@link #showPlayableCardsDialog()}. */
@@ -3310,6 +3387,23 @@ public class MainWindow {
 	 * registry — Break-Zone and removed-from-game borrowed casts).  Clicking one opens the standard
 	 * payment dialog at the entry's effective (reduced/free) cost, with any-element payment when granted.
 	 */
+	/**
+	 * Why P1 may not cast the borrowed card {@code cd} right now, or {@code null} when nothing but
+	 * the per-turn cast limit could stop them — the same play legality the hand-cast path enforces
+	 * (uniqueness, Light/Dark, backup slot), plus the Summon bans and a Summon's need for a target.
+	 */
+	private String borrowedCastBlockReason(CardData cd) {
+		boolean isCharacter   = cd.isForward() || cd.isBackup() || cd.isMonster();
+		boolean nameConflict  = isCharacter && !cd.multicard() && hasCharacterNameOnField(cd.name()) && !isMultiNameExceptionActive(cd.name(), true);
+		boolean ldConflict    = isCharacter && isLightDarkConflict(cd);
+		boolean noSlot        = cd.isBackup() && !hasAvailableBackupSlot();
+		boolean summonBlocked = cd.isSummon() && summonCastingBanned(true);
+		boolean noTarget      = !summonBlocked && !summonHasCastTarget(cd, true);
+		return nameConflict ? "Name conflict" : ldConflict ? "Light/Dark"
+				: noSlot ? "No slot" : summonBlocked ? "Summons blocked"
+				: noTarget ? "No target" : null;
+	}
+
 	private void showPlayableCardsDialog() {
 		List<Map.Entry<CardData, PlayableEntry>> entries = new ArrayList<>(bzPlayableP1.entrySet());
 		if (entries.isEmpty()) return;
@@ -3324,17 +3418,8 @@ public class MainWindow {
 			final PlayableEntry pe = en.getValue();
 			final int cost = borrowedCastCost(cd, pe, true);
 
-			// Apply the same play legality the hand-cast path enforces (uniqueness, Light/Dark, backup slot).
-			boolean isCharacter   = cd.isForward() || cd.isBackup() || cd.isMonster();
-			boolean nameConflict  = isCharacter && !cd.multicard() && hasCharacterNameOnField(cd.name()) && !isMultiNameExceptionActive(cd.name(), true);
-			boolean ldConflict    = isCharacter && isLightDarkConflict(cd);
-			boolean noSlot        = cd.isBackup() && !hasAvailableBackupSlot();
-			boolean summonBlocked = cd.isSummon() && summonCastingBanned(true);
-			boolean noTarget      = !summonBlocked && !summonHasCastTarget(cd, true);
-			final boolean legal   = !nameConflict && !ldConflict && !noSlot && !summonBlocked && !noTarget && !p1CastLimitReached();
-			final String reason   = nameConflict ? "Name conflict" : ldConflict ? "Light/Dark"
-					: noSlot ? "No slot" : summonBlocked ? "Summons blocked"
-					: noTarget ? "No target" : null;
+			final String reason   = borrowedCastBlockReason(cd);
+			final boolean legal   = reason == null && !p1CastLimitReached();
 
 			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
 			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
@@ -8542,10 +8627,6 @@ public class MainWindow {
 		JPopupMenu menu = new JPopupMenu();
 
 		JMenuItem playItem = new JMenuItem("Play");
-		boolean canPlaySpecialAction = castTimingWindowOpen(card);
-		boolean isCharacter = card.isForward() || card.isBackup() || card.isMonster();
-		boolean nameConflict = isCharacter && !card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name(), true);
-		boolean lightDarkConflict = isCharacter && isLightDarkConflict(card);
 		playItem.setEnabled(canCastFromHand(card, handIdx));
 		playItem.addActionListener(ae -> {
 			hideZoom();
@@ -8555,8 +8636,7 @@ public class MainWindow {
 
 		if (card.hasWarp()) {
 			JMenuItem warpItem = new JMenuItem("Play (Warp " + card.warpValue() + ")");
-			warpItem.setEnabled(canPlaySpecialAction && canAffordWarpCost(card, handIdx) && castRestrictionMet(card)
-					&& !summonCastBlocked(card, true) && !p1CastLimitReached());
+			warpItem.setEnabled(canWarpFromHand(card, handIdx));
 			warpItem.addActionListener(ae -> {
 				hideZoom();
 				showWarpPaymentDialog(card, handIdx);
@@ -8564,13 +8644,10 @@ public class MainWindow {
 			menu.add(warpItem);
 		}
 
-		ExtraCost ec = card.extraCost();
-		// Extra costs were originally summon-only; CP_FIXED (e.g. "pay 《Wind》《2》 as an extra
-		// cost") also appears on Forward/Character "enters the field" abilities (e.g. Samurai).
-		if (ec != null && (card.isSummon() || ec.type() == ExtraCost.Type.CP_FIXED)) {
+		ExtraCost ec = offeredExtraCost(card);
+		if (ec != null) {
 			JMenuItem ecItem = new JMenuItem("Play (Extra Cost: " + ec.description() + ")");
-			ecItem.setEnabled(canPlaySpecialAction && !summonCastBlocked(card, true)
-					&& canAffordCard(card, handIdx) && canAffordExtraCost(card, handIdx, ec) && !p1CastLimitReached());
+			ecItem.setEnabled(canPayExtraCostFromHand(card, handIdx, ec));
 			ecItem.addActionListener(ae -> {
 				hideZoom();
 				showExtraCostPlayDialog(card, handIdx, ec);
@@ -8582,8 +8659,7 @@ public class MainWindow {
 		CardData.AltPutToBzCost altBz = card.altPutToBzCost();
 		CardData.AltPutToBzReduction altBzReduce = card.altPutToBzReduction();
 		CardData.AltSelfReduction altSelfReduce = card.altSelfReduction();
-		if (card.altCrystalCost() > 0 || card.altCpCost() > 0 || card.altFieldRemoval() != null
-				|| !altDull.isEmpty() || altBz != null || altBzReduce != null) {
+		if (hasAltCost(card)) {
 			int ac = card.altCrystalCost();
 			List<String> altElems = card.altCpElements();
 			CardData.AltFieldRemoval afr = card.altFieldRemoval();
@@ -8614,10 +8690,7 @@ public class MainWindow {
 			String altLabel = "Play (Alt: " + bzReduceStr + bzStr + dullStr + removalStr + crystalStr
 					+ cpStr + condStr + ")" + drawbackStr;
 			JMenuItem altItem = new JMenuItem(altLabel);
-			altItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict
-					&& canAffordAltCost(card, handIdx)
-					&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card)
-					&& !summonCastBlocked(card, true) && !p1CastLimitReached());
+			altItem.setEnabled(canPayAltCostFromHand(card, handIdx));
 			altItem.addActionListener(ae -> {
 				hideZoom();
 				showAltCostPlayDialog(card, handIdx);
@@ -8627,10 +8700,7 @@ public class MainWindow {
 
 		for (FieldDiscardCastEntry grant : findDiscardCastGrants(card, true)) {
 			JMenuItem dItem = new JMenuItem("Play (Discard " + grant.count() + " Job " + grant.job() + ")");
-			dItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict
-					&& hasEligibleJobInHand(grant.job(), handIdx, grant.count())
-					&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card)
-					&& !summonCastBlocked(card, true) && !p1CastLimitReached());
+			dItem.setEnabled(canDiscardCastFromHand(card, handIdx, grant));
 			dItem.addActionListener(ae -> {
 				hideZoom();
 				showFieldDiscardCastDialog(card, handIdx, grant);
@@ -18189,6 +18259,129 @@ public class MainWindow {
 		return false;
 	}
 
+	/**
+	 * Whether P1 has anything at all they could do in their own Main Phase right now — every route
+	 * the board offers: casting from hand by any means, an ability used from hand, the field
+	 * (including an opponent's "each player can use this ability" abilities), or the Break Zone,
+	 * Priming, a borrowed cast, and an LB cast.
+	 *
+	 * <p>Each part asks the same question its menu asks when it enables an item, through the same
+	 * method, so an item that is live on screen always counts here. Where there is no such method
+	 * to share, the check leans towards "there is a play": a wrong yes only means the player clicks
+	 * Next as they always have, but a wrong no advances the phase past a play they wanted.
+	 */
+	boolean p1HasMainPhasePlay() {
+		List<CardData> hand = gameState.getP1Hand();
+		for (int i = 0; i < hand.size(); i++)
+			if (p1HandCardHasAnyPlay(hand.get(i), i)) return true;
+
+		for (int i = 0; i < p1ForwardCards.size(); i++) {
+			CardData effective = p1ForwardPrimedTop.get(i) != null ? p1ForwardPrimedTop.get(i) : p1ForwardCards.get(i);
+			if (autoAbilityTriggers.hasUsableFieldAbility(effective, p1ForwardFrozen.get(i),
+					p1ForwardStates.get(i), p1ForwardPlayedOnTurn.get(i), true)) return true;
+			if (canPrimeP1Forward(i)) return true;
+		}
+		for (int i = 0; i < p1BackupCards.length; i++)
+			if (p1BackupCards[i] != null && autoAbilityTriggers.hasUsableFieldAbility(p1BackupCards[i],
+					p1BackupFrozen[i], p1BackupStates[i], p1BackupPlayedOnTurn[i], true)) return true;
+		for (int i = 0; i < p1MonsterCards.size(); i++)
+			if (autoAbilityTriggers.hasUsableFieldAbility(p1MonsterCards.get(i), p1MonsterFrozen.get(i),
+					p1MonsterStates.get(i), p1MonsterPlayedOnTurn.get(i), true)) return true;
+
+		// The opponent's side counts only for abilities either player may use; hasUsableFieldAbility
+		// filters to those. Played-on-turn values mirror what each P2 menu passes.
+		for (int i = 0; i < p2ForwardCards.size(); i++) {
+			CardData effective = p2ForwardPrimedTop.get(i) != null ? p2ForwardPrimedTop.get(i) : p2ForwardCards.get(i);
+			if (autoAbilityTriggers.hasUsableFieldAbility(effective, p2ForwardFrozen.get(i),
+					p2ForwardStates.get(i), p2ForwardPlayedOnTurn.get(i), false)) return true;
+		}
+		for (int i = 0; i < p2BackupCards.length; i++)
+			if (p2BackupCards[i] != null && autoAbilityTriggers.hasUsableFieldAbility(p2BackupCards[i],
+					p2BackupFrozen[i], p2BackupStates[i], 0, false)) return true;
+		for (int i = 0; i < p2MonsterCards.size(); i++)
+			if (autoAbilityTriggers.hasUsableFieldAbility(p2MonsterCards.get(i), p2MonsterFrozen.get(i),
+					p2MonsterStates.get(i), p2MonsterPlayedOnTurn.get(i), false)) return true;
+
+		for (CardData c : gameState.getP1BreakZone())
+			for (ActionAbility a : c.actionAbilities())
+				if (a.breakZoneOnly() != null && autoAbilityTriggers.canActivateBzAbility(a, c, true)) return true;
+
+		// Borrowed casts are not checked for affordability, as their dialog does not check it either.
+		if (!p1CastLimitReached())
+			for (CardData c : bzPlayableP1.keySet())
+				if (castTimingWindowOpen(c) && borrowedCastBlockReason(c) == null) return true;
+
+		return p1HasCastableLbCard();
+	}
+
+	/**
+	 * Whether some unspent card in P1's LB deck could be cast now: it is not barred, enough other
+	 * unspent LB cards remain to pay its LB cost, and its CP cost can be met.
+	 */
+	private boolean p1HasCastableLbCard() {
+		List<CardData> lb = gameState.getP1LbDeck();
+		int unspent = lb.size() - spentLbIndices.size();
+		for (int i = 0; i < lb.size(); i++) {
+			if (spentLbIndices.contains(i)) continue;
+			CardData c = lb.get(i);
+			if (lbCastBlocked(c) || unspent - 1 < c.lbCost()) continue;
+			if (c.isBackup() && !hasAvailableBackupSlot()) continue;
+			if (effectiveCastCost(c) > 0 && !canAffordCard(c, -1)) continue;
+			return true;
+		}
+		return false;
+	}
+
+	/** How long P1's Main Phase waits, with nothing to do, before advancing itself. */
+	private static final int MAIN_PHASE_AUTO_ADVANCE_DELAY_MS = 900;
+	/** How often {@link #pollMainPhaseAutoAdvance} runs. */
+	private static final int MAIN_PHASE_AUTO_ADVANCE_POLL_MS = 150;
+
+	/**
+	 * Starts the watcher that presses Next for P1 in a Main Phase they have nothing to do in.
+	 * Idempotent; started when a game begins rather than with the window, so a window built only
+	 * to test board state never has a timer running under it.
+	 */
+	private void startMainPhaseAutoAdvance() {
+		if (mainPhaseAutoAdvanceTimer != null) return;
+		mainPhaseAutoAdvanceTimer = new Timer(MAIN_PHASE_AUTO_ADVANCE_POLL_MS, e -> pollMainPhaseAutoAdvance());
+		mainPhaseAutoAdvanceTimer.start();
+	}
+
+	/** One tick of the watcher: advance the phase once it has been idle long enough. */
+	private void pollMainPhaseAutoAdvance() {
+		if (!mainPhaseAutoAdvance.poll(mainPhaseAutoAdvanceReady(), System.currentTimeMillis())) return;
+		logEntry("No plays available — advancing automatically.");
+		onNextPhase();
+	}
+
+	/**
+	 * Whether pressing Next for P1 right now would be exactly the click they would have made:
+	 * it is their own Main Phase, Next is live and nothing else holds it, the board is settled,
+	 * no menu or dialog is open, and there is nothing they could do instead.
+	 *
+	 * <p>Everything but the last condition is cheap, and is asked first so the play check only
+	 * runs while the phase is otherwise ready to move.
+	 *
+	 * <p>Multiplayer needs nothing extra. The advance goes through {@link #onNextPhase}, the same
+	 * path a click takes, so the opponent gets the same priority offer and is waited on in the same
+	 * way — and P1 only ever reaches here on their own turn with Next enabled, which is never while
+	 * this client is waiting on the other.
+	 */
+	private boolean mainPhaseAutoAdvanceReady() {
+		if (!AppSettings.isAutoAdvanceMainPhases()) return false;
+		if (gameState.isP1GameOver() || gameState.getCurrentPlayer() != GameState.Player.P1) return false;
+		GameState.GamePhase phase = gameState.getCurrentPhase();
+		if (phase != GameState.GamePhase.MAIN_1 && phase != GameState.GamePhase.MAIN_2) return false;
+		if (nextPhaseButton == null || !nextPhaseButton.isEnabled() || !nextPhaseButton.isShowing()) return false;
+		if (p1CombatPriorityOnPass != null || p1PriorityInP2MainOnDone != null) return false;
+		if (fieldTargetingActive || p2AutoPassTimer != null) return false;
+		// An open popup (a card's menu) means the player is choosing something right now.
+		if (MenuSelectionManager.defaultManager().getSelectedPath().length > 0) return false;
+		if (!isBoardSettled()) return false;
+		return !p1HasMainPhasePlay();
+	}
+
 	/** Returns true if any P2 field card has at least one action ability. */
 	private boolean p2HasActivatableAbilities() {
 		for (CardData c : fieldCards(false))
@@ -18247,6 +18440,13 @@ public class MainWindow {
 	 * while this is active clears the state and runs {@code onPass}.
 	 */
 	void offerP1MainPhasePriority(Runnable onPass) {
+		// Nothing priority could be spent on: pass straight back, as holdPriorityForPhaseOffer
+		// already does for the same window against a networked opponent.
+		if (AppSettings.isAutoAdvanceMainPhases() && !p1HasActivatableAbilities()) {
+			logEntry("[Priority] P2 passes — no abilities or summons to use, passing automatically.");
+			onPass.run();
+			return;
+		}
 		p1PriorityInP2MainOnDone = onPass;
 		if (nextPhaseButton != null) nextPhaseButton.setEnabled(true);
 		// P2 passes on a timer, so the hand popover may already be open — restate what is castable now.
@@ -19651,6 +19851,14 @@ public class MainWindow {
 	// Field context menus
 	// -------------------------------------------------------------------------
 
+	/** Whether the P1 Forward at {@code idx} can be primed right now — its menu's "Prime" item. */
+	private boolean canPrimeP1Forward(int idx) {
+		CardData fwd = p1ForwardCards.get(idx);
+		return fwd.hasPriming() && p1ForwardPrimedTop.get(idx) == null
+				&& priming.primingTimingWindowOpen() && priming.canAffordPrimingCost(fwd)
+				&& !priming.primingTargetOnField(fwd.primingTarget(), true);
+	}
+
 	/** Shows a context menu for a P1 forward slot. */
 	private void showForwardContextMenu(int idx, JLabel slot, MouseEvent e) {
 		if (fieldTargetingActive) return;
@@ -19673,8 +19881,7 @@ public class MainWindow {
 		CardData fwd = p1ForwardCards.get(idx);
 		if (fwd.hasPriming() && p1ForwardPrimedTop.get(idx) == null) {
 			JMenuItem primeItem = new JMenuItem("Prime (" + fwd.primingTarget() + ")");
-			primeItem.setEnabled(priming.primingTimingWindowOpen() && priming.canAffordPrimingCost(fwd)
-					&& !priming.primingTargetOnField(fwd.primingTarget(), true));
+			primeItem.setEnabled(canPrimeP1Forward(idx));
 			primeItem.addActionListener(ae -> priming.showPrimingPaymentDialog(fwd, idx));
 			menu.add(primeItem);
 		}
