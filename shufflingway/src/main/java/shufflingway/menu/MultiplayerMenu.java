@@ -18,6 +18,8 @@ import java.util.function.Consumer;
 public class MultiplayerMenu extends JMenu {
 
     private GameConnection activeConnection;
+    private final JMenuItem hostItem;
+    private final JMenuItem joinItem;
     private final JMenuItem disconnectItem;
 
     /**
@@ -31,10 +33,10 @@ public class MultiplayerMenu extends JMenu {
                            Consumer<String> onDisconnected, Consumer<GameAction> onActionReceived) {
         super("Multiplayer");
 
-        JMenuItem hostItem = new JMenuItem("Host Game…");
-        JMenuItem joinItem = new JMenuItem("Join Game…");
+        hostItem = new JMenuItem("Host Game…");
+        joinItem = new JMenuItem("Join Game…");
         disconnectItem = new JMenuItem("Disconnect");
-        disconnectItem.setEnabled(false);
+        refreshItems();
 
         hostItem.addActionListener(e -> {
             HostLobbyDialog dlg = new HostLobbyDialog(owner);
@@ -66,7 +68,7 @@ public class MultiplayerMenu extends JMenu {
                           Consumer<GameAction> onActionReceived) {
         if (activeConnection != null) activeConnection.close();
         activeConnection = conn;
-        disconnectItem.setEnabled(true);
+        refreshItems();
 
         conn.addListener(new shufflingway.net.ConnectionListener() {
             @Override
@@ -77,7 +79,7 @@ public class MultiplayerMenu extends JMenu {
             public void onDisconnected(String reason) {
                 SwingUtilities.invokeLater(() -> {
                     activeConnection = null;
-                    disconnectItem.setEnabled(false);
+                    refreshItems();
                     if (onDisconnected != null) onDisconnected.accept(reason);
                     JOptionPane.showMessageDialog(owner,
                         "Opponent disconnected: " + reason,
@@ -101,10 +103,21 @@ public class MultiplayerMenu extends JMenu {
             activeConnection.close();
             activeConnection = null;
         }
-        disconnectItem.setEnabled(false);
+        refreshItems();
         if (onDisconnected != null) onDisconnected.accept("you left the game");
         JOptionPane.showMessageDialog(owner, "Disconnected.", "Multiplayer",
                 JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /**
+     * While connected only Disconnect is live: hosting or joining another game would drop this
+     * one without a word to the opponent. A new game with the same opponent is File → New Game.
+     */
+    private void refreshItems() {
+        boolean connected = activeConnection != null;
+        hostItem.setEnabled(!connected);
+        joinItem.setEnabled(!connected);
+        disconnectItem.setEnabled(connected);
     }
 
     /** Returns the active connection, or {@code null} if not connected. */

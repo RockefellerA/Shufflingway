@@ -9569,7 +9569,7 @@ public record CardData(
     public boolean hasWarp() { return warpValue > 0; }
 
     /** Returns {@code true} if this card has the Priming trait. */
-    public boolean hasPriming() { return !primingTarget.isEmpty(); }
+    public boolean hasPriming() { return primingTarget != null && !primingTarget.isEmpty(); }
 
     /** Returns {@code true} if any of this card's elements is Light or Dark (cannot be discarded for CP). */
     public boolean isLightOrDark() {

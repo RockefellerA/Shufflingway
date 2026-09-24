@@ -54,6 +54,7 @@ public class PriorityIndicatorTest {
 		set(mw.gameState, GameState.class, "currentPlayer", GameState.Player.P2);
 		set(mw.gameState, GameState.class, "currentPhase", GameState.GamePhase.ATTACK);
 		mw.gameState.getP1Hand().add(summon());
+		mw.gameState.getP1Hand().add(summon());   // discarded for the other's CP
 
 		mw.offerP1AttackPrepPriority(() -> { });
 

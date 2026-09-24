@@ -143,6 +143,7 @@ import shufflingway.net.ChoiceKind;
 import shufflingway.net.GameAction;
 import shufflingway.net.GameConnection;
 import shufflingway.net.MatchSetup;
+import shufflingway.net.NewGameDialog;
 
 public class MainWindow {
 
@@ -710,9 +711,13 @@ public class MainWindow {
 	private Timer         p2AutoPassTimer;
 	/** Polls for a Main Phase P1 has nothing left to do in; see {@link #pollMainPhaseAutoAdvance}. */
 	private Timer         mainPhaseAutoAdvanceTimer;
+	/** The open File → New Game negotiation on a multiplayer connection, or {@code null}. */
+	private NewGameDialog newGameDialog;
+	/** The Debug menu, or {@code null} when debug mode is off. */
+	private DebugMenu debugMenu;
 	private final MainPhaseAutoAdvance mainPhaseAutoAdvance = new MainPhaseAutoAdvance(MAIN_PHASE_AUTO_ADVANCE_DELAY_MS);
 	/** Non-null while P1 holds priority during P2's main phase; callback advances to the next phase. */
-	private Runnable      p1PriorityInP2MainOnDone = null;
+	Runnable              p1PriorityInP2MainOnDone = null;
 	/**
 	 * Non-null while P1 holds priority at a combat checkpoint on their own turn (currently: right
 	 * after declaring an attacker). P1 may cast Summons or use action abilities; clicking Next
@@ -1709,7 +1714,8 @@ public class MainWindow {
 		frame.setJMenuBar(menuBar);
 		menuBar.add(new FileMenu(frame, (p1Id, p2Id) -> startGame(p1Id, p2Id),
 				() -> applySidePanelSide(AppSettings.getSidePanelSide()),
-				this::applyBoardColor));
+				this::applyBoardColor,
+				this::multiplayerConnected, this::requestMultiplayerNewGame));
 		multiplayerMenu = new MultiplayerMenu(frame,
 				setup -> {
 					SwingUtilities.invokeLater(() -> {
@@ -1721,6 +1727,8 @@ public class MainWindow {
 				reason -> SwingUtilities.invokeLater(() -> {
 					chatInput.setEnabled(false);
 					chatSendBtn.setEnabled(false);
+					if (newGameDialog != null) newGameDialog.connectionLost();
+					refreshDebugMenuAvailability();   // the host's setting ends with the session
 					onOpponentDisconnected(reason);
 				}),
 				action -> {
@@ -1729,6 +1737,8 @@ public class MainWindow {
 						if (!msg.isEmpty()) logEntry("[Opponent] " + msg);
 					} else if (action.type() == ActionType.STATE_CHECKSUM) {
 						onRemoteChecksum(action.payload());
+					} else if (isNewGameMessage(action.type())) {
+						onNewGameMessage(action);
 					} else if (opponent instanceof RemoteOpponent remote) {
 						// Everything else is the opponent playing; they own its interpretation.
 						if (!remote.onActionReceived(action))
@@ -1740,8 +1750,9 @@ public class MainWindow {
 
 		if (AppSettings.isDebugEnabled()) {
 			DebugUtility debug = new DebugUtility(this);
-			menuBar.add(new DebugMenu(debug::spawnOnField, debug::addToHand, debug::addToBreakZone,
-					debug::addRemoveCounters, debug::activateDullCards, debug::setDamageAndCrystals));
+			debugMenu = new DebugMenu(debug::spawnOnField, debug::addToHand, debug::addToBreakZone,
+					debug::addRemoveCounters, debug::activateDullCardsOrBreak, debug::setDamageAndCrystals);
+			menuBar.add(debugMenu);
 		}
 
 		Dimension cardSize = new Dimension(CARD_W, CARD_H);
@@ -2443,6 +2454,7 @@ public class MainWindow {
 
 	private void startGame(int deckId, int p2DeckId) {
 		matchSetup = null;              // a local game against the AI
+		refreshDebugMenuAvailability();
 		resetForNewGame();
 		applyTurnPillNames();
 		loadCpuGameDecks(deckId, p2DeckId);
@@ -2458,6 +2470,7 @@ public class MainWindow {
 	 */
 	void startMultiplayerGame(MatchSetup setup) {
 		matchSetup         = setup;
+		refreshDebugMenuAvailability();
 		localDealChecksum  = null;
 		remoteDealChecksum = null;
 		localHandKept      = false;
@@ -2466,6 +2479,72 @@ public class MainWindow {
 		resetForNewGame();
 		applyTurnPillNames();
 		loadMultiplayerDecks(setup);
+	}
+
+	/**
+	 * Greys out the Debug menu for a networked match whose host left "Enable Debugging" unchecked,
+	 * on both clients alike, and restores it for any other game and as soon as the connection
+	 * ends. A local game against the AI always has it. No-op when debug mode is off, as there is
+	 * no menu.
+	 */
+	private void refreshDebugMenuAvailability() {
+		if (debugMenu == null) return;
+		boolean allowed = matchSetup == null || !multiplayerConnected() || matchSetup.debugEnabled();
+		debugMenu.setEnabled(allowed);
+		debugMenu.setToolTipText(allowed ? null : "The host has not enabled debugging for this game.");
+	}
+
+	/** Whether a multiplayer connection is open. */
+	private boolean multiplayerConnected() {
+		return multiplayerMenu != null && multiplayerMenu.getActiveConnection() != null;
+	}
+
+	/** Sends straight to the peer, past the opponent controller, which a new game replaces. */
+	private void sendOnConnection(GameAction action) {
+		GameConnection conn = multiplayerMenu == null ? null : multiplayerMenu.getActiveConnection();
+		if (conn != null) conn.send(action);
+	}
+
+	/**
+	 * File → New Game while connected: confirm, ask the opponent, and pick a deck while waiting
+	 * for them. The game in progress carries on underneath if either player cancels.
+	 */
+	private void requestMultiplayerNewGame() {
+		if (newGameDialog != null || matchSetup == null) return;
+		int choice = JOptionPane.showConfirmDialog(frame, "Do you want to start a new game?",
+				"New Game", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+		if (choice != JOptionPane.YES_OPTION) return;
+		sendOnConnection(GameAction.of(ActionType.NEW_GAME_REQUEST));
+		openNewGameDialog(true);
+	}
+
+	/** The messages {@link NewGameDialog} negotiates with. GAME_SETUP only arrives after the lobby for a new game. */
+	private static boolean isNewGameMessage(ActionType type) {
+		return type == ActionType.NEW_GAME_REQUEST || type == ActionType.NEW_GAME_READY
+				|| type == ActionType.NEW_GAME_CANCEL || type == ActionType.GAME_SETUP;
+	}
+
+	private void onNewGameMessage(GameAction action) {
+		if (newGameDialog != null && newGameDialog.onAction(action)) return;
+		if (action.type() == ActionType.NEW_GAME_REQUEST && matchSetup != null) openNewGameDialog(false);
+		// Anything else belongs to a negotiation this side has already closed — a Ready crossing
+		// a Cancel on the wire — and has nothing left to act on.
+	}
+
+	/**
+	 * Shows the new-game dialog until it starts, is cancelled, or the connection drops. Modal,
+	 * but its nested event loop keeps delivering inbound actions, which reach it through
+	 * {@link #onNewGameMessage} — including the GAME_SETUP that starts the game from inside it.
+	 */
+	private void openNewGameDialog(boolean requestedLocally) {
+		NewGameDialog dlg = new NewGameDialog(frame, matchSetup, requestedLocally,
+				this::sendOnConnection, this::startMultiplayerGame);
+		newGameDialog = dlg;
+		try {
+			dlg.setVisible(true);
+		} finally {
+			if (newGameDialog == dlg) newGameDialog = null;
+		}
 	}
 
 	/**
@@ -13030,6 +13109,28 @@ public class MainWindow {
 				() -> refreshP2MonsterSlot(idx), null);
 	}
 
+	/**
+	 * Turns any field card between upright and dulled with the usual rotation, for either player
+	 * and any zone. Animation only: the caller has already written the state, and the slot is
+	 * re-rendered from it when the rotation finishes.
+	 */
+	void animateFieldCardRotation(boolean isP1, ForwardTarget.CardZone zone, int idx, boolean dulling) {
+		switch (zone) {
+			case BACKUP -> {
+				if (isP1) animateDullBackup(idx, dulling); else animateDullP2Backup(idx, dulling);
+			}
+			case FORWARD -> animateCardRotation(
+					(isP1 ? p1ForwardUrls : p2ForwardUrls).get(idx),
+					(isP1 ? p1ForwardLabels : p2ForwardLabels).get(idx), dulling, null,
+					() -> { if (isP1) refreshP1ForwardSlot(idx); else refreshP2ForwardSlot(idx); }, null);
+			case MONSTER -> animateCardRotation(
+					(isP1 ? p1MonsterUrls : p2MonsterUrls).get(idx),
+					(isP1 ? p1MonsterLabels : p2MonsterLabels).get(idx), dulling, null,
+					() -> { if (isP1) refreshP1MonsterSlot(idx); else refreshP2MonsterSlot(idx); }, null);
+			default -> { }
+		}
+	}
+
 	private static String buildCounterTooltip(Map<String, Integer> countersMap) {
 		if (countersMap.isEmpty()) return null;
 		StringBuilder sb = new StringBuilder("<html>");
@@ -18398,31 +18499,22 @@ public class MainWindow {
 	}
 
 	/**
-	 * Returns true if P1 has anything a priority window could be spent on: an action ability on the
-	 * field, or a card in hand castable at Summon speed (a Summon, or a Back Attack Character).
-	 * When this is false {@link #p1HoldPriority} passes automatically rather than stopping on a
-	 * checkpoint the player could not act at.
-	 */
-	private boolean p1HasActivatableAbilities() {
-		for (CardData c : fieldCards(true))
-			if (hasFieldActionAbilities(c, true)) return true;
-		for (CardData c : gameState.getP1Hand())
-			if (c.castsAtSummonSpeed()) return true;
-		return false;
-	}
-
-	/**
-	 * Whether P1 has anything at all they could do in their own Main Phase right now — every route
-	 * the board offers: casting from hand by any means, an ability used from hand, the field
-	 * (including an opponent's "each player can use this ability" abilities), or the Break Zone,
-	 * Priming, a borrowed cast, and an LB cast.
+	 * Whether P1 has anything at all they could do right now — every route the board offers:
+	 * casting from hand by any means, an ability used from hand, the field (including an opponent's
+	 * "each player can use this ability" abilities), or the Break Zone, Priming, a borrowed cast,
+	 * and an LB cast.
+	 *
+	 * <p>It answers for whatever window P1 is in, not only their own Main Phase: every part asks the
+	 * timing rules too. A priority window on the opponent's turn or mid-combat must be registered
+	 * ({@link #p1PriorityInP2MainOnDone} or {@link #p1CombatPriorityOnPass}) before asking, as the
+	 * timing rules only open Summon-speed plays to a player who holds priority.
 	 *
 	 * <p>Each part asks the same question its menu asks when it enables an item, through the same
 	 * method, so an item that is live on screen always counts here. Where there is no such method
 	 * to share, the check leans towards "there is a play": a wrong yes only means the player clicks
 	 * Next as they always have, but a wrong no advances the phase past a play they wanted.
 	 */
-	boolean p1HasMainPhasePlay() {
+	boolean p1HasAnyPlay() {
 		List<CardData> hand = gameState.getP1Hand();
 		for (int i = 0; i < hand.size(); i++)
 			if (p1HandCardHasAnyPlay(hand.get(i), i)) return true;
@@ -18531,7 +18623,7 @@ public class MainWindow {
 		// An open popup (a card's menu) means the player is choosing something right now.
 		if (MenuSelectionManager.defaultManager().getSelectedPath().length > 0) return false;
 		if (!isBoardSettled()) return false;
-		return !p1HasMainPhasePlay();
+		return !p1HasAnyPlay();
 	}
 
 	/** Returns true if any P2 field card has at least one action ability. */
@@ -18592,14 +18684,17 @@ public class MainWindow {
 	 * while this is active clears the state and runs {@code onPass}.
 	 */
 	void offerP1MainPhasePriority(Runnable onPass) {
+		// Registered before the check, which asks the timing rules — and they only open a Summon-speed
+		// play on P2's turn to a player who holds priority there.
+		p1PriorityInP2MainOnDone = onPass;
 		// Nothing priority could be spent on: pass straight back, as holdPriorityForPhaseOffer
 		// already does for the same window against a networked opponent.
-		if (AppSettings.isAutoAdvanceMainPhases() && !p1HasActivatableAbilities()) {
-			logEntry("[Priority] P2 passes — no abilities or summons to use, passing automatically.");
+		if (AppSettings.isAutoAdvanceMainPhases() && !p1HasAnyPlay()) {
+			p1PriorityInP2MainOnDone = null;
+			logEntry("[Priority] P2 passes — nothing you can play, passing automatically.");
 			onPass.run();
 			return;
 		}
-		p1PriorityInP2MainOnDone = onPass;
 		if (nextPhaseButton != null) nextPhaseButton.setEnabled(true);
 		// P2 passes on a timer, so the hand popover may already be open — restate what is castable now.
 		refreshHandCardStates();
@@ -18610,21 +18705,24 @@ public class MainWindow {
 	 * Combat checkpoint on P1's turn where P1 holds priority first — used after P1 declares an
 	 * attacker. Instead of a pass-only popup, P1 keeps the board: they may cast a Summon or use an
 	 * action ability and then click Next to pass, after which P2 responds (auto-pass) and
-	 * {@code onPass} continues the combat step. When P1 has no action ability on the field and no
-	 * Summon in hand there is nothing priority could be used for, so it passes automatically — the
+	 * {@code onPass} continues the combat step. When nothing P1 holds could be used in the window —
+	 * {@link #p1HasAnyPlay}, the same answer their menus give — it passes automatically, and the
 	 * log says so, since combat otherwise appears to skip the checkpoint.
 	 *
 	 * @param announcement game-log line for what just happened, or {@code null} to log only the prompt
 	 */
 	private void p1HoldPriority(String announcement, Runnable onPass) {
 		String lead = announcement != null ? announcement + " " : "";
-		if (!p1HasActivatableAbilities()) {
-			logEntry(lead + "No abilities or summons to use — passing priority automatically.");
+		// Registered before the check, which asks the timing rules — and they only open Attack Phase
+		// plays to a player who holds priority there.
+		p1CombatPriorityOnPass = onPass;
+		if (!p1HasAnyPlay()) {
+			p1CombatPriorityOnPass = null;
+			logEntry(lead + "Nothing you can play — passing priority automatically.");
 			onPass.run();
 			return;
 		}
 		logEntry(lead + "Use an ability or summon, or pass priority with 'Next'");
-		p1CombatPriorityOnPass = onPass;
 		// The window really is P1's now, so the tracker has to say so. refreshPhaseTracker paints
 		// priority from the turn owner alone, which is right at a phase boundary and wrong here: on
 		// P2's turn it leaves the indicator red while this method hands P1 the Next button, so the

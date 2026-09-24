@@ -29,6 +29,8 @@ public class JoinLobbyDialog extends JDialog {
     private final JTextField hostField;
     private final JTextField portField;
     private final JLabel statusLabel;
+    /** "Debug Mode: Enabled", shown under the status while the host has debugging switched on. */
+    private final JLabel debugLabel;
     private final JButton connectBtn;
     private final DeckChooserPanel deckChooser;
 
@@ -64,9 +66,19 @@ public class JoinLobbyDialog extends JDialog {
 
         deckChooser = new DeckChooserPanel("Your Deck", this::refreshConnectButton);
 
+        // Blank rather than hidden while off, so the line's height is reserved from the start and
+        // the dialog (not resizable) does not have to make room when the host switches it on.
+        debugLabel = new JLabel(" ", SwingConstants.CENTER);
+        debugLabel.setFont(new Font("Dialog", Font.BOLD, 12));
+        debugLabel.setForeground(new Color(0xc0392b));
+
+        JPanel south = new JPanel(new BorderLayout(0, 2));
+        south.add(statusLabel, BorderLayout.CENTER);
+        south.add(debugLabel, BorderLayout.SOUTH);
+
         JPanel centre = new JPanel(new BorderLayout(0, 6));
         centre.add(deckChooser, BorderLayout.CENTER);
-        centre.add(statusLabel, BorderLayout.SOUTH);
+        centre.add(south, BorderLayout.SOUTH);
         content.add(centre, BorderLayout.CENTER);
 
         connectBtn = new JButton("Connect");
@@ -87,6 +99,10 @@ public class JoinLobbyDialog extends JDialog {
         setLocationRelativeTo(owner);
 
         getRootPane().setDefaultButton(connectBtn);
+    }
+
+    private void showDebugMode(boolean enabled) {
+        debugLabel.setText(enabled ? "Debug Mode: Enabled" : " ");
     }
 
     /** Connecting without a deck would only fail at the exchange, so gate the button instead. */
@@ -152,17 +168,20 @@ public class JoinLobbyDialog extends JDialog {
                 SwingUtilities.invokeLater(() ->
                         statusLabel.setText("Waiting for host to start…"));
 
-                LobbyExchange.RemoteDeck remote = LobbyExchange.awaitDeckList(conn);
+                LobbyExchange.RemoteDeck remote = LobbyExchange.awaitDeckList(conn,
+                        debug -> SwingUtilities.invokeLater(() -> showDebugMode(debug)));
                 GameAction setupAction = LobbyExchange.awaitGameSetup(conn);
 
                 setup = new MatchSetup(deckId, remote.serials(), remote.name(), remote.username(),
                         setupAction.payload().getLong("seed"),
                         false,
-                        setupAction.payload().getBoolean("hostGoesFirst"));
+                        setupAction.payload().getBoolean("hostGoesFirst"),
+                        setupAction.payload().optBoolean("debug", false));
                 SwingUtilities.invokeLater(this::dispose);
             } catch (IOException | SQLException ex) {
                 if (connection != null) { connection.close(); connection = null; }
                 SwingUtilities.invokeLater(() -> {
+                    showDebugMode(false);
                     statusLabel.setText("Failed: " + ex.getMessage());
                     refreshConnectButton();
                 });
