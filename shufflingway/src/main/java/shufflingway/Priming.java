@@ -366,66 +366,130 @@ class Priming {
 	}
 
 	/**
+	 * What a local Priming has to tell the opponent once it is settled: the payment, as indices
+	 * into the hand and Backup row as they stood before it was taken, and the deck as it stood
+	 * before the search, which the chosen card's position and the new order are read against.
+	 */
+	private record LocalPriming(List<Integer> discards, List<Integer> backups, List<CardData> deckBefore) {}
+
+	/**
 	 * Pays the Priming cost, searches the main deck for the target card, and if
 	 * found places it as the top card of the primed forward.  The deck is shuffled
 	 * after the search regardless of whether the card was found.
 	 */
 	void executePriming(CardData card, int slotIdx,
 			List<Integer> discardIndices, List<Integer> backupDullIndices) {
-		// Re-read rather than passed in from the dialog: the discount is a board condition, and the
-		// board can have moved between the dialog opening and the payment being confirmed.
-		List<String> rawCost = mw.effectivePrimingCost(card, true);
-		LinkedHashMap<String, Integer> costByElem = new LinkedHashMap<>();
-		for (String e : rawCost) if (!e.isEmpty()) costByElem.merge(e, 1, Integer::sum);
-		String[] elems = costByElem.keySet().toArray(String[]::new);
-
-		// Pay cost
-		for (int bi : backupDullIndices) {
-			mw.p1BackupStates[bi] = CardState.DULL;
-			mw.animateDullBackup(bi, true);
-			String cpElem = matchesAnyElement(mw.p1BackupCards[bi], elems)
-					? contributingElement(mw.p1BackupCards[bi], elems) : (elems.length > 0 ? elems[0] : "");
-			if (!cpElem.isEmpty()) mw.gameState.addP1Cp(cpElem, 1);
-		}
-		discardIndices.sort(Collections.reverseOrder());
-		for (int di : discardIndices) {
-			CardData discarded = mw.gameState.getP1Hand().get(di);
-			String cpElem = matchesAnyElement(discarded, elems)
-					? contributingElement(discarded, elems) : (elems.length > 0 ? elems[0] : "");
-			if (!cpElem.isEmpty()) mw.gameState.addP1Cp(cpElem, 2);
-			mw.playerBreakFromHand(true,di);
-		}
-		for (String e : elems) { mw.gameState.spendP1Cp(e, mw.gameState.getP1CpForElement(e)); mw.gameState.clearP1Cp(e); }
+		LocalPriming sent = new LocalPriming(List.copyOf(discardIndices), List.copyOf(backupDullIndices),
+				new ArrayList<>(mw.gameState.getP1MainDeck()));
+		payPrimingCost(true, card, discardIndices, backupDullIndices);
 
 		// Search deck — find all versions of the target card.  Multiple copies of the same
 		// printing are one choice, not several, so only distinct versions reach the dialog.
 		String target = card.primingTarget();
 		List<CardData> matches = MainWindow.distinctVersions(mw.gameState.findMatchingNamesInP1MainDeck(target));
 
-		if (matches.isEmpty()) {
-			mw.shuffleP1MainDeck();
-			mw.logEntry("Priming: \"" + target + "\" not found in deck — no card placed");
-			mw.refreshP1HandLabel();
-			mw.refreshP1BreakLabel();
-		} else if (matches.size() == 1) {
-			mw.gameState.removeFromP1MainDeck(matches.get(0));
-			mw.shuffleP1MainDeck();
-			applyPrimedCard(matches.get(0), card, slotIdx);
-			mw.refreshP1HandLabel();
-			mw.refreshP1BreakLabel();
+		if (matches.size() <= 1) {
+			finishLocalPriming(card, slotIdx, matches.isEmpty() ? null : matches.get(0), sent);
 		} else {
-			// Multiple printings found — let the player choose; shuffle and refresh happen inside the dialog
-			showPrimingVersionSelectDialog(matches, card, slotIdx);
+			// Multiple printings found — let the player choose; the dialog finishes the Priming
+			showPrimingVersionSelectDialog(matches, card, slotIdx, sent);
 		}
 	}
 
-	/** Places {@code chosen} as the primed top card on {@code slotIdx} and logs the action. */
-	void applyPrimedCard(CardData chosen, CardData primingCard, int slotIdx) {
-		mw.p1ForwardPrimedTop.set(slotIdx, chosen);
-		mw.logEntry("Primed: \"" + primingCard.name() + "\" topped with \"" + chosen.name() + "\"");
-		mw.refreshP1ForwardSlot(slotIdx);
-		mw.autoAbilityTriggers.triggerAutoAbilitiesForPrimedInto(primingCard, chosen, true);
-		mw.autoAbilityTriggers.triggerAutoAbilitiesForPriming(primingCard, true);
+	/**
+	 * Pays {@code card}'s Priming cost for {@code isP1}: dulls the Backups, discards the hand
+	 * cards for CP, and spends and clears the bank. The same for both seats, so the opponent's
+	 * client pays a replicated Priming exactly as the player who chose it did.
+	 */
+	private void payPrimingCost(boolean isP1, CardData card,
+			List<Integer> discardIndices, List<Integer> backupDullIndices) {
+		// Re-read rather than passed in from the dialog: the discount is a board condition, and the
+		// board can have moved between the dialog opening and the payment being confirmed.
+		List<String> rawCost = mw.effectivePrimingCost(card, isP1);
+		LinkedHashMap<String, Integer> costByElem = new LinkedHashMap<>();
+		for (String e : rawCost) if (!e.isEmpty()) costByElem.merge(e, 1, Integer::sum);
+		String[] elems = costByElem.keySet().toArray(String[]::new);
+		CardData[]     backupCards  = isP1 ? mw.p1BackupCards  : mw.p2BackupCards;
+		CardState[]    backupStates = isP1 ? mw.p1BackupStates : mw.p2BackupStates;
+		List<CardData> hand         = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+
+		for (int bi : backupDullIndices) {
+			backupStates[bi] = CardState.DULL;
+			if (isP1) mw.animateDullBackup(bi, true); else mw.animateDullP2Backup(bi, true);
+			String cpElem = matchesAnyElement(backupCards[bi], elems)
+					? contributingElement(backupCards[bi], elems) : (elems.length > 0 ? elems[0] : "");
+			if (!cpElem.isEmpty()) mw.addCp(isP1, cpElem, 1);
+		}
+		List<Integer> discardOrder = new ArrayList<>(discardIndices);
+		discardOrder.sort(Collections.reverseOrder());
+		for (int di : discardOrder) {
+			CardData discarded = hand.get(di);
+			String cpElem = matchesAnyElement(discarded, elems)
+					? contributingElement(discarded, elems) : (elems.length > 0 ? elems[0] : "");
+			if (!cpElem.isEmpty()) mw.addCp(isP1, cpElem, 2);
+			mw.playerBreakFromHand(isP1, di);
+		}
+		for (String e : elems) { mw.spendCp(isP1, e, mw.cpForElement(isP1, e)); mw.clearCp(isP1, e); }
+	}
+
+	/**
+	 * Takes {@code chosen} out of the deck (when the search found one), shuffles, tells the
+	 * opponent, and tops the primed Forward with it.
+	 *
+	 * <p>Sent before the card is placed, so the opponent holds the Priming before any trigger it
+	 * sets off asks them anything. The shuffle draws from this deck's shared stream, so the
+	 * opponent's replay comes out the same; the new order goes along so they can check that.
+	 */
+	private void finishLocalPriming(CardData card, int slotIdx, CardData chosen, LocalPriming sent) {
+		if (chosen != null) mw.gameState.removeFromP1MainDeck(chosen);
+		mw.shuffleP1MainDeck();
+		mw.sendToOpponent(RemoteOpponent.primeAction(card, slotIdx, sent.discards(), sent.backups(),
+				sent.deckBefore(), new ArrayList<>(mw.gameState.getP1MainDeck())));
+		if (chosen != null) applyPrimedCard(chosen, card, slotIdx, true);
+		else mw.logEntry("Priming: \"" + card.primingTarget() + "\" not found in deck — no card placed");
+		mw.refreshP1HandLabel();
+		mw.refreshP1BreakLabel();
+	}
+
+	/**
+	 * The opponent's Priming, replayed from their PRIME action: the same payment, the same card
+	 * out of the deck, the same shuffle, and {@code chosen} (null when their search found nothing)
+	 * on top of their Forward in {@code slotIdx}. {@link RemoteOpponent} has already checked that
+	 * every index fits this board.
+	 *
+	 * <p>The deck is shuffled here from its own stream rather than simply set to the order they
+	 * sent: the shuffle is what keeps this client's stream for their deck level with theirs, so
+	 * the next search shuffles the same way on both sides. {@code sentDeckOrder} is then the
+	 * check — a different order means the two copies had already drifted apart.
+	 */
+	void executeRemotePriming(CardData card, int slotIdx, List<Integer> discardIndices,
+			List<Integer> backupDullIndices, CardData chosen, List<CardData> sentDeckOrder) {
+		payPrimingCost(false, card, new ArrayList<>(discardIndices), new ArrayList<>(backupDullIndices));
+		java.util.Deque<CardData> deck = mw.gameState.getP2MainDeck();
+		if (chosen != null) deck.removeIf(c -> c == chosen);
+		mw.shuffleDeck(false);
+		List<CardData> shuffled = new ArrayList<>(deck);
+		boolean same = shuffled.size() == sentDeckOrder.size();
+		for (int i = 0; same && i < shuffled.size(); i++) same = shuffled.get(i) == sentDeckOrder.get(i);
+		if (!same) {
+			mw.reportDesync("opponent's deck after Priming is in a different order here");
+			deck.clear();
+			deck.addAll(sentDeckOrder);
+			mw.refreshP2DeckLabel();
+		}
+		if (chosen != null) applyPrimedCard(chosen, card, slotIdx, false);
+		else mw.logEntry("[P2] Priming: \"" + card.primingTarget() + "\" not found in deck — no card placed");
+		mw.refreshP2HandCountLabel();
+		mw.refreshP2BreakLabel();
+	}
+
+	/** Places {@code chosen} as the primed top card on {@code isP1}'s {@code slotIdx} and logs the action. */
+	void applyPrimedCard(CardData chosen, CardData primingCard, int slotIdx, boolean isP1) {
+		(isP1 ? mw.p1ForwardPrimedTop : mw.p2ForwardPrimedTop).set(slotIdx, chosen);
+		mw.logEntry((isP1 ? "" : "[P2] ") + "Primed: \"" + primingCard.name() + "\" topped with \"" + chosen.name() + "\"");
+		if (isP1) mw.refreshP1ForwardSlot(slotIdx); else mw.refreshP2ForwardSlot(slotIdx);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForPrimedInto(primingCard, chosen, isP1);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForPriming(primingCard, isP1);
 	}
 
 	/**
@@ -433,7 +497,8 @@ class Priming {
 	 * target to pull from the deck when multiple printings are present.
 	 * Closing without a choice auto-selects the first match.
 	 */
-	void showPrimingVersionSelectDialog(List<CardData> matches, CardData primingCard, int slotIdx) {
+	private void showPrimingVersionSelectDialog(List<CardData> matches, CardData primingCard, int slotIdx,
+			LocalPriming sent) {
 		JDialog dlg = new JDialog(mw.frame,
 				"Choose version: " + primingCard.primingTarget() + " (" + matches.size() + " found)", true);
 		dlg.setResizable(false);
@@ -503,10 +568,6 @@ class Priming {
 		dlg.setVisible(true); // blocks until a card is clicked (dlg.dispose())
 
 		// Execution resumes here after dialog closes
-		mw.gameState.removeFromP1MainDeck(picked[0]);
-		mw.shuffleP1MainDeck();
-		applyPrimedCard(picked[0], primingCard, slotIdx);
-		mw.refreshP1HandLabel();
-		mw.refreshP1BreakLabel();
+		finishLocalPriming(primingCard, slotIdx, picked[0], sent);
 	}
 }

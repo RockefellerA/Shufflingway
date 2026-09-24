@@ -43,6 +43,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BooleanSupplier;
@@ -154,6 +155,27 @@ public class MainWindow {
 	/** Damage resolution rules; MainWindow keeps thin delegators to these. */
 	final DamageResolver      damageResolver      = new DamageResolver(this);
 	final Priming             priming             = new Priming(this);
+
+	/**
+	 * The shuffle stream for each main deck, from this client's point of view: P1's is the local
+	 * player's deck, P2's the opponent's. Every mid-game shuffle of a deck draws from its own.
+	 *
+	 * <p>In multiplayer these are the very streams that dealt the decks ({@link
+	 * MatchSetup#localDeckRandom()} and {@link MatchSetup#remoteDeckRandom()}), kept rather than
+	 * dropped after the deal. Both clients hold the same stream for the same deck, and both run
+	 * every effect that shuffles a deck, so each shuffle comes out the same on both sides. A
+	 * shuffle drawn from anywhere else — {@code Collections.shuffle} with no stream, as these all
+	 * used to be — gave each client its own order, and the first search split the two decks.
+	 *
+	 * <p>Only a shuffle both clients perform may draw from these. One that happens on a single
+	 * client and is sent as its result (the deck-look dialogs' indices) must not, or the streams
+	 * would fall out of step.
+	 */
+	Random p1DeckRandom = new Random();
+	Random p2DeckRandom = new Random();
+
+	/** The shuffle stream for {@code isP1}'s main deck; see {@link #p1DeckRandom}. */
+	Random deckRandom(boolean isP1) { return isP1 ? p1DeckRandom : p2DeckRandom; }
 	/** Sequences card arrivals on the field: animation, then the card, then its auto abilities. */
 	final FieldEntryAnimator  fieldEntryAnimator  = new FieldEntryAnimator(this);
 
@@ -2717,7 +2739,8 @@ public class MainWindow {
 					if (card.isLb()) lb.add(cd);
 					else             main.add(cd);
 				}
-				gameState.initializeDeck(main, lb, setup.localDeckRandom());
+				p1DeckRandom = setup.localDeckRandom();
+				gameState.initializeDeck(main, lb, p1DeckRandom);
 
 				List<CardData> p2Main = new ArrayList<>();
 				List<CardData> p2Lb   = new ArrayList<>();
@@ -2726,7 +2749,8 @@ public class MainWindow {
 					if (card.isLb()) p2Lb.add(cd);
 					else             p2Main.add(cd);
 				}
-				gameState.initializeP2MainDeck(p2Main, setup.remoteDeckRandom());
+				p2DeckRandom = setup.remoteDeckRandom();
+				gameState.initializeP2MainDeck(p2Main, p2DeckRandom);
 				gameState.initializeP2LbDeck(p2Lb);
 
 				// Both decks are shuffled and untouched — the one moment the two clients can be
@@ -2813,7 +2837,7 @@ public class MainWindow {
 	}
 
 	/** Sends an action to the remote player; a no-op in a game against the AI. */
-	private void sendToOpponent(GameAction action) {
+	void sendToOpponent(GameAction action) {
 		if (opponent instanceof RemoteOpponent remote) remote.send(action);
 	}
 
@@ -6252,7 +6276,7 @@ public class MainWindow {
 	void shuffleDeck(boolean isP1) {
 		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
 		List<CardData> list = new ArrayList<>(deck);
-		Collections.shuffle(list);
+		Collections.shuffle(list, deckRandom(isP1));
 		deck.clear();
 		deck.addAll(list);
 		if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
@@ -20023,7 +20047,7 @@ public class MainWindow {
 	/** Shuffles P1's main deck in-place and refreshes the deck label. */
 	void shuffleP1MainDeck() {
 		List<CardData> list = new ArrayList<>(gameState.getP1MainDeck());
-		Collections.shuffle(list);
+		Collections.shuffle(list, deckRandom(true));
 		gameState.getP1MainDeck().clear();
 		gameState.getP1MainDeck().addAll(list);
 		refreshP1DeckLabel();
