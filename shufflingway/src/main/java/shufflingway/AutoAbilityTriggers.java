@@ -2482,6 +2482,11 @@ final class AutoAbilityTriggers {
 				// walks that do have to tell watcher from subject.
 				if (!fa.triggerCard().equalsIgnoreCase(card.name())
 						&& !ATTACK_SUBJECT_SELF.matcher(fa.triggerCard().trim()).matches()) continue;
+				// "party attacks" contains "attack" too, but it belongs to triggerAutoAbilitiesForPartyAttack,
+				// which checks the party's make-up. Firing it here as well skipped that check: 12-044R
+				// Shikaree X dealt 3 twice when X, Y and Z attacked together, and Lenne 2-142R fired
+				// when she attacked alone.
+				if (fa.trigger().equals("party attacks")) continue;
 				if (fa.trigger().contains("attack")) executeAutoAbility(fa, card, isP1);
 			}
 			// "When 1 or more Forwards you control attack" — fires on any controller field card

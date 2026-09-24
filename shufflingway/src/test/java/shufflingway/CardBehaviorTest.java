@@ -49960,6 +49960,46 @@ public class CardBehaviorTest {
 				"a carrier sitting at home did not form the party its ability describes");
 	}
 
+	private static final String SHIKAREE_X_PARTY =
+			"When Shikaree X forms a party with Card Name Shikaree Y and Card Name Shikaree Z "
+			+ "and attacks, Shikaree X deals your opponent 3 points of damage.";
+
+	/** Declares an attack the way both seats do: each attacker's own triggers, then the party's. */
+	private static void declareAttack(MainWindow mw, List<CardData> attackers) {
+		for (CardData a : attackers) mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(a, true);
+		if (attackers.size() > 1) mw.autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(true, attackers);
+	}
+
+	@Test
+	void aPartyTriggerFiresOnceForItsParty() {
+		// The per-attacker walk matched "party attacks" on the word "attack" and fired it a second
+		// time, unfiltered: X, Y and Z attacking together dealt 3 twice.
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		for (int i = 0; i < 10; i++) mw.gameState.getP2MainDeck().add(makeForward("Deck", "Wind", 1, 1000));
+		CardData x = makeAutoAbilityForward("Shikaree X", "Wind", 7000, SHIKAREE_X_PARTY);
+		CardData y = makeForward("Shikaree Y", "Wind", 2, 7000);
+		CardData z = makeForward("Shikaree Z", "Wind", 2, 7000);
+		for (CardData c : List.of(x, y, z)) mw.placeCardInForwardZone(c);
+
+		declareAttack(mw, List.of(x, y, z));
+
+		assertEquals(3, mw.gameState.getP2DamageZone().size(), "3 points, once");
+	}
+
+	@Test
+	void aPartyTriggerDoesNotFireOnASoloAttack() {
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		for (int i = 0; i < 10; i++) mw.gameState.getP2MainDeck().add(makeForward("Deck", "Wind", 1, 1000));
+		CardData x = makeAutoAbilityForward("Shikaree X", "Wind", 7000, SHIKAREE_X_PARTY);
+		mw.placeCardInForwardZone(x);
+
+		declareAttack(mw, List.of(x));
+
+		assertEquals(0, mw.gameState.getP2DamageZone().size(), "no party was formed");
+	}
+
 	// =========================================================================================
 	// "Your opponent selects N … they control" — some forty printings, resolved as if it read
 	// "choose N … opponent controls".
