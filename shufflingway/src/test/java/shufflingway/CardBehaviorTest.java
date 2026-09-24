@@ -63816,4 +63816,82 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Choices a remote player makes as their effect resolves. Deck searches and Break Zone choices
+	// asked the local player in a dialog and told nobody, while the other client answered for the
+	// remote seat with the AI's random pick — so a search, or a "choose 1 … in your Break Zone",
+	// could move one card on the searching player's screen and a different one on the other.
+	// Each now goes through decide(): these deliver the remote answer first, as the wire would,
+	// and check that exactly that card moved.
+	// =========================================================================================
+
+	private static void remoteAnswered(RemoteOpponent remote, ChoiceKind kind, Integer... answer) {
+		remote.onActionReceived(RemoteOpponent.choiceAction(kind, List.of(answer)));
+	}
+
+	@Test
+	void aRemoteBreakZoneChoiceTakesTheCardTheyPicked() {
+		MainWindow mw = new MainWindow();
+		RemoteOpponent remote = seatAgainstRemote(mw);
+		List<CardData> bz = new ArrayList<>();
+		for (int i = 0; i < 6; i++) {
+			CardData c = makeForward("Salvage " + i, "Earth", 2, 5000);
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2BreakZone().add(c);
+			bz.add(c);
+		}
+		// Packed from their seat, where their Break Zone is their own side.
+		remoteAnswered(remote, ChoiceKind.BREAK_ZONE_TARGETS,
+				new ForwardTarget(true, 4, ForwardTarget.CardZone.BREAK_ZONE).choiceCode());
+
+		ActionResolver.parse("Choose 1 Forward or Backup in your Break Zone. Add it to your hand.", null)
+				.accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(bz.get(4)), mw.gameState.getP2Hand(), "the fifth, as they chose");
+		assertFalse(mw.gameState.getP2BreakZone().contains(bz.get(4)));
+	}
+
+	@Test
+	void aRemoteDeckSearchTakesTheCardTheyPicked() {
+		MainWindow mw = new MainWindow();
+		RemoteOpponent remote = seatAgainstRemote(mw);
+		CardData alisaie   = makeForward("Alisaie", "Fire", 3, 7000);
+		CardData filler    = makeForward("Filler", "Fire", 3, 7000);
+		CardData alphinaud = makeForward("Alphinaud", "Wind", 3, 7000);
+		for (CardData c : List.of(alisaie, filler, alphinaud)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+		// The matches, in deck order, are Alisaie then Alphinaud: they took the second.
+		remoteAnswered(remote, ChoiceKind.DECK_SEARCH, 1);
+
+		ActionResolver.parse("search for 1 Card Name Alisaie or Card Name Alphinaud and add it to your hand.",
+				makeForward("Louisoix", "Fire", 4, 7000)).accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(alphinaud), mw.gameState.getP2Hand());
+		assertTrue(mw.gameState.getP2MainDeck().contains(alisaie), "the one they left stays in the deck");
+	}
+
+	@Test
+	void aRemoteSummonSearchFollowsTheirPickAndTheirChoiceNotToCast() {
+		MainWindow mw = new MainWindow();
+		RemoteOpponent remote = seatAgainstRemote(mw);
+		CardData first  = makeJobCard("First Summon", "Ice", "Summon", null);
+		CardData second = makeJobCard("Second Summon", "Ice", "Summon", null);
+		for (CardData c : List.of(first, second)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+		remoteAnswered(remote, ChoiceKind.DECK_SEARCH, 1);
+		remoteAnswered(remote, ChoiceKind.OPTION, 1);   // "Put into Break Zone"
+
+		mw.buildGameContext(false).searchAndCastSummonFreeFromDeck(-1, null);
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(second),
+				"their pick, and not cast: the other seat used to be assumed to cast");
+		assertTrue(mw.gameState.getP2MainDeck().contains(first));
+	}
+
+	// =========================================================================================
+
 }

@@ -173,6 +173,25 @@ public enum ChoiceKind {
 	CHOSEN_TARGETS,
 
 	/**
+	 * Targets chosen out of a Break Zone as an effect resolves — "Choose 1 Forward or Backup in
+	 * your Break Zone. Add it to your hand." (10-068C Cu Sith), either player's Break Zone, or a
+	 * pool that mixes the opponent's field with the chooser's own Break Zone.
+	 *
+	 * <p>Packed like {@link #CHOSEN_TARGETS}, as {@code ForwardTarget.choiceCode()}s whose side bit
+	 * flips on arrival. Its own kind because it crosses at resolution rather than when the effect
+	 * goes on the Stack: a pending answer of the other kind must never be taken for this one.
+	 */
+	BREAK_ZONE_TARGETS,
+
+	/**
+	 * The cards a player takes from their own deck with a search — "search for 1 Card Name
+	 * Alisaie or Card Name Alphinaud and add it to your hand." (5-120C Louisoix), and a Summon
+	 * searched for and cast for free. Each integer is a position in the list of matching cards,
+	 * which both clients build the same way from the same deck, so nothing flips.
+	 */
+	DECK_SEARCH,
+
+	/**
 	 * The sender has finished with a combat priority window and passed. Carries nothing — the
 	 * message is the whole answer.
 	 *
