@@ -63489,4 +63489,281 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Warp cards whose counter-removal ability triggers "only if [Self] is removed from the game
+	// and if a Warp Counter is placed on [Self]" — 23-050H Noel, 23-060L Vincent, 24-048L Tidus,
+	// 29-086H Shadow. Three gaps stacked: the restriction was left in the effect text, where
+	// tryParseRemoveNamedFromGame read it as a card to remove; nothing walked the Warp zone for
+	// triggers, so the abilities never fired from the one place they work; and Tidus's subject,
+	// "any player's card other than Card Name Tidus", matched nothing.
+	// =========================================================================================
+
+	private static final String WARP_NOEL_TEXT =
+			"Warp 3 -- 《Wind》[[br]]   Haste First Strike[[br]]   At the beginning of the Attack Phase "
+			+ "during each of your turns, remove 1 Warp Counter from Noel for each Category XIII "
+			+ "Character you control. This effect will trigger only if Noel is removed from the game "
+			+ "and if a Warp Counter is placed on Noel.";
+	private static final String WARP_VINCENT_TEXT =
+			"Warp 6 -- 《Earth》[[br]]   When a Category VII Forward enters your field, remove 1 Warp "
+			+ "Counter from Vincent. This effect will trigger only if Vincent is removed from the game "
+			+ "and if a Warp Counter is placed on Vincent.[[br]]   When Vincent enters the field, "
+			+ "choose up to 1 Forward and up to 1 Backup. Break the former. If Vincent enters the "
+			+ "field due to Warp, also break the latter.";
+	private static final String WARP_TIDUS_TEXT =
+			"Warp 5 -- 《0》[[br]]When a Warp Counter is removed from any player's card other than Card "
+			+ "Name Tidus, remove 1 Warp Counter from Tidus. This effect will trigger only if Tidus is "
+			+ "removed from the game and if a Warp Counter is placed on Tidus.";
+	private static final String SHADOW_WARP_TEXT =
+			"Warp 3 -- 《Lightning》[[br]]At the beginning of Main Phase 1 during each of your turns, you "
+			+ "may remove 2 Warp Counters from Shadow. If you do so, you cannot cast any cards during "
+			+ "this turn and you skip Attack Phase in this turn. This effect will trigger only if "
+			+ "Shadow is removed from the game and if a Warp Counter is placed on Shadow.";
+
+	/** A Forward carrying the auto abilities {@code text} prints, in {@code category}. */
+	private static CardData makeWarpCard(String name, String category, String text) {
+		return new CardData(null, name, "Wind", 3, 7000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(text), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, category, null, text);
+	}
+
+	private static CardData warpIn(MainWindow mw, CardData card, boolean isP1, int counters) {
+		mw.gameState.getIdentity().put(card, isP1);
+		if (isP1) mw.gameState.addToP1WarpZone(card, counters);
+		else      mw.gameState.addToP2WarpZone(card, counters);
+		return card;
+	}
+
+	private static int warpCounters(MainWindow mw, CardData card, boolean isP1) {
+		for (GameState.WarpEntry e : isP1 ? mw.gameState.getP1WarpZone() : mw.gameState.getP2WarpZone())
+			if (e.card == card) return e.counters;
+		return -1;
+	}
+
+	@Test
+	void theWarpRestrictionIsLiftedOutOfTheEffectText() {
+		for (String text : List.of(WARP_NOEL_TEXT, WARP_VINCENT_TEXT, WARP_TIDUS_TEXT, SHADOW_WARP_TEXT)) {
+			AutoAbility fa = CardData.parseAutoAbilities(text).stream()
+					.filter(a -> !a.rfpConditionCard().isEmpty()).findFirst().orElse(null);
+			assertNotNull(fa, text);
+			assertFalse(fa.effectText().contains("trigger only"), fa.effectText());
+			assertNotEquals("RemoveNamedFromGame",
+					ActionResolver.matchedPatternName(fa.effectText(), makeWarpCard(fa.rfpConditionCard(), null, "")));
+		}
+	}
+
+	@Test
+	void noelThawsFromTheWarpZoneOnePerCategoryThirteenCharacter() {
+		MainWindow mw = new MainWindow();
+		CardData noel = warpIn(mw, makeWarpCard("Noel", "XIII", WARP_NOEL_TEXT), true, 3);
+		placeP1Forward(mw, makeCategoryForward("Serah", "Wind", "XIII"));
+		placeP1Forward(mw, makeCategoryForward("Hope", "Wind", "XIII"));
+		placeP1Forward(mw, makeCategoryForward("Other", "Wind", "X"));
+
+		fireAndResolve(mw, () -> mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(true));
+
+		assertEquals(1, warpCounters(mw, noel, true), "two Category XIII Characters, two counters");
+	}
+
+	@Test
+	void noelsWarpAbilityIsSilentOnceHeIsOnTheField() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeWarpCard("Noel", "XIII", WARP_NOEL_TEXT));
+		int before = mw.gameState.getStack().size();
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(true);
+		assertEquals(before, mw.gameState.getStack().size());
+	}
+
+	@Test
+	void vincentThawsWhenACategorySevenForwardEntersHisOwnersField() {
+		MainWindow mw = new MainWindow();
+		CardData vincent = warpIn(mw, makeWarpCard("Vincent", "VII", WARP_VINCENT_TEXT), true, 6);
+
+		// Placing the Forward is what fires its entry triggers; the watchers ride along.
+		CardData tifa = makeCategoryForward("Tifa", "Earth", "VII");
+		fireAndResolve(mw, () -> placeP1Forward(mw, tifa));
+		assertEquals(5, warpCounters(mw, vincent, true));
+
+		CardData other = makeCategoryForward("Other", "Earth", "X");
+		fireAndResolve(mw, () -> placeP1Forward(mw, other));
+		assertEquals(5, warpCounters(mw, vincent, true), "not Category VII");
+	}
+
+	@Test
+	void tidusAnswersAnyPlayersWarpRemovalButNotHisOwn() {
+		MainWindow mw = new MainWindow();
+		CardData tidus = warpIn(mw, makeWarpCard("Tidus", "X", WARP_TIDUS_TEXT), true, 5);
+		CardData theirs = warpIn(mw, makeWarpCard("Theirs", null, ""), false, 3);
+
+		fireAndResolve(mw, () -> mw.buildGameContext(false).removeWarpCountersFromNamed("Theirs", 1));
+		assertEquals(2, warpCounters(mw, theirs, false));
+		assertEquals(4, warpCounters(mw, tidus, true), "the opponent's card counts: \"any player's\"");
+
+		int before = mw.gameState.getStack().size();
+		mw.buildGameContext(true).removeWarpCountersFromNamed("Tidus", 1);
+		assertEquals(3, warpCounters(mw, tidus, true));
+		assertEquals(before, mw.gameState.getStack().size(),
+				"\"other than Card Name Tidus\": his own removal must not trigger him again");
+	}
+
+	/** P1's real context, answering Shadow's "you may" with {@code accept} rather than a dialog. */
+	private static GameContext mayContext(MainWindow mw, boolean accept) {
+		GameContext ctx = mock(GameContext.class,
+				org.mockito.AdditionalAnswers.delegatesTo(mw.buildGameContext(true)));
+		doReturn(accept).when(ctx).promptYouMay(anyString());
+		return ctx;
+	}
+
+	private static Consumer<GameContext> shadowWarpEffect(CardData shadow) {
+		AutoAbility fa = CardData.parseAutoAbilities(SHADOW_WARP_TEXT).get(0);
+		Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), shadow);
+		assertNotNull(effect, fa.effectText());
+		return effect;
+	}
+
+	@Test
+	void shadowPaysForTwoCountersWithItsCastsAndItsAttackPhase() {
+		MainWindow mw = new MainWindow();
+		CardData shadow = warpIn(mw, makeWarpCard("Shadow", null, SHADOW_WARP_TEXT), true, 3);
+
+		shadowWarpEffect(shadow).accept(mayContext(mw, true));
+
+		assertEquals(1, warpCounters(mw, shadow, true));
+		assertTrue(mw.p1Turn.cannotCastThisTurn);
+		assertTrue(mw.consumePhaseSkip(true, GameState.GamePhase.ATTACK),
+				"this turn's Attack Phase is marked to be skipped");
+	}
+
+	@Test
+	void shadowDecliningCostsNothing() {
+		MainWindow mw = new MainWindow();
+		CardData shadow = warpIn(mw, makeWarpCard("Shadow", null, SHADOW_WARP_TEXT), true, 3);
+
+		shadowWarpEffect(shadow).accept(mayContext(mw, false));
+
+		assertEquals(3, warpCounters(mw, shadow, true));
+		assertFalse(mw.p1Turn.cannotCastThisTurn);
+		assertFalse(mw.consumePhaseSkip(true, GameState.GamePhase.ATTACK));
+	}
+
+	@Test
+	void shadowIsNotOfferedTheBargainWithOneCounterLeft() {
+		MainWindow mw = new MainWindow();
+		CardData shadow = warpIn(mw, makeWarpCard("Shadow", null, SHADOW_WARP_TEXT), true, 1);
+		GameContext ctx = mayContext(mw, true);
+
+		shadowWarpEffect(shadow).accept(ctx);
+
+		verify(ctx, never()).promptYouMay(anyString());
+		assertEquals(1, warpCounters(mw, shadow, true));
+		assertFalse(mw.p1Turn.cannotCastThisTurn);
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Field cost reductions on borrowed casts. 29-008L Zidane's two removed cards are cast out of
+	// the removed-from-game zone, priced by their PlayableEntry — which knew only its own discount,
+	// so Sterne Leonis's "The cost required to cast your Forwards is reduced by 1" never reached
+	// them. MainWindow.borrowedCastCost applies the field's reductions on top, as a hand cast gets.
+	// =========================================================================================
+
+	private static final String STERNE_LEONIS_TEXT =
+			"The cost required to cast your Forwards is reduced by 1 (it cannot become 0).[[br]]   "
+			+ "Remove 4 Forwards in the Break Zone from the game: Select 1 of the 3 following actions."
+			+ "[[br]]   \"Choose 1 Forward. Deal it 7000 damage.\" \"Choose 1 Monster. Break it.\" "
+			+ "\"Until the end of the turn, all the Forwards you control gain +4000 power and Brave.\"";
+
+	/** Zidane's removal for {@code isP1}, with {@code deck} on top of their deck in order. */
+	private static void zidaneRemoves(MainWindow mw, boolean isP1, List<CardData> deck) {
+		for (CardData c : deck) {
+			mw.gameState.getIdentity().put(c, isP1);
+			(isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).add(c);
+		}
+		mw.buildGameContext(isP1).removeTopCardsOfDeckFromGameCastableThisTurn(deck.size(), null, 0, false);
+	}
+
+	@Test
+	void sterneLeonisDiscountsZidanesRemovedForwards() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		CardData forward = makeForward("Removed Forward", "Fire", 3, 7000);
+		CardData summon  = makeJobCard("Removed Summon", "Fire", "Summon", null);
+		zidaneRemoves(mw, true, List.of(forward, summon));
+
+		assertEquals(2, mw.borrowedCastCost(forward, mw.bzPlayableP1.get(forward), true),
+				"3, reduced by 1 — as it would be from hand");
+		assertEquals(3, mw.borrowedCastCost(summon, mw.bzPlayableP1.get(summon), true),
+				"\"your Forwards\": a Summon is not discounted");
+	}
+
+	@Test
+	void sterneLeonisCannotTakeABorrowedForwardToZero() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		CardData one = makeForward("One", "Fire", 1, 3000);
+		zidaneRemoves(mw, true, List.of(one));
+
+		assertEquals(1, mw.borrowedCastCost(one, mw.bzPlayableP1.get(one), true), "(it cannot become 0)");
+	}
+
+	@Test
+	void theOpponentsSterneLeonisDoesNotDiscountYourBorrowedForwards() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		CardData forward = makeForward("Removed Forward", "Fire", 3, 7000);
+		zidaneRemoves(mw, true, List.of(forward));
+
+		assertEquals(3, mw.borrowedCastCost(forward, mw.bzPlayableP1.get(forward), true));
+	}
+
+	@Test
+	void theCpusBorrowedForwardsGetItsOwnSterneLeonisDiscount() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		CardData forward = makeForward("Removed Forward", "Fire", 3, 7000);
+		zidaneRemoves(mw, false, List.of(forward));
+
+		assertEquals(2, mw.borrowedCastCost(forward, mw.bzPlayableP2.get(forward), false));
+	}
+
+	// =========================================================================================
+
+	// The CPU's own hand casts had the same gap from a different direction: it planned and paid the
+	// printed cost, so no field reduction ever reached a P2 cast. CostCalculator.castCostFor prices
+	// them the way P1's hand is priced.
+
+	@Test
+	void theCpusHandForwardsGetItsOwnSterneLeonisDiscountOnly() {
+		MainWindow mw = new MainWindow();
+		CardData forward = makeForward("Hand Forward", "Wind", 3, 7000);
+		CardData summon  = makeJobCard("Hand Summon", "Wind", "Summon", null);
+		assertEquals(3, mw.castCostFor(forward, false), "no reduction on the field");
+
+		placeP1Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		assertEquals(3, mw.castCostFor(forward, false), "P1's Sterne Leonis discounts P1's Forwards");
+
+		placeP2Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		assertEquals(2, mw.castCostFor(forward, false));
+		assertEquals(3, mw.castCostFor(summon, false), "a Summon is not one of \"your Forwards\"");
+	}
+
+	@Test
+	void theCpuCastsAForwardOnlyItsSterneLeonisMakesAffordable() {
+		// Two Wind Backups and nothing else to discard: 2 CP, for a Forward printed at 3.
+		MainWindow mw = new MainWindow();
+		placeBackup(mw, makePlainBackup("Wind A", "Wind", 2), false);
+		placeBackup(mw, makePlainBackup("Wind B", "Wind", 2), false);
+		mw.gameState.getP2Hand().add(makeForward("Hand Forward", "Wind", 3, 7000));
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		assertFalse(cpu.hasLegalHandCast(), "3 CP needed, 2 available");
+
+		placeP2Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		assertTrue(cpu.hasLegalHandCast(), "the discount brings it to 2, which the Backups cover");
+	}
+
+	// =========================================================================================
+
 }

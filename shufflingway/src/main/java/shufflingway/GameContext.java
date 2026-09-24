@@ -3020,6 +3020,20 @@ public interface GameContext {
     void setOpponentCannotCastThisTurn();
 
     /**
+     * Bars the resolving player from casting anything for the rest of the turn — the price 29-086H
+     * Shadow pays for taking two Warp Counters off itself. The self-facing twin of
+     * {@link #setOpponentCannotCastThisTurn}, on the same turn-scoped flag.
+     */
+    void setSelfCannotCastThisTurn();
+
+    /**
+     * Makes the resolving player skip the Attack Phase of the turn in progress — the other half of
+     * 29-086H Shadow's price, which it pays during Main Phase 1. Spent when that Attack Phase is
+     * reached, like the next-turn skips it shares a mark with.
+     */
+    void skipOwnAttackPhaseThisTurn();
+
+    /**
      * Bars the resolving player's opponent from casting Summons for the rest of the turn -- Sol
      * (FFBE) 18-106H's third modal action.
      *

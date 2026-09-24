@@ -286,7 +286,8 @@ class ComputerPlayer implements OpponentController {
 		String[] elems = toPlay.elements();
 		boolean freeCast = plan.reducedCost() <= 0;
 		if (!freeCast) {
-			int remaining = toPlay.cost();
+			// The planned cost, not the printed one: the plan raised only what the reductions left.
+			int remaining = plan.reducedCost();
 			if (elems.length > 1) {
 				for (String e : elems) { mw.gameState.spendP2Cp(e, 1); remaining--; }
 			}
@@ -312,7 +313,8 @@ class ComputerPlayer implements OpponentController {
 		mw.lastCastPaymentDiscardTotalCost = 0;
 
 		mw.logEntry("[P2] Plays " + toPlay.name()
-				+ (freeCast && mw.p2DoublecastFreeSummons ? " (free — Doublecast)" : ""));
+				+ (freeCast && mw.p2DoublecastFreeSummons ? " (free — Doublecast)"
+						: plan.reducedCost() < toPlay.cost() ? " (cost " + plan.reducedCost() + ")" : ""));
 		mw.lastCardWasCast = true;
 		mw.noteCardCast(toPlay, false);
 		if (toPlay.isSummon()) { mw.p2Turn.summonCastThisTurn = true; mw.noteDoublecastSummonCast(false, toPlay); }
@@ -615,7 +617,8 @@ class ComputerPlayer implements OpponentController {
 			Map<Integer, String> discardElems = new LinkedHashMap<>();
 			// No hand index to exclude: an LB card is played out of the LB deck, so every card in
 			// hand is available to be discarded for CP.
-			if (!p2PlanPayment(card, card.cost(), -1, backups, backupElems, discards, discardElems))
+			// Priced as P1's LB cast is, so a field reduction lightens this payment too.
+			if (!p2PlanPayment(card, mw.castCostFor(card, false), -1, backups, backupElems, discards, discardElems))
 				continue;
 
 			return new P2LbPlan(i, List.copyOf(available.subList(0, card.lbCost())),
@@ -742,8 +745,10 @@ class ComputerPlayer implements OpponentController {
 			Map<Integer, String> backupElems   = new LinkedHashMap<>();
 			List<Integer>        discards      = new ArrayList<>();
 			Map<Integer, String> discardElems  = new LinkedHashMap<>();
-			if (p2PlanPayment(card, card.cost(), cardIdx, backups, backupElems, discards, discardElems)) {
-				return new P2Plan(cardIdx, card.cost(), backups, backupElems, discards, discardElems, false);
+			// Priced as P1's hand is: the card's own modifiers and P2's field reductions.
+			int cost = mw.castCostFor(card, false);
+			if (p2PlanPayment(card, cost, cardIdx, backups, backupElems, discards, discardElems)) {
+				return new P2Plan(cardIdx, cost, backups, backupElems, discards, discardElems, false);
 			}
 			// P2 could not raise the CP. A card printing a put-into-Break-Zone alternate cost has a
 			// second route onto the field that costs no CP at all; P2 does not take it yet, and
@@ -942,7 +947,7 @@ class ComputerPlayer implements OpponentController {
 		for (Map.Entry<CardData, PlayableEntry> entry : entries) {
 			CardData card = entry.getKey();
 			PlayableEntry pe = entry.getValue();
-			int reducedCost = pe.effectiveCost(card);
+			int reducedCost = mw.borrowedCastCost(card, pe, false);
 
 			// Respect uniqueness / Light-Dark / backup-slot legality so borrowed casts can't create field collisions.
 			boolean isChar = card.isForward() || card.isBackup() || card.isMonster();
@@ -1861,7 +1866,7 @@ class ComputerPlayer implements OpponentController {
 			Map<Integer, String> backupElems  = new LinkedHashMap<>();
 			List<Integer>        discards     = new ArrayList<>();
 			Map<Integer, String> discardElems = new LinkedHashMap<>();
-			if (p2PlanPayment(starter, starter.cost(), i, reservedIdx,
+			if (p2PlanPayment(starter, mw.castCostFor(starter, false), i, reservedIdx,
 					backups, backupElems, discards, discardElems))
 				return true;
 		}

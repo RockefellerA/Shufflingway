@@ -984,6 +984,37 @@ final class ActionResolverState {
      * {@code find()} otherwise read "Remove <b>1 Warp Counter from Shadow …</b> from the game" out
      * of this sentence and hand that whole string to {@code removeNamedCardFromGame}.
      */
+    /**
+     * Parses 29-086H Shadow's Main Phase 1 bargain; see
+     * {@link ActionResolverPatterns#MAY_REMOVE_WARP_COUNTERS_THEN_NO_CAST_NO_ATTACK}.
+     *
+     * <p>Offered only when all N counters are there to take. Taking fewer is not what was offered,
+     * and the price is for the full removal: "If you do so" does not happen on a partial one.
+     */
+    static Consumer<GameContext> tryParseMayRemoveWarpCountersThenNoCastNoAttack(String text, CardData source) {
+        Matcher m = MAY_REMOVE_WARP_COUNTERS_THEN_NO_CAST_NO_ATTACK.matcher(text.trim());
+        if (!m.matches()) return null;
+        String name = m.group("name").trim();
+        if (source == null || !source.name().equalsIgnoreCase(name)) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            if (ctx.warpCountersOnNamed(name) < count) {
+                ctx.logEntry("Effect: fewer than " + count + " Warp Counters on " + name + " — nothing to remove");
+                return;
+            }
+            if (!ctx.promptYouMay("Remove " + count + " Warp Counters from " + name
+                    + "? You will not be able to cast cards or attack this turn.")) {
+                ctx.logEntry("Effect: " + name + " — declined to remove Warp Counters");
+                return;
+            }
+            ctx.logEntry("Effect: Remove " + count + " Warp Counters from " + name
+                    + "; no casting and no Attack Phase this turn");
+            ctx.removeWarpCountersFromNamed(name, count);
+            ctx.setSelfCannotCastThisTurn();
+            ctx.skipOwnAttackPhaseThisTurn();
+        };
+    }
+
     static Consumer<GameContext> tryParseRemoveWarpCountersFromNamed(String text, CardData source) {
         Matcher m = REMOVE_WARP_COUNTERS_FROM_NAMED.matcher(text.trim());
         if (!m.matches()) return null;

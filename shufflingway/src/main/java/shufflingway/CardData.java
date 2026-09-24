@@ -3611,9 +3611,19 @@ public record CardData(
         "(?:(?<yourTurn>during\\s+your\\s+turn)(?:\\s+and\\s+only\\s+)?)?(?<once>once\\s+per\\s+turn)?[.!]?"
     );
 
-    /** Matches "This effect will trigger only if [card] is removed from the game." */
+    /**
+     * Matches "This effect will trigger only if [card] is removed from the game[ and if a Warp
+     * Counter is placed on [card]]."
+     *
+     * <p>The Warp Counter tail is what four Warp cards print — 23-050H Noel, 23-060L Vincent,
+     * 24-048L Tidus, 29-086H Shadow. Without it the sentence stayed in their effect text, where
+     * {@code tryParseRemoveNamedFromGame}'s lazy name group read "1 Warp Counter from Noel … only
+     * if Noel is" as a card to remove from the game. It adds nothing to check: these abilities are
+     * fired from the card's own Warp-zone entry, which exists only while a counter is on it.
+     */
     private static final Pattern FA_RFP_CONDITION = Pattern.compile(
-        "(?i)[.!,]?\\s*This\\s+effect\\s+will\\s+trigger\\s+only\\s+if\\s+(?<rfpCard>[^.!]+?)\\s+is\\s+removed\\s+from\\s+the\\s+game[.!]?\\s*$"
+        "(?i)[.!,]?\\s*This\\s+effect\\s+will\\s+trigger\\s+only\\s+if\\s+(?<rfpCard>[^.!]+?)\\s+is\\s+removed\\s+from\\s+the\\s+game" +
+        "(?:\\s+and\\s+if\\s+an?\\s+Warp\\s+Counters?\\s+(?:is|are)\\s+placed\\s+on\\s+[^.!]+?)?[.!]?\\s*$"
     );
 
     /** Matches "This effect will trigger only if [card] is in the Break Zone." */

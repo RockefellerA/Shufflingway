@@ -8182,6 +8182,17 @@ final class GameContextImpl implements GameContext {
 				logEntry("Effect: Opponent cannot search this turn");
 			}
 
+			@Override public void setSelfCannotCastThisTurn() {
+				mw.turn(isP1).cannotCastThisTurn = true;
+				logEntry("Effect: " + (isP1 ? "P1" : "P2") + " cannot cast any cards this turn");
+				mw.refreshHandCardStates();
+			}
+
+			@Override public void skipOwnAttackPhaseThisTurn() {
+				mw.skipPhasesNextTurn(isP1).add(GameState.GamePhase.ATTACK);
+				logEntry("Effect: " + (isP1 ? "P1" : "P2") + " will skip the Attack Phase this turn");
+			}
+
 			@Override public void setOpponentCannotCastThisTurn() {
 				mw.turn(!isP1).cannotCastThisTurn = true;
 				logEntry("Effect: Opponent cannot cast any cards this turn");
