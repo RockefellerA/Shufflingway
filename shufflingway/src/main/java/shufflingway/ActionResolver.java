@@ -1344,6 +1344,9 @@ public class ActionResolver {
         // Must precede tryParseRemoveNamedFromGame for the same reason as the parser above: on
         // "Remove 1 Warp Counter from Shadow for each …" its lazy name group reads the counter
         // clause as the thing being removed from the game.
+        result = tryParseMayRemoveWarpCountersThenNoCastNoAttack(effectText, source);
+        if (result != null) return result;
+
         result = tryParseRemoveWarpCountersFromNamed(effectText, source);
         if (result != null) return result;
 
@@ -2610,6 +2613,7 @@ public class ActionResolver {
         if (tryParseRevealTopNRfgOneCastableRestBottom(effectText) != null) return "RevealTopNRfgOneCastableRestBottom";
         // Must precede RemoveNamedFromGame, mirroring parse(): it reads the counter clause as the
         // thing being removed from the game and would answer in this parser's place.
+        if (tryParseMayRemoveWarpCountersThenNoCastNoAttack(effectText, source) != null) return "MayRemoveWarpCountersThenNoCastNoAttack";
         if (tryParseRemoveWarpCountersFromNamed(effectText, source) != null) return "RemoveWarpCountersFromNamed";
         // Must precede RemoveNamedFromGame, mirroring parse(): that parser reads this family's whole
         // filter phrase as a card name.
@@ -4525,6 +4529,7 @@ public class ActionResolver {
         if (tryParseRemoveAllOppBzFromGame(effectText)       != null)      return "RemoveAllOppBzFromGame";
         if (tryParseRevealTopNRfgOneCastableRestBottom(effectText) != null) return "RevealTopNRfgOneCastableRestBottom";
         // Must precede RemoveNamedFromGame, mirroring parse() and matchedPatternName().
+        if (tryParseMayRemoveWarpCountersThenNoCastNoAttack(effectText, source) != null) return "MayRemoveWarpCountersThenNoCastNoAttack";
         if (tryParseRemoveWarpCountersFromNamed(effectText, source) != null) return "RemoveWarpCountersFromNamed";
         // Must precede RemoveNamedFromGame, mirroring parse() and matchedPatternName().
         if (tryParseEffectOrPutSelfToBreakZone(effectText, source) != null) {

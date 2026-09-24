@@ -63489,4 +63489,178 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Warp cards whose counter-removal ability triggers "only if [Self] is removed from the game
+	// and if a Warp Counter is placed on [Self]" — 23-050H Noel, 23-060L Vincent, 24-048L Tidus,
+	// 29-086H Shadow. Three gaps stacked: the restriction was left in the effect text, where
+	// tryParseRemoveNamedFromGame read it as a card to remove; nothing walked the Warp zone for
+	// triggers, so the abilities never fired from the one place they work; and Tidus's subject,
+	// "any player's card other than Card Name Tidus", matched nothing.
+	// =========================================================================================
+
+	private static final String WARP_NOEL_TEXT =
+			"Warp 3 -- 《Wind》[[br]]   Haste First Strike[[br]]   At the beginning of the Attack Phase "
+			+ "during each of your turns, remove 1 Warp Counter from Noel for each Category XIII "
+			+ "Character you control. This effect will trigger only if Noel is removed from the game "
+			+ "and if a Warp Counter is placed on Noel.";
+	private static final String WARP_VINCENT_TEXT =
+			"Warp 6 -- 《Earth》[[br]]   When a Category VII Forward enters your field, remove 1 Warp "
+			+ "Counter from Vincent. This effect will trigger only if Vincent is removed from the game "
+			+ "and if a Warp Counter is placed on Vincent.[[br]]   When Vincent enters the field, "
+			+ "choose up to 1 Forward and up to 1 Backup. Break the former. If Vincent enters the "
+			+ "field due to Warp, also break the latter.";
+	private static final String WARP_TIDUS_TEXT =
+			"Warp 5 -- 《0》[[br]]When a Warp Counter is removed from any player's card other than Card "
+			+ "Name Tidus, remove 1 Warp Counter from Tidus. This effect will trigger only if Tidus is "
+			+ "removed from the game and if a Warp Counter is placed on Tidus.";
+	private static final String SHADOW_WARP_TEXT =
+			"Warp 3 -- 《Lightning》[[br]]At the beginning of Main Phase 1 during each of your turns, you "
+			+ "may remove 2 Warp Counters from Shadow. If you do so, you cannot cast any cards during "
+			+ "this turn and you skip Attack Phase in this turn. This effect will trigger only if "
+			+ "Shadow is removed from the game and if a Warp Counter is placed on Shadow.";
+
+	/** A Forward carrying the auto abilities {@code text} prints, in {@code category}. */
+	private static CardData makeWarpCard(String name, String category, String text) {
+		return new CardData(null, name, "Wind", 3, 7000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(text), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, category, null, text);
+	}
+
+	private static CardData warpIn(MainWindow mw, CardData card, boolean isP1, int counters) {
+		mw.gameState.getIdentity().put(card, isP1);
+		if (isP1) mw.gameState.addToP1WarpZone(card, counters);
+		else      mw.gameState.addToP2WarpZone(card, counters);
+		return card;
+	}
+
+	private static int warpCounters(MainWindow mw, CardData card, boolean isP1) {
+		for (GameState.WarpEntry e : isP1 ? mw.gameState.getP1WarpZone() : mw.gameState.getP2WarpZone())
+			if (e.card == card) return e.counters;
+		return -1;
+	}
+
+	@Test
+	void theWarpRestrictionIsLiftedOutOfTheEffectText() {
+		for (String text : List.of(WARP_NOEL_TEXT, WARP_VINCENT_TEXT, WARP_TIDUS_TEXT, SHADOW_WARP_TEXT)) {
+			AutoAbility fa = CardData.parseAutoAbilities(text).stream()
+					.filter(a -> !a.rfpConditionCard().isEmpty()).findFirst().orElse(null);
+			assertNotNull(fa, text);
+			assertFalse(fa.effectText().contains("trigger only"), fa.effectText());
+			assertNotEquals("RemoveNamedFromGame",
+					ActionResolver.matchedPatternName(fa.effectText(), makeWarpCard(fa.rfpConditionCard(), null, "")));
+		}
+	}
+
+	@Test
+	void noelThawsFromTheWarpZoneOnePerCategoryThirteenCharacter() {
+		MainWindow mw = new MainWindow();
+		CardData noel = warpIn(mw, makeWarpCard("Noel", "XIII", WARP_NOEL_TEXT), true, 3);
+		placeP1Forward(mw, makeCategoryForward("Serah", "Wind", "XIII"));
+		placeP1Forward(mw, makeCategoryForward("Hope", "Wind", "XIII"));
+		placeP1Forward(mw, makeCategoryForward("Other", "Wind", "X"));
+
+		fireAndResolve(mw, () -> mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(true));
+
+		assertEquals(1, warpCounters(mw, noel, true), "two Category XIII Characters, two counters");
+	}
+
+	@Test
+	void noelsWarpAbilityIsSilentOnceHeIsOnTheField() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeWarpCard("Noel", "XIII", WARP_NOEL_TEXT));
+		int before = mw.gameState.getStack().size();
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(true);
+		assertEquals(before, mw.gameState.getStack().size());
+	}
+
+	@Test
+	void vincentThawsWhenACategorySevenForwardEntersHisOwnersField() {
+		MainWindow mw = new MainWindow();
+		CardData vincent = warpIn(mw, makeWarpCard("Vincent", "VII", WARP_VINCENT_TEXT), true, 6);
+
+		// Placing the Forward is what fires its entry triggers; the watchers ride along.
+		CardData tifa = makeCategoryForward("Tifa", "Earth", "VII");
+		fireAndResolve(mw, () -> placeP1Forward(mw, tifa));
+		assertEquals(5, warpCounters(mw, vincent, true));
+
+		CardData other = makeCategoryForward("Other", "Earth", "X");
+		fireAndResolve(mw, () -> placeP1Forward(mw, other));
+		assertEquals(5, warpCounters(mw, vincent, true), "not Category VII");
+	}
+
+	@Test
+	void tidusAnswersAnyPlayersWarpRemovalButNotHisOwn() {
+		MainWindow mw = new MainWindow();
+		CardData tidus = warpIn(mw, makeWarpCard("Tidus", "X", WARP_TIDUS_TEXT), true, 5);
+		CardData theirs = warpIn(mw, makeWarpCard("Theirs", null, ""), false, 3);
+
+		fireAndResolve(mw, () -> mw.buildGameContext(false).removeWarpCountersFromNamed("Theirs", 1));
+		assertEquals(2, warpCounters(mw, theirs, false));
+		assertEquals(4, warpCounters(mw, tidus, true), "the opponent's card counts: \"any player's\"");
+
+		int before = mw.gameState.getStack().size();
+		mw.buildGameContext(true).removeWarpCountersFromNamed("Tidus", 1);
+		assertEquals(3, warpCounters(mw, tidus, true));
+		assertEquals(before, mw.gameState.getStack().size(),
+				"\"other than Card Name Tidus\": his own removal must not trigger him again");
+	}
+
+	/** P1's real context, answering Shadow's "you may" with {@code accept} rather than a dialog. */
+	private static GameContext mayContext(MainWindow mw, boolean accept) {
+		GameContext ctx = mock(GameContext.class,
+				org.mockito.AdditionalAnswers.delegatesTo(mw.buildGameContext(true)));
+		doReturn(accept).when(ctx).promptYouMay(anyString());
+		return ctx;
+	}
+
+	private static Consumer<GameContext> shadowWarpEffect(CardData shadow) {
+		AutoAbility fa = CardData.parseAutoAbilities(SHADOW_WARP_TEXT).get(0);
+		Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), shadow);
+		assertNotNull(effect, fa.effectText());
+		return effect;
+	}
+
+	@Test
+	void shadowPaysForTwoCountersWithItsCastsAndItsAttackPhase() {
+		MainWindow mw = new MainWindow();
+		CardData shadow = warpIn(mw, makeWarpCard("Shadow", null, SHADOW_WARP_TEXT), true, 3);
+
+		shadowWarpEffect(shadow).accept(mayContext(mw, true));
+
+		assertEquals(1, warpCounters(mw, shadow, true));
+		assertTrue(mw.p1Turn.cannotCastThisTurn);
+		assertTrue(mw.consumePhaseSkip(true, GameState.GamePhase.ATTACK),
+				"this turn's Attack Phase is marked to be skipped");
+	}
+
+	@Test
+	void shadowDecliningCostsNothing() {
+		MainWindow mw = new MainWindow();
+		CardData shadow = warpIn(mw, makeWarpCard("Shadow", null, SHADOW_WARP_TEXT), true, 3);
+
+		shadowWarpEffect(shadow).accept(mayContext(mw, false));
+
+		assertEquals(3, warpCounters(mw, shadow, true));
+		assertFalse(mw.p1Turn.cannotCastThisTurn);
+		assertFalse(mw.consumePhaseSkip(true, GameState.GamePhase.ATTACK));
+	}
+
+	@Test
+	void shadowIsNotOfferedTheBargainWithOneCounterLeft() {
+		MainWindow mw = new MainWindow();
+		CardData shadow = warpIn(mw, makeWarpCard("Shadow", null, SHADOW_WARP_TEXT), true, 1);
+		GameContext ctx = mayContext(mw, true);
+
+		shadowWarpEffect(shadow).accept(ctx);
+
+		verify(ctx, never()).promptYouMay(anyString());
+		assertEquals(1, warpCounters(mw, shadow, true));
+		assertFalse(mw.p1Turn.cannotCastThisTurn);
+	}
+
+	// =========================================================================================
+
 }

@@ -9622,6 +9622,20 @@ final class ActionResolverPatterns {
      * {@code category}, {@code job} and {@code type}. Without the "for each" clause the count is
      * flat, which is the far more common printing.
      */
+    /**
+     * 29-086H Shadow: "you may remove N Warp Counters from [Self]. If you do so, you cannot cast any
+     * cards during this turn and you skip Attack Phase in this turn."
+     *
+     * <p>Its own pattern rather than an arm of {@link #REMOVE_WARP_COUNTERS_FROM_NAMED}, whose
+     * anchoring exists to keep exactly this sentence out: the removal is optional and the second
+     * sentence is its price, so reading the removal alone would hand the counters over for free.
+     * Groups: {@code count}, {@code name}.
+     */
+    static final Pattern MAY_REMOVE_WARP_COUNTERS_THEN_NO_CAST_NO_ATTACK = Pattern.compile(
+        "(?i)^you\\s+may\\s+remove\\s+(?<count>\\d+)\\s+Warp\\s+Counters?\\s+from\\s+(?<name>[^.,]+?)[.!]\\s*" +
+        "If\\s+you\\s+do\\s+so,\\s*you\\s+cannot\\s+cast\\s+any\\s+cards\\s+(?:during|in)\\s+this\\s+turn\\s+and\\s+" +
+        "you\\s+skip\\s+(?:the\\s+)?Attack\\s+Phase\\s+(?:in|during)\\s+this\\s+turn[.!]?$"
+    );
     static final Pattern REMOVE_WARP_COUNTERS_FROM_NAMED = Pattern.compile(
         "(?i)^Remove\\s+(?<count>\\d+)\\s+Warp\\s+Counters?\\s+from\\s+(?<name>[^.,]+?)" +
         "(?:\\s+for\\s+each\\s+" +

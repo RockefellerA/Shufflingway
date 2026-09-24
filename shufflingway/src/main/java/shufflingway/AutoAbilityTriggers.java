@@ -1878,6 +1878,12 @@ final class AutoAbilityTriggers {
 				fireEntersYourFieldWatchers(card, isP1);
 				// Also fire watcher abilities on break-zone cards (only those gated by bzConditionCard).
 				fireEntersYourFieldBreakZoneWatchers(card, isP1);
+				// And on Warp-zone cards, for the abilities they use from there (23-060L Vincent).
+				for (CardData w : warpZoneResidents(isP1))
+					for (AutoAbility fa : warpZoneAbilities(w))
+						if (fa.trigger().equals("enters your field")
+								&& matchesEntersFieldSubject(fa.triggerCard(), card, w))
+							executeAutoAbility(fa, w, isP1);
 			}
 			// Watcher dispatch: "When a <Type> of your opponent enters the field, ..." lives on the
 			// opponent's cards and uses trigger "enters opponent's field".
@@ -3894,19 +3900,45 @@ final class AutoAbilityTriggers {
 	void triggerAutoAbilitiesForWarpCounterRemoved(CardData target, boolean isP1) {
 		withBatch(() -> {
 			List<CardData> all = new ArrayList<>();
-			List<GameState.WarpEntry> warpZone = isP1
-					? mw.gameState.getP1WarpZone() : mw.gameState.getP2WarpZone();
 			all.addAll(isP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
 			for (CardData c : (isP1 ? mw.p1BackupCards : mw.p2BackupCards)) if (c != null) all.add(c);
-			for (GameState.WarpEntry we : warpZone) if (we != null) all.add(we.card);
 			all.addAll(isP1 ? mw.p1MonsterCards : mw.p2MonsterCards);
 			for (CardData card : all)
 				for (AutoAbility fa : mw.effectiveAutoAbilities(card))
-					if (fa.trigger().equals("warp counter removed")
-							&& (fa.triggerCard().equalsIgnoreCase("any player's card") || fa.triggerCard().equalsIgnoreCase(target.name())))
+					if (fa.trigger().equals("warp counter removed") && warpCounterSubjectMatches(fa.triggerCard(), target))
 						executeAutoAbility(fa, card, isP1);
+			// Warp-zone residents on both sides, each for its own owner: "any player's card"
+			// (24-048L Tidus) reaches across the table, which the warping side's walk above does not.
+			for (boolean ownerIsP1 : new boolean[] { true, false })
+				for (CardData card : warpZoneResidents(ownerIsP1))
+					for (AutoAbility fa : mw.effectiveAutoAbilities(card))
+						if (fa.trigger().equals("warp counter removed")
+								&& (ownerIsP1 == isP1 || warpCounterSubjectIsAnyPlayers(fa.triggerCard()))
+								&& warpCounterSubjectMatches(fa.triggerCard(), target))
+							executeAutoAbility(fa, card, ownerIsP1);
 		});
 		mw.showStackWindowIfNeeded();
+	}
+
+	/** "any player's card[ other than Card Name X]" — the subject that is not a single named card. */
+	private static final Pattern WARP_COUNTER_ANY_PLAYERS_SUBJECT = Pattern.compile(
+			"(?i)^any\\s+player's\\s+card(?:\\s+other\\s+than\\s+(?:Card\\s+Name\\s+)?(?<except>.+))?$");
+
+	private static boolean warpCounterSubjectIsAnyPlayers(String subject) {
+		return WARP_COUNTER_ANY_PLAYERS_SUBJECT.matcher(subject.trim()).matches();
+	}
+
+	/**
+	 * Whether a "warp counter removed" subject covers the card that lost a counter: its own name,
+	 * or "any player's card", less the card an "other than Card Name X" spares. The exclusion is
+	 * what keeps 24-048L Tidus from answering its own removal and taking its counters off one after
+	 * another in a single chain.
+	 */
+	private static boolean warpCounterSubjectMatches(String subject, CardData target) {
+		Matcher any = WARP_COUNTER_ANY_PLAYERS_SUBJECT.matcher(subject.trim());
+		if (any.matches())
+			return any.group("except") == null || !any.group("except").trim().equalsIgnoreCase(target.name());
+		return subject.equalsIgnoreCase(target.name());
 	}
 
 
@@ -3934,6 +3966,30 @@ final class AutoAbilityTriggers {
 		for (CardData c : fwds) fireEventTriggers(c, isP1, triggerType);
 		for (CardData c : bkps) if (c != null) fireEventTriggers(c, isP1, triggerType);
 		for (CardData c : mons) fireEventTriggers(c, isP1, triggerType);
+		for (CardData c : warpZoneResidents(isP1))
+			for (AutoAbility fa : warpZoneAbilities(c))
+				if (fa.trigger().equals(triggerType)) executeAutoAbility(fa, c, isP1);
+	}
+
+	/** The cards in {@code isP1}'s Warp zone, copied so a trigger that warps one in cannot disturb the walk. */
+	private List<CardData> warpZoneResidents(boolean isP1) {
+		List<CardData> out = new ArrayList<>();
+		for (GameState.WarpEntry we : isP1 ? mw.gameState.getP1WarpZone() : mw.gameState.getP2WarpZone())
+			if (we != null) out.add(we.card);
+		return out;
+	}
+
+	/**
+	 * The abilities {@code card} uses from the Warp zone: those that say they trigger only while it
+	 * is removed from the game — 23-050H Noel, 23-060L Vincent, 24-048L Tidus, 29-086H Shadow,
+	 * 21-007L Shadow. A card in the Warp zone is not on the field, so none of the field walks reach
+	 * it; every other ability it prints is for when it arrives, and must stay silent until then.
+	 */
+	private List<AutoAbility> warpZoneAbilities(CardData card) {
+		List<AutoAbility> out = new ArrayList<>();
+		for (AutoAbility fa : card.autoAbilities())
+			if (fa.rfpConditionCard().equalsIgnoreCase(card.name())) out.add(fa);
+		return out;
 	}
 
 	private void fireEventTriggers(CardData card, boolean isP1, String triggerType) {
