@@ -149,8 +149,8 @@ final class ActionResolverPower {
      * through {@code parse()}". The traits group stops at the first "." <em>wherever it is</em>,
      * including inside a quotation: on 17-084C Lorenzo the tail is the back half of a quoted
      * ability ({@code Add it to your hand."}), and handing that to the general chain would resolve
-     * a fragment as if it were an effect of its own. Lorenzo's quoted grant is still dropped, which
-     * is wrong but visibly so.
+     * a fragment as if it were an effect of its own. Lorenzo's whole ability is read by
+     * {@link #tryParseUntilEotDoublesPowerAndQuoted}, ahead of this one.
      */
     static Consumer<GameContext> tryParseStandaloneDoublesItsPowerUntil(
             String text, CardData source) {
@@ -241,6 +241,26 @@ final class ActionResolverPower {
             ctx.boostSourceForward(source, boost, traits);
         };
     }
+    /**
+     * Parses 17-084C Lorenzo's "until the end of the turn, Lorenzo doubles its power and gains
+     * "When Lorenzo deals damage to your opponent, …"" — see
+     * {@link ActionResolverPatterns#UNTIL_EOT_DOUBLES_POWER_AND_QUOTED}. Declines when the quoted
+     * ability is not one the self-grant can carry, rather than doubling and dropping it.
+     */
+    static Consumer<GameContext> tryParseUntilEotDoublesPowerAndQuoted(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = UNTIL_EOT_DOUBLES_POWER_AND_QUOTED.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("subject").trim().equalsIgnoreCase(source.name())) return null;
+        Consumer<GameContext> abilityGrant = grantedSelfFieldAbilityEffect(m.group("quoted").trim(), source);
+        if (abilityGrant == null) return null;
+        return ctx -> {
+            ctx.logEntry(source.name() + " — power doubled until end of turn");
+            ctx.doubleSourceForwardPower(source, EnumSet.noneOf(CardData.Trait.class));
+            abilityGrant.accept(ctx);
+        };
+    }
+
     static Consumer<GameContext> tryParseUntilEotGainsPowerTraitsAndQuoted(String text, CardData source) {
         if (source == null) return null;
         Matcher m = UNTIL_EOT_GAINS_POWER_TRAITS_AND_QUOTED.matcher(text.trim());

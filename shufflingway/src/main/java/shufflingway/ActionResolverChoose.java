@@ -1804,6 +1804,13 @@ final class ActionResolverChoose {
         // filter below: both are pools the card kind alone cannot name.
         if (m.group("alsoforward") != null && rawCondition == null)
             rawCondition = CardFilters.MONSTER_ALSO_FORWARD;
+        // "forming a party" rides it too. Declined rather than dropped when anything else already
+        // holds the slot: an unread party filter would widen the choice to every Forward.
+        if (m.group("formingparty") != null) {
+            if (rawCondition != null || postCondition != null || traitGroup != null
+                    || blockingName != null || blockingJob != null || bzFieldZone != null) return null;
+            rawCondition = CardFilters.FORMING_PARTY_CONDITION;
+        }
         // "with 《LB》" (26-087R Odin) rides it for the same reason — a Limit Break card is a
         // printing, not a card kind or a state. Any other keyword in that slot is declined rather
         // than ignored: an unread filter would widen the choice to every Forward on the table,

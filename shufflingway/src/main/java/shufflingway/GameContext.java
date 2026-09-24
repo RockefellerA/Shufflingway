@@ -4395,6 +4395,14 @@ public interface GameContext {
     void addTempIsBlockedTrigger(CardData card, Consumer<GameContext> effect);
 
     /**
+     * Registers {@code effect} to fire the next time {@code card} is put from the field into the
+     * Break Zone this turn — 3-082R Scarmiglione's "When Scarmiglione is put from the field into
+     * the Break Zone during this turn, return Scarmiglione to the field." Fires at most once, and
+     * is cleared at end of turn if it never does.
+     */
+    void addTempBreakZoneTrigger(CardData card, Consumer<GameContext> effect);
+
+    /**
      * Registers {@code effect} to execute at the start of the player's next Main Phase 1
      * (and persist until end of that turn via normal boost expiry).
      */
@@ -4517,13 +4525,38 @@ public interface GameContext {
      * fields. A sweep is the last effect that should widen when its filter goes unread, so the
      * parser now declines any match that names no card type, job, category or card name at all.
      */
+    default void applyMassFieldEffect(MassAction action,
+            boolean forwards, boolean backups, boolean monsters,
+            boolean opponentOnly, boolean selfOnly,
+            String element, int costVal, String costCmp, int excludeCostVal,
+            String job, String category, java.util.EnumSet<CardData.Trait> traitFilter,
+            String counterFilter, String excludeName,
+            String stateFilter, String nameFilter, String excludeJob) {
+        applyMassFieldEffect(action, forwards, backups, monsters, opponentOnly, selfOnly,
+                element, costVal, costCmp, excludeCostVal, job, category, traitFilter,
+                counterFilter, excludeName, stateFilter, nameFilter, excludeJob, null);
+    }
+
+    /**
+     * Same as above, further narrowed by {@code extraFilter} — the qualifiers too varied to earn a
+     * parameter each: "with 8000 power or less" (11-138S Sephiroth), "with 3 or more Doom Counters
+     * placed on them" (11-025H Orphan), "of cost 5 and 10" (5-063H Deathgaze), "with a cost equal
+     * to the number of Job Moogle you control" (2-043C Hurdy).
+     *
+     * <p>Every candidate is tested once, before anything is swept. The sweep is simultaneous, and
+     * testing as it went would let an earlier break change a later card's answer — a Backup that
+     * boosts power leaving the field, say, before the power filter reaches the Forwards it boosted.
+     *
+     * @param extraFilter asked of each candidate's slot; {@code null} applies no extra restriction
+     */
     void applyMassFieldEffect(MassAction action,
             boolean forwards, boolean backups, boolean monsters,
             boolean opponentOnly, boolean selfOnly,
             String element, int costVal, String costCmp, int excludeCostVal,
             String job, String category, java.util.EnumSet<CardData.Trait> traitFilter,
             String counterFilter, String excludeName,
-            String stateFilter, String nameFilter, String excludeJob);
+            String stateFilter, String nameFilter, String excludeJob,
+            Predicate<ForwardTarget> extraFilter);
 
     /**
      * How many dull cards the most recent {@link #applyMassFieldEffect} with
@@ -4537,6 +4570,18 @@ public interface GameContext {
      * only ever reports the sweep that just ran.
      */
     int lastMassActivateCount();
+
+    /**
+     * How many Forwards the most recent {@link #applyMassFieldEffect} with
+     * {@link MassAction#BREAK} actually put into the Break Zone — one that could not be broken
+     * stayed where it was and is not counted.
+     *
+     * <p>For "When N or more Forwards are put from the field into the Break Zone by this effect, …"
+     * (17-079L Shadow Lord), counted by the sweep for the reason {@link #lastMassActivateCount}
+     * is: the payoff must be measured against the cards the sweep really took. Reset by every
+     * {@code applyMassFieldEffect} call.
+     */
+    int lastMassBreakForwardCount();
 
     /**
      * Places {@code count} counters named {@code counterName} on every Forward on the side(s) the

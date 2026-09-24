@@ -60,6 +60,7 @@ import static shufflingway.CardFilters.meetsElementExclusion;
 import static shufflingway.CardFilters.meetsElementFilter;
 import static shufflingway.CardFilters.meetsPowerConstraint;
 import static shufflingway.CardFilters.meetsTargetCondition;
+import static shufflingway.CardFilters.isFormingPartyCondition;
 import static shufflingway.CardFilters.parseTraitFromCondition;
 import shufflingway.graphics.CardAnimation;
 import static shufflingway.graphics.CardAnimation.CARD_H;
@@ -1309,6 +1310,7 @@ final class GameContextImpl implements GameContext {
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
+							if (isFormingPartyCondition(condition) && !mw.isFormingParty(true, i)) continue;
 							if (isTraitCondition(condition) && !mw.effectiveP1HasTrait(i, parseTraitFromCondition(condition))) continue;
 							if (isBlockingTargetFilter(condition)
 									? mw.meetsBlockingTargetFilter(true, i, condition)
@@ -1320,6 +1322,7 @@ final class GameContextImpl implements GameContext {
 						}
 						if (inclBackups || inclForwards) for (int i = 0; i < mw.p1BackupCards.length; i++) {
 							if (isBlockingTargetFilter(condition)) continue;
+							if (isFormingPartyCondition(condition)) continue;
 							if (mw.p1BackupCards[i] == null) continue;
 							if (!inclBackups && !mw.isP1BackupTemporarilyForward(i)) continue;
 							if (isMonsterAlsoForwardCondition(condition)) continue;
@@ -1350,6 +1353,7 @@ final class GameContextImpl implements GameContext {
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
+							if (isFormingPartyCondition(condition)) continue;
 							if (isEnteredThisTurnCondition(condition)
 									? mw.p1MonsterPlayedOnTurn.get(i) == mw.gameState.getTurnNumber()
 									: meetsTargetCondition(mw.p1MonsterStates.get(i), 0, false, false, condition))
@@ -1369,6 +1373,7 @@ final class GameContextImpl implements GameContext {
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
+							if (isFormingPartyCondition(condition) && !mw.isFormingParty(false, i)) continue;
 							if (isTraitCondition(condition) && !mw.effectiveP2HasTrait(i, parseTraitFromCondition(condition))) continue;
 							if (isBlockingTargetFilter(condition)
 									? mw.meetsBlockingTargetFilter(false, i, condition)
@@ -1380,6 +1385,7 @@ final class GameContextImpl implements GameContext {
 						}
 						if (inclBackups || inclForwards) for (int i = 0; i < mw.p2BackupCards.length; i++) {
 							if (isBlockingTargetFilter(condition)) continue;
+							if (isFormingPartyCondition(condition)) continue;
 							if (mw.p2BackupCards[i] == null) continue;
 							if (!inclBackups && !mw.isP2BackupTemporarilyForward(i)) continue;
 							if (isMonsterAlsoForwardCondition(condition)) continue;
@@ -1410,6 +1416,7 @@ final class GameContextImpl implements GameContext {
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
+							if (isFormingPartyCondition(condition)) continue;
 							if (isEnteredThisTurnCondition(condition)
 									? mw.p2MonsterPlayedOnTurn.get(i) == mw.gameState.getTurnNumber()
 									: meetsTargetCondition(mw.p2MonsterStates.get(i), 0, false, false, condition))
@@ -1432,6 +1439,7 @@ final class GameContextImpl implements GameContext {
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
+							if (isFormingPartyCondition(condition) && !mw.isFormingParty(false, i)) continue;
 							if (isTraitCondition(condition) && !mw.effectiveP2HasTrait(i, parseTraitFromCondition(condition))) continue;
 							if (isBlockingTargetFilter(condition)
 									? mw.meetsBlockingTargetFilter(false, i, condition)
@@ -1443,6 +1451,7 @@ final class GameContextImpl implements GameContext {
 						}
 						if (inclBackups || inclForwards) for (int i = 0; i < mw.p2BackupCards.length; i++) {
 							if (isBlockingTargetFilter(condition)) continue;
+							if (isFormingPartyCondition(condition)) continue;
 							if (mw.p2BackupCards[i] == null) continue;
 							if (!inclBackups && !mw.isP2BackupTemporarilyForward(i)) continue;
 							if (isMonsterAlsoForwardCondition(condition)) continue;
@@ -1473,6 +1482,7 @@ final class GameContextImpl implements GameContext {
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
+							if (isFormingPartyCondition(condition)) continue;
 							if (isEnteredThisTurnCondition(condition)
 									? mw.p2MonsterPlayedOnTurn.get(i) == mw.gameState.getTurnNumber()
 									: meetsTargetCondition(mw.p2MonsterStates.get(i), 0, false, false, condition))
@@ -1492,6 +1502,7 @@ final class GameContextImpl implements GameContext {
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
+							if (isFormingPartyCondition(condition) && !mw.isFormingParty(true, i)) continue;
 							if (isTraitCondition(condition) && !mw.effectiveP1HasTrait(i, parseTraitFromCondition(condition))) continue;
 							if (isBlockingTargetFilter(condition)
 									? mw.meetsBlockingTargetFilter(true, i, condition)
@@ -1503,6 +1514,7 @@ final class GameContextImpl implements GameContext {
 						}
 						if (inclBackups || inclForwards) for (int i = 0; i < mw.p1BackupCards.length; i++) {
 							if (isBlockingTargetFilter(condition)) continue;
+							if (isFormingPartyCondition(condition)) continue;
 							if (mw.p1BackupCards[i] == null) continue;
 							if (!inclBackups && !mw.isP1BackupTemporarilyForward(i)) continue;
 							if (isMonsterAlsoForwardCondition(condition)) continue;
@@ -1533,6 +1545,7 @@ final class GameContextImpl implements GameContext {
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
 							if (withoutMulticard && card.multicard()) continue;
 							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
+							if (isFormingPartyCondition(condition)) continue;
 							if (isEnteredThisTurnCondition(condition)
 									? mw.p1MonsterPlayedOnTurn.get(i) == mw.gameState.getTurnNumber()
 									: meetsTargetCondition(mw.p1MonsterStates.get(i), 0, false, false, condition))
@@ -9010,6 +9023,36 @@ final class GameContextImpl implements GameContext {
 				return nameFilter == null || c.name().equalsIgnoreCase(nameFilter);
 			}
 
+			/**
+			 * The cards on the swept sides that {@code extraFilter} accepts, asked of every one
+			 * before any is touched. Held by identity: two copies of a printing are different
+			 * cards, and one can meet a power filter the other does not.
+			 */
+			private Set<CardData> massSweepExtraPass(boolean touchP1, boolean touchP2,
+					Predicate<ForwardTarget> extraFilter) {
+				Set<CardData> pass = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+				for (boolean p1 : new boolean[] { true, false }) {
+					if (p1 ? !touchP1 : !touchP2) continue;
+					List<CardData> fwds = p1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+					for (int i = 0; i < fwds.size(); i++) {
+						ForwardTarget t = new ForwardTarget(p1, i, ForwardTarget.CardZone.FORWARD);
+						if (extraFilter.test(t)) pass.add(p1 ? p1Forward(i) : fwds.get(i));
+					}
+					CardData[] backups = p1 ? mw.p1BackupCards : mw.p2BackupCards;
+					for (int i = 0; i < backups.length; i++) {
+						if (backups[i] == null) continue;
+						if (extraFilter.test(new ForwardTarget(p1, i, ForwardTarget.CardZone.BACKUP)))
+							pass.add(backups[i]);
+					}
+					List<CardData> monsters = p1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+					for (int i = 0; i < monsters.size(); i++) {
+						if (extraFilter.test(new ForwardTarget(p1, i, ForwardTarget.CardZone.MONSTER)))
+							pass.add(monsters.get(i));
+					}
+				}
+				return pass;
+			}
+
 			@Override
 			public void applyMassFieldEffect(GameContext.MassAction action,
 					boolean forwards, boolean backups, boolean monsters,
@@ -9017,12 +9060,16 @@ final class GameContextImpl implements GameContext {
 					String element, int costVal, String costCmp, int excludeCostVal,
 					String job, String category, EnumSet<CardData.Trait> traitFilter,
 					String counterFilter, String excludeName,
-					String stateFilter, String nameFilter, String excludeJob) {
+					String stateFilter, String nameFilter, String excludeJob,
+					Predicate<ForwardTarget> extraFilter) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
+				Set<CardData> extraPass = extraFilter == null ? null
+						: massSweepExtraPass(touchP1, touchP2, extraFilter);
 				// Reset for every action, not just ACTIVATE, so a later sweep of any kind cannot
 				// leave an earlier one's tally standing to be read as its own.
 				mw.lastMassActivateCount = 0;
+				mw.lastMassBreakForwardCount = 0;
 				if (touchP1) {
 					if (forwards || monsters) {
 						for (int i = mw.p1ForwardCards.size() - 1; i >= 0; i--) {
@@ -9034,13 +9081,15 @@ final class GameContextImpl implements GameContext {
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
 							if (!meetsNameFilter(c, nameFilter)) continue;
+							if (extraPass != null && !extraPass.contains(c)) continue;
 							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							if (!meetsStateFilter(mw.p1ForwardStates.get(i), stateFilter)) continue;
 							if (!forwardHasAnyTrait(true, i, traitFilter)) continue;
 							switch (action) {
-								case BREAK          -> breakP1Forward(i);
+								case BREAK          -> { int n = mw.p1ForwardCards.size(); breakP1Forward(i);
+								                         if (mw.p1ForwardCards.size() < n) mw.lastMassBreakForwardCount++; }
 								case DULL           -> dullP1Forward(i);
 								case FREEZE         -> freezeP1Forward(i);
 								case DULL_AND_FREEZE -> { dullP1Forward(i); freezeP1Forward(i); }
@@ -9064,6 +9113,7 @@ final class GameContextImpl implements GameContext {
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
 							if (!meetsNameFilter(c, nameFilter)) continue;
+							if (extraPass != null && !extraPass.contains(c)) continue;
 							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
@@ -9102,6 +9152,7 @@ final class GameContextImpl implements GameContext {
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
 							if (!meetsNameFilter(c, nameFilter)) continue;
+							if (extraPass != null && !extraPass.contains(c)) continue;
 							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
@@ -9145,13 +9196,15 @@ final class GameContextImpl implements GameContext {
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
 							if (!meetsNameFilter(c, nameFilter)) continue;
+							if (extraPass != null && !extraPass.contains(c)) continue;
 							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							if (!meetsStateFilter(mw.p2ForwardStates.get(i), stateFilter)) continue;
 							if (!forwardHasAnyTrait(false, i, traitFilter)) continue;
 							switch (action) {
-								case BREAK          -> breakP2Forward(i);
+								case BREAK          -> { int n = mw.p2ForwardCards.size(); breakP2Forward(i);
+								                         if (mw.p2ForwardCards.size() < n) mw.lastMassBreakForwardCount++; }
 								case DULL           -> dullP2Forward(i);
 								case FREEZE         -> freezeP2Forward(i);
 								case DULL_AND_FREEZE -> { dullP2Forward(i); freezeP2Forward(i); }
@@ -9172,6 +9225,7 @@ final class GameContextImpl implements GameContext {
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
 							if (!meetsNameFilter(c, nameFilter)) continue;
+							if (extraPass != null && !extraPass.contains(c)) continue;
 							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
@@ -9205,6 +9259,7 @@ final class GameContextImpl implements GameContext {
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (mw.excludedByOtherThanClause(c, excludeName)) continue;
 							if (!meetsNameFilter(c, nameFilter)) continue;
+							if (extraPass != null && !extraPass.contains(c)) continue;
 							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
 							if (!meetsStateFilter(mw.p2MonsterStates.get(i), stateFilter)) continue;
 							ForwardTarget slot = new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER);
@@ -9242,6 +9297,7 @@ final class GameContextImpl implements GameContext {
 	// Mass field effects: party boosts and keyword grants
 	// =========================================================================================
 			@Override public int lastMassActivateCount() { return mw.lastMassActivateCount; }
+			@Override public int lastMassBreakForwardCount() { return mw.lastMassBreakForwardCount; }
 
 			@Override
 			public void applyMassFieldPowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
@@ -9699,6 +9755,12 @@ final class GameContextImpl implements GameContext {
 				Map<CardData, List<Consumer<GameContext>>> triggers
 						= isP1 ? mw.p1TempAttackTriggers : mw.p2TempAttackTriggers;
 				triggers.computeIfAbsent(card, k -> new ArrayList<>()).add(effect);
+			}
+
+			@Override public void addTempBreakZoneTrigger(CardData card, Consumer<GameContext> effect) {
+				Map<CardData, List<Consumer<GameContext>>> map
+						= isP1 ? mw.p1TempBreakZoneTriggers : mw.p2TempBreakZoneTriggers;
+				map.computeIfAbsent(card, k -> new ArrayList<>()).add(effect);
 			}
 
 			@Override public void addTempIsBlockedTrigger(CardData card, Consumer<GameContext> effect) {

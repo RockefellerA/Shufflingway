@@ -83,6 +83,11 @@ final class ActionResolverPatterns {
                     // failed, so the trailing sentence was claimed on its own: Relm's "It gains
                     // +2000 power" was read as a self-boost and lent the power to Relm.
                     "(?:\\s+that\\s+(?:is|are)\\s+also\\s+(?:an?\\s+)?(?<alsoforward>Forwards?))?" +
+                    // "1 Forward forming a party" (15-052C Chocobo) — an attacker declared alongside
+                    // another, which is combat state rather than a card kind. Without it the phrase
+                    // stopped at "Forward", the leftover words met no followup separator, and the
+                    // choice failed outright.
+                    "(?:\\s+(?<formingparty>forming\\s+a\\s+party))?" +
                     "(?:\\s+with\\s+(?<trait>Brave|Haste|First\\s+Strike))?" +
                     "(?:\\s+that\\s+(?<postcondition>entered\\s+the\\s+field\\s+this\\s+turn|entered\\s+this\\s+turn))?" +
                     "(?:\\s+without\\s+《(?<excludekw>[^》]+)》)?" +
@@ -554,6 +559,42 @@ final class ActionResolverPatterns {
         "(?<type>Forward|Backup|Monster|Character)" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<cmp>less|more))?[.!]\\s*" +
         "(?<name>.+?)\\s+triggers\\s+the\\s+same\\s+auto[- ]ability[.!]?"
+    );
+
+    /**
+     * Matches "Choose 1 auto-ability triggered from [your opponent's] [a] [type] [of cost N or
+     * less/more]. Cancel its effect." — 27-048R Seven (a Forward of cost 5 or less) and 16-058R
+     * Fina (any Forward).
+     *
+     * <p>The cancel twin of {@link #COPY_CHOSEN_AUTO_ABILITY_ON_STACK}, and enforced like it.
+     * {@link #CANCEL_ABILITY_ON_STACK} has no room for "triggered from" between its type and its
+     * period, so these fell to the compound fallback, which read "Cancel its effect." alone —
+     * cancelling with nothing chosen — and now refuses to.
+     * Groups: {@code opponents}, {@code type}, {@code cost}, {@code cmp}.
+     */
+    static final Pattern CANCEL_AUTO_ABILITY_TRIGGERED_FROM = Pattern.compile(
+        "(?i)^Choose\\s+1\\s+auto[- ]ability\\s+triggered\\s+from\\s+" +
+        "(?<opponents>your\\s+opponent's\\s+)?(?:an?\\s+)?" +
+        "(?<type>Forward|Backup|Monster|Character)" +
+        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<cmp>less|more))?[.!]\\s*" +
+        // A trailing usage restriction is ActionAbility's to enforce, not part of the effect —
+        // Fina's "You can only use this ability if you control 4 or more Wind Backups and …".
+        "Cancel\\s+its\\s+effect[.!]?(?:\\s*You\\s+can\\s+only\\s+use\\s+this\\s+ability\\b[^.!]*[.!]?)?\\s*$"
+    );
+    /**
+     * Matches "When [Self] is put from the field into the Break Zone during this turn, return
+     * [Self] to the field [dull]. [It gains +N power until the end of the turn.]" — 3-082R
+     * Scarmiglione's action ability, a trigger that lasts for the turn it was used.
+     *
+     * <p>Both sentences in one pattern: the second one's "It" is the card the first returns, and
+     * read alone it would boost the card as the ability resolves, before anything has broken.
+     * Groups: {@code name}, {@code name2} — both the source's own name; {@code dull};
+     * {@code amount} — the boost, when printed.
+     */
+    static final Pattern DELAYED_RETURN_SELF_FROM_BREAK_ZONE = Pattern.compile(
+        "(?i)^When\\s+(?<name>.+?)\\s+is\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone\\s+" +
+        "during\\s+this\\s+turn,\\s*return\\s+(?<name2>.+?)\\s+to\\s+the\\s+field(?<dull>\\s+dull)?[.!]" +
+        "(?:\\s*It\\s+gains\\s+\\+(?<amount>\\d+)\\s+power\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?)?\\s*$"
     );
 
     /**
@@ -8523,6 +8564,23 @@ final class ActionResolverPatterns {
         "(?i)^name\\s+1\\s+card\\s+type[.!]\\s*Remove\\s+all\\s+(?:the\\s+)?cards\\s+of\\s+" +
         "named\\s+card\\s+type\\s+in\\s+your\\s+opponent's\\s+Break\\s+Zone\\s+from\\s+the\\s+game[.!]?$"
     );
+    /**
+     * A sweep of two groups, each with its own side: 15-097H Feolthanos's "break all the Forwards
+     * opponent controls and all the Backups you control". {@link #ALL_FIELD_EFFECT_PATTERN} reads
+     * one group and one side, so it stopped at the first "controls" and dropped the rest.
+     *
+     * <p>Each half must end on its control clause. That is what tells this apart from a single
+     * group whose type list happens to contain "and" — "all the Forwards and Monsters opponent
+     * controls" has no side before its "and", so it is never split here.
+     *
+     * <p>Groups: {@code action}; {@code first}, {@code second} — each half's filter and side.
+     */
+    static final Pattern ALL_FIELD_EFFECT_TWO_SIDED = Pattern.compile(
+        "(?i)^(?<action>Break|Activate|dull\\s+and\\s+freeze|dull|freeze)\\s+all\\s+(?:the\\s+)?" +
+        "(?<first>[^.!]+?\\s+(?:(?:your\\s+)?opponent\\s+controls?|you\\s+control))" +
+        "\\s+and\\s+all\\s+(?:the\\s+)?" +
+        "(?<second>[^.!]+?\\s+(?:(?:your\\s+)?opponent\\s+controls?|you\\s+control))\\s*[.!]?$"
+    );
     static final Pattern ALL_FIELD_EFFECT_PATTERN = Pattern.compile(
         "(?i)(?<action>Break|Activate|dull\\s+and\\s+freeze|dull|freeze)\\s+" +
         // "all the OTHER Forwards opponent controls" is never a sweep of its own: in all four
@@ -8571,7 +8629,18 @@ final class ActionResolverPatterns {
         "(?:\\s+(?=Forwards?|Backups?|Characters?))?)?" +
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)?" +
         "(?:\\s+with\\s+(?<trait>(?:Haste|First\\s+Strike|Brave)(?:\\s*(?:,\\s*(?:or\\s+)?|\\s+or\\s+)(?:Haste|First\\s+Strike|Brave))*))?" +
-        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
+        // "and N" is a second exact cost, not a range: 5-063H Deathgaze breaks "the Characters of
+        // cost 5 and 10 opponent controls" and nothing in between. The pattern used to stop at the
+        // first cost and drop the second, along with the side restriction trailing it.
+        // "of costs 2, 3, 5, 7, 11, and 13" (3-037H Zalera) is the same list, longer; its words are
+        // kept whole in costlist and split in the parser.
+        "(?:\\s+of\\s+costs?\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more)" +
+        "|(?<costlist>(?:\\s*,\\s*\\d+)*,?\\s+and\\s+\\d+))?)?" +
+        // A cost read off the board rather than printed: 2-043C Hurdy dulls "all the Forwards with a
+        // cost equal to the number of Job Moogle you control". Its "you control" belongs to the count,
+        // not to the sweep, so the arm consumes it before the control arm below can claim it — read
+        // there, it would have restricted the sweep to Hurdy's own side.
+        "(?:\\s+with\\s+a\\s+cost\\s+equal\\s+to\\s+the\\s+number\\s+of\\s+Job\\s+(?<costjob>.+?)\\s+you\\s+control)?" +
         "(?:\\s+other\\s+than\\s+cost\\s+(?<excludecost>\\d+))?" +
         // "other than <name>", the sparing clause 15 printings carry so a sweep does not take its
         // own source with it — "Activate all the Forwards other than Sabin you control". Without
@@ -8585,7 +8654,15 @@ final class ActionResolverPatterns {
         // Trails the control clause, unlike the trait filter above it: "break all the Forwards
         // opponent controls with a Doom Counter on them". Without this the regex ended at
         // "controls" and find() quietly discarded the restriction, breaking every Forward.
-        "(?:\\s+with\\s+(?:a|an|\\d+)\\s+(?<counter>[A-Za-z][A-Za-z ]*?)\\s+Counters?\\s+on\\s+(?:it|them))?" +
+        // "N or more" is a threshold rather than a presence test, and "placed on" is the same
+        // counter with a longer verb: 11-025H Orphan breaks "all Characters with 3 or more Doom
+        // Counters placed on them". Read as the presence test, that would break every Character
+        // carrying a single counter.
+        "(?:\\s+with\\s+(?:(?<countermin>\\d+)\\s+or\\s+more|a|an|\\d+)\\s+(?<counter>[A-Za-z][A-Za-z ]*?)\\s+Counters?\\s+(?:placed\\s+)?on\\s+(?:it|them))?" +
+        // A fixed power threshold, trailing the control clause as the counter arm does: 11-138S
+        // Sephiroth dulls "all the Forwards opponent controls with 8000 power or less". Distinct
+        // from the "power less than [card]" arm below, which compares against a card.
+        "(?:\\s+with\\s+(?<powerval>\\d+)\\s+power\\s+or\\s+(?<powerdir>less|more))?" +
         // Same reason as the counter arm, and the same consequence: without it the regex ended at
         // "Forwards" and find() discarded "with power less than Titan, Lord of Crags", turning
         // 14-062L's sweep of everything smaller than itself into a break of every Forward on the
@@ -8594,6 +8671,29 @@ final class ActionResolverPatterns {
         // primitive it calls has no power filter to pass this to.
         "(?:\\s+with\\s+power\\s+(?<powercmp>less|more)\\s+than\\s+(?<powercard>[^.!]+?))?" +
         "[.!]?"
+    );
+    /**
+     * 17-079L Shadow Lord: "name 1 Job. Break all the Forwards with named Job and Job Standard
+     * Unit. When N or more Forwards are put from the field into the Break Zone by this effect,
+     * [Self] deals you M point(s) of damage."
+     *
+     * <p>One pattern for all three sentences, because each needs the one before it: the sweep's
+     * filter is the answer to the naming, and the damage counts what the sweep broke. Read apart,
+     * the naming ran on its own and the other two were dropped.
+     *
+     * <p>"with named Job and Job Standard Unit" is read as two groups — Forwards with either Job.
+     * Standard Unit is the Job the generic vanilla printings carry, so a Forward with both is all
+     * but impossible and the "both" reading would break nothing.
+     *
+     * <p>Groups: {@code job} — the second, printed Job; {@code threshold}, {@code dmgcard},
+     * {@code amount} — the payoff, when printed.
+     */
+    static final Pattern NAME_JOB_BREAK_NAMED_OR_JOB = Pattern.compile(
+        "(?i)^name\\s+1\\s+Job[.!]\\s*Break\\s+all\\s+(?:the\\s+)?Forwards\\s+with\\s+(?:the\\s+)?named\\s+Job\\s+" +
+        "and\\s+Job\\s+(?<job>[^.!]+?)[.!]" +
+        "(?:\\s*When\\s+(?<threshold>\\d+)\\s+or\\s+more\\s+Forwards?\\s+are\\s+put\\s+from\\s+the\\s+field\\s+" +
+        "into\\s+the\\s+Break\\s+Zone\\s+by\\s+this\\s+effect,\\s*(?<dmgcard>[^.!]+?)\\s+deals?\\s+you\\s+" +
+        "(?<amount>\\d+)\\s+points?\\s+of\\s+damage[.!]?)?\\s*$"
     );
     /**
      * 14-062L Titan, Lord of Crags: "Break all the Forwards with power less than [Self]. When N or
@@ -11326,6 +11426,19 @@ final class ActionResolverPatterns {
         "(?i)^Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,\\s+(?<subject>.+?)\\s+gains\\s+" +
         "(?<boosts>.+?)\\s+and\\s+\"(?<quoted>.+?)\"[.!]?$");
     static final Pattern POWER_AMOUNT_PLUS = Pattern.compile("(?i)\\+(\\d+)\\s+power");
+    /**
+     * "Until the end of the turn, [Self] doubles its power and gains \"[quoted ability]\"." —
+     * 17-084C Lorenzo, whose grant is "When Lorenzo deals damage to your opponent, choose 1
+     * Character in your Break Zone. Add it to your hand."
+     *
+     * <p>The doubling twin of {@link #UNTIL_EOT_GAINS_POWER_TRAITS_AND_QUOTED}. Anchored end to
+     * end: under find() the Choose chain claimed the "choose 1 Character …" inside the quotation
+     * and ran it on the spot, so Lorenzo salvaged a card every time he attacked, whether he dealt
+     * damage or not, and never doubled.
+     */
+    static final Pattern UNTIL_EOT_DOUBLES_POWER_AND_QUOTED = Pattern.compile(
+        "(?i)^Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,\\s+(?<subject>.+?)\\s+doubles?\\s+its\\s+power" +
+        "\\s+and\\s+gains\\s+\"(?<quoted>.+?)\"[.!]?$");
     /**
      * "Remove it/them from the game for as long as [Name] is on the field." (Necron ETB) —
      * temporary exile that ends when the named watcher leaves the field.
