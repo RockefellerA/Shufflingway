@@ -7297,6 +7297,16 @@ public class CardBehaviorTest {
     }
 
     /** Drives the game to {@code phase} on {@code player}'s turn and syncs the phase tracker. */
+    /**
+     * Puts two cards of {@code element} in P1's hand, whose discard pays up to 4 CP — enough for
+     * the 3-cost Back Attack fixtures here. A priority window only stays open for a card P1 could
+     * actually cast, so one that tests the window needs the card to be affordable.
+     */
+    private static void addCpFodder(MainWindow mw, String element) {
+        mw.gameState.getP1Hand().add(makeForward("Fodder A", element, 5, 1000));
+        mw.gameState.getP1Hand().add(makeForward("Fodder B", element, 5, 1000));
+    }
+
     private static void advanceTo(MainWindow mw, GameState.Player player, GameState.GamePhase phase) {
         mw.gameState.startFirstTurn(GameState.Player.P1);
         while (mw.gameState.getCurrentPlayer() != player || mw.gameState.getCurrentPhase() != phase) {
@@ -7330,8 +7340,9 @@ public class CardBehaviorTest {
         // P2 has not yet passed, so nobody may act.
         assertFalse(mw.castTimingWindowOpen(jinnai), "no window before P2 passes priority");
 
-        // In hand, so the window has something to be spent on and does not pass itself.
+        // In hand and affordable, so the window has something to be spent on and does not pass itself.
         mw.gameState.getP1Hand().add(jinnai);
+        addCpFodder(mw, "Wind");
         mw.offerP1MainPhasePriority(() -> {});
         assertTrue(mw.castTimingWindowOpen(jinnai), "Back Attack may be cast in P2's Main Phase");
         assertFalse(mw.castTimingWindowOpen(grunt),  "an ordinary Forward may not");
@@ -7353,6 +7364,7 @@ public class CardBehaviorTest {
         // P2's Attack Phase, with P1 holding the Attack Preparation priority window.
         advanceTo(mw, GameState.Player.P2, GameState.GamePhase.ATTACK);
         mw.gameState.getP1Hand().add(jinnai);
+        addCpFodder(mw, "Wind");
         mw.offerP1AttackPrepPriority(() -> {});
         assertTrue(mw.castTimingWindowOpen(jinnai), "Back Attack may be cast during P2's Attack Phase");
         assertFalse(mw.castTimingWindowOpen(grunt));
@@ -7383,8 +7395,9 @@ public class CardBehaviorTest {
         mw.offerP1AttackPrepPriority(() -> passed[0] = true);
         assertTrue(passed[0], "an empty board and hand auto-passes the priority window");
 
-        // A Back Attack card in hand is now something the window could be spent on.
+        // A Back Attack card in hand that P1 can pay for is now something the window could be spent on.
         mw.gameState.getP1Hand().add(makeTraitCard("Jinnai", "Wind", "Forward", JINNAI_TEXT));
+        addCpFodder(mw, "Wind");
         boolean[] passedAgain = { false };
         mw.offerP1AttackPrepPriority(() -> passedAgain[0] = true);
         assertFalse(passedAgain[0], "P1 keeps the window to consider casting the Back Attack card");
@@ -7407,8 +7420,9 @@ public class CardBehaviorTest {
 
         // P2's Main Phase with priority: both halves agree, which is the only time Gogo is castable.
         advanceTo(mw, GameState.Player.P2, GameState.GamePhase.MAIN_1);
-        // In hand, so the window has something to be spent on and does not pass itself.
+        // In hand and affordable, so the window has something to be spent on and does not pass itself.
         mw.gameState.getP1Hand().add(gogo);
+        addCpFodder(mw, "Water");
         mw.offerP1MainPhasePriority(() -> {});
         assertTrue(mw.castTimingWindowOpen(gogo));
         assertTrue(mw.castRestrictionMet(gogo));

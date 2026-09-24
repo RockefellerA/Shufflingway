@@ -197,8 +197,8 @@ public enum ChoiceKind {
 	 *
 	 * <p>It is sent <em>whenever</em> the window closes, including when this client passed
 	 * automatically because its player had nothing to spend priority on. That auto-pass is a local
-	 * determination and the two clients do not make it the same way — {@code p1HasActivatableAbilities}
-	 * counts anything castable at Summon speed, its P2 counterpart counts only Summons — so a
+	 * determination and the two clients do not make it the same way — {@code p1HasAnyPlay} asks
+	 * what the local player could actually play, its P2 counterpart only whether a Summon is held — so a
 	 * receiver deriving it instead of being told would wait for a pass that never came.
 	 */
 	PRIORITY_PASS

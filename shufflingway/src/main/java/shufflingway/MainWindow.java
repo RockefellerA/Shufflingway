@@ -712,7 +712,7 @@ public class MainWindow {
 	private Timer         mainPhaseAutoAdvanceTimer;
 	private final MainPhaseAutoAdvance mainPhaseAutoAdvance = new MainPhaseAutoAdvance(MAIN_PHASE_AUTO_ADVANCE_DELAY_MS);
 	/** Non-null while P1 holds priority during P2's main phase; callback advances to the next phase. */
-	private Runnable      p1PriorityInP2MainOnDone = null;
+	Runnable              p1PriorityInP2MainOnDone = null;
 	/**
 	 * Non-null while P1 holds priority at a combat checkpoint on their own turn (currently: right
 	 * after declaring an attacker). P1 may cast Summons or use action abilities; clicking Next
@@ -18398,31 +18398,22 @@ public class MainWindow {
 	}
 
 	/**
-	 * Returns true if P1 has anything a priority window could be spent on: an action ability on the
-	 * field, or a card in hand castable at Summon speed (a Summon, or a Back Attack Character).
-	 * When this is false {@link #p1HoldPriority} passes automatically rather than stopping on a
-	 * checkpoint the player could not act at.
-	 */
-	private boolean p1HasActivatableAbilities() {
-		for (CardData c : fieldCards(true))
-			if (hasFieldActionAbilities(c, true)) return true;
-		for (CardData c : gameState.getP1Hand())
-			if (c.castsAtSummonSpeed()) return true;
-		return false;
-	}
-
-	/**
-	 * Whether P1 has anything at all they could do in their own Main Phase right now — every route
-	 * the board offers: casting from hand by any means, an ability used from hand, the field
-	 * (including an opponent's "each player can use this ability" abilities), or the Break Zone,
-	 * Priming, a borrowed cast, and an LB cast.
+	 * Whether P1 has anything at all they could do right now — every route the board offers:
+	 * casting from hand by any means, an ability used from hand, the field (including an opponent's
+	 * "each player can use this ability" abilities), or the Break Zone, Priming, a borrowed cast,
+	 * and an LB cast.
+	 *
+	 * <p>It answers for whatever window P1 is in, not only their own Main Phase: every part asks the
+	 * timing rules too. A priority window on the opponent's turn or mid-combat must be registered
+	 * ({@link #p1PriorityInP2MainOnDone} or {@link #p1CombatPriorityOnPass}) before asking, as the
+	 * timing rules only open Summon-speed plays to a player who holds priority.
 	 *
 	 * <p>Each part asks the same question its menu asks when it enables an item, through the same
 	 * method, so an item that is live on screen always counts here. Where there is no such method
 	 * to share, the check leans towards "there is a play": a wrong yes only means the player clicks
 	 * Next as they always have, but a wrong no advances the phase past a play they wanted.
 	 */
-	boolean p1HasMainPhasePlay() {
+	boolean p1HasAnyPlay() {
 		List<CardData> hand = gameState.getP1Hand();
 		for (int i = 0; i < hand.size(); i++)
 			if (p1HandCardHasAnyPlay(hand.get(i), i)) return true;
@@ -18531,7 +18522,7 @@ public class MainWindow {
 		// An open popup (a card's menu) means the player is choosing something right now.
 		if (MenuSelectionManager.defaultManager().getSelectedPath().length > 0) return false;
 		if (!isBoardSettled()) return false;
-		return !p1HasMainPhasePlay();
+		return !p1HasAnyPlay();
 	}
 
 	/** Returns true if any P2 field card has at least one action ability. */
@@ -18592,14 +18583,17 @@ public class MainWindow {
 	 * while this is active clears the state and runs {@code onPass}.
 	 */
 	void offerP1MainPhasePriority(Runnable onPass) {
+		// Registered before the check, which asks the timing rules — and they only open a Summon-speed
+		// play on P2's turn to a player who holds priority there.
+		p1PriorityInP2MainOnDone = onPass;
 		// Nothing priority could be spent on: pass straight back, as holdPriorityForPhaseOffer
 		// already does for the same window against a networked opponent.
-		if (AppSettings.isAutoAdvanceMainPhases() && !p1HasActivatableAbilities()) {
-			logEntry("[Priority] P2 passes — no abilities or summons to use, passing automatically.");
+		if (AppSettings.isAutoAdvanceMainPhases() && !p1HasAnyPlay()) {
+			p1PriorityInP2MainOnDone = null;
+			logEntry("[Priority] P2 passes — nothing you can play, passing automatically.");
 			onPass.run();
 			return;
 		}
-		p1PriorityInP2MainOnDone = onPass;
 		if (nextPhaseButton != null) nextPhaseButton.setEnabled(true);
 		// P2 passes on a timer, so the hand popover may already be open — restate what is castable now.
 		refreshHandCardStates();
@@ -18610,21 +18604,24 @@ public class MainWindow {
 	 * Combat checkpoint on P1's turn where P1 holds priority first — used after P1 declares an
 	 * attacker. Instead of a pass-only popup, P1 keeps the board: they may cast a Summon or use an
 	 * action ability and then click Next to pass, after which P2 responds (auto-pass) and
-	 * {@code onPass} continues the combat step. When P1 has no action ability on the field and no
-	 * Summon in hand there is nothing priority could be used for, so it passes automatically — the
+	 * {@code onPass} continues the combat step. When nothing P1 holds could be used in the window —
+	 * {@link #p1HasAnyPlay}, the same answer their menus give — it passes automatically, and the
 	 * log says so, since combat otherwise appears to skip the checkpoint.
 	 *
 	 * @param announcement game-log line for what just happened, or {@code null} to log only the prompt
 	 */
 	private void p1HoldPriority(String announcement, Runnable onPass) {
 		String lead = announcement != null ? announcement + " " : "";
-		if (!p1HasActivatableAbilities()) {
-			logEntry(lead + "No abilities or summons to use — passing priority automatically.");
+		// Registered before the check, which asks the timing rules — and they only open Attack Phase
+		// plays to a player who holds priority there.
+		p1CombatPriorityOnPass = onPass;
+		if (!p1HasAnyPlay()) {
+			p1CombatPriorityOnPass = null;
+			logEntry(lead + "Nothing you can play — passing priority automatically.");
 			onPass.run();
 			return;
 		}
 		logEntry(lead + "Use an ability or summon, or pass priority with 'Next'");
-		p1CombatPriorityOnPass = onPass;
 		// The window really is P1's now, so the tracker has to say so. refreshPhaseTracker paints
 		// priority from the turn owner alone, which is right at a phase boundary and wrong here: on
 		// P2's turn it leaves the indicator red while this method hands P1 the Next button, so the
