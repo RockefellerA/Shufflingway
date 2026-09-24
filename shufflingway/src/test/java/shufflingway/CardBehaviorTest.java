@@ -5595,6 +5595,54 @@ public class CardBehaviorTest {
         assertEquals("Dark", discardElems.get(1), "off-color CP deposits into the cast element bucket");
     }
 
+    // Playtest: "[P2] Discards Porom for CP" / "[P2] Plays Ninja" — a cost-2 Lightning Forward
+    // paid with a single Water discard. Every cast needs at least 1 CP of the card's Element; the
+    // planner only asked that of multi-Element cards, so off-color CP alone paid a single-Element one.
+
+    @Test
+    void p2CannotPayASingleElementCardWithOnlyOffColorCp() {
+        MainWindow mw = new MainWindow();
+        ComputerPlayer cpu = new ComputerPlayer(mw);
+        CardData ninja = makeForward("Ninja", "Lightning", 2, 5000);
+        List<CardData> hand = mw.gameState.getP2Hand();
+        hand.add(ninja);                                    // idx 0 — the card being cast
+        hand.add(makeForward("Porom", "Water", 2, 5000));   // idx 1 — 2 Water CP, no Lightning
+        assertFalse(cpu.p2PlanPayment(ninja, 2, 0, -1, new ArrayList<>(), new LinkedHashMap<>(),
+                        new ArrayList<>(), new LinkedHashMap<>()),
+                "2 Water CP covers the total but not the 1 Lightning CP the cast needs");
+    }
+
+    @Test
+    void offColorCpStillFillsTheRestOnceTheElementIsCovered() {
+        MainWindow mw = new MainWindow();
+        ComputerPlayer cpu = new ComputerPlayer(mw);
+        CardData ninja = makeForward("Ninja", "Lightning", 3, 5000);
+        List<CardData> hand = mw.gameState.getP2Hand();
+        hand.add(ninja);                                        // idx 0 — the card being cast
+        hand.add(makeForward("Porom", "Water", 2, 5000));       // idx 1 — off-color filler
+        mw.p2BackupCards[0] = makePlainBackup("Spark", "Lightning", 2);
+        mw.p2BackupStates[0] = CardState.ACTIVE;
+        List<Integer> backups = new ArrayList<>();
+        Map<Integer, String> backupElems = new LinkedHashMap<>();
+        List<Integer> discards = new ArrayList<>();
+        Map<Integer, String> discardElems = new LinkedHashMap<>();
+        assertTrue(cpu.p2PlanPayment(ninja, 3, 0, -1, backups, backupElems, discards, discardElems),
+                "1 Lightning from the Backup meets the minimum; the Water discard pays the rest");
+        assertEquals(List.of(0), backups);
+        assertEquals(List.of(1), discards);
+    }
+
+    @Test
+    void p2AffordCheckAppliesTheElementMinimumToSingleElementCards() {
+        String[] lightning = { "Lightning" };
+        assertFalse(ComputerPlayer.p2CanAfford(2, lightning, new int[] { 0 }, 2, true));
+        assertTrue(ComputerPlayer.p2CanAfford(2, lightning, new int[] { 1 }, 1, true));
+        assertTrue(ComputerPlayer.p2CanAfford(2, lightning, new int[] { 0 }, 2, false),
+                "a Light or Dark card takes any CP");
+        assertTrue(ComputerPlayer.p2CanAfford(0, lightning, new int[] { 0 }, 0, true),
+                "a free cast needs no CP at all");
+    }
+
     // =========================================================================================
     // P2's LB play: why it never made one.
     //

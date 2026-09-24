@@ -1071,8 +1071,11 @@ class ComputerPlayer implements OpponentController {
 		for (int ei = 0; ei < elems.length; ei++)
 			simCp[ei] = mw.gameState.getP2CpForElement(elems[ei]);
 		int anyCp = 0;
+		// Every cast needs at least 1 CP of each of the card's Elements, except a Light or Dark
+		// card, which any CP pays for.
+		boolean needsEachElement = !card.isLightOrDark();
 
-		if (p2CanAfford(reducedCost, elems, simCp, anyCp)) return true;
+		if (p2CanAfford(reducedCost, elems, simCp, anyCp, needsEachElement)) return true;
 
 		// Phase 1a: dull backups whose element matches at least one required element.
 		// Prefer less-versatile (fewer matching elements) backups first.
@@ -1085,32 +1088,32 @@ class ComputerPlayer implements OpponentController {
 			if (mw.p2BackupStates[bi] != CardState.ACTIVE) continue;
 			if (mw.p2BackupFrozen[bi]) continue;
 			boolean matches = false;
-			for (String e : elems) if (mw.effectiveContainsElement(bk, e)) { matches = true; break; }
+			for (String e : elems) if (p2BackupProduces(bk, e, card)) { matches = true; break; }
 			if (matches) matchingBackups.add(bi);
 			else offColorBackups.add(bi);
 		}
 		matchingBackups.sort(Comparator.comparingInt(bi ->
 				(int) Arrays.stream(elems)
-						.filter(e -> mw.effectiveContainsElement(payable[bi], e)).count()));
+						.filter(e -> p2BackupProduces(payable[bi], e, card)).count()));
 		for (int bi : matchingBackups) {
-			if (p2CanAfford(reducedCost, elems, simCp, anyCp)) break;
+			if (p2CanAfford(reducedCost, elems, simCp, anyCp, needsEachElement)) break;
 			CardData bk = payable[bi];
-			int ei = p2BestDiscardElement(bk, elems, simCp);
+			int ei = p2BestElementFor(e -> p2BackupProduces(bk, e, card), elems, simCp);
 			simCp[ei] += 1;
 			outBackups.add(bi);
 			outBackupElems.put(bi, elems[ei]);
 		}
-		if (p2CanAfford(reducedCost, elems, simCp, anyCp)) return true;
+		if (p2CanAfford(reducedCost, elems, simCp, anyCp, needsEachElement)) return true;
 
 		// Phase 1b: dull off-color backups — their CP counts toward total but not per-element
 		// minimums.  Assign to elems[0] so payP2CostViaBackupsAndDiscards deposits correctly.
 		for (int bi : offColorBackups) {
-			if (p2CanAfford(reducedCost, elems, simCp, anyCp)) break;
+			if (p2CanAfford(reducedCost, elems, simCp, anyCp, needsEachElement)) break;
 			anyCp += 1;
 			outBackups.add(bi);
 			outBackupElems.put(bi, elems[0]);
 		}
-		if (p2CanAfford(reducedCost, elems, simCp, anyCp)) return true;
+		if (p2CanAfford(reducedCost, elems, simCp, anyCp, needsEachElement)) return true;
 
 		// Phase 2: discard cheapest matching-element hand cards (Light/Dark only via field grant).
 		List<CardData> hand = mw.gameState.getP2Hand();
@@ -1128,11 +1131,12 @@ class ComputerPlayer implements OpponentController {
 		}
 		discardable.sort((a, b) -> hand.get(a).cost() - hand.get(b).cost());
 		for (int di : discardable) {
-			int ei = p2BestDiscardElement(hand.get(di), elems, simCp);
+			CardData dc = hand.get(di);
+			int ei = p2BestElementFor(dc::containsElement, elems, simCp);
 			simCp[ei] += 2;
 			outDiscards.add(di);
 			outDiscardElems.put(di, elems[ei]);
-			if (p2CanAfford(reducedCost, elems, simCp, anyCp)) return true;
+			if (p2CanAfford(reducedCost, elems, simCp, anyCp, needsEachElement)) return true;
 		}
 
 		// Phase 2b: off-color discards — their CP counts toward total but not per-element
@@ -1140,33 +1144,56 @@ class ComputerPlayer implements OpponentController {
 		// deposits correctly; the spend phase drains and clears that bucket.
 		offColorDiscards.sort((a, b) -> hand.get(a).cost() - hand.get(b).cost());
 		for (int di : offColorDiscards) {
-			if (p2CanAfford(reducedCost, elems, simCp, anyCp)) break;
+			if (p2CanAfford(reducedCost, elems, simCp, anyCp, needsEachElement)) break;
 			anyCp += 2;
 			outDiscards.add(di);
 			outDiscardElems.put(di, elems[0]);
 		}
-		return p2CanAfford(reducedCost, elems, simCp, anyCp);
+		return p2CanAfford(reducedCost, elems, simCp, anyCp, needsEachElement);
 	}
 
-	/** Returns true when {@code cpByElemIdx} satisfies the cost and per-element minimums. */
-	private static boolean p2CanAfford(int cost, String[] elems, int[] cpByElemIdx, int anyCp) {
+	/**
+	 * Returns true when {@code cpByElemIdx} (CP of each of the card's Elements) plus
+	 * {@code anyCp} (CP of other Elements) covers {@code cost}.
+	 *
+	 * <p>With {@code needsEachElement} every one of the card's Elements must also have at least
+	 * 1 CP of its own. That holds for a single-Element card as much as a multi-Element one: a
+	 * cost-2 Lightning Forward cannot be paid by discarding one Water card for 2 Water CP. The
+	 * minimum used to be applied to multi-Element cards only, which let P2 do exactly that.
+	 */
+	static boolean p2CanAfford(int cost, String[] elems, int[] cpByElemIdx, int anyCp,
+			boolean needsEachElement) {
+		if (cost <= 0) return true;
 		int total = anyCp;
 		for (int ei = 0; ei < elems.length; ei++) {
-			if (elems.length > 1 && cpByElemIdx[ei] < 1) return false;
+			if (needsEachElement && cpByElemIdx[ei] < 1) return false;
 			total += cpByElemIdx[ei];
 		}
 		return total >= cost;
 	}
 
 	/**
-	 * Returns the index into {@code elems} that {@code dc} should contribute its CP to,
-	 * preferring elements that still need their per-element minimum of 1 CP.
+	 * Whether P2's Backup {@code bk} can produce CP of {@code elem} towards casting {@code card}:
+	 * its own Element, or a printed "CP of any Element" — outright, while P2 controls a Forward,
+	 * or for cards of a named category. The same sources P1's affordability check counts.
 	 */
-	private static int p2BestDiscardElement(CardData dc, String[] elems, int[] simCp) {
+	private boolean p2BackupProduces(CardData bk, String elem, CardData card) {
+		if (mw.effectiveContainsElement(bk, elem)) return true;
+		if (bk.backupCpAnyElement()) return true;
+		if (bk.backupCpAnyElementOfForwards() && !mw.p2ForwardCards.isEmpty()) return true;
+		String cat = bk.backupCpAnyElementCategory();
+		return !cat.isEmpty() && (cat.equalsIgnoreCase(card.category1()) || cat.equalsIgnoreCase(card.category2()));
+	}
+
+	/**
+	 * Returns the index into {@code elems} that a CP source should contribute to, among the
+	 * Elements {@code produces} accepts, preferring those still short of their minimum of 1 CP.
+	 */
+	private static int p2BestElementFor(java.util.function.Predicate<String> produces, String[] elems, int[] simCp) {
 		int bestEi = -1;
 		int maxPriority = Integer.MIN_VALUE;
 		for (int ei = 0; ei < elems.length; ei++) {
-			if (!dc.containsElement(elems[ei])) continue;
+			if (!produces.test(elems[ei])) continue;
 			// Deficit below minimum gets positive priority; surplus gets negative
 			int priority = simCp[ei] < 1 ? (1 - simCp[ei]) : -simCp[ei];
 			if (priority > maxPriority) { maxPriority = priority; bestEi = ei; }
@@ -2286,7 +2313,7 @@ class ComputerPlayer implements OpponentController {
 			simCp[ei] = mw.gameState.getP2CpForElement(elems[ei]);
 		int anyCp = 0;
 
-		if (p2CanAfford(totalCost, elems, simCp, anyCp)) return true;
+		if (p2CanAfford(totalCost, elems, simCp, anyCp, true)) return true;
 
 		List<Integer> matchingBackups = new ArrayList<>();
 		List<Integer> offColorBackups = new ArrayList<>();
@@ -2304,23 +2331,23 @@ class ComputerPlayer implements OpponentController {
 				(int) Arrays.stream(elems)
 						.filter(e -> mw.effectiveContainsElement(payable[bi], e)).count()));
 		for (int bi : matchingBackups) {
-			if (p2CanAfford(totalCost, elems, simCp, anyCp)) break;
-			int ei = elems.length > 0 ? p2BestDiscardElement(payable[bi], elems, simCp) : 0;
+			if (p2CanAfford(totalCost, elems, simCp, anyCp, true)) break;
+			int ei = elems.length > 0 ? p2BestElementFor(e -> mw.effectiveContainsElement(payable[bi], e), elems, simCp) : 0;
 			simCp[ei] += 1;
 			outBackups.add(bi);
 			outBackupElems.put(bi, elems[ei]);
 		}
-		if (p2CanAfford(totalCost, elems, simCp, anyCp)) return true;
+		if (p2CanAfford(totalCost, elems, simCp, anyCp, true)) return true;
 
 		// Off-color backups can contribute to generic slots
 		for (int bi : offColorBackups) {
-			if (p2CanAfford(totalCost, elems, simCp, anyCp)) break;
+			if (p2CanAfford(totalCost, elems, simCp, anyCp, true)) break;
 			if (genericCount <= 0) break; // no generic slots available
 			anyCp += 1;
 			outBackups.add(bi);
 			outBackupElems.put(bi, elems.length > 0 ? elems[0] : "");
 		}
-		if (p2CanAfford(totalCost, elems, simCp, anyCp)) return true;
+		if (p2CanAfford(totalCost, elems, simCp, anyCp, true)) return true;
 
 		List<CardData> hand = mw.gameState.getP2Hand();
 		Set<String> ldGrants = mw.lightDarkDiscardGrants(false);
@@ -2334,13 +2361,13 @@ class ComputerPlayer implements OpponentController {
 		}
 		discardable.sort((a, b) -> hand.get(a).cost() - hand.get(b).cost());
 		for (int di : discardable) {
-			if (p2CanAfford(totalCost, elems, simCp, anyCp)) return true;
+			if (p2CanAfford(totalCost, elems, simCp, anyCp, true)) return true;
 			// An all-generic cost (Onion Knight 1-181H's 《1》《Dull》) names no Element, so there is
 			// no per-element bucket to credit and simCp is zero-length — ei is -1 and the CP can only
 			// go to the generic pool. Crediting it to element slot 0 instead threw
 			// ArrayIndexOutOfBoundsException, on the one board that reaches here with an empty cost:
 			// no active Backup left, so the off-color loop above could not settle the payment first.
-			int ei = elems.length > 0 ? p2BestDiscardElement(hand.get(di), elems, simCp) : -1;
+			int ei = elems.length > 0 ? p2BestElementFor(hand.get(di)::containsElement, elems, simCp) : -1;
 			// If off-color but generic slots remain, contribute to any pool
 			if (ei < 0 || (!hand.get(di).containsElement(elems[ei]) && genericCount > 0)) {
 				anyCp += 2;
@@ -2349,7 +2376,7 @@ class ComputerPlayer implements OpponentController {
 			}
 			outDiscards.add(di);
 			outDiscardElems.put(di, ei >= 0 ? elems[ei] : "");
-			if (p2CanAfford(totalCost, elems, simCp, anyCp)) return true;
+			if (p2CanAfford(totalCost, elems, simCp, anyCp, true)) return true;
 		}
 		return false;
 	}
