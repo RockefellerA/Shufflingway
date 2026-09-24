@@ -65,23 +65,6 @@ class Priming {
 		return null;
 	}
 
-	/** Searches P2's deck for the priming target and sets it as the top card of the primed forward. */
-	void applyP2PrimedCard(CardData primingCard, int slotIdx) {
-		String target = primingCard.primingTarget();
-		List<CardData> matches = mw.gameState.findMatchingNamesInP2MainDeck(target);
-		if (matches.isEmpty()) {
-			mw.logEntry("[P2] Priming: \"" + target + "\" not found in deck");
-			return;
-		}
-		CardData chosen = matches.get(0);
-		mw.gameState.removeFromP2MainDeck(chosen);
-		mw.p2ForwardPrimedTop.set(slotIdx, chosen);
-		mw.logEntry("[P2] Primed: \"" + primingCard.name() + "\" topped with \"" + chosen.name() + "\"");
-		mw.refreshP2ForwardSlot(slotIdx);
-		mw.autoAbilityTriggers.triggerAutoAbilitiesForPrimedInto(primingCard, chosen, false);
-		mw.autoAbilityTriggers.triggerAutoAbilitiesForPriming(primingCard, false);
-	}
-
 	/**
 	 * Returns true if priming {@code targetName} onto {@code isP1}'s field would immediately
 	 * violate the uniqueness rule — i.e. that player already controls a Forward, or a primed top

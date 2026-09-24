@@ -20002,13 +20002,6 @@ public class MainWindow {
 						autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p2ForwardCards.get(idx), false);
 				}, false);
 
-		if (fwd.hasPriming() && p2ForwardPrimedTop.get(idx) == null) {
-			JMenuItem primeItem = new JMenuItem("Prime (" + fwd.primingTarget() + ")");
-			primeItem.setEnabled(!priming.primingTargetOnField(fwd.primingTarget(), false));
-			primeItem.addActionListener(ae -> priming.applyP2PrimedCard(fwd, idx));
-			menu.add(primeItem);
-		}
-
 		if (menu.getComponentCount() > 0) menu.show(slot, e.getX(), e.getY());
 	}
 
