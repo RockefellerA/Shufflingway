@@ -3,6 +3,7 @@ package shufflingway.net;
 import org.json.JSONObject;
 import scraper.AppPaths;
 import scraper.CardDatabase;
+import shufflingway.AppSettings;
 import shufflingway.UpdateChecker;
 import shufflingway.dialog.DeckChooserPanel;
 
@@ -40,6 +41,11 @@ public class HostLobbyDialog extends JDialog {
     private final JButton cancelBtn;
     private final JButton startBtn;
     private final DeckChooserPanel deckChooser;
+    /**
+     * "Enable Debugging": whether the Debug menu may be used during the match, on both clients.
+     * Offered only to a host who has the Debug menu at all; otherwise the match runs without it.
+     */
+    private final JCheckBox debugBox;
 
     public HostLobbyDialog(Frame owner) {
         super(owner, "Host Game", true);
@@ -67,9 +73,17 @@ public class HostLobbyDialog extends JDialog {
 
         deckChooser = new DeckChooserPanel("Your Deck", this::refreshStartButton);
 
+        debugBox = new JCheckBox("Enable Debugging", false);
+        debugBox.setToolTipText("Let both players use the Debug menu during this game.");
+        debugBox.addActionListener(e -> sendLobbySettings());
+
+        JPanel south = new JPanel(new BorderLayout(0, 4));
+        south.add(statusLabel, BorderLayout.CENTER);
+        if (AppSettings.isDebugEnabled()) south.add(debugBox, BorderLayout.SOUTH);
+
         JPanel centre = new JPanel(new BorderLayout(0, 6));
         centre.add(deckChooser, BorderLayout.CENTER);
-        centre.add(statusLabel, BorderLayout.SOUTH);
+        centre.add(south, BorderLayout.SOUTH);
         content.add(centre, BorderLayout.CENTER);
 
         cancelBtn = new JButton("Cancel");
@@ -92,6 +106,17 @@ public class HostLobbyDialog extends JDialog {
         openServerSocket();
     }
 
+    /** Whether the match will run with the Debug menu usable. */
+    private boolean debugEnabled() {
+        return AppSettings.isDebugEnabled() && debugBox.isSelected();
+    }
+
+    /** Tells a connected joiner the current settings, so their lobby can show them before Start. */
+    private void sendLobbySettings() {
+        GameConnection conn = connection;
+        if (conn != null) conn.send(LobbyExchange.lobbySettingsAction(debugEnabled()));
+    }
+
     /** Start unlocks only once both halves are ready: an opponent connected and a deck picked. */
     private void refreshStartButton() {
         startBtn.setEnabled(connection != null && deckChooser.getSelectedDeckId() >= 0);
@@ -108,6 +133,8 @@ public class HostLobbyDialog extends JDialog {
 
         startBtn.setEnabled(false);
         cancelBtn.setEnabled(false);
+        debugBox.setEnabled(false);   // the value is sent with the setup below and fixed from here
+        boolean debug = debugEnabled();
         statusLabel.setText("Exchanging decks…");
 
         new Thread(() -> {
@@ -116,15 +143,16 @@ public class HostLobbyDialog extends JDialog {
                 LobbyExchange.RemoteDeck remote = LobbyExchange.awaitDeckList(connection);
 
                 boolean hostGoesFirst = new Random().nextBoolean();
-                long    seed          = LobbyExchange.sendGameSetup(connection, hostGoesFirst);
+                long    seed          = LobbyExchange.sendGameSetup(connection, hostGoesFirst, debug);
 
                 setup = new MatchSetup(deckId, remote.serials(), remote.name(), remote.username(),
-                        seed, true, hostGoesFirst);
+                        seed, true, hostGoesFirst, debug);
                 SwingUtilities.invokeLater(this::dispose);
             } catch (IOException | SQLException ex) {
                 SwingUtilities.invokeLater(() -> {
                     statusLabel.setText("Setup failed: " + ex.getMessage());
                     cancelBtn.setEnabled(true);
+                    debugBox.setEnabled(true);
                     refreshStartButton();
                 });
             }
@@ -148,8 +176,11 @@ public class HostLobbyDialog extends JDialog {
                                 statusLabel.setText("Rejected: " + reason + " — waiting…"));
                         continue;
                     }
-                    connection = conn;
                     SwingUtilities.invokeLater(() -> {
+                        // Assigned and first sent on the EDT, where the checkbox is read, so a
+                        // toggle cannot fall between the two and leave the joiner a stale value.
+                        connection = conn;
+                        sendLobbySettings();
                         statusLabel.setText("Connected: " + conn.getRemoteAddress());
                         cancelBtn.setText("Cancel");
                         refreshStartButton();

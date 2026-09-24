@@ -2855,26 +2855,27 @@ final class GameContextImpl implements GameContext {
 							+ (element != null ? " " + element : "")
 							+ typeLabel + costLabel + powerLabel
 							+ " from either player's Break Zone";
-					if (!isP1) {
-						if (eligible.isEmpty()) return List.of();
-						List<ForwardTarget> copy = new ArrayList<>(eligible);
-						java.util.Collections.shuffle(copy);
-						List<ForwardTarget> picked =
-								List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
-						picked.forEach(t -> logEntry("[AI] chose " + combined.get(eligible.indexOf(t)).name()));
-						return picked;
-					}
-					// For the dialog, we need eligible targets that index into combined[]
-					// Re-index eligible so idx refers to combined list position
-					List<ForwardTarget> reindexed = new ArrayList<>();
-					for (int ci = 0; ci < eligible.size(); ci++) {
-						reindexed.add(new ForwardTarget(eligible.get(ci).isP1(), ci, ForwardTarget.CardZone.BREAK_ZONE));
-					}
-					List<ForwardTarget> chosen = mw.showBreakZoneSelectDialogTabbed(reindexed, combined, maxCount, upTo, title);
-					// Map chosen reindexed targets back to original targets so callers use real BZ indices
-					List<ForwardTarget> result = new ArrayList<>();
-					for (ForwardTarget t : chosen) result.add(eligible.get(t.idx()));
-					return result;
+					// Decided rather than branched on the seat: a remote player's pick has to arrive
+					// from their client, where the AI's random pick used to stand in for it.
+					List<ForwardTarget> picked = mw.selectChosenTargets(ChoiceKind.BREAK_ZONE_TARGETS,
+							isP1, eligible, maxCount, title,
+							"Waiting for your opponent to choose from a Break Zone...",
+							() -> {
+								// For the dialog, we need eligible targets that index into combined[]
+								// Re-index eligible so idx refers to combined list position
+								List<ForwardTarget> reindexed = new ArrayList<>();
+								for (int ci = 0; ci < eligible.size(); ci++) {
+									reindexed.add(new ForwardTarget(eligible.get(ci).isP1(), ci, ForwardTarget.CardZone.BREAK_ZONE));
+								}
+								List<ForwardTarget> chosen = mw.showBreakZoneSelectDialogTabbed(reindexed, combined, maxCount, upTo, title);
+								// Map chosen reindexed targets back to original targets so callers use real BZ indices
+								List<ForwardTarget> result = new ArrayList<>();
+								for (ForwardTarget t : chosen) result.add(eligible.get(t.idx()));
+								return result;
+							},
+							() -> randomPicks(eligible, maxCount));
+					if (!isP1) picked.forEach(t -> logEntry("[P2] chose " + combined.get(eligible.indexOf(t)).name()));
+					return picked;
 				}
 				boolean useP1Zone = isP1 != opponentZone;
 				List<CardData> bz = useP1Zone
@@ -2891,16 +2892,20 @@ final class GameContextImpl implements GameContext {
 						+ (element != null ? " " + element : "")
 						+ typeLabel + costLabel + powerLabel
 						+ " in " + (opponentZone ? "opponent's" : "your") + " Break Zone";
-				if (!isP1) {
-					if (eligible.isEmpty()) return List.of();
-					List<ForwardTarget> copy = new ArrayList<>(eligible);
-					java.util.Collections.shuffle(copy);
-					List<ForwardTarget> picked =
-							List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
-					picked.forEach(t -> logEntry("[AI] chose " + bz.get(t.idx()).name()));
-					return picked;
-				}
-				return mw.showBreakZoneSelectDialog(eligible, bz, maxCount, upTo, title);
+				List<ForwardTarget> picked = mw.selectChosenTargets(ChoiceKind.BREAK_ZONE_TARGETS,
+						isP1, eligible, maxCount, title,
+						"Waiting for your opponent to choose from a Break Zone...",
+						() -> mw.showBreakZoneSelectDialog(eligible, bz, maxCount, upTo, title),
+						() -> randomPicks(eligible, maxCount));
+				if (!isP1) picked.forEach(t -> logEntry("[P2] chose " + bz.get(t.idx()).name()));
+				return picked;
+			}
+
+			/** The AI's pick among {@code eligible}: up to {@code maxCount}, at random. */
+			private List<ForwardTarget> randomPicks(List<ForwardTarget> eligible, int maxCount) {
+				List<ForwardTarget> copy = new ArrayList<>(eligible);
+				java.util.Collections.shuffle(copy);
+				return List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
 			}
 
 
@@ -4598,33 +4603,38 @@ final class GameContextImpl implements GameContext {
 					markEffectFizzled();
 					return -1;
 				}
-				CardData picked;
-				if (isP1) {
-					picked = mw.cardPickerDialog.pickFromDeckSearch(matches);
-				} else {
-					java.util.List<CardData> copy = new java.util.ArrayList<>(matches);
-					java.util.Collections.shuffle(copy);
-					picked = copy.get(0);
-					logEntry("[AI] chose " + picked.name());
-				}
+				List<CardData> pickedList = mw.chooseFromDeckSearch(isP1, matches, 1,
+						() -> java.util.Optional.ofNullable(mw.cardPickerDialog.pickFromDeckSearch(matches))
+								.map(List::of).orElse(List.of()),
+						() -> {
+							java.util.List<CardData> copy = new java.util.ArrayList<>(matches);
+							java.util.Collections.shuffle(copy);
+							return List.of(copy.get(0));
+						},
+						picks -> true);
+				CardData picked = pickedList.isEmpty() ? null : pickedList.get(0);
 				if (picked == null) {
 					mw.shuffleDeck(isP1);
 					logEntry("Search: no card selected");
 					return -1;
 				}
-				if (isP1) mw.gameState.removeFromP1MainDeck(picked);
-				else      deck.remove(picked);
+				if (!isP1) logEntry("[P2] chose " + picked.name());
+				// The picked card itself, not the first equal one, so both clients take the same copy.
+				for (java.util.Iterator<CardData> it = deck.iterator(); it.hasNext(); )
+					if (it.next() == picked) { it.remove(); break; }
 				mw.shuffleDeck(isP1);
 
-				boolean castIt;
-				if (isP1) {
-					int choice = mw.showEffectOptionDialog(
-							"Cast \"" + picked.name() + "\" without paying its cost?",
-							"Search — Cast Summon?", new Object[]{"Cast", "Put into Break Zone"});
-					castIt = (choice == 0);
-				} else {
-					castIt = true;
-				}
+				// Decided like the pick: a remote player may put it into the Break Zone instead,
+				// which the old "the other seat always casts" assumption would not have followed.
+				List<Integer> castAnswer = mw.decide(PlayerChoice.by(isP1, ChoiceKind.OPTION)
+						.prompting("Waiting for your opponent to decide whether to cast " + picked.name() + "...")
+						.locally(() -> List.of(mw.showEffectOptionDialog(
+								"Cast \"" + picked.name() + "\" without paying its cost?",
+								"Search — Cast Summon?", new Object[]{"Cast", "Put into Break Zone"}) == 0 ? 0 : 1))
+						.byCpu(() -> List.of(0))
+						.legalWhen(a -> a.size() == 1 && (a.get(0) == 0 || a.get(0) == 1),
+								"cast or Break Zone is the only answer that fits"));
+				boolean castIt = castAnswer.get(0) == 0;
 
 				if (castIt) {
 					mw.turn(isP1).summonCastThisTurn = true;
@@ -5238,27 +5248,28 @@ final class GameContextImpl implements GameContext {
 				List<CardData> shown = new ArrayList<>(pool.size());
 				for (ForwardTarget t : pool) shown.add(cardAtTarget(t));
 
-				if (!isP1) {
-					List<ForwardTarget> copy = new ArrayList<>(pool);
-					java.util.Collections.shuffle(copy);
-					List<ForwardTarget> picked =
-							List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
-					picked.forEach(t -> logEntry("[AI] chose " + cardAtTarget(t).name()));
-					return fireChosenByOpponentTriggers(picked);
-				}
 				String title = "Choose " + (upTo ? "up to " : "") + maxCount + " Forward"
 						+ (maxCount != 1 ? "s" : "")
 						+ " opponent controls or in your Break Zone";
-				// Re-indexed so each target's idx() addresses `shown`, which is what the dialog
-				// reads; the picks are mapped back to the real zone positions straight after.
-				List<ForwardTarget> reindexed = new ArrayList<>(pool.size());
-				for (int i = 0; i < pool.size(); i++)
-					reindexed.add(new ForwardTarget(pool.get(i).isP1(), i, ForwardTarget.CardZone.BREAK_ZONE));
-				List<ForwardTarget> chosen =
-						mw.showBreakZoneSelectDialog(reindexed, shown, maxCount, upTo, title);
-				List<ForwardTarget> result = new ArrayList<>(chosen.size());
-				for (ForwardTarget t : chosen) result.add(pool.get(t.idx()));
-				return fireChosenByOpponentTriggers(result);
+				List<ForwardTarget> picked = mw.selectChosenTargets(ChoiceKind.BREAK_ZONE_TARGETS,
+						isP1, pool, maxCount, title,
+						"Waiting for your opponent to choose a Forward...",
+						() -> {
+							// Re-indexed so each target's idx() addresses `shown`, which is what the
+							// dialog reads; the picks are mapped back to the real zone positions
+							// straight after.
+							List<ForwardTarget> reindexed = new ArrayList<>(pool.size());
+							for (int i = 0; i < pool.size(); i++)
+								reindexed.add(new ForwardTarget(pool.get(i).isP1(), i, ForwardTarget.CardZone.BREAK_ZONE));
+							List<ForwardTarget> chosen =
+									mw.showBreakZoneSelectDialog(reindexed, shown, maxCount, upTo, title);
+							List<ForwardTarget> result = new ArrayList<>(chosen.size());
+							for (ForwardTarget t : chosen) result.add(pool.get(t.idx()));
+							return result;
+						},
+						() -> randomPicks(pool, maxCount));
+				if (!isP1) picked.forEach(t -> logEntry("[P2] chose " + cardAtTarget(t).name()));
+				return fireChosenByOpponentTriggers(picked);
 			}
 
 			@Override public void eachPlayerSalvageFromBreakZone(int count, boolean fwds, boolean bkps,

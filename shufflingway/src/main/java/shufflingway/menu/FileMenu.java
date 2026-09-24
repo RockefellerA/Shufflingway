@@ -3,6 +3,7 @@ package shufflingway.menu;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
 
 import javax.swing.JFrame;
 import javax.swing.JMenu;
@@ -21,13 +22,23 @@ import shufflingway.dialog.PreferencesDialog;
  */
 public class FileMenu extends JMenu {
 
+    /**
+     * @param inMultiplayer       whether a multiplayer connection is open right now
+     * @param multiplayerNewGame  New Game while connected: asks the opponent instead of picking
+     *                            a CPU deck
+     */
     public FileMenu(JFrame owner, BiConsumer<Integer, Integer> startGame, Runnable onLayoutChanged,
-            BiConsumer<Boolean, String> onBoardColorChanged) {
+            BiConsumer<Boolean, String> onBoardColorChanged,
+            BooleanSupplier inMultiplayer, Runnable multiplayerNewGame) {
         super("File");
 
         JMenuItem newGame = new JMenuItem("New Game");
         add(newGame);
         newGame.addActionListener((ActionEvent e) -> {
+            if (inMultiplayer.getAsBoolean()) {
+                multiplayerNewGame.run();
+                return;
+            }
             DeckSelectDialog dialog = new DeckSelectDialog(owner);
             dialog.setVisible(true);
             int p1Id = dialog.getPlayerDeckId();

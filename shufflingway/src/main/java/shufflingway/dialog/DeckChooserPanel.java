@@ -56,6 +56,13 @@ public class DeckChooserPanel extends JPanel {
         add(scroll, BorderLayout.CENTER);
     }
 
+    /** Locks or unlocks the list; the selection is kept either way. */
+    @Override
+    public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+        deckList.setEnabled(enabled);
+    }
+
     /** The chosen deck's ID, or -1 if nothing legal is selected. */
     public int getSelectedDeckId() {
         DeckSummary sel = deckList.getSelectedValue();
