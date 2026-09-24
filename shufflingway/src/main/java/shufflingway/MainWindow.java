@@ -713,6 +713,11 @@ public class MainWindow {
 	private Timer         mainPhaseAutoAdvanceTimer;
 	/** The open File → New Game negotiation on a multiplayer connection, or {@code null}. */
 	private NewGameDialog newGameDialog;
+	/**
+	 * The Debug menu's tools. Built whether or not this client shows the menu: in a multiplayer
+	 * game with debugging enabled, the opponent's debug changes are applied through it here too.
+	 */
+	final DebugUtility debugUtility = new DebugUtility(this);
 	/** The Debug menu, or {@code null} when debug mode is off. */
 	private DebugMenu debugMenu;
 	private final MainPhaseAutoAdvance mainPhaseAutoAdvance = new MainPhaseAutoAdvance(MAIN_PHASE_AUTO_ADVANCE_DELAY_MS);
@@ -1749,7 +1754,7 @@ public class MainWindow {
 		menuBar.add(new HelpMenu(frame));
 
 		if (AppSettings.isDebugEnabled()) {
-			DebugUtility debug = new DebugUtility(this);
+			DebugUtility debug = debugUtility;
 			debugMenu = new DebugMenu(debug::spawnOnField, debug::addToHand, debug::addToBreakZone,
 					debug::addRemoveCounters, debug::activateDullCardsOrBreak, debug::setDamageAndCrystals);
 			menuBar.add(debugMenu);
@@ -12724,6 +12729,17 @@ public class MainWindow {
 	 * windows that check still misses: a blocking selection open outside a stack resolution, and a
 	 * trigger queued behind an animation that has not reached the stack yet.
 	 */
+	/**
+	 * Whether a debug change made now would land at the same point on both clients: nothing on
+	 * the stack or resolving, no turn-flow wait, no remote block pending, no card mid-entry.
+	 * {@link #isBoardSettled} without its modal-dialog clause — the debug card picker is itself
+	 * a modal dialog, and a player choosing a card in it has not left the board unsettled.
+	 */
+	boolean debugSyncSafe() {
+		return !fieldEntryAnimator.isBusy() && gameState.getStack().isEmpty() && !isResolvingStack
+				&& turnFlowGate.isClear() && !awaitingRemoteBlock;
+	}
+
 	boolean isBoardSettled() {
 		return !fieldEntryAnimator.isBusy() && gameState.getStack().isEmpty() && !isResolvingStack
 				&& turnFlowGate.isClear() && !anyModalDialogShowing() && !awaitingRemoteBlock;

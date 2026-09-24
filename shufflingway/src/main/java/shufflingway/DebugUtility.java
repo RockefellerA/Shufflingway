@@ -34,7 +34,11 @@ import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
 import javax.swing.table.DefaultTableModel;
 
+import org.json.JSONObject;
+
 import shufflingway.dialog.DebugCardPickerDialog;
+import shufflingway.net.ActionType;
+import shufflingway.net.GameAction;
 
 class DebugUtility {
 
@@ -53,28 +57,26 @@ class DebugUtility {
     }
 
     private void spawnSelectedOnField(DebugCardPickerDialog.Selection sel) {
-        CardData card = mw.buildCardDataFromSerial(sel.serial());
-        if (card == null) {
-            JOptionPane.showMessageDialog(mw.frame, "Card not found: " + sel.serial(), "Debug Spawn", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-        boolean isP1 = sel.isP1();
+        perform(new JSONObject().put("op", "spawn").put("p1", sel.isP1()).put("serial", sel.serial())
+                .put("asCast", sel.origin() == DebugCardPickerDialog.Origin.HAND));
+    }
+
+    private String applySpawn(boolean isP1, String serial, boolean asCast) {
+        CardData card = mw.buildCardDataFromSerial(serial);
+        if (card == null) return "Card not found: " + serial;
         String who = isP1 ? "P1" : "P2";
+        if (card.isBackup() && !(isP1 ? mw.hasAvailableBackupSlot() : mw.p2HasAvailableBackupSlot()))
+            return who + " has no free Backup slot.";
         mw.gameState.getIdentity().put(card, isP1);
         // The two cases that never reach the field are settled first, so the arrival below is
         // unconditional and its "as if cast" bookkeeping cannot be recorded for a card that then
         // bailed out.
         if (!card.isForward() && !card.isMonster() && !card.isBackup()) {
             addCardToHand(card, isP1);
-            mw.logEntry("[Debug] " + card.name() + " is a Summon — added to " + who + " hand instead of field.");
-            return;
-        }
-        if (card.isBackup() && !(isP1 ? mw.hasAvailableBackupSlot() : mw.p2HasAvailableBackupSlot())) {
-            JOptionPane.showMessageDialog(mw.frame, who + " has no free Backup slot.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
-            return;
+            log(card.name() + " is a Summon — added to " + who + " hand instead of field.");
+            return null;
         }
 
-        boolean asCast = sel.origin() == DebugCardPickerDialog.Origin.HAND;
         // Recorded before the card lands, exactly as executePlay does it, so an enter-the-field
         // ability that counts what its controller has cast this turn counts this card too.
         // The same bookkeeping every real cast records — a later ability asking how many cards,
@@ -94,8 +96,9 @@ class DebugUtility {
         } finally {
             mw.lastCardWasCast = prevCast;
         }
-        mw.logEntry("[Debug] Spawned " + card.name() + " (" + sel.serial() + ") onto " + who + " field "
+        log("Spawned " + card.name() + " (" + serial + ") onto " + who + " field "
                 + (asCast ? "as a cast from hand." : "as an arrival from the Break Zone."));
+        return null;
     }
 
     void addToHand() {
@@ -107,15 +110,16 @@ class DebugUtility {
     }
 
     private void addSelectedToHand(DebugCardPickerDialog.Selection sel) {
-        CardData card = mw.buildCardDataFromSerial(sel.serial());
-        if (card == null) {
-            JOptionPane.showMessageDialog(mw.frame, "Card not found: " + sel.serial(), "Debug Spawn", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-        boolean isP1 = sel.isP1();
+        perform(new JSONObject().put("op", "hand").put("p1", sel.isP1()).put("serial", sel.serial()));
+    }
+
+    private String applyAddToHand(boolean isP1, String serial) {
+        CardData card = mw.buildCardDataFromSerial(serial);
+        if (card == null) return "Card not found: " + serial;
         mw.gameState.getIdentity().put(card, isP1);
         addCardToHand(card, isP1);
-        mw.logEntry("[Debug] Added " + card.name() + " (" + sel.serial() + ") to " + (isP1 ? "P1" : "P2") + " hand.");
+        log("Added " + card.name() + " (" + serial + ") to " + (isP1 ? "P1" : "P2") + " hand.");
+        return null;
     }
 
     private void addCardToHand(CardData card, boolean isP1) {
@@ -125,12 +129,16 @@ class DebugUtility {
 
     /** Debug helper: removes every card from the given player's hand and refreshes the hand display. */
     private void clearHand(boolean isP1) {
+        perform(new JSONObject().put("op", "clearHand").put("p1", isP1));
+    }
+
+    private void applyClearHand(boolean isP1) {
         var hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
         int removed = hand.size();
         if (removed == 0) return;
         hand.clear();
         if (isP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
-        mw.logEntry("[Debug] Removed all " + removed + " card(s) from " + (isP1 ? "P1" : "P2") + "'s hand.");
+        log("Removed all " + removed + " card(s) from " + (isP1 ? "P1" : "P2") + "'s hand.");
     }
 
     void addToBreakZone() {
@@ -143,16 +151,17 @@ class DebugUtility {
     }
 
     private void addSelectedToHoldingZone(DebugCardPickerDialog.Selection sel) {
-        CardData card = mw.buildCardDataFromSerial(sel.serial());
-        if (card == null) {
-            JOptionPane.showMessageDialog(mw.frame, "Card not found: " + sel.serial(), "Debug Spawn", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-        boolean isP1 = sel.isP1();
+        perform(new JSONObject().put("op", "zone").put("p1", sel.isP1()).put("serial", sel.serial())
+                .put("rfp", sel.zone() == DebugCardPickerDialog.Zone.RFP));
+    }
+
+    private String applyAddToZone(boolean isP1, String serial, boolean rfp) {
+        CardData card = mw.buildCardDataFromSerial(serial);
+        if (card == null) return "Card not found: " + serial;
         // Identity first either way: both zones route the card by its owner rather than by an
         // argument, so a card whose owner is not recorded yet lands on P2's side of the board.
         mw.gameState.getIdentity().put(card, isP1);
-        if (sel.zone() == DebugCardPickerDialog.Zone.RFP) {
+        if (rfp) {
             // Face up, and straight into the zone: the debug tool is for setting up a position, so
             // it should not fire the "instead of the Break Zone" redirects that addToBreakZone honours.
             mw.gameState.addToPermanentRfp(card);
@@ -160,19 +169,25 @@ class DebugUtility {
         } else {
             mw.addToBreakZone(card);
         }
-        mw.logEntry("[Debug] Added " + card.name() + " (" + sel.serial() + ") to "
-                + (isP1 ? "P1" : "P2") + " " + zoneName(sel.zone()) + ".");
+        log("Added " + card.name() + " (" + serial + ") to "
+                + (isP1 ? "P1" : "P2") + " " + zoneName(rfp) + ".");
+        return null;
     }
 
     /** Debug helper: empties the given player's Break Zone or RFG zone and refreshes its display. */
     private void clearHoldingZone(boolean isP1, DebugCardPickerDialog.Zone zone) {
-        if (zone == DebugCardPickerDialog.Zone.RFP) { clearPermanentRfp(isP1); return; }
+        perform(new JSONObject().put("op", "clearZone").put("p1", isP1)
+                .put("rfp", zone == DebugCardPickerDialog.Zone.RFP));
+    }
+
+    private void applyClearZone(boolean isP1, boolean rfp) {
+        if (rfp) { clearPermanentRfp(isP1); return; }
         var bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
         int removed = bz.size();
         if (removed == 0) return;
         bz.clear();
         if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
-        mw.logEntry("[Debug] Removed all " + removed + " card(s) from " + (isP1 ? "P1" : "P2") + "'s Break Zone.");
+        log("Removed all " + removed + " card(s) from " + (isP1 ? "P1" : "P2") + "'s Break Zone.");
     }
 
     /**
@@ -190,13 +205,13 @@ class DebugUtility {
         if (removed == 0) return;
         for (CardData card : new ArrayList<>(rfp)) mw.gameState.removeFromPermanentRfp(card);
         if (isP1) mw.refreshP1WarpZoneUI(); else mw.refreshP2WarpZoneUI();
-        mw.logEntry("[Debug] Removed all " + removed + " card(s) from " + (isP1 ? "P1" : "P2")
+        log("Removed all " + removed + " card(s) from " + (isP1 ? "P1" : "P2")
                 + "'s Removed From Game zone.");
     }
 
     /** How a destination zone is named in the debug log. */
-    private static String zoneName(DebugCardPickerDialog.Zone zone) {
-        return zone == DebugCardPickerDialog.Zone.RFP ? "Removed From Game zone" : "Break Zone";
+    private static String zoneName(boolean rfp) {
+        return rfp ? "Removed From Game zone" : "Break Zone";
     }
 
     /**
@@ -228,9 +243,9 @@ class DebugUtility {
         JDialog dialog = new JDialog(mw.frame, "Add/Remove Counters", false);
 
         JButton addBtn = new JButton("Add", plusMinusIcon(true, new Color(0x2e9e46)));
-        addBtn.addActionListener(e -> applyCounterChange(dialog, table, rows, nameField, true));
+        addBtn.addActionListener(e -> applyCounterChange(dialog, table, model, rows, nameField, true));
         JButton removeBtn = new JButton("Remove", plusMinusIcon(false, new Color(0xc0392b)));
-        removeBtn.addActionListener(e -> applyCounterChange(dialog, table, rows, nameField, false));
+        removeBtn.addActionListener(e -> applyCounterChange(dialog, table, model, rows, nameField, false));
 
         JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
         top.add(new JLabel("Counter name:"));
@@ -247,6 +262,128 @@ class DebugUtility {
         dialog.pack();
         dialog.setLocationRelativeTo(mw.frame);
         dialog.setVisible(true);
+    }
+
+    // ── Applying a change, here and on the opponent's client ────────────────
+    //
+    // Every tool funnels its change through perform(): the dialog only collects what to do, as a
+    // small JSON "op", and one method applies it. In a multiplayer game the same op is then sent
+    // as a DEBUG action, and the opponent's client applies it with applyRemote — the same code,
+    // with P1 and P2 swapped, because the sender's P1 is the receiver's P2. Sides are written
+    // from the sender's seat ("p1" is the sender's own side) and flipped once, on arrival.
+    //
+    // Cards are named by serial, which both clients resolve against the same card database, and
+    // field cards by zone and position, which line up because the two boards are mirror images.
+    // Each field op also carries the card's name, so a board that has already drifted is
+    // reported as a desync rather than changed in the wrong place.
+
+    /** Prefix for this client's debug log lines; the opponent's changes are marked as theirs. */
+    private String logPrefix = "[Debug] ";
+
+    private void log(String line) {
+        mw.logEntry(logPrefix + line);
+    }
+
+    /**
+     * Applies {@code op} here and, in a multiplayer game, sends it so the opponent applies it too.
+     * Returns whether it was applied.
+     *
+     * <p>Refused in a multiplayer game while the board is mid-action (the stack resolving, a
+     * block being awaited, a card still entering). Real actions only cross the wire at points
+     * where both clients agree on the board; a debug change sent from the middle of a resolution
+     * would land on the other client at a different point in it.
+     */
+    private boolean perform(JSONObject op) {
+        boolean networked = !mw.isP2Cpu();
+        if (networked && !mw.debugSyncSafe()) {
+            JOptionPane.showMessageDialog(mw.frame,
+                    "Wait until nothing is resolving — debug changes are sent to your opponent and "
+                            + "have to land at the same point on both boards.",
+                    "Debug", JOptionPane.WARNING_MESSAGE);
+            return false;
+        }
+        String error = applyOp(op, false);
+        if (error != null) {
+            JOptionPane.showMessageDialog(mw.frame, error, "Debug", JOptionPane.WARNING_MESSAGE);
+            return false;
+        }
+        if (networked) mw.sendToOpponent(GameAction.of(ActionType.DEBUG, op));
+        return true;
+    }
+
+    /**
+     * Applies a debug change the opponent made on their client. A change that cannot be applied
+     * here means the boards already disagree, so it is reported as a desync.
+     */
+    void applyRemote(JSONObject op) {
+        String previous = logPrefix;
+        logPrefix = "[Debug · opponent] ";
+        try {
+            String error = applyOp(op, true);
+            if (error != null) mw.reportDesync("opponent's debug change (" + op.optString("op") + "): " + error);
+        } finally {
+            logPrefix = previous;
+        }
+    }
+
+    /**
+     * The one place a debug op takes effect. {@code fromOpponent} flips the sides the op names.
+     * Returns {@code null} when applied, or why it could not be.
+     */
+    String applyOp(JSONObject op, boolean fromOpponent) {
+        boolean isP1 = op.optBoolean("p1", true) != fromOpponent;
+        switch (op.optString("op")) {
+            case "spawn":     return applySpawn(isP1, op.getString("serial"), op.optBoolean("asCast"));
+            case "hand":      return applyAddToHand(isP1, op.getString("serial"));
+            case "clearHand": applyClearHand(isP1); return null;
+            case "zone":      return applyAddToZone(isP1, op.getString("serial"), op.optBoolean("rfp"));
+            case "clearZone": applyClearZone(isP1, op.optBoolean("rfp")); return null;
+            case "damage": {
+                int d1 = op.getInt("p1Damage"),   d2 = op.getInt("p2Damage");
+                int c1 = op.getInt("p1Crystals"), c2 = op.getInt("p2Crystals");
+                return fromOpponent
+                        ? applyDamage(d2, d1, c2, c1, op.getString("serial"))
+                        : applyDamage(d1, d2, c1, c2, op.getString("serial"));
+            }
+            case "counter": case "state": case "break": {
+                BoardSlot slot = slotNamed(isP1, op);
+                if (slot == null)
+                    return "no " + op.optString("card") + " at " + (isP1 ? "P1" : "P2") + " "
+                            + op.optString("zone") + " " + (op.optInt("index") + 1);
+                switch (op.getString("op")) {
+                    case "counter" -> applyCounter(slot, op.getString("name"), op.getBoolean("add"));
+                    case "state"   -> applyState(slot, op.getBoolean("dull") ? CardState.DULL : CardState.ACTIVE);
+                    default        -> applyBreakAt(slot);
+                }
+                return null;
+            }
+            default: return "unknown debug change \"" + op.optString("op") + "\"";
+        }
+    }
+
+    /** An op naming the field card in {@code slot}: its side, zone, position and name. */
+    private static JSONObject slotOp(String kind, BoardSlot slot) {
+        return new JSONObject().put("op", kind).put("p1", slot.isP1())
+                .put("zone", slot.zone().name()).put("index", slot.index())
+                .put("card", slot.card().name());
+    }
+
+    /**
+     * The field slot an op names, on {@code isP1}'s side, if the card there still has the name the
+     * op was sent with; {@code null} otherwise.
+     */
+    private BoardSlot slotNamed(boolean isP1, JSONObject op) {
+        FieldZone zone;
+        try {
+            zone = FieldZone.valueOf(op.getString("zone"));
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+        int index = op.optInt("index", -1);
+        if (index < 0) return null;
+        CardData card = cardAt(new BoardSlot(isP1, zone, index, null));
+        if (card == null || !card.name().equals(op.optString("card"))) return null;
+        return new BoardSlot(isP1, zone, index, card);
     }
 
     /** Which field zone a debug board row came from, so a change can find the slot again. */
@@ -294,26 +431,28 @@ class DebugUtility {
     }
 
     /** Applies a single +1/-1 counter change to the selected card and refreshes its field slot. */
-    private void applyCounterChange(JDialog dialog, JTable table, List<BoardSlot> rows, JTextField nameField, boolean add) {
-        int row = table.getSelectedRow();
-        if (row < 0 || row >= rows.size()) {
-            JOptionPane.showMessageDialog(dialog, "Select a card in the table first.", "Debug Counters", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
+    private void applyCounterChange(JDialog dialog, JTable table, DefaultTableModel model,
+                                    List<BoardSlot> rows, JTextField nameField, boolean add) {
         // Freeform name ("Guinea Pig", "EXP") — trim only leading/trailing whitespace.
         String name = nameField.getText().trim();
         if (name.isEmpty()) {
             JOptionPane.showMessageDialog(dialog, "Enter a counter name first.", "Debug Counters", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        CardData card = rows.get(row).card();
+        BoardSlot slot = selectedLiveSlot(dialog, table, model, rows, false);
+        if (slot == null) return;
+        perform(slotOp("counter", slot).put("name", name).put("add", add));
+    }
+
+    private void applyCounter(BoardSlot slot, String name, boolean add) {
+        CardData card = slot.card();
         if (add) {
             mw.gameState.placeCounters(card, name, 1);
-            mw.logEntry("[Debug] Added 1 " + name + " Counter to " + card.name()
+            log("Added 1 " + name + " Counter to " + card.name()
                     + "  [now: " + mw.gameState.getCountersMap(card) + "]");
         } else {
             if (mw.gameState.removeCounters(card, name, 1) == 0) return; // no such counter — do nothing
-            mw.logEntry("[Debug] Removed 1 " + name + " Counter from " + card.name()
+            log("Removed 1 " + name + " Counter from " + card.name()
                     + "  [now: " + mw.gameState.getCountersMap(card) + "]");
         }
         refreshCounterOwnerSlot(card);
@@ -403,18 +542,18 @@ class DebugUtility {
      * row is re-checked against the field and the table rebuilt if it has drifted.
      */
     private BoardSlot selectedLiveSlot(JDialog dialog, JTable table, DefaultTableModel model,
-                                       List<BoardSlot> rows) {
+                                       List<BoardSlot> rows, boolean withState) {
         int row = table.getSelectedRow();
         if (row < 0 || row >= rows.size()) {
-            JOptionPane.showMessageDialog(dialog, "Select a card in the table first.", "Debug Activate/Dull/Break",
+            JOptionPane.showMessageDialog(dialog, "Select a card in the table first.", dialog.getTitle(),
                     JOptionPane.WARNING_MESSAGE);
             return null;
         }
         BoardSlot slot = rows.get(row);
         if (cardAt(slot) != slot.card()) {
-            collectBoardRows(rows, model, true);
+            collectBoardRows(rows, model, withState);
             JOptionPane.showMessageDialog(dialog, "The board changed — the card list has been refreshed.",
-                    "Debug Activate/Dull/Break", JOptionPane.INFORMATION_MESSAGE);
+                    dialog.getTitle(), JOptionPane.INFORMATION_MESSAGE);
             return null;
         }
         return slot;
@@ -423,13 +562,18 @@ class DebugUtility {
     /** Sets the selected row's card to {@code state} and turns its field slot to match. */
     private void applyStateChange(JDialog dialog, JTable table, DefaultTableModel model,
                                   List<BoardSlot> rows, CardState state) {
-        BoardSlot slot = selectedLiveSlot(dialog, table, model, rows);
+        BoardSlot slot = selectedLiveSlot(dialog, table, model, rows, true);
         if (slot == null) return;
         int row = table.getSelectedRow();
         if (stateOf(slot) == state) return; // already there — nothing to log
+        if (perform(slotOp("state", slot).put("dull", state == CardState.DULL)))
+            model.setValueAt(stateLabel(state), row, 4);
+    }
+
+    private void applyState(BoardSlot slot, CardState state) {
+        if (stateOf(slot) == state) return;
         setSlotState(slot, state);
-        model.setValueAt(stateLabel(state), row, 4);
-        mw.logEntry("[Debug] " + (state == CardState.ACTIVE ? "Activated " : "Dulled ") + slot.card().name()
+        log((state == CardState.ACTIVE ? "Activated " : "Dulled ") + slot.card().name()
                 + " (" + (slot.isP1() ? "P1" : "P2") + " " + zoneLabel(slot.zone()) + " " + (slot.index() + 1) + ").");
     }
 
@@ -438,12 +582,16 @@ class DebugUtility {
      * Forward or Monster row every later card has moved up one position.
      */
     private void applyBreak(JDialog dialog, JTable table, DefaultTableModel model, List<BoardSlot> rows) {
-        BoardSlot slot = selectedLiveSlot(dialog, table, model, rows);
+        BoardSlot slot = selectedLiveSlot(dialog, table, model, rows, true);
         if (slot == null) return;
-        mw.logEntry("[Debug] Broke " + slot.card().name()
+        perform(slotOp("break", slot));
+        collectBoardRows(rows, model, true);
+    }
+
+    private void applyBreakAt(BoardSlot slot) {
+        log("Broke " + slot.card().name()
                 + " (" + (slot.isP1() ? "P1" : "P2") + " " + zoneLabel(slot.zone()) + " " + (slot.index() + 1) + ").");
         mw.breakFieldCard(slot.isP1(), cardZone(slot.zone()), slot.index());
-        collectBoardRows(rows, model, true);
     }
 
     /** The board-wide zone name for a debug row's zone. */
@@ -664,16 +812,25 @@ class DebugUtility {
         int targetC1 = (Integer) p1Crystals.getValue();
         int targetC2 = (Integer) p2Crystals.getValue();
 
+        String serial = serialField.getText().trim();
+        if (serial.isEmpty() || serial.equals(HINT)) serial = "1-001H";
+        // Absolute targets rather than changes: each client computes what to add or take away from
+        // its own counts, so a board that had drifted is set right rather than drifting further.
+        perform(new JSONObject().put("op", "damage")
+                .put("p1Damage", target1).put("p2Damage", target2)
+                .put("p1Crystals", targetC1).put("p2Crystals", targetC2)
+                .put("serial", serial));
+    }
+
+    private String applyDamage(int target1, int target2, int targetC1, int targetC2, String serial) {
+        int cur1  = mw.gameState.getP1DamageZone().size();
+        int cur2  = mw.gameState.getP2DamageZone().size();
+        int curC1 = mw.gameState.getP1Crystals();
+        int curC2 = mw.gameState.getP2Crystals();
         CardData card = null;
         if (target1 > cur1 || target2 > cur2) {
-            String serial = serialField.getText().trim();
-            if (serial.isEmpty() || serial.equals(HINT)) serial = "1-001H";
             card = mw.buildCardDataFromSerial(serial);
-            if (card == null) {
-                JOptionPane.showMessageDialog(mw.frame, "Card not found: " + serial,
-                        "Debug Damage", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
+            if (card == null) return "Card not found: " + serial;
         }
 
         List<CardData> dz1 = mw.gameState.getP1DamageZone();
@@ -699,9 +856,10 @@ class DebugUtility {
         mw.gameState.addP2Crystals(targetC2 - curC2);
         mw.refreshCrystalDisplays();
 
-        mw.logEntry("[Debug] Damage set — P1: " + target1 + ", P2: " + target2
+        log("Damage set — P1: " + target1 + ", P2: " + target2
                 + (card != null ? " (card: " + card.name() + ")" : "")
                 + "; Crystals set — P1: " + targetC1 + ", P2: " + targetC2);
+        return null;
     }
 
     /** 0–20 covers any board a debug session needs; the display renders the count as a number. */
