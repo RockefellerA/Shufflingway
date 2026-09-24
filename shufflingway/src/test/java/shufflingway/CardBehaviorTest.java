@@ -63435,4 +63435,58 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// 17-084C Lorenzo: "When Lorenzo attacks, until the end of the turn, Lorenzo doubles its power
+	// and gains "When Lorenzo deals damage to your opponent, choose 1 Character in your Break
+	// Zone. Add it to your hand."" The Choose chain used to claim the quotation and salvage a card
+	// on every attack; the doubling and the damage condition were both dropped.
+	// =========================================================================================
+
+	private static final String LORENZO_ATTACK_EFFECT =
+			"until the end of the turn, Lorenzo doubles its power and gains \"When Lorenzo deals damage "
+			+ "to your opponent, choose 1 Character in your Break Zone. Add it to your hand.\"";
+
+	@Test
+	void lorenzoDoublesAndGainsTheDamageTriggerInsteadOfSalvagingOnAttack() {
+		MainWindow mw = new MainWindow();
+		CardData lorenzo = makeForward("Lorenzo", "Earth", 4, 7000);
+		placeP1Forward(mw, lorenzo);
+		CardData buried = makeForward("Buried", "Earth", 2, 5000);
+		mw.gameState.getIdentity().put(buried, true);
+		mw.gameState.getP1BreakZone().add(buried);
+
+		Consumer<GameContext> effect = ActionResolver.parse(LORENZO_ATTACK_EFFECT, lorenzo);
+		assertNotNull(effect);
+		assertEquals("UntilEotDoublesPowerAndQuoted",
+				ActionResolver.fullDescription(LORENZO_ATTACK_EFFECT, lorenzo));
+		effect.accept(mw.buildGameContext(true));
+
+		assertEquals(14000, mw.effectiveP1ForwardPower(0), "7000 doubled");
+		assertTrue(mw.gameState.getP1BreakZone().contains(buried),
+				"attacking alone salvages nothing: that waits on damage to the opponent");
+		AutoAbility granted = mw.effectiveAutoAbilities(lorenzo).stream()
+				.filter(fa -> fa.trigger().equals("deals damage to opponent"))
+				.findFirst().orElse(null);
+		assertNotNull(granted, "the quoted trigger is Lorenzo's until the end of the turn");
+		assertNotNull(ActionResolver.parse(granted.effectText(), lorenzo),
+				"and what it does when it fires is readable");
+	}
+
+	@Test
+	void lorenzosPrintedAttackAbilitiesBothParse() {
+		CardData lorenzo = makeForward("Lorenzo", "Earth", 4, 7000);
+		List<AutoAbility> autos = CardData.parseAutoAbilities(
+				"When Lorenzo attacks, Lorenzo will not activate during your next Active Phase.[[br]]   "
+				+ "When Lorenzo attacks, " + LORENZO_ATTACK_EFFECT);
+		assertEquals(2, autos.size());
+		for (AutoAbility fa : autos) {
+			assertEquals("attacks", fa.trigger());
+			assertNotNull(ActionResolver.parse(fa.effectText(), lorenzo), fa.effectText());
+		}
+		assertEquals("UntilEotDoublesPowerAndQuoted",
+				ActionResolver.fullDescription(autos.get(1).effectText(), lorenzo));
+	}
+
+	// =========================================================================================
+
 }

@@ -11427,6 +11427,19 @@ final class ActionResolverPatterns {
         "(?<boosts>.+?)\\s+and\\s+\"(?<quoted>.+?)\"[.!]?$");
     static final Pattern POWER_AMOUNT_PLUS = Pattern.compile("(?i)\\+(\\d+)\\s+power");
     /**
+     * "Until the end of the turn, [Self] doubles its power and gains \"[quoted ability]\"." —
+     * 17-084C Lorenzo, whose grant is "When Lorenzo deals damage to your opponent, choose 1
+     * Character in your Break Zone. Add it to your hand."
+     *
+     * <p>The doubling twin of {@link #UNTIL_EOT_GAINS_POWER_TRAITS_AND_QUOTED}. Anchored end to
+     * end: under find() the Choose chain claimed the "choose 1 Character …" inside the quotation
+     * and ran it on the spot, so Lorenzo salvaged a card every time he attacked, whether he dealt
+     * damage or not, and never doubled.
+     */
+    static final Pattern UNTIL_EOT_DOUBLES_POWER_AND_QUOTED = Pattern.compile(
+        "(?i)^Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,\\s+(?<subject>.+?)\\s+doubles?\\s+its\\s+power" +
+        "\\s+and\\s+gains\\s+\"(?<quoted>.+?)\"[.!]?$");
+    /**
      * "Remove it/them from the game for as long as [Name] is on the field." (Necron ETB) —
      * temporary exile that ends when the named watcher leaves the field.
      */

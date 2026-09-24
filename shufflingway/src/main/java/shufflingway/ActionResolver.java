@@ -188,6 +188,11 @@ public class ActionResolver {
         result = tryParseCastPaymentElementsGate(effectText, source, xValue);
         if (result != null) return result;
 
+        // Ahead of the Choose chain, which otherwise claims the "choose 1 Character …" inside
+        // 17-084C Lorenzo's quotation and runs it on attack. Anchored end to end.
+        result = tryParseUntilEotDoublesPowerAndQuoted(effectText, source);
+        if (result != null) return result;
+
         // Here for the same reason as the gate above, and it is the same failure: the thresholds
         // are the last three sentences, so every parser below matched a tier under find() and ran
         // it ungated — G'raha Tia 27-044L handed out a flat 4 CP discount on any reveal at all.
@@ -2199,6 +2204,9 @@ public class ActionResolver {
         // 16-125C's conditional half off the end of the sentence carrying the condition.
         if (tryParseCastPaymentElementsGate(effectText, source, 0) != null)
             return "CastPaymentElementsGate";
+        // Mirrors parse(): ahead of the Choose chain, which would name Lorenzo's quotation.
+        if (tryParseUntilEotDoublesPowerAndQuoted(effectText, source) != null)
+            return "UntilEotDoublesPowerAndQuoted";
         if (ActionResolverSearch.tryParseRevealTopNTieredByDistinctElements(effectText, source, 0) != null)
             return "RevealTopNTieredByDistinctElements";
         if (tryParseCastCountGate(effectText, source, 0) != null)
@@ -3473,6 +3481,9 @@ public class ActionResolver {
         // Strip trailing use-restriction sentences so they don't short-circuit before effect patterns match
         String noRestriction = stripRestrictionSentences(effectText);
         if (!noRestriction.isEmpty()) effectText = noRestriction;
+        // Mirrors parse(): ahead of the Choose chain, which would describe Lorenzo's quotation.
+        if (tryParseUntilEotDoublesPowerAndQuoted(effectText, source) != null)
+            return "UntilEotDoublesPowerAndQuoted";
         // Mirrors parse(); see the matching guard in matchedPatternNameOn(). Described like the
         // control gates below: the condition is named, the effect it guards described inside it.
         if (tryParseCastPaymentElementsGate(effectText, source, 0) != null) {
