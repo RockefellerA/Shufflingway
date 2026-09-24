@@ -28,10 +28,11 @@ import javax.swing.Timer;
 
 import scraper.AppPaths;
 import shufflingway.UpdateChecker;
+import shufflingway.dialog.WelcomeDialog;
 
 /**
  * Help menu for the main window.
- * Owns all guide links, the update checker, and the About item.
+ * Owns Getting Started, all guide links, the update checker, and the About item.
  */
 public class HelpMenu extends JMenu {
 
@@ -40,6 +41,12 @@ public class HelpMenu extends JMenu {
     public HelpMenu(JFrame owner) {
         super("Help");
         this.owner = owner;
+
+        JMenuItem gettingStarted = new JMenuItem("Getting Started");
+        add(gettingStarted);
+        gettingStarted.addActionListener((ActionEvent e) -> new WelcomeDialog(owner).setVisible(true));
+
+        addSeparator();
 
         JMenu guides = new JMenu("Guides");
         add(guides);

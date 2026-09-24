@@ -116,6 +116,7 @@ import shufflingway.dialog.LbPaymentDialog;
 import shufflingway.dialog.RemovedFromPlayDialog;
 import shufflingway.dialog.StandardPaymentDialog;
 import shufflingway.dialog.WarpPaymentDialog;
+import shufflingway.dialog.WelcomeDialog;
 import shufflingway.graphics.BoardEdgeFadePanel;
 import shufflingway.graphics.CardAnimation;
 import static shufflingway.graphics.CardAnimation.CARD_H;
@@ -1685,6 +1686,8 @@ public class MainWindow {
 					window.frame.setVisible(true);
 					ImageIcon icon40 = new ImageIcon(getClass().getResource("/images/shufflingway.png"));
 					window.frame.setIconImage(icon40.getImage());
+					if (AppSettings.isShowWelcome())
+						new WelcomeDialog(window.frame).setVisible(true);
 				} catch (Exception e) {
 					AppLogger.log("Startup exception", e);
 				}

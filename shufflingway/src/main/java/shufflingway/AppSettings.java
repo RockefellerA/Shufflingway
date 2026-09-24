@@ -225,6 +225,16 @@ public final class AppSettings {
         props.setProperty("gameplay.auto.advance.main.phases", Boolean.toString(enabled));
     }
 
+    /** Whether the Welcome dialog opens at launch. Defaults to {@code true}. */
+    public static boolean isShowWelcome() {
+        return Boolean.parseBoolean(props.getProperty("startup.show.welcome", "true"));
+    }
+
+    /** Sets whether the Welcome dialog opens at launch (call {@link #save()} to persist). */
+    public static void setShowWelcome(boolean show) {
+        props.setProperty("startup.show.welcome", Boolean.toString(show));
+    }
+
     /**
      * Master switch for the Debug section in the Preferences dialog. The Debug section (and any
      * individual debug toggles) are hidden unless {@code settings.ini} contains {@code debug=1}.
