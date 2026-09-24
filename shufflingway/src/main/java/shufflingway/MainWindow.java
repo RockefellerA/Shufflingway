@@ -2206,13 +2206,13 @@ public class MainWindow {
 		nextBtnPanel.add(attackButton);
 		nextBtnPanel.add(skipAttackButton);
 
-		// Auto / Wait — whether Main Phases with nothing left to do move on by themselves. One of
+		// Auto / Wait — whether phases with nothing left to do move on by themselves. One of
 		// the two is always pressed in, and only the pressed one is tinted, so the choice reads at
 		// a glance without either button shouting while it is not the one in force.
 		TintedToggleButton autoBtn = new TintedToggleButton("Auto", new Color(60, 200, 80));
 		TintedToggleButton waitBtn = new TintedToggleButton("Wait", new Color(255, 215, 0));
-		autoBtn.setToolTipText("Main Phases with no card to play or ability to use move on by themselves");
-		waitBtn.setToolTipText("Main Phases wait for you to click Next");
+		autoBtn.setToolTipText("Phases with no card to play or ability to use move on by themselves");
+		waitBtn.setToolTipText("Phases wait for you to click Next");
 		javax.swing.ButtonGroup autoAdvanceGroup = new javax.swing.ButtonGroup();
 		for (TintedToggleButton b : List.of(autoBtn, waitBtn)) {
 			b.setFont(FontLoader.loadOverlayFont(10));
