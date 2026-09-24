@@ -9069,6 +9069,7 @@ final class GameContextImpl implements GameContext {
 				// Reset for every action, not just ACTIVATE, so a later sweep of any kind cannot
 				// leave an earlier one's tally standing to be read as its own.
 				mw.lastMassActivateCount = 0;
+				mw.lastMassBreakForwardCount = 0;
 				if (touchP1) {
 					if (forwards || monsters) {
 						for (int i = mw.p1ForwardCards.size() - 1; i >= 0; i--) {
@@ -9087,7 +9088,8 @@ final class GameContextImpl implements GameContext {
 							if (!meetsStateFilter(mw.p1ForwardStates.get(i), stateFilter)) continue;
 							if (!forwardHasAnyTrait(true, i, traitFilter)) continue;
 							switch (action) {
-								case BREAK          -> breakP1Forward(i);
+								case BREAK          -> { int n = mw.p1ForwardCards.size(); breakP1Forward(i);
+								                         if (mw.p1ForwardCards.size() < n) mw.lastMassBreakForwardCount++; }
 								case DULL           -> dullP1Forward(i);
 								case FREEZE         -> freezeP1Forward(i);
 								case DULL_AND_FREEZE -> { dullP1Forward(i); freezeP1Forward(i); }
@@ -9201,7 +9203,8 @@ final class GameContextImpl implements GameContext {
 							if (!meetsStateFilter(mw.p2ForwardStates.get(i), stateFilter)) continue;
 							if (!forwardHasAnyTrait(false, i, traitFilter)) continue;
 							switch (action) {
-								case BREAK          -> breakP2Forward(i);
+								case BREAK          -> { int n = mw.p2ForwardCards.size(); breakP2Forward(i);
+								                         if (mw.p2ForwardCards.size() < n) mw.lastMassBreakForwardCount++; }
 								case DULL           -> dullP2Forward(i);
 								case FREEZE         -> freezeP2Forward(i);
 								case DULL_AND_FREEZE -> { dullP2Forward(i); freezeP2Forward(i); }
@@ -9294,6 +9297,7 @@ final class GameContextImpl implements GameContext {
 	// Mass field effects: party boosts and keyword grants
 	// =========================================================================================
 			@Override public int lastMassActivateCount() { return mw.lastMassActivateCount; }
+			@Override public int lastMassBreakForwardCount() { return mw.lastMassBreakForwardCount; }
 
 			@Override
 			public void applyMassFieldPowerBoost(int amount, boolean inclForwards, boolean inclMonsters,

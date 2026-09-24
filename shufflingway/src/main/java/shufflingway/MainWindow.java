@@ -665,6 +665,8 @@ public class MainWindow {
 	// whose payoff counts them ("When 4 or more dull Characters are activated by this effect" —
 	// 19-102L Refia). Reset by every applyMassFieldEffect call, whatever its action.
 	int      lastMassActivateCount    = 0;
+	/** Forwards the most recent mass sweep actually took off the field with BREAK. */
+	int      lastMassBreakForwardCount = 0;
 	// Power of the Forward put into the Break Zone as an ability cost; set during payment.
 	int      lastBzCostForwardPower   = 0;
 	// Set by an EX burst suppression clause; cleared at the start of each new ability context.

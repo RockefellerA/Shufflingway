@@ -62943,8 +62943,10 @@ public class CardBehaviorTest {
 	// it cannot see is the reason, so the printings are named here one per assertion.
 	// =========================================================================================
 
-	// 11-138S, 2-043C, 5-063H and 15-097H were refused here too until their qualifiers were given
-	// arms of their own; see aSweepQualifierThatUsedToBeRefusedIsNowRead.
+	// 11-138S, 2-043C, 5-063H, 15-097H and 3-037H Zalera were refused here too until their
+	// qualifiers were given arms of their own; see aSweepQualifierThatUsedToBeRefusedIsNowRead.
+	// Shadow Lord's sweep is still refused on its own: it is read, with its naming, by
+	// tryParseNameJobBreakNamedOrJob.
 	@Test
 	void aSweepThatLeavesAnUnreadQualifierIsDeclined() {
 		// 17-079L Shadow Lord — the filter is the answer to the naming sentence in front of it,
@@ -62953,12 +62955,6 @@ public class CardBehaviorTest {
 		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
 				"Break all the Forwards with named Job and Job Standard Unit."),
 				"an unread Job filter must fail closed");
-		// 3-037H / B-027 Zalera, the Death Seraph. Not in the survey that produced this work: the
-		// scan behind it walked the three ability lists, and a Summon carries its whole effect in
-		// CardData.summonEffect() instead. The characterization file is what caught it.
-		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
-				"Break all the dull Forwards of costs 2, 3, 5, 7, 11, and 13 opponent controls."),
-				"a cost-list filter must fail closed");
 	}
 
 	@Test
@@ -63084,8 +63080,106 @@ public class CardBehaviorTest {
 				"Break all Characters with 3 or more Doom Counters placed on them.",
 				"Break all the Characters of cost 5 and 10 opponent controls.",
 				"Dull all the Forwards with a cost equal to the number of Job Moogle you control.",
-				"break all the Forwards opponent controls and all the Backups you control."))
+				"break all the Forwards opponent controls and all the Backups you control.",
+				"Break all the dull Forwards of costs 2, 3, 5, 7, 11, and 13 opponent controls."))
 			assertNotNull(ActionResolverFieldAbility.tryParseAllFieldEffect(text), text);
+	}
+
+	@Test
+	void zaleraBreaksOnlyTheOpponentsDullForwardsOfTheListedCosts() {
+		MainWindow mw = new MainWindow();
+		CardData two      = makeForward("Two", "Dark", 2, 7000);
+		CardData four     = makeForward("Four", "Dark", 4, 7000);
+		CardData thirteen = makeForward("Thirteen", "Dark", 13, 7000);
+		CardData activeThree = makeForward("ActiveThree", "Dark", 3, 7000);
+		CardData ownTwo   = makeForward("OwnTwo", "Dark", 2, 7000);
+		for (CardData c : List.of(two, four, thirteen, activeThree)) placeP2Forward(mw, c);
+		placeP1Forward(mw, ownTwo);
+		for (CardData c : List.of(two, four, thirteen))
+			mw.p2ForwardStates.set(mw.p2ForwardCards.indexOf(c), CardState.DULL);
+		mw.p1ForwardStates.set(0, CardState.DULL);
+
+		ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"Break all the dull Forwards of costs 2, 3, 5, 7, 11, and 13 opponent controls.")
+				.accept(mw.buildGameContext(true));
+
+		assertEquals(List.of(four, activeThree), mw.p2ForwardCards,
+				"4 is not on the list, and 3 is on it but active");
+		assertEquals(List.of(ownTwo), mw.p1ForwardCards);
+	}
+
+	// =========================================================================================
+	// 17-079L Shadow Lord: "name 1 Job. Break all the Forwards with named Job and Job Standard
+	// Unit. When 3 or more Forwards are put from the field into the Break Zone by this effect,
+	// Shadow Lord deals you 1 point of damage." Read sentence by sentence it named a Job and did
+	// nothing else.
+	// =========================================================================================
+
+	private static final String SHADOW_LORD_ETB =
+			"name 1 Job. Break all the Forwards with named Job and Job Standard Unit. When 3 or more "
+			+ "Forwards are put from the field into the Break Zone by this effect, Shadow Lord deals "
+			+ "you 1 point of damage.";
+
+	/** P1's real context, answering the naming with {@code job} rather than a dialog. */
+	private static GameContext namingContext(MainWindow mw, String job) {
+		GameContext ctx = mock(GameContext.class,
+				org.mockito.AdditionalAnswers.delegatesTo(mw.buildGameContext(true)));
+		doReturn(job).when(ctx).selectJobNamedAgainstOpponent();
+		doNothing().when(ctx).dealDamageToSelf(anyInt());
+		return ctx;
+	}
+
+	@Test
+	void shadowLordBreaksBothJobsOnBothSidesAndPaysForThree() {
+		MainWindow mw = new MainWindow();
+		CardData shadowLord = makeForward("Shadow Lord", "Earth", 7, 9000);
+		CardData oppWarrior = makeJobCard("OppWarrior", "Fire", "Forward", "Warrior");
+		CardData oppUnit    = makeJobCard("OppUnit", "Fire", "Forward", "Standard Unit");
+		CardData oppMage    = makeJobCard("OppMage", "Fire", "Forward", "Mage");
+		CardData ownWarrior = makeJobCard("OwnWarrior", "Earth", "Forward", "Warrior");
+		placeP1Forward(mw, shadowLord);
+		placeP1Forward(mw, ownWarrior);
+		for (CardData c : List.of(oppWarrior, oppUnit, oppMage)) placeP2Forward(mw, c);
+
+		GameContext ctx = namingContext(mw, "Warrior");
+		ActionResolver.parse(SHADOW_LORD_ETB, shadowLord).accept(ctx);
+
+		assertEquals(List.of(oppMage), mw.p2ForwardCards, "the named Job and Standard Unit both go");
+		assertEquals(List.of(shadowLord), mw.p1ForwardCards, "the sweep names no side");
+		verify(ctx).dealDamageToSelf(1);
+	}
+
+	@Test
+	void shadowLordDealsNoDamageWhenFewerThanThreeBreak() {
+		MainWindow mw = new MainWindow();
+		CardData shadowLord = makeForward("Shadow Lord", "Earth", 7, 9000);
+		CardData oppWarrior = makeJobCard("OppWarrior", "Fire", "Forward", "Warrior");
+		CardData oppUnit    = makeJobCard("OppUnit", "Fire", "Forward", "Standard Unit");
+		placeP1Forward(mw, shadowLord);
+		placeP2Forward(mw, oppWarrior);
+		placeP2Forward(mw, oppUnit);
+
+		GameContext ctx = namingContext(mw, "Warrior");
+		ActionResolver.parse(SHADOW_LORD_ETB, shadowLord).accept(ctx);
+
+		assertTrue(mw.p2ForwardCards.isEmpty());
+		verify(ctx, never()).dealDamageToSelf(anyInt());
+	}
+
+	@Test
+	void shadowLordBreaksNothingWhenNoJobIsNamed() {
+		MainWindow mw = new MainWindow();
+		CardData shadowLord = makeForward("Shadow Lord", "Earth", 7, 9000);
+		CardData oppUnit    = makeJobCard("OppUnit", "Fire", "Forward", "Standard Unit");
+		placeP1Forward(mw, shadowLord);
+		placeP2Forward(mw, oppUnit);
+
+		GameContext ctx = namingContext(mw, null);
+		ActionResolver.parse(SHADOW_LORD_ETB, shadowLord).accept(ctx);
+
+		assertEquals(List.of(oppUnit), mw.p2ForwardCards,
+				"the sweep hangs on the naming; with no answer it does not run half-filtered");
+		verify(ctx, never()).dealDamageToSelf(anyInt());
 	}
 
 	@Test

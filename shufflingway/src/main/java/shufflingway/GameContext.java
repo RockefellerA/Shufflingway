@@ -4572,6 +4572,18 @@ public interface GameContext {
     int lastMassActivateCount();
 
     /**
+     * How many Forwards the most recent {@link #applyMassFieldEffect} with
+     * {@link MassAction#BREAK} actually put into the Break Zone — one that could not be broken
+     * stayed where it was and is not counted.
+     *
+     * <p>For "When N or more Forwards are put from the field into the Break Zone by this effect, …"
+     * (17-079L Shadow Lord), counted by the sweep for the reason {@link #lastMassActivateCount}
+     * is: the payoff must be measured against the cards the sweep really took. Reset by every
+     * {@code applyMassFieldEffect} call.
+     */
+    int lastMassBreakForwardCount();
+
+    /**
      * Places {@code count} counters named {@code counterName} on every Forward on the side(s) the
      * flags select — both sides when neither is set.  (20-057L The Goddess opens by putting a Doom
      * Counter on each of the opponent's Forwards.)

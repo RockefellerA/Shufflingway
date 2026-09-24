@@ -8632,7 +8632,10 @@ final class ActionResolverPatterns {
         // "and N" is a second exact cost, not a range: 5-063H Deathgaze breaks "the Characters of
         // cost 5 and 10 opponent controls" and nothing in between. The pattern used to stop at the
         // first cost and drop the second, along with the side restriction trailing it.
-        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more)|\\s+and\\s+(?<cost2>\\d+))?)?" +
+        // "of costs 2, 3, 5, 7, 11, and 13" (3-037H Zalera) is the same list, longer; its words are
+        // kept whole in costlist and split in the parser.
+        "(?:\\s+of\\s+costs?\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more)" +
+        "|(?<costlist>(?:\\s*,\\s*\\d+)*,?\\s+and\\s+\\d+))?)?" +
         // A cost read off the board rather than printed: 2-043C Hurdy dulls "all the Forwards with a
         // cost equal to the number of Job Moogle you control". Its "you control" belongs to the count,
         // not to the sweep, so the arm consumes it before the control arm below can claim it — read
@@ -8668,6 +8671,29 @@ final class ActionResolverPatterns {
         // primitive it calls has no power filter to pass this to.
         "(?:\\s+with\\s+power\\s+(?<powercmp>less|more)\\s+than\\s+(?<powercard>[^.!]+?))?" +
         "[.!]?"
+    );
+    /**
+     * 17-079L Shadow Lord: "name 1 Job. Break all the Forwards with named Job and Job Standard
+     * Unit. When N or more Forwards are put from the field into the Break Zone by this effect,
+     * [Self] deals you M point(s) of damage."
+     *
+     * <p>One pattern for all three sentences, because each needs the one before it: the sweep's
+     * filter is the answer to the naming, and the damage counts what the sweep broke. Read apart,
+     * the naming ran on its own and the other two were dropped.
+     *
+     * <p>"with named Job and Job Standard Unit" is read as two groups — Forwards with either Job.
+     * Standard Unit is the Job the generic vanilla printings carry, so a Forward with both is all
+     * but impossible and the "both" reading would break nothing.
+     *
+     * <p>Groups: {@code job} — the second, printed Job; {@code threshold}, {@code dmgcard},
+     * {@code amount} — the payoff, when printed.
+     */
+    static final Pattern NAME_JOB_BREAK_NAMED_OR_JOB = Pattern.compile(
+        "(?i)^name\\s+1\\s+Job[.!]\\s*Break\\s+all\\s+(?:the\\s+)?Forwards\\s+with\\s+(?:the\\s+)?named\\s+Job\\s+" +
+        "and\\s+Job\\s+(?<job>[^.!]+?)[.!]" +
+        "(?:\\s*When\\s+(?<threshold>\\d+)\\s+or\\s+more\\s+Forwards?\\s+are\\s+put\\s+from\\s+the\\s+field\\s+" +
+        "into\\s+the\\s+Break\\s+Zone\\s+by\\s+this\\s+effect,\\s*(?<dmgcard>[^.!]+?)\\s+deals?\\s+you\\s+" +
+        "(?<amount>\\d+)\\s+points?\\s+of\\s+damage[.!]?)?\\s*$"
     );
     /**
      * 14-062L Titan, Lord of Crags: "Break all the Forwards with power less than [Self]. When N or

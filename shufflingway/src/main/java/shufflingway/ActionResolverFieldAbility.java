@@ -542,6 +542,51 @@ final class ActionResolverFieldAbility {
      * declines this text, so the order is not load-bearing for correctness — but a future widening
      * that made it accept a power filter would silently take this back.
      */
+    /**
+     * Parses 17-079L Shadow Lord's naming, sweep and payoff as one effect; see
+     * {@link ActionResolverPatterns#NAME_JOB_BREAK_NAMED_OR_JOB}. The payoff reads the sweep's own
+     * tally, so a Forward that could not be broken does not count toward the damage.
+     */
+    static Consumer<GameContext> tryParseNameJobBreakNamedOrJob(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = NAME_JOB_BREAK_NAMED_OR_JOB.matcher(text.trim());
+        if (!m.matches()) return null;
+        boolean hasPayoff = m.group("threshold") != null;
+        if (hasPayoff && !m.group("dmgcard").trim().equalsIgnoreCase(source.name())) return null;
+        String printedJob = m.group("job").trim();
+        int threshold = hasPayoff ? Integer.parseInt(m.group("threshold")) : 0;
+        int amount    = hasPayoff ? Integer.parseInt(m.group("amount"))    : 0;
+
+        return ctx -> {
+            // Against the opponent: the sweep takes both sides, so a Job the AI shortlists from its
+            // own field would break its own Forwards.
+            String named = ctx.selectJobNamedAgainstOpponent();
+            if (named == null) {
+                ctx.logEntry("Effect: No Job named — nothing is broken");
+                return;
+            }
+            ctx.logEntry("Effect: " + source.name() + " names Job " + named
+                    + " — break all Forwards with Job " + named + " or Job " + printedJob);
+            Predicate<ForwardTarget> eitherJob = t -> {
+                CardData c = ctx.targetCard(t);
+                return c != null && (ctx.effectiveHasJob(c, named) || ctx.effectiveHasJob(c, printedJob));
+            };
+            ctx.applyMassFieldEffect(GameContext.MassAction.BREAK, true, false, false, false, false,
+                    null, -1, null, -1, null, null, EnumSet.noneOf(CardData.Trait.class),
+                    null, null, null, null, null, eitherJob);
+            if (!hasPayoff) return;
+            int broken = ctx.lastMassBreakForwardCount();
+            if (broken < threshold) {
+                ctx.logEntry("Effect: " + broken + " Forward(s) broken — fewer than " + threshold
+                        + ", no damage dealt");
+                return;
+            }
+            ctx.logEntry("Effect: " + broken + " Forward(s) broken — " + source.name()
+                    + " deals you " + amount + " point(s) of damage");
+            ctx.dealDamageToSelf(amount);
+        };
+    }
+
     static Consumer<GameContext> tryParseBreakForwardsBelowSelfPower(String text, CardData source) {
         if (source == null) return null;
         Matcher m = BREAK_FORWARDS_BELOW_SELF_POWER.matcher(text.trim());
@@ -730,12 +775,15 @@ final class ActionResolverFieldAbility {
 
         String costStr = m.group("cost");
         String costCmp = m.group("costcmp");
-        // "of cost 5 and 10" is two exact costs, which the single cost parameter cannot hold, so
-        // the pair moves to the extra filter and the parameter is left unset.
-        String cost2Str = m.group("cost2");
-        int    costVal = costStr != null && cost2Str == null ? Integer.parseInt(costStr) : -1;
-        final Set<Integer> costSet = cost2Str == null ? null
-                : Set.of(Integer.parseInt(costStr), Integer.parseInt(cost2Str));
+        // "of cost 5 and 10" (Deathgaze) and "of costs 2, 3, 5, 7, 11, and 13" (Zalera) are sets of
+        // exact costs, which the single cost parameter cannot hold, so they move to the extra
+        // filter and the parameter is left unset.
+        String costList = m.group("costlist");
+        int    costVal = costStr != null && costList == null ? Integer.parseInt(costStr) : -1;
+        final Set<Integer> costSet = costList == null ? null
+                : java.util.stream.Stream.concat(java.util.stream.Stream.of(costStr),
+                        java.util.Arrays.stream(costList.split("\\D+")).filter(d -> !d.isEmpty()))
+                  .map(Integer::parseInt).collect(java.util.stream.Collectors.toUnmodifiableSet());
         final String costJob = m.group("costjob") != null ? m.group("costjob").trim() : null;
         final int powerVal   = m.group("powerval") != null ? Integer.parseInt(m.group("powerval")) : -1;
         final boolean powerOrLess = "less".equalsIgnoreCase(m.group("powerdir"));
@@ -793,7 +841,7 @@ final class ActionResolverFieldAbility {
         String nameLabel    = nameFilter != null && targets != null ? " named " + nameFilter : "";
         String costLabel    = costVal >= 0
                 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "")
-                : costSet != null ? " of cost " + costStr + " and " + cost2Str
+                : costSet != null ? " of cost " + costStr + costList
                 : costJob != null ? " with cost = number of Job " + costJob + " you control" : "";
         String powerLabel   = powerVal >= 0 ? " with " + powerVal + " power or " + (powerOrLess ? "less" : "more") : "";
         String exclLabel    = excludeCostVal >= 0 ? " [not cost " + excludeCostVal + "]" : "";

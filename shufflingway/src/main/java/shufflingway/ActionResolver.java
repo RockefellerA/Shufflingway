@@ -874,6 +874,11 @@ public class ActionResolver {
         // Must precede tryParseAllFieldEffect: that one refuses a power filter rather than
         // dropping it, so this is the only parser that reads 14-062L's sweep and the payoff
         // counting what it broke.
+        // Ahead of the sentence-by-sentence fallback, which ran 17-079L's naming alone and dropped
+        // the sweep it names for.
+        result = tryParseNameJobBreakNamedOrJob(effectText, source);
+        if (result != null) return result;
+
         result = tryParseBreakForwardsBelowSelfPower(effectText, source);
         if (result != null) return result;
 
@@ -2447,6 +2452,8 @@ public class ActionResolver {
         // Must precede AllFieldEffect — see the ordering note in parse().
         if (tryParseAllFieldActivateThenDraw(effectText)      != null) return "AllFieldActivateThenDraw";
         // Mirrors parse(): read ahead of the general sweep, which declines this text.
+        if (tryParseNameJobBreakNamedOrJob(effectText, source) != null)
+            return "NameJobBreakNamedOrJob";
         if (tryParseBreakForwardsBelowSelfPower(effectText, source) != null)
             return "BreakForwardsBelowSelfPower";
         // Mirrors parse(): ahead of AllFieldEffect, which would otherwise name the ability after
@@ -4319,6 +4326,8 @@ public class ActionResolver {
         // Must precede AllFieldEffect — see the ordering note in parse().
         if (tryParseAllFieldActivateThenDraw(effectText) != null)           return "AllFieldEffect + DrawCards";
         // Mirrors parse(); see the matching guard in matchedPatternNameOn().
+        if (tryParseNameJobBreakNamedOrJob(effectText, source) != null)
+            return "NameJobBreakNamedOrJob";
         if (tryParseBreakForwardsBelowSelfPower(effectText, source) != null)
             return "BreakForwardsBelowSelfPower";
         // Mirrors parse(): ahead of AllFieldEffect, which would otherwise describe the ability as
