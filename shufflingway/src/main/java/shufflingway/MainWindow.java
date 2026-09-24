@@ -2813,7 +2813,7 @@ public class MainWindow {
 	}
 
 	/** Sends an action to the remote player; a no-op in a game against the AI. */
-	private void sendToOpponent(GameAction action) {
+	void sendToOpponent(GameAction action) {
 		if (opponent instanceof RemoteOpponent remote) remote.send(action);
 	}
 
