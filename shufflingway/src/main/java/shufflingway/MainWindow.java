@@ -2215,7 +2215,7 @@ public class MainWindow {
 		waitBtn.setToolTipText("Main Phases wait for you to click Next");
 		javax.swing.ButtonGroup autoAdvanceGroup = new javax.swing.ButtonGroup();
 		for (TintedToggleButton b : List.of(autoBtn, waitBtn)) {
-			b.setFont(FontLoader.loadPixelFont(10));
+			b.setFont(FontLoader.loadOverlayFont(10));
 			b.setFocusPainted(false);
 			b.setMargin(new Insets(1, 4, 1, 4));
 			autoAdvanceGroup.add(b);
