@@ -2451,7 +2451,10 @@ public record CardData(
             Matcher bzOnlyM = CARD_IN_BREAK_ZONE_PATTERN.matcher(effectRaw);
             String  breakZoneOnly = bzOnlyM.find() ? bzOnlyM.group("card").trim() : null;
             ControlCondition controlCondition = null;
-            if (!whileCardInHand && breakZoneOnly == null) {
+            // In-hand abilities are read too: 16-058R Fina's "if you control 4 or more Wind
+            // Backups and if Fina is in your hand" states both, and skipping the control half left
+            // her usable with no Backups at all. parseControlCondition drops the in-hand tail.
+            if (breakZoneOnly == null) {
                 Matcher compM = YOUR_TURN_AND_CONTROL_IF_PATTERN.matcher(effectRaw);
                 if (compM.find()) {
                     controlCondition = parseControlCondition(compM.group("condition"));
@@ -9267,6 +9270,8 @@ public record CardData(
         // Strip trailing ", during your turn" and "and only once per turn" clauses
         String cond = raw.replaceAll("(?i)\\s*,?\\s*during\\s+your\\s+turn\\b.*", "").trim();
         cond = cond.replaceAll("(?i)\\s*,?\\s*(?:and\\s+)?only\\s+once\\s+per\\s+turn\\b.*", "").trim();
+        // "… and if Fina is in your hand" is whileCardInHand's business, captured separately.
+        cond = cond.replaceAll("(?i)\\s*,?\\s+and\\s+if\\s+.+?\\s+is\\s+in\\s+your\\s+hand\\b.*", "").trim();
         cond = TRAILING_OR_MORE_COUNT.matcher(cond).replaceAll("${count} or more ${noun}");
 
         // Conjunction mode: two conditions joined by "and", each wanting a card of its own —

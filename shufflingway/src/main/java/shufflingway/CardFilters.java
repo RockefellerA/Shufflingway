@@ -282,6 +282,19 @@ public final class CardFilters {
     }
 
     /** Returns true when {@code condition} requires checking which turn a card entered the field. */
+    /**
+     * Whether {@code condition} asks for a Forward forming a party — 15-052C Chocobo's "Choose 1
+     * Forward forming a party". Answered by the selection layer against the declared attackers,
+     * since {@link #meetsTargetCondition} sees only a card's state; that method passes it through
+     * on its {@code default} arm, and the real test is made beside it.
+     */
+    public static boolean isFormingPartyCondition(String condition) {
+        return FORMING_PARTY_CONDITION.equals(condition);
+    }
+
+    /** The condition string {@link #isFormingPartyCondition} recognises. */
+    public static final String FORMING_PARTY_CONDITION = "forming a party";
+
     public static boolean isEnteredThisTurnCondition(String condition) {
         return "entered the field this turn".equals(condition);
     }

@@ -788,6 +788,12 @@ public class ActionResolver {
         result = tryParseCopyChosenAutoAbilityOnStack(effectText, source);
         if (result != null) return result;
 
+        result = tryParseCancelAutoAbilityTriggeredFrom(effectText);
+        if (result != null) return result;
+
+        result = tryParseDelayedReturnSelfFromBreakZone(effectText, source);
+        if (result != null) return result;
+
         result = tryParseCancelAbilityOnStack(effectText);
         if (result != null) return result;
 
@@ -2414,6 +2420,8 @@ public class ActionResolver {
         // Mirrors parse(): ahead of the general redirect, which would otherwise claim the name.
         if (tryParseRedirectChosenTarget(effectText, source)   != null) return "RedirectChosenTarget";
         if (tryParseCopyChosenAutoAbilityOnStack(effectText, source) != null) return "CopyChosenAutoAbilityOnStack";
+        if (tryParseCancelAutoAbilityTriggeredFrom(effectText) != null) return "CancelAutoAbilityTriggeredFrom";
+        if (tryParseDelayedReturnSelfFromBreakZone(effectText, source) != null) return "DelayedReturnSelfFromBreakZone";
         if (tryParseCancelAbilityOnStack(effectText)           != null) return "CancelAbilityOnStack";
         if (tryParseCancelChosenTargetUnlessPay(effectText)    != null) return "CancelChosenTargetUnlessPay";
         if (tryParseCancelChosenTargetUnlessDiscard(effectText) != null) return "CancelChosenTargetUnlessDiscard";
@@ -4271,6 +4279,8 @@ public class ActionResolver {
         // Mirrors parse(): ahead of the general redirect, which would otherwise claim the name.
         if (tryParseRedirectChosenTarget(effectText, source)  != null) return "RedirectChosenTarget";
         if (tryParseCopyChosenAutoAbilityOnStack(effectText, source) != null) return "CopyChosenAutoAbilityOnStack";
+        if (tryParseCancelAutoAbilityTriggeredFrom(effectText) != null) return "CancelAutoAbilityTriggeredFrom";
+        if (tryParseDelayedReturnSelfFromBreakZone(effectText, source) != null) return "DelayedReturnSelfFromBreakZone";
         if (tryParseCancelAbilityOnStack(effectText)          != null) return "CancelAbilityOnStack";
         if (tryParseCancelStackEntryUnlessPay(effectText)     != null) return "CancelStackEntryUnlessPay";
         if (tryParseCancelChosenTargetUnlessPay(effectText)   != null) return "CancelChosenTargetUnlessPay";
@@ -7170,6 +7180,71 @@ public class ActionResolver {
         };
     }
 
+    /**
+     * Parses Seven 27-048R's "choose 1 auto-ability triggered from a Forward of cost 5 or less.
+     * Cancel its effect." and Fina 16-058R's unqualified twin.
+     *
+     * <p>Filtered the way {@link #tryParseCopyChosenAutoAbilityOnStack} filters, against the card
+     * the trigger came from: its kind, its printed cost, and — when the text says "your
+     * opponent's" — its controller. Only auto-abilities qualify.
+     */
+    /**
+     * Parses 3-082R Scarmiglione's "When Scarmiglione is put from the field into the Break Zone
+     * during this turn, return Scarmiglione to the field. It gains +2000 power until the end of
+     * the turn."
+     *
+     * <p>Resolving it does nothing to the board: it leaves a trigger on the card for the rest of
+     * the turn, which the Break Zone dispatcher fires once if the card is put there. The return is
+     * by identity ({@link GameContext#returnSourceFromBreakZoneToField}), so a second copy already
+     * in the Break Zone stays put, and the boost lands on the card that came back.
+     */
+    private static Consumer<GameContext> tryParseDelayedReturnSelfFromBreakZone(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = DELAYED_RETURN_SELF_FROM_BREAK_ZONE.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())
+                || !m.group("name2").trim().equalsIgnoreCase(source.name())) return null;
+        boolean dull  = m.group("dull") != null;
+        int     boost = m.group("amount") != null ? Integer.parseInt(m.group("amount")) : 0;
+        return ctx -> {
+            ctx.logEntry("Effect: If " + source.name() + " is put into the Break Zone this turn, return it"
+                    + " to the field" + (dull ? " dull" : "") + (boost > 0 ? " with +" + boost + " power" : ""));
+            ctx.addTempBreakZoneTrigger(source, later -> {
+                later.logEntry("[AutoAbility] " + source.name() + " returns to the field");
+                later.returnSourceFromBreakZoneToField(source, dull);
+                if (boost > 0)
+                    later.boostSourceForward(source, boost, EnumSet.noneOf(CardData.Trait.class));
+            });
+        };
+    }
+
+    private static Consumer<GameContext> tryParseCancelAutoAbilityTriggeredFrom(String text) {
+        Matcher m = CANCEL_AUTO_ABILITY_TRIGGERED_FROM.matcher(text.trim());
+        if (!m.matches()) return null;
+        boolean opponentsOnly = m.group("opponents") != null;
+        String  typeLower     = m.group("type").toLowerCase(Locale.ROOT);
+        int     costVal       = m.group("cost") != null ? Integer.parseInt(m.group("cost")) : -1;
+        boolean costIsMore    = "more".equalsIgnoreCase(m.group("cmp"));
+        String  described     = (opponentsOnly ? "your opponent's " : "a ") + m.group("type")
+                + (costVal >= 0 ? " of cost " + costVal + " or " + (costIsMore ? "more" : "less") : "");
+        java.util.function.Predicate<StackEntry> isAuto = parseAbilityTypeFilter("auto-ability");
+        return ctx -> {
+            boolean mine = ctx.isP1();
+            java.util.function.Predicate<StackEntry> filter = e -> {
+                if (!isAuto.test(e)) return false;
+                CardData from = e.source();
+                if (from == null) return false;
+                if (opponentsOnly && e.isP1() == mine) return false;
+                if (!matchesCardKind(from, typeLower)) return false;
+                if (costVal < 0) return true;
+                return costIsMore ? from.cost() >= costVal : from.cost() <= costVal;
+            };
+            ctx.logEntry("Effect: Cancel an auto-ability triggered from " + described);
+            ctx.cancelFilteredAbilityOnStack(filter,
+                    "Choose an auto-ability triggered from " + described + " to cancel:", false);
+        };
+    }
+
     private static Consumer<GameContext> tryParseCancelAbilityOnStack(String text) {
         Matcher m = CANCEL_ABILITY_ON_STACK.matcher(text.trim());
         if (!m.find()) return null;
@@ -8801,6 +8876,13 @@ public class ActionResolver {
         String  postCondition = m.group("postcondition");
         String  blockingName  = m.group("blockingname");
         String  blockingJob   = m.group("blockingjob");
+        // Mirrors the choose chain: the spec must carry the party filter the chain enforces, or a
+        // preselected target could be one the chain would never have offered.
+        if (m.group("formingparty") != null) {
+            if (rawCondition != null || postCondition != null
+                    || blockingName != null || blockingJob != null) return null;
+            rawCondition = CardFilters.FORMING_PARTY_CONDITION;
+        }
         String  condition     = blockingName  != null ? "blocking:"     + blockingName.trim()
                               : blockingJob   != null ? "blocking-job:" + blockingJob.trim()
                               : postCondition != null ? "entered the field this turn"

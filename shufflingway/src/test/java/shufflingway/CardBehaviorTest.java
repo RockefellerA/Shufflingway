@@ -62943,6 +62943,8 @@ public class CardBehaviorTest {
 	// it cannot see is the reason, so the printings are named here one per assertion.
 	// =========================================================================================
 
+	// 11-138S, 2-043C, 5-063H and 15-097H were refused here too until their qualifiers were given
+	// arms of their own; see aSweepQualifierThatUsedToBeRefusedIsNowRead.
 	@Test
 	void aSweepThatLeavesAnUnreadQualifierIsDeclined() {
 		// 17-079L Shadow Lord — the filter is the answer to the naming sentence in front of it,
@@ -62951,33 +62953,12 @@ public class CardBehaviorTest {
 		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
 				"Break all the Forwards with named Job and Job Standard Unit."),
 				"an unread Job filter must fail closed");
-		// 11-138S — a power filter in a wording the powercmp arm does not read. That arm already
-		// declines rather than honours a power filter; this is the same decision for the second
-		// spelling of it.
-		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
-				"dull all the Forwards opponent controls with 8000 power or less."),
-				"\"with 8000 power or less\" must fail closed, as \"with power less than X\" does");
-		// 2-043C — the filter is a count of cards on the field, which applyMassFieldEffect's fixed
-		// costVal cannot express at all. Declining is the whole of the fix.
-		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
-				"Dull all the Forwards with a cost equal to the number of Job Moogle you control."),
-				"a dynamic cost filter must fail closed");
-		// 5-063H — a two-value cost filter. The unread "and 10" left the match short of "opponent
-		// controls", so it broke cost-5 Characters on both sides and missed cost 10 entirely.
-		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
-				"Break all the Characters of cost 5 and 10 opponent controls."),
-				"an unread second cost value must fail closed, side restriction included");
 		// 3-037H / B-027 Zalera, the Death Seraph. Not in the survey that produced this work: the
 		// scan behind it walked the three ability lists, and a Summon carries its whole effect in
 		// CardData.summonEffect() instead. The characterization file is what caught it.
 		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
 				"Break all the dull Forwards of costs 2, 3, 5, 7, 11, and 13 opponent controls."),
 				"a cost-list filter must fail closed");
-		// 15-097H — a two-sided compound. Reading only the first half is both a wipe of the wrong
-		// set and a silent loss of the second.
-		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
-				"break all the Forwards opponent controls and all the Backups you control."),
-				"a two-sided compound must fail closed rather than resolve half of itself");
 	}
 
 	@Test
@@ -63066,6 +63047,296 @@ public class CardBehaviorTest {
 		assertTrue(calls.contains("drawCards"), "the sentence ahead of the drop still fires");
 		assertFalse(calls.contains("dealDamageToSelf"),
 				"the rider counts what the dropped sweep broke, so it may not run");
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Qualifiers the sweep guard used to refuse, now read: 11-138S Sephiroth's power ceiling,
+	// 11-025H Orphan's Doom Counter threshold, 5-063H Deathgaze's pair of costs, 2-043C Hurdy's
+	// cost read off the board, and 15-097H Feolthanos's two-sided compound. Each is checked on a
+	// real board, with a card on each side of the line the qualifier draws.
+	// =========================================================================================
+
+	/**
+	 * Puts {@code card} straight into its side's first empty Backup slot, active and owned by that
+	 * side. Written into the arrays the way the Spiritus tests do: the placement methods judge a
+	 * slot free by its missing image, which every test card lacks, so each call would overwrite
+	 * the last.
+	 */
+	private static void placeBackup(MainWindow mw, CardData card, boolean isP1) {
+		mw.gameState.getIdentity().put(card, isP1);
+		CardData[]  cards  = isP1 ? mw.p1BackupCards  : mw.p2BackupCards;
+		CardState[] states = isP1 ? mw.p1BackupStates : mw.p2BackupStates;
+		for (int i = 0; i < cards.length; i++) {
+			if (cards[i] != null) continue;
+			cards[i]  = card;
+			states[i] = CardState.ACTIVE;
+			return;
+		}
+		fail("no empty Backup slot");
+	}
+
+	@Test
+	void aSweepQualifierThatUsedToBeRefusedIsNowRead() {
+		for (String text : List.of(
+				"dull all the Forwards opponent controls with 8000 power or less.",
+				"Break all Characters with 3 or more Doom Counters placed on them.",
+				"Break all the Characters of cost 5 and 10 opponent controls.",
+				"Dull all the Forwards with a cost equal to the number of Job Moogle you control.",
+				"break all the Forwards opponent controls and all the Backups you control."))
+			assertNotNull(ActionResolverFieldAbility.tryParseAllFieldEffect(text), text);
+	}
+
+	@Test
+	void sephirothDullsOnlyTheOpponentsForwardsAtOrBelowTheCeiling() {
+		MainWindow mw = new MainWindow();
+		CardData small = makeForward("Small", "Fire", 3, 8000);
+		CardData big   = makeForward("Big", "Fire", 3, 9000);
+		CardData mine  = makeForward("Mine", "Fire", 3, 5000);
+		placeP2Forward(mw, small);
+		placeP2Forward(mw, big);
+		placeP1Forward(mw, mine);
+
+		ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"dull all the Forwards opponent controls with 8000 power or less.")
+				.accept(mw.buildGameContext(true));
+
+		assertEquals(CardState.DULL,   mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(small)),
+				"8000 is \"8000 or less\"");
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(big)));
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0),
+				"the sweep is the opponent's side only, however small its own Forwards are");
+	}
+
+	@Test
+	void orphanBreaksOnlyCharactersAtTheDoomThreshold() {
+		MainWindow mw = new MainWindow();
+		CardData three = makeForward("Three", "Dark", 3, 7000);
+		CardData two   = makeForward("Two", "Dark", 3, 7000);
+		CardData ownThree = makeForward("OwnThree", "Dark", 3, 7000);
+		placeP2Forward(mw, three);
+		placeP2Forward(mw, two);
+		placeP1Forward(mw, ownThree);
+		mw.gameState.placeCounters(three, "Doom", 3);
+		mw.gameState.placeCounters(two, "Doom", 2);
+		mw.gameState.placeCounters(ownThree, "Doom", 3);
+
+		ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"Break all Characters with 3 or more Doom Counters placed on them.")
+				.accept(mw.buildGameContext(true));
+
+		assertEquals(List.of(two), mw.p2ForwardCards,
+				"two counters is short of three; the presence test would have broken it too");
+		assertTrue(mw.p1ForwardCards.isEmpty(),
+				"\"all Characters\" names no side, so the controller's own counts as well");
+	}
+
+	@Test
+	void deathgazeBreaksBothCostsAndNothingBetweenOnTheOpponentsSideOnly() {
+		MainWindow mw = new MainWindow();
+		CardData five  = makeForward("Five", "Wind", 5, 7000);
+		CardData ten   = makeForward("Ten", "Wind", 10, 7000);
+		CardData seven = makeForward("Seven", "Wind", 7, 7000);
+		CardData ownFive = makeForward("OwnFive", "Wind", 5, 7000);
+		placeP2Forward(mw, five);
+		placeP2Forward(mw, ten);
+		placeP2Forward(mw, seven);
+		placeP1Forward(mw, ownFive);
+
+		ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"Break all the Characters of cost 5 and 10 opponent controls.")
+				.accept(mw.buildGameContext(true));
+
+		assertEquals(List.of(seven), mw.p2ForwardCards, "\"5 and 10\" is two costs, not a range");
+		assertEquals(List.of(ownFive), mw.p1ForwardCards);
+	}
+
+	@Test
+	void hurdyReadsTheCostOffTheNumberOfMooglesItsControllerHas() {
+		MainWindow mw = new MainWindow();
+		placeBackup(mw, makeJobCard("Mog", "Wind", "Backup", "Moogle"), true);
+		placeBackup(mw, makeJobCard("Mog Two", "Wind", "Backup", "Moogle"), true);
+		CardData oppTwo   = makeForward("OppTwo", "Fire", 2, 7000);
+		CardData oppThree = makeForward("OppThree", "Fire", 3, 7000);
+		CardData ownTwo   = makeForward("OwnTwo", "Fire", 2, 7000);
+		placeP2Forward(mw, oppTwo);
+		placeP2Forward(mw, oppThree);
+		placeP1Forward(mw, ownTwo);
+
+		ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"Dull all the Forwards with a cost equal to the number of Job Moogle you control.")
+				.accept(mw.buildGameContext(true));
+
+		assertEquals(CardState.DULL,   mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(oppTwo)));
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(oppThree)));
+		assertEquals(CardState.DULL,   mw.p1ForwardStates.get(0),
+				"the \"you control\" belongs to the count, so the sweep itself takes both sides");
+	}
+
+	@Test
+	void feolthanosBreaksTheOpponentsForwardsAndItsControllersBackups() {
+		MainWindow mw = new MainWindow();
+		CardData oppFwd = makeForward("OppFwd", "Earth", 3, 7000);
+		CardData ownFwd = makeForward("OwnFwd", "Earth", 3, 7000);
+		CardData oppBackup = makePlainBackup("OppBackup", "Earth", 2);
+		CardData ownBackup = makePlainBackup("OwnBackup", "Earth", 2);
+		placeP2Forward(mw, oppFwd);
+		placeP1Forward(mw, ownFwd);
+		placeBackup(mw, oppBackup, false);
+		placeBackup(mw, ownBackup, true);
+
+		ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"break all the Forwards opponent controls and all the Backups you control.")
+				.accept(mw.buildGameContext(true));
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "the first half: the opponent's Forwards");
+		assertEquals(List.of(ownFwd), mw.p1ForwardCards);
+		assertNull(mw.p1BackupCards[0], "the second half: the controller's own Backups");
+		assertEquals(oppBackup, mw.p2BackupCards[0]);
+	}
+
+	@Test
+	void aTypeListJoinedByAndIsStillOneSweep() {
+		// The two-sided split keys on a control clause ending each half. "Forwards and Monsters
+		// opponent controls" has none before its "and", so it must stay one opponent-side sweep.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"Break all the Forwards and Monsters opponent controls.").accept(ctx);
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.BREAK),
+				eq(true), eq(false), eq(true), eq(true), eq(false),
+				isNull(), eq(-1), isNull(), eq(-1), isNull(), isNull(), any(), isNull(),
+				isNull(), isNull(), isNull(), isNull());
+	}
+
+	// =========================================================================================
+	// 27-048R Seven and 16-058R Fina: "Choose 1 auto-ability triggered from a Forward [of cost 5
+	// or less]. Cancel its effect." The compound fallback used to read the second sentence alone.
+	// =========================================================================================
+
+	private static StackEntry autoEntryFrom(CardData from, boolean isP1) {
+		AutoAbility aa = CardData.parseAutoAbilities(
+				"When " + from.name() + " enters the field, draw 1 card.").get(0);
+		return new StackEntry(from, null, aa, isP1, 0, false, null, false, false, 0, 0);
+	}
+
+	@SuppressWarnings("unchecked")
+	private static Predicate<StackEntry> cancelFilterOf(String text) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.isP1()).thenReturn(true);
+		Consumer<GameContext> effect = ActionResolver.parse(text);
+		assertNotNull(effect, text);
+		effect.accept(ctx);
+		ArgumentCaptor<Predicate<StackEntry>> filter = ArgumentCaptor.forClass(Predicate.class);
+		verify(ctx).cancelFilteredAbilityOnStack(filter.capture(), any(), eq(false));
+		return filter.getValue();
+	}
+
+	@Test
+	void sevenCancelsOnlyAnAutoAbilityFromACheapEnoughForward() {
+		Predicate<StackEntry> eligible = cancelFilterOf(
+				"Choose 1 auto-ability triggered from a Forward of cost 5 or less. Cancel its effect.");
+		assertTrue(eligible.test(autoEntryFrom(makeForward("Cheap", "Fire", 5, 7000), false)));
+		assertFalse(eligible.test(autoEntryFrom(makeForward("Dear", "Fire", 6, 7000), false)),
+				"cost 6 is over the ceiling");
+		assertFalse(eligible.test(autoEntryFrom(makePlainBackup("Backup", "Fire", 2), false)),
+				"a Backup's auto-ability is not one triggered from a Forward");
+		assertFalse(eligible.test(new StackEntry(makeForward("Caster", "Fire", 2, 7000),
+						CardData.parseActionAbilities("《1》: Draw 1 card.").get(0), false)),
+				"an action ability is not an auto-ability");
+	}
+
+	@Test
+	void finaCancelsAnyForwardsAutoAbilityAndKeepsHerUseRestriction() {
+		String text = "Choose 1 auto-ability triggered from a Forward. Cancel its effect. "
+				+ "You can only use this ability if you control 4 or more Wind Backups and if Fina is in your hand.";
+		Predicate<StackEntry> eligible = cancelFilterOf(text);
+		assertTrue(eligible.test(autoEntryFrom(makeForward("Any", "Fire", 9, 7000), false)));
+
+		ActionAbility ab = CardData.parseActionAbilities("《Wind》《Wind》: " + text).get(0);
+		assertTrue(ab.whileCardInHand());
+		assertNotNull(ab.controlCondition(),
+				"the Wind Backup requirement used to be dropped for an in-hand ability");
+	}
+
+	@Test
+	void finaCannotBeUsedFromHandWithoutHerWindBackups() {
+		MainWindow mw = new MainWindow();
+		String text = "《Wind》《Wind》: Choose 1 auto-ability triggered from a Forward. Cancel its effect. "
+				+ "You can only use this ability if you control 4 or more Wind Backups and if Fina is in your hand.";
+		ActionAbility ab = CardData.parseActionAbilities(text).get(0);
+		assertFalse(mw.controlConditionMet(ab.controlCondition(), true), "no Backups at all");
+		for (int i = 0; i < 4; i++) placeBackup(mw, makePlainBackup("Wind" + i, "Wind", 2), true);
+		assertTrue(mw.controlConditionMet(ab.controlCondition(), true), "four Wind Backups");
+	}
+
+	// =========================================================================================
+	// 15-052C Chocobo: "Choose 1 Forward forming a party."
+	// =========================================================================================
+
+	@Test
+	void onlyAForwardAttackingInAPartyIsOffered() {
+		MainWindow mw = new MainWindow();
+		CardData a = makeForward("A", "Wind", 2, 5000);
+		CardData b = makeForward("B", "Wind", 2, 5000);
+		CardData idle = makeForward("Idle", "Wind", 2, 5000);
+		placeP1Forward(mw, a);
+		placeP1Forward(mw, b);
+		placeP1Forward(mw, idle);
+		String text = "Choose 1 Forward forming a party. It gains +2000 power until the end of the turn.";
+		TargetSpec spec = ActionResolver.targetSpec(text, null);
+		assertNotNull(spec);
+
+		GameContextImpl ctx = new GameContextImpl(mw, true, false);
+		assertTrue(ctx.eligibleCharacters(spec).isEmpty(), "no attack, so no party");
+
+		mw.p1DeclaredAttackers.add(a);
+		assertTrue(ctx.eligibleCharacters(spec).isEmpty(), "a lone attacker is not a party");
+
+		mw.p1DeclaredAttackers.add(b);
+		assertEquals(Set.of(0, 1), ctx.eligibleCharacters(spec).stream()
+				.map(ForwardTarget::idx).collect(java.util.stream.Collectors.toSet()),
+				"the two party members, and not the Forward standing back");
+	}
+
+	// =========================================================================================
+	// 3-082R Scarmiglione: "When Scarmiglione is put from the field into the Break Zone during
+	// this turn, return Scarmiglione to the field. It gains +2000 power until the end of the turn."
+	// =========================================================================================
+
+	private static final String SCARMIGLIONE_EFFECT =
+			"When Scarmiglione is put from the field into the Break Zone during this turn, "
+			+ "return Scarmiglione to the field. It gains +2000 power until the end of the turn.";
+
+	@Test
+	void scarmiglioneComesBackOnceWhenBrokenAfterUsingTheAbility() {
+		MainWindow mw = new MainWindow();
+		CardData scar = makeForward("Scarmiglione", "Earth", 4, 7000);
+		placeP1Forward(mw, scar);
+
+		Consumer<GameContext> effect = ActionResolver.parse(SCARMIGLIONE_EFFECT, scar);
+		assertNotNull(effect);
+		effect.accept(mw.buildGameContext(true));
+		assertEquals(List.of(scar), mw.p1ForwardCards, "using the ability changes nothing yet");
+		assertEquals(0, mw.p1ForwardPowerBoost.get(0), "\"It\" is the returned card, not this one");
+
+		mw.breakP1Forward(0);
+		assertEquals(List.of(scar), mw.p1ForwardCards, "broken, and returned by its own trigger");
+		assertEquals(2000, mw.p1ForwardPowerBoost.get(0));
+		assertFalse(mw.gameState.getP1BreakZone().contains(scar));
+
+		mw.breakP1Forward(0);
+		assertTrue(mw.p1ForwardCards.isEmpty(), "one activation, one return");
+		assertTrue(mw.gameState.getP1BreakZone().contains(scar));
+	}
+
+	@Test
+	void scarmiglioneStaysInTheBreakZoneWhenTheAbilityWasNotUsed() {
+		MainWindow mw = new MainWindow();
+		CardData scar = makeForward("Scarmiglione", "Earth", 4, 7000);
+		placeP1Forward(mw, scar);
+		mw.breakP1Forward(0);
+		assertTrue(mw.p1ForwardCards.isEmpty());
 	}
 
 	// =========================================================================================

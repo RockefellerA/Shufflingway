@@ -10,6 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 
 /**
@@ -658,6 +659,18 @@ final class ActionResolverFieldAbility {
      * <p>Supported targets: Forwards, Backups, Forwards and Monsters, Characters.
      */
     static Consumer<GameContext> tryParseAllFieldEffect(String text) {
+        Matcher two = ALL_FIELD_EFFECT_TWO_SIDED.matcher(text.trim());
+        if (two.matches()) {
+            // Each half is an ordinary one-sided sweep, parsed as one. Both must be read whole or
+            // neither runs: Feolthanos breaking only the opponent's Forwards is the half-read this
+            // replaces. The halves touch opposite sides, so running them in turn is simultaneous in
+            // everything that matters.
+            String action = two.group("action");
+            Consumer<GameContext> first  = tryParseAllFieldEffect(action + " all the " + two.group("first") + ".");
+            Consumer<GameContext> second = tryParseAllFieldEffect(action + " all the " + two.group("second") + ".");
+            if (first == null || second == null) return null;
+            return first.andThen(second);
+        }
         Matcher m = ALL_FIELD_EFFECT_PATTERN.matcher(text);
         if (!m.find()) return null;
         // A power filter is captured only so it can be refused here: applyMassFieldEffect has no
@@ -717,7 +730,16 @@ final class ActionResolverFieldAbility {
 
         String costStr = m.group("cost");
         String costCmp = m.group("costcmp");
-        int    costVal = costStr != null ? Integer.parseInt(costStr) : -1;
+        // "of cost 5 and 10" is two exact costs, which the single cost parameter cannot hold, so
+        // the pair moves to the extra filter and the parameter is left unset.
+        String cost2Str = m.group("cost2");
+        int    costVal = costStr != null && cost2Str == null ? Integer.parseInt(costStr) : -1;
+        final Set<Integer> costSet = cost2Str == null ? null
+                : Set.of(Integer.parseInt(costStr), Integer.parseInt(cost2Str));
+        final String costJob = m.group("costjob") != null ? m.group("costjob").trim() : null;
+        final int powerVal   = m.group("powerval") != null ? Integer.parseInt(m.group("powerval")) : -1;
+        final boolean powerOrLess = "less".equalsIgnoreCase(m.group("powerdir"));
+        final int counterMin = m.group("countermin") != null ? Integer.parseInt(m.group("countermin")) : -1;
 
         String excludeCostStr = m.group("excludecost");
         int    excludeCostVal = excludeCostStr != null ? Integer.parseInt(excludeCostStr) : -1;
@@ -770,21 +792,53 @@ final class ActionResolverFieldAbility {
         String stateLabel   = stateFilter != null ? " " + stateFilter : "";
         String nameLabel    = nameFilter != null && targets != null ? " named " + nameFilter : "";
         String costLabel    = costVal >= 0
-                ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
+                ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "")
+                : costSet != null ? " of cost " + costStr + " and " + cost2Str
+                : costJob != null ? " with cost = number of Job " + costJob + " you control" : "";
+        String powerLabel   = powerVal >= 0 ? " with " + powerVal + " power or " + (powerOrLess ? "less" : "more") : "";
         String exclLabel    = excludeCostVal >= 0 ? " [not cost " + excludeCostVal + "]" : "";
         String exclNameLbl  = excludeCardName != null ? " [not " + excludeCardName + "]" : "";
         String exclJobLbl   = excludeJob != null ? " [not Job " + excludeJob + "]" : "";
         String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
         String traitLabel   = traitStr != null ? " with " + traitStr.trim() : "";
-        String counterLabel = counterFilter != null ? " with a " + counterFilter + " Counter" : "";
+        String counterLabel = counterFilter == null ? ""
+                : counterMin > 0 ? " with " + counterMin + "+ " + counterFilter + " Counters"
+                : " with a " + counterFilter + " Counter";
         String logMsg = actionLabel + " all" + stateLabel + " " + tgtLabel + nameLabel
-                + traitLabel + costLabel + exclLabel + exclNameLbl + exclJobLbl + controlLabel + counterLabel;
+                + traitLabel + costLabel + exclLabel + exclNameLbl + exclJobLbl + controlLabel
+                + counterLabel + powerLabel;
+        boolean needsExtra = costSet != null || costJob != null || powerVal >= 0 || counterMin > 0;
 
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
-            ctx.applyMassFieldEffect(action, inclForwards, inclBackups, inclMonsters,
-                    opponentOnly, selfOnly, element, costVal, costCmp, excludeCostVal, job, category,
-                    traitFilter, counterFilter, excludeCardName, stateFilter, nameFilter, excludeJob);
+            // Read once, at resolution: the count is of the board the ability resolves against,
+            // not of one the sweep has already started changing.
+            int jobCount = costJob != null ? ctx.countSelfFieldCards(true, true, true, costJob, null) : -1;
+            Predicate<ForwardTarget> extra = !needsExtra ? null : t -> {
+                CardData c = ctx.targetCard(t);
+                if (c == null) return false;
+                if (costSet != null && !costSet.contains(c.cost())) return false;
+                if (costJob != null && c.cost() != jobCount) return false;
+                if (counterMin > 0 && ctx.getCounters(c, counterFilter) < counterMin) return false;
+                if (powerVal >= 0) {
+                    // Only Forwards have power; a Backup or Monster never meets a power filter.
+                    if (t.zone() != ForwardTarget.CardZone.FORWARD) return false;
+                    int p = ctx.effectiveTargetPower(t);
+                    if (powerOrLess ? p > powerVal : p < powerVal) return false;
+                }
+                return true;
+            };
+            // The wider overload only when there is something to put in it, so every sweep that
+            // needs no extra filter still reaches the primitive it always did.
+            if (extra == null)
+                ctx.applyMassFieldEffect(action, inclForwards, inclBackups, inclMonsters,
+                        opponentOnly, selfOnly, element, costVal, costCmp, excludeCostVal, job, category,
+                        traitFilter, counterFilter, excludeCardName, stateFilter, nameFilter, excludeJob);
+            else
+                ctx.applyMassFieldEffect(action, inclForwards, inclBackups, inclMonsters,
+                        opponentOnly, selfOnly, element, costVal, costCmp, excludeCostVal, job, category,
+                        traitFilter, counterFilter, excludeCardName, stateFilter, nameFilter, excludeJob,
+                        extra);
         };
     }
     /**

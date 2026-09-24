@@ -2819,6 +2819,18 @@ final class AutoAbilityTriggers {
 					continue;
 				executeAutoAbility(fa, broken, brokenIsP1);
 			}
+			// Then the delayed ones an action ability left on this card for the turn. Removed as
+			// they fire: "when … during this turn" answers the first time, and a card returned to
+			// the field by its own trigger must not come back again from the same activation.
+			// Both maps are asked because the registrant is whoever used the ability, which need
+			// not be the side the card was on when it broke.
+			for (boolean registrantIsP1 : new boolean[] { true, false }) {
+				List<Consumer<GameContext>> pending = (registrantIsP1
+						? mw.p1TempBreakZoneTriggers : mw.p2TempBreakZoneTriggers).remove(broken);
+				if (pending == null) continue;
+				GameContext ctx = mw.buildGameContext(registrantIsP1);
+				for (Consumer<GameContext> effect : pending) effect.accept(ctx);
+			}
 		});
 		mw.showStackWindowIfNeeded();
 	}
@@ -5628,6 +5640,8 @@ final class AutoAbilityTriggers {
 			if (!rfthCostSatisfied(rth, isP1)) return false;
 		for (CounterCost cc : ability.counterCosts())
 			if (!counterCostSatisfied(cc, source)) return false;
+		if (ability.controlCondition() != null && !mw.controlConditionMet(ability.controlCondition(), isP1))
+			return false;
 		if (!mw.abilityHasActivationTarget(ability, source, isP1)) return false;
 		return mw.canAffordAbilityCost(ability, isP1);
 	}

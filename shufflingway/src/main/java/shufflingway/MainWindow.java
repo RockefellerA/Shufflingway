@@ -594,6 +594,23 @@ public class MainWindow {
 	final List<CardData> p1DeclaredAttackers = new ArrayList<>();
 	/** Same as {@link #p1DeclaredAttackers}, for the attack P2 has declared against P1. */
 	final List<CardData> p2DeclaredAttackers = new ArrayList<>();
+
+	/**
+	 * Whether the Forward in slot {@code idx} is attacking as part of a party right now: declared alongside at least
+	 * one other attacker in the combat in progress. By identity, since a second copy of the same
+	 * printing standing back is not in the party.
+	 */
+	boolean isFormingParty(boolean isP1, int idx) {
+		List<CardData> declared = isP1 ? p1DeclaredAttackers : p2DeclaredAttackers;
+		List<CardData> fwds     = isP1 ? p1ForwardCards : p2ForwardCards;
+		if (declared.size() < 2 || idx < 0 || idx >= fwds.size()) return false;
+		// Declared attackers are recorded as the effective card (a primed top, where there is one),
+		// so either face of the slot identifies it.
+		CardData base = fwds.get(idx);
+		CardData top  = isP1 ? effectiveP1Forward(idx) : effectiveP2Forward(idx);
+		for (CardData c : declared) if (c == base || c == top) return true;
+		return false;
+	}
 	int                  p1BlockingIdx     = -1;
 
 	// In-place field targeting: while active, the normal field-card click handlers
@@ -611,6 +628,14 @@ public class MainWindow {
 	 */
 	final Map<CardData, List<Consumer<GameContext>>> p1TempIsBlockedTriggers = new LinkedHashMap<>();
 	final Map<CardData, List<Consumer<GameContext>>> p2TempIsBlockedTriggers = new LinkedHashMap<>();
+	/**
+	 * "When [card] is put from the field into the Break Zone during this turn, …" — registered by
+	 * an action ability (3-082R Scarmiglione), fired once from the Break Zone dispatcher and
+	 * cleared at end of turn. Keyed by identity: the delayed trigger belongs to the card that used
+	 * the ability, not to a second copy of it.
+	 */
+	final Map<CardData, List<Consumer<GameContext>>> p1TempBreakZoneTriggers = new java.util.IdentityHashMap<>();
+	final Map<CardData, List<Consumer<GameContext>>> p2TempBreakZoneTriggers = new java.util.IdentityHashMap<>();
 
 	// Attack phase sub-step (0=Prep, 1=Declare, 2=Block, 3=Damage; -1=not in attack phase)
 	int attackSubStep = -1;
@@ -2425,6 +2450,8 @@ public class MainWindow {
 		cannotBeChosenByElement.clear();
 		p1TempAttackTriggers.clear();
 		p2TempAttackTriggers.clear();
+		p1TempBreakZoneTriggers.clear();
+		p2TempBreakZoneTriggers.clear();
 		p1TempBlockTriggers.clear();
 		p2TempBlockTriggers.clear();
 		p1TempIsBlockedTriggers.clear();
@@ -3654,6 +3681,7 @@ public class MainWindow {
                                 attacksMadeThisTurn.clear();            extraAttacksThisTurn.clear();
                                 grantedFieldAbilities.clear();          grantedMaxAttacks.clear();
                                 p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
+                                p1TempBreakZoneTriggers.clear();        p2TempBreakZoneTriggers.clear();
                                 p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
                                 p1TempIsBlockedTriggers.clear();        p2TempIsBlockedTriggers.clear();
                                 nextIncomingDmgZeroSet.clear();   allIncomingDmgZeroThisTurnSet.clear();   nextOppEffectDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
