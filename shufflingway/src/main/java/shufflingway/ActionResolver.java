@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
@@ -796,6 +797,9 @@ public class ActionResolver {
         result = tryParseCancelAutoAbilityTriggeredFrom(effectText);
         if (result != null) return result;
 
+        result = tryParseChosenAutoAbilitySourceToBreakZone(effectText, source);
+        if (result != null) return result;
+
         result = tryParseDelayedReturnSelfFromBreakZone(effectText, source);
         if (result != null) return result;
 
@@ -1566,6 +1570,12 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseDealPlayerDamageToOpponent(effectText);
+        if (result != null) return result;
+
+        // Ahead of both halves' own parsers: DealPlayerDamageToSelf and PlayFromHand each read one
+        // sentence of 16-089H Zack, and PlayFromHand's find() used to take the text and drop the
+        // drawback. Anchored end to end, so it claims nothing else.
+        result = tryParsePlayFromHandThenIfItsCost(effectText, source, xValue);
         if (result != null) return result;
 
         result = tryParseDealPlayerDamageToSelf(effectText);
@@ -2439,6 +2449,7 @@ public class ActionResolver {
         if (tryParseRedirectChosenTarget(effectText, source)   != null) return "RedirectChosenTarget";
         if (tryParseCopyChosenAutoAbilityOnStack(effectText, source) != null) return "CopyChosenAutoAbilityOnStack";
         if (tryParseCancelAutoAbilityTriggeredFrom(effectText) != null) return "CancelAutoAbilityTriggeredFrom";
+        if (tryParseChosenAutoAbilitySourceToBreakZone(effectText, source) != null) return "ChosenAutoAbilitySourceToBreakZone";
         if (tryParseDelayedReturnSelfFromBreakZone(effectText, source) != null) return "DelayedReturnSelfFromBreakZone";
         if (tryParseCancelAbilityOnStack(effectText)           != null) return "CancelAbilityOnStack";
         if (tryParseCancelChosenTargetUnlessPay(effectText)    != null) return "CancelChosenTargetUnlessPay";
@@ -2708,6 +2719,8 @@ public class ActionResolver {
         // are not.
         if (tryParseIfNDiffElements(effectText, source, 0)    != null) return "IfNDiffElements";
         if (tryParseDealPlayerDamageToOpponent(effectText)    != null) return "DealPlayerDamageToOpponent";
+        // Mirrors parse().
+        if (tryParsePlayFromHandThenIfItsCost(effectText, source, 0) != null) return "PlayFromHandThenIfItsCost";
         if (tryParseDealPlayerDamageToSelf(effectText)        != null) return "DealPlayerDamageToSelf";
         if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null) return "RandomRevealHandCastIfSummonFree";
         if (tryParseCastSummonFromHandDiscounted(effectText)     != null) return "CastSummonFromHandDiscounted";
@@ -4304,6 +4317,7 @@ public class ActionResolver {
         if (tryParseRedirectChosenTarget(effectText, source)  != null) return "RedirectChosenTarget";
         if (tryParseCopyChosenAutoAbilityOnStack(effectText, source) != null) return "CopyChosenAutoAbilityOnStack";
         if (tryParseCancelAutoAbilityTriggeredFrom(effectText) != null) return "CancelAutoAbilityTriggeredFrom";
+        if (tryParseChosenAutoAbilitySourceToBreakZone(effectText, source) != null) return "ChosenAutoAbilitySourceToBreakZone";
         if (tryParseDelayedReturnSelfFromBreakZone(effectText, source) != null) return "DelayedReturnSelfFromBreakZone";
         if (tryParseCancelAbilityOnStack(effectText)          != null) return "CancelAbilityOnStack";
         if (tryParseCancelStackEntryUnlessPay(effectText)     != null) return "CancelStackEntryUnlessPay";
@@ -4642,6 +4656,8 @@ public class ActionResolver {
                     + ": " + describeOrName(nde.group("effect").trim(), source) + ")";
         }
         if (tryParseDealPlayerDamageToOpponent(effectText) != null)         return "DealPlayerDamageToOpponent";
+        // Mirrors parse().
+        if (tryParsePlayFromHandThenIfItsCost(effectText, source, 0) != null) return "PlayFromHandThenIfItsCost";
         if (tryParseDealPlayerDamageToSelf(effectText) != null)             return "DealPlayerDamageToSelf";
         if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null)   return "RandomRevealHandCastIfSummonFree";
         if (tryParseCastSummonFromHandDiscounted(effectText) != null)       return "CastSummonFromHandDiscounted";
@@ -7245,28 +7261,44 @@ public class ActionResolver {
         };
     }
 
-    private static Consumer<GameContext> tryParseCancelAutoAbilityTriggeredFrom(String text) {
-        Matcher m = CANCEL_AUTO_ABILITY_TRIGGERED_FROM.matcher(text.trim());
-        if (!m.matches()) return null;
-        boolean returnSource  = m.group("returnit") != null;
+    /**
+     * The Stack filter for "auto-ability triggered from [your opponent's] [a] [type] [of cost N or
+     * less/more]", read off a matcher carrying the {@code opponents}, {@code type}, {@code cost}
+     * and {@code cmp} groups. Shared by the cancel and the choose readings so both hold the same
+     * source to the same qualifiers. The groups are read now; the returned function takes the
+     * resolving player's side, which is only known once the effect runs.
+     */
+    private static Function<Boolean, Predicate<StackEntry>> autoAbilityTriggeredFromFilter(Matcher m) {
         boolean opponentsOnly = m.group("opponents") != null;
         String  typeLower     = m.group("type").toLowerCase(Locale.ROOT);
         int     costVal       = m.group("cost") != null ? Integer.parseInt(m.group("cost")) : -1;
         boolean costIsMore    = "more".equalsIgnoreCase(m.group("cmp"));
-        String  described     = (opponentsOnly ? "your opponent's " : "a ") + m.group("type")
-                + (costVal >= 0 ? " of cost " + costVal + " or " + (costIsMore ? "more" : "less") : "");
-        java.util.function.Predicate<StackEntry> isAuto = parseAbilityTypeFilter("auto-ability");
+        Predicate<StackEntry> isAuto = parseAbilityTypeFilter("auto-ability");
+        return mine -> e -> {
+            if (!isAuto.test(e)) return false;
+            CardData from = e.source();
+            if (from == null) return false;
+            if (opponentsOnly && e.isP1() == mine) return false;
+            if (!matchesCardKind(from, typeLower)) return false;
+            if (costVal < 0) return true;
+            return costIsMore ? from.cost() >= costVal : from.cost() <= costVal;
+        };
+    }
+
+    /** "your opponent's Forward of cost 5 or less" — the log wording for the filter above. */
+    private static String describeAutoAbilityTriggeredFrom(Matcher m) {
+        return (m.group("opponents") != null ? "your opponent's " : "a ") + m.group("type")
+                + (m.group("cost") != null ? " of cost " + m.group("cost") + " or " + m.group("cmp").toLowerCase(Locale.ROOT) : "");
+    }
+
+    private static Consumer<GameContext> tryParseCancelAutoAbilityTriggeredFrom(String text) {
+        Matcher m = CANCEL_AUTO_ABILITY_TRIGGERED_FROM.matcher(text.trim());
+        if (!m.matches()) return null;
+        boolean returnSource  = m.group("returnit") != null;
+        String  described     = describeAutoAbilityTriggeredFrom(m);
+        Function<Boolean, Predicate<StackEntry>> filterFor = autoAbilityTriggeredFromFilter(m);
         return ctx -> {
-            boolean mine = ctx.isP1();
-            java.util.function.Predicate<StackEntry> filter = e -> {
-                if (!isAuto.test(e)) return false;
-                CardData from = e.source();
-                if (from == null) return false;
-                if (opponentsOnly && e.isP1() == mine) return false;
-                if (!matchesCardKind(from, typeLower)) return false;
-                if (costVal < 0) return true;
-                return costIsMore ? from.cost() >= costVal : from.cost() <= costVal;
-            };
+            Predicate<StackEntry> filter = filterFor.apply(ctx.isP1());
             ctx.logEntry("Effect: Cancel an auto-ability triggered from " + described);
             StackEntry cancelled = ctx.cancelFilteredAbilityOnStack(filter,
                     "Choose an auto-ability triggered from " + described + " to cancel:", false);
@@ -7274,6 +7306,34 @@ public class ActionResolver {
             // nothing to point at, and a card that has left the field is not returned.
             if (returnSource && cancelled != null)
                 ctx.returnCardToOwnersHandIfOnField(cancelled.source());
+        };
+    }
+
+    /**
+     * "Choose 1 auto-ability triggered from a Forward. Put that Forward into the Break Zone.
+     * [effect]" — 25-088H Famfrit, the Darkening Cloud. The ability is chosen and left to resolve;
+     * what it was triggered from goes to the Break Zone, by identity and past "cannot be broken",
+     * if it is still on the field. The trailing effect (Famfrit's "Draw 1 card.") runs either way,
+     * and must parse for any of this to be claimed.
+     */
+    private static Consumer<GameContext> tryParseChosenAutoAbilitySourceToBreakZone(String text, CardData source) {
+        Matcher m = CHOSEN_AUTO_ABILITY_SOURCE_TO_BREAK_ZONE.matcher(text.trim());
+        if (!m.matches()) return null;
+        String rest = m.group("rest").trim();
+        Consumer<GameContext> then = rest.isEmpty() ? null : parse(rest, source);
+        if (!rest.isEmpty() && then == null) return null;
+        String described = describeAutoAbilityTriggeredFrom(m);
+        String type      = m.group("type");
+        Function<Boolean, Predicate<StackEntry>> filterFor = autoAbilityTriggeredFromFilter(m);
+        return ctx -> {
+            ctx.logEntry("Effect: Choose an auto-ability triggered from " + described
+                    + "; put that " + type + " into the Break Zone");
+            StackEntry chosen = ctx.chooseAbilityOnStack(filterFor.apply(ctx.isP1()),
+                    "Choose an auto-ability triggered from " + described + ":");
+            ForwardTarget slot = chosen != null ? ctx.fieldSlotOf(chosen.source()) : null;
+            if (slot != null) ctx.forceTargetToBreakZone(slot);
+            else if (chosen != null) ctx.logEntry(chosen.source().name() + " is no longer on the field");
+            if (then != null) then.accept(ctx);
         };
     }
 
@@ -9087,7 +9147,7 @@ public class ActionResolver {
      * does, since it also reads the "choosing a Character you control" qualifier. It is consulted
      * only once the opening choice is known to name a Stack entry: it is unanchored, and a text
      * that chooses a Forward and cancels something later would otherwise be read as choosing off
-     * the Stack. What is left is the choice that does something other than cancel (Zalera 25-088H
+     * the Stack. What is left is the choice that does something other than cancel (Famfrit 25-088H
      * puts the triggering Forward into the Break Zone), which the entry kind alone answers.
      *
      * <p>A qualifier past the kind ("triggered from a Forward") is not enforced, matching what

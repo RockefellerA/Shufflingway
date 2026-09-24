@@ -592,6 +592,21 @@ final class ActionResolverPatterns {
         "(?:\\s*You\\s+can\\s+only\\s+use\\s+this\\s+ability\\b[^.!]*[.!]?)?\\s*$"
     );
     /**
+     * Matches "Choose 1 auto-ability triggered from [your opponent's] [a] [type] [of cost N or
+     * less/more]. Put that [type] into the Break Zone. [effect]" — 25-088H Famfrit, the Darkening
+     * Cloud. The opening is {@link #CANCEL_AUTO_ABILITY_TRIGGERED_FROM}'s, groups and all, so the
+     * two share one filter; the ability is chosen, not cancelled.
+     * Groups: {@code opponents}, {@code type}, {@code cost}, {@code cmp}, {@code rest}.
+     */
+    static final Pattern CHOSEN_AUTO_ABILITY_SOURCE_TO_BREAK_ZONE = Pattern.compile(
+        "(?i)^Choose\\s+1\\s+auto[- ]ability\\s+triggered\\s+from\\s+" +
+        "(?<opponents>your\\s+opponent's\\s+)?(?:an?\\s+)?" +
+        "(?<type>Forward|Backup|Monster|Character)" +
+        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<cmp>less|more))?[.!]\\s*" +
+        "Put\\s+that\\s+(?:Forward|Backup|Monster|Character)\\s+into\\s+the\\s+Break\\s+Zone[.!]?" +
+        "\\s*(?<rest>.*)$"
+    );
+    /**
      * Matches "When [Self] is put from the field into the Break Zone during this turn, return
      * [Self] to the field [dull]. [It gains +N power until the end of the turn.]" — 3-082R
      * Scarmiglione's action ability, a trigger that lasts for the turn it was used.
@@ -6850,6 +6865,16 @@ final class ActionResolverPatterns {
      */
     static final Pattern EACH_PLAYER_MAY_PLAY_FROM_HAND = Pattern.compile(
         "(?i)each\\s+player\\s+may\\s+(?=play\\b)"
+    );
+    /**
+     * "[play 1 … from your hand onto the field [dull].] If its cost is N or more/less, [effect]"
+     * — 16-089H Zack. Anchored end to end; the play sentence is read by
+     * {@link #PLAY_FROM_HAND_PATTERN} and the effect by {@code parse()}.
+     * Groups: {@code play}, {@code cost}, {@code cmp}, {@code rest}.
+     */
+    static final Pattern PLAY_FROM_HAND_THEN_IF_ITS_COST = Pattern.compile(
+        "(?i)^(?<play>play\\s+[^.!]+?\\s+from\\s+your\\s+hand\\s+onto\\s+the\\s+field(?:\\s+dull)?[.!])\\s*" +
+        "If\\s+its\\s+cost\\s+is\\s+(?<cost>\\d+)\\s+or\\s+(?<cmp>more|less),\\s*(?<rest>[^.!]+[.!]?)$"
     );
     static final Pattern PLAY_FROM_HAND_PATTERN = Pattern.compile(
         // "a Forward" as well as "1 Forward". The article is not a stylistic variant to be

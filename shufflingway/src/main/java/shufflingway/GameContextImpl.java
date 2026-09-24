@@ -3088,36 +3088,56 @@ final class GameContextImpl implements GameContext {
 				java.util.function.Predicate<StackEntry> fullFilter = requiresControllerTarget
 						? ActionResolver.withControllerTargetRequirement(filter, isP1)
 						: filter;
-				List<StackEntry> targets = mw.gameState.getStack().stream()
-						.filter(fullFilter)
-						.filter(e -> !mw.stackEntryProtectedFromCancel(e))
-						.collect(java.util.stream.Collectors.toList());
-				if (targets.isEmpty()) {
-					logEntry("No matching abilities on the stack to cancel");
-					return null;
-				}
-				StackEntry chosen;
-				if (targets.size() == 1) {
-					chosen = targets.get(0);
-				} else if (isP1) {
-					String[] options = new String[targets.size()];
-					for (int i = 0; i < targets.size(); i++) options[i] = describeStackEntry(targets.get(i));
-					Object sel = JOptionPane.showInputDialog(mw.frame,
-							prompt, "Cancel Effect", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-					if (sel == null) return null;
-					int idx = java.util.Arrays.asList(options).indexOf(sel.toString());
-					if (idx < 0) return null;
-					chosen = targets.get(idx);
-				} else {
-					chosen = targets.stream().filter(e -> e.isP1())
-							.reduce((a, b) -> b).orElse(targets.get(targets.size() - 1));
-					logEntry("[AI] Chose to cancel: " + chosen.source().name());
-				}
+				StackEntry chosen = pickStackEntry(fullFilter.and(e -> !mw.stackEntryProtectedFromCancel(e)),
+						prompt, "Cancel Effect", "to cancel");
+				if (chosen == null) return null;
 				if (!mw.cancelStackEntry(chosen)) return null;
 				String type = chosen.isSummon() ? "Summon" : chosen.isAutoAbility() ? "auto-ability"
 						: chosen.isSpecialAbility() ? "special ability" : "action ability";
 				logEntry("Effect: " + chosen.source().name() + "'s " + type + " effect will be cancelled");
 				return chosen;
+			}
+
+			@Override public StackEntry chooseAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt) {
+				StackEntry chosen = pickStackEntry(filter, prompt, "Choose Ability", "to choose");
+				if (chosen != null) logEntry("Chose " + chosen.source().name() + "'s ability on the stack");
+				return chosen;
+			}
+
+			/**
+			 * One Stack entry matching {@code filter}, chosen by this context's player: the only
+			 * candidate outright, a dialog for P1, and for the AI the most recent of P1's entries
+			 * (falling back to the newest of any). {@code null} when none match or P1 declines.
+			 */
+			private StackEntry pickStackEntry(java.util.function.Predicate<StackEntry> filter,
+					String prompt, String dialogTitle, String purpose) {
+				List<StackEntry> targets = mw.gameState.getStack().stream()
+						.filter(filter)
+						.collect(java.util.stream.Collectors.toList());
+				if (targets.isEmpty()) {
+					logEntry("No matching abilities on the stack " + purpose);
+					return null;
+				}
+				if (targets.size() == 1) return targets.get(0);
+				if (isP1) {
+					String[] options = new String[targets.size()];
+					for (int i = 0; i < targets.size(); i++) options[i] = describeStackEntry(targets.get(i));
+					Object sel = JOptionPane.showInputDialog(mw.frame,
+							prompt, dialogTitle, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+					if (sel == null) return null;
+					int idx = java.util.Arrays.asList(options).indexOf(sel.toString());
+					return idx < 0 ? null : targets.get(idx);
+				}
+				StackEntry chosen = targets.stream().filter(e -> e.isP1())
+						.reduce((a, b) -> b).orElse(targets.get(targets.size() - 1));
+				logEntry("[AI] Chose " + purpose + ": " + chosen.source().name());
+				return chosen;
+			}
+
+			@Override public ForwardTarget fieldSlotOf(CardData card) {
+				if (card == null) return null;
+				ForwardTarget slot = mw.findFieldSlot(card, true);
+				return slot != null ? slot : mw.findFieldSlot(card, false);
 			}
 
 			/**
@@ -4207,17 +4227,17 @@ final class GameContextImpl implements GameContext {
 	// =========================================================================================
 	// Playing and casting from hand
 	// =========================================================================================
-			@Override public void playCharacterFromHand(boolean inclForwards, boolean inclBackups,
+			@Override public CardData playCharacterFromHand(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, int costVal, String costCmp, int costVal2,
 					String jobFilter, String cardNameFilter, String categoryFilter,
 					String elementFilter, String excludeName, boolean entersDull, String excludeElement,
 					boolean suppressAutoAbility, String withTrait) {
-				if (!playCharacterFromHandFor(isP1, inclForwards, inclBackups, inclMonsters,
+				CardData played = playCharacterFromHandFor(isP1, inclForwards, inclBackups, inclMonsters,
 						costVal, costCmp, costVal2, jobFilter, cardNameFilter, categoryFilter,
 						elementFilter, excludeName, entersDull, excludeElement, suppressAutoAbility,
-						withTrait)) {
-					markEffectFizzled();
-				}
+						withTrait);
+				if (played == null) markEffectFizzled();
+				return played;
 			}
 
 			@Override public void eachPlayerMayPlayCharacterFromHand(boolean inclForwards,
@@ -4233,11 +4253,11 @@ final class GameContextImpl implements GameContext {
 				boolean playedFirst = playCharacterFromHandFor(turnPlayerIsP1, inclForwards,
 						inclBackups, inclMonsters, costVal, costCmp, costVal2, jobFilter,
 						cardNameFilter, categoryFilter, elementFilter, excludeName, entersDull,
-						excludeElement, suppressAutoAbility, withTrait);
+						excludeElement, suppressAutoAbility, withTrait) != null;
 				boolean playedSecond = playCharacterFromHandFor(!turnPlayerIsP1, inclForwards,
 						inclBackups, inclMonsters, costVal, costCmp, costVal2, jobFilter,
 						cardNameFilter, categoryFilter, elementFilter, excludeName, entersDull,
-						excludeElement, suppressAutoAbility, withTrait);
+						excludeElement, suppressAutoAbility, withTrait) != null;
 				// One player passing is not the effect failing; both passing is.
 				if (!playedFirst && !playedSecond) markEffectFizzled();
 			}
@@ -4255,9 +4275,9 @@ final class GameContextImpl implements GameContext {
 			 * AI takes the first eligible card. Fizzling is left to the caller, since "neither
 			 * player played" and "this player did not play" are different conditions.
 			 *
-			 * @return {@code true} if a card was actually played.
+			 * @return the card that was played, or {@code null} if none was.
 			 */
-			private boolean playCharacterFromHandFor(boolean forP1, boolean inclForwards,
+			private CardData playCharacterFromHandFor(boolean forP1, boolean inclForwards,
 					boolean inclBackups, boolean inclMonsters, int costVal, String costCmp,
 					int costVal2, String jobFilter, String cardNameFilter, String categoryFilter,
 					String elementFilter, String excludeName, boolean entersDull,
@@ -4287,14 +4307,14 @@ final class GameContextImpl implements GameContext {
 				}
 				if (eligible.isEmpty()) {
 					logEntry((forP1 ? "" : "[P2] ") + "No eligible cards in hand to play.");
-					return false;
+					return null;
 				}
 				int handIdx;
 				if (forP1) {
 					List<CardData> candidates = new ArrayList<>();
 					for (int i : eligible) candidates.add(hand.get(i));
 					int listIdx = mw.showCardImageChooser(candidates, "Play a card onto the field", true, false);
-					if (listIdx < 0) return false; // cancelled — this is how "may" is declined
+					if (listIdx < 0) return null; // cancelled — this is how "may" is declined
 					handIdx = eligible.get(listIdx);
 				} else {
 					handIdx = eligible.get(0); // AI: play first eligible card
@@ -4332,7 +4352,7 @@ final class GameContextImpl implements GameContext {
 					}
 					mw.refreshP2HandCountLabel();
 				}
-				return true;
+				return card;
 			}
 
 			@Override public void playAnyNumberFromHand(boolean inclForwards, boolean inclBackups,
@@ -8553,7 +8573,8 @@ final class GameContextImpl implements GameContext {
 				String src   = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
 				int choice = mw.showEffectOptionDialog(src + " — " + label, "Replay Ability", new Object[]{"Pay", "Pass"});
 				if (choice != 0) { logEntry("Replay: declined to pay 《" + element + "》"); return; }
-				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src + " (replay)", 1, 1, isP1, 0, paid -> {
+				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src + " (replay)", 1, 1, isP1, 0,
+						element != null ? Map.of(element, 1) : Map.of(), paid -> {
 					if (paid >= 1) { logEntry("Replay: paid 《" + element + "》 — using ability again"); replayAction.accept(this); }
 				}, null);
 			}
@@ -8561,19 +8582,20 @@ final class GameContextImpl implements GameContext {
 			@Override public void mayPayElementCpToEffect(String element, int count,
 					java.util.function.Consumer<GameContext> onPay) {
 				final int need = Math.max(1, count);
-				String cost = "《" + element + "》".repeat(need);
+				String cost = ("《" + element + "》").repeat(need);
+				Map<String, Integer> elementNeeds = Map.of(element, need);
 				if (!isP1) {
-					logEntry("[P2 AI] Pays " + cost + " for optional effect");
-					mw.autoAbilityTriggers.showAutoAbilityPaymentDialog("", need, need, isP1, 0, paid -> {
-						if (paid >= need) { logEntry("[P2 AI] Paid " + cost + " — applying effect"); onPay.accept(this); }
-					}, null);
+					if (mw.autoAbilityTriggers.aiPayCp(false, need, elementNeeds) >= need) {
+						logEntry("[P2 AI] Paid " + cost + " — applying effect");
+						onPay.accept(this);
+					}
 					return;
 				}
 				String src    = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
 				String label  = "Pay " + cost + "?";
 				int choice = mw.showEffectOptionDialog(src + " — " + label, "Optional Cost", new Object[]{"Pay", "Pass"});
 				if (choice != 0) { logEntry("Optional pay: declined " + cost); return; }
-				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src, need, need, isP1, 0, paid -> {
+				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src, need, need, isP1, 0, elementNeeds, paid -> {
 					if (paid >= need) { logEntry("Optional pay: paid " + cost + " — applying effect"); onPay.accept(this); }
 				}, null);
 			}
@@ -8599,7 +8621,8 @@ final class GameContextImpl implements GameContext {
 						return;
 					}
 					int need = element != null ? 1 : cp;
-					int paid = mw.autoAbilityTriggers.aiPayCp(false, need);
+					int paid = mw.autoAbilityTriggers.aiPayCp(false, need,
+							element != null ? Map.of(element, 1) : Map.of());
 					if (paid >= need) { logEntry("[P2] " + src + " — pays " + cost); return; }
 					logEntry("[P2] " + src + " — did not pay " + cost + "; effect applies");
 					onNotPaid.run();
@@ -8622,6 +8645,7 @@ final class GameContextImpl implements GameContext {
 				int need = element != null ? 1 : cp;
 				boolean[] paidInFull = { false };
 				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src, need, need, true, 0,
+						element != null ? Map.of(element, 1) : Map.of(),
 						paid -> paidInFull[0] = paid >= need, null);
 				if (paidInFull[0]) {
 					logEntry(src + " — paid " + cost);
@@ -8652,7 +8676,8 @@ final class GameContextImpl implements GameContext {
 						return;
 					}
 					int need = element != null ? 1 : cp;
-					int paid = mw.autoAbilityTriggers.aiPayCp(false, need);
+					int paid = mw.autoAbilityTriggers.aiPayCp(false, need,
+							element != null ? Map.of(element, 1) : Map.of());
 					if (paid >= need) { logEntry("[P2] " + src + " — pays " + cost); onPay.accept(this); }
 					else               logEntry("[P2] " + src + " — did not pay " + cost + "; effect skipped");
 					return;
@@ -8674,6 +8699,7 @@ final class GameContextImpl implements GameContext {
 				int need = element != null ? 1 : cp;
 				boolean[] paidInFull = { false };
 				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src, need, need, true, 0,
+						element != null ? Map.of(element, 1) : Map.of(),
 						paid -> paidInFull[0] = paid >= need, null);
 				if (paidInFull[0]) { logEntry(src + " — paid " + cost); onPay.accept(this); }
 				else                 logEntry(src + " — did not pay " + cost + "; effect skipped");

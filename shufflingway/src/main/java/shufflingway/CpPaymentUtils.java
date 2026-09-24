@@ -35,6 +35,36 @@ public class CpPaymentUtils {
 		return best != null ? best : playedElems[0];
 	}
 
+	/**
+	 * Whether dulling {@code backups} (1 CP each) and discarding {@code discards} (2 CP each) meets
+	 * every per-element minimum in {@code needs} — the element half of a cost like 《Fire》, which a
+	 * total alone cannot check. Each card is credited to whichever of its elements is still most
+	 * short, the assignment {@code AbilityPaymentDialog} makes, so a multi-element card fills the
+	 * requirement that needs it. Empty {@code needs} is always met.
+	 */
+	public static boolean elementNeedsMet(Iterable<CardData> backups, Iterable<CardData> discards,
+			Map<String, Integer> needs) {
+		if (needs.isEmpty()) return true;
+		Map<String, Integer> paid = elementCpPaid(backups, discards, needs);
+		return needs.entrySet().stream().allMatch(e -> paid.getOrDefault(e.getKey(), 0) >= e.getValue());
+	}
+
+	/** Per element of {@code needs}, the CP {@code backups} and {@code discards} put toward it. */
+	public static Map<String, Integer> elementCpPaid(Iterable<CardData> backups, Iterable<CardData> discards,
+			Map<String, Integer> needs) {
+		String[] elems = needs.keySet().toArray(String[]::new);
+		Map<String, Integer> paid = new java.util.LinkedHashMap<>();
+		for (String e : elems) paid.put(e, 0);
+		if (elems.length == 0) return paid;
+		for (CardData c : backups)
+			if (c != null && matchesAnyElement(c, elems))
+				paid.merge(contributingElement(c, elems, paid, needs), 1, Integer::sum);
+		for (CardData c : discards)
+			if (c != null && matchesAnyElement(c, elems))
+				paid.merge(contributingElement(c, elems, paid, needs), 2, Integer::sum);
+		return paid;
+	}
+
 	/** Returns true if {@code source} contains any element from {@code playedElems}. */
 	public static boolean matchesAnyElement(CardData source, String[] playedElems) {
 		for (String pe : playedElems)

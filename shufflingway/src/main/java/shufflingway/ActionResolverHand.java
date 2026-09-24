@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 
@@ -792,7 +793,37 @@ final class ActionResolverHand {
         // "each player may play …" is two plays, one per player; this reading resolves a single
         // play. tryParseEachPlayerMayPlayFromHand takes that wording instead.
         if (EACH_PLAYER_MAY_PLAY_FROM_HAND.matcher(text).find()) return null;
-        return parsePlayFromHand(text, source, xValue, false);
+        return parsePlayFromHand(text, source, xValue, false, null);
+    }
+
+    /**
+     * Parses "[play 1 … from your hand onto the field.] If its cost is N or more/less, [effect]"
+     * — 16-089H Zack, whose drawback lands only when the card he played is dear enough.
+     *
+     * <p>"Its" is the card just played, so the condition is read off what
+     * {@link GameContext#playCharacterFromHand} reports back; nothing played means nothing to
+     * measure, and the effect does not run. Both halves must parse or neither is claimed —
+     * {@link #tryParsePlayFromHand} used to take the text alone under {@code find()} and drop the
+     * drawback, which left Zack stronger than his printing.
+     */
+    static Consumer<GameContext> tryParsePlayFromHandThenIfItsCost(String text, CardData source, int xValue) {
+        Matcher m = PLAY_FROM_HAND_THEN_IF_ITS_COST.matcher(text.trim());
+        if (!m.matches()) return null;
+        String play = m.group("play").trim();
+        if (EACH_PLAYER_MAY_PLAY_FROM_HAND.matcher(play).find()) return null;
+        String rest = m.group("rest").trim();
+        Consumer<GameContext> payoff = ActionResolver.parse(
+                Character.toUpperCase(rest.charAt(0)) + rest.substring(1), source, xValue);
+        if (payoff == null) return null;
+        int     threshold = Integer.parseInt(m.group("cost"));
+        boolean orMore    = "more".equalsIgnoreCase(m.group("cmp"));
+        return parsePlayFromHand(play, source, xValue, false, (ctx, played) -> {
+            if (played == null) return;
+            boolean met = orMore ? played.cost() >= threshold : played.cost() <= threshold;
+            ctx.logEntry("Effect: " + played.name() + " costs " + played.cost()
+                    + (met ? "" : " — not") + " " + threshold + " or " + (orMore ? "more" : "less"));
+            if (met) payoff.accept(ctx);
+        });
     }
 
     /**
@@ -809,17 +840,19 @@ final class ActionResolverHand {
     static Consumer<GameContext> tryParseEachPlayerMayPlayFromHand(String text, CardData source, int xValue) {
         Matcher g = EACH_PLAYER_MAY_PLAY_FROM_HAND.matcher(text);
         if (!g.find()) return null;
-        return parsePlayFromHand(text.substring(g.end()), source, xValue, true);
+        return parsePlayFromHand(text.substring(g.end()), source, xValue, true, null);
     }
 
     /**
-     * Shared body of the two readings above.
+     * Shared body of the readings above.
      *
      * @param eachPlayer {@code true} to dispatch to the both-players primitive rather than the
      *                   single-player one; the filters are parsed identically either way.
+     * @param afterPlay  run with the card the single-player play put down ({@code null} if none);
+     *                   {@code null} for no follow-on. Not supported with {@code eachPlayer}.
      */
     private static Consumer<GameContext> parsePlayFromHand(String text, CardData source, int xValue,
-            boolean eachPlayer) {
+            boolean eachPlayer, BiConsumer<GameContext, CardData> afterPlay) {
         Matcher m = PLAY_FROM_HAND_PATTERN.matcher(text);
         if (!m.find()) return null;
 
@@ -955,9 +988,10 @@ final class ActionResolverHand {
                         resolvedCost, resolvedCmp, fCostVal2,
                         fJob, fName, fCat, fElem, fExclude, fEntersDull, fExcludeElem, fSuppressAuto, fWithTrait);
             } else {
-                ctx.playCharacterFromHand(inclForwards, inclBackups, inclMonsters,
+                CardData played = ctx.playCharacterFromHand(inclForwards, inclBackups, inclMonsters,
                         resolvedCost, resolvedCmp, fCostVal2,
                         fJob, fName, fCat, fElem, fExclude, fEntersDull, fExcludeElem, fSuppressAuto, fWithTrait);
+                if (afterPlay != null) afterPlay.accept(ctx, played);
             }
         };
     }

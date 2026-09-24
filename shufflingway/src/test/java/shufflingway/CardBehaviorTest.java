@@ -45419,9 +45419,8 @@ public class CardBehaviorTest {
 	// belongs. The search then did not parse at all — the same failure the Element rider was lifted
 	// out of the text to fix, one wording further along.
 	//
-	// Her cost run is priced by tallyPayRun, which counts an element token as the one CP it is and
-	// does not enforce *which* element — a simplification that predates her and applies to every
-	// printing in the family.
+	// Her cost run is priced by tallyPayRun, which counts an element token as the one CP it is;
+	// payRunElementNeeds carries which element, and the payment enforces it (see 28-001R Ursula).
 	// =========================================================================================
 
 	private static final String YUNA_11_061L_SEARCH =
@@ -63588,6 +63587,196 @@ public class CardBehaviorTest {
 		assertTrue(ctx.returnCardToOwnersHandIfOnField(onField));
 		assertTrue(mw.p2ForwardCards.isEmpty());
 		assertTrue(mw.gameState.getP2Hand().stream().anyMatch(c -> c == onField), "back to its owner's hand");
+	}
+
+	// =========================================================================================
+	// 25-088H Famfrit, the Darkening Cloud: "Choose 1 auto-ability triggered from a Forward. Put
+	// that Forward into the Break Zone. Draw 1 card." The ability is chosen, not cancelled — it
+	// still resolves. Unparsed since the compound fallback stopped composing past the choice it
+	// could not read; before that it put a Forward nobody chose into the Break Zone.
+	// =========================================================================================
+
+	private static final String FAMFRIT_25_088H = "Choose 1 auto-ability triggered from a Forward. "
+			+ "Put that Forward into the Break Zone. Draw 1 card.";
+
+	@Test
+	void famfritPutsTheChosenAbilitysForwardIntoTheBreakZoneAndDraws() {
+		CardData from = makeForward("Trigger Source", "Fire", 4, 7000);
+		ForwardTarget slot = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.isP1()).thenReturn(true);
+		when(ctx.chooseAbilityOnStack(any(), any())).thenReturn(autoEntryFrom(from, false));
+		when(ctx.fieldSlotOf(from)).thenReturn(slot);
+
+		ActionResolver.parse(FAMFRIT_25_088H).accept(ctx);
+
+		verify(ctx).forceTargetToBreakZone(slot);
+		verify(ctx, never()).breakTarget(any());
+		verify(ctx, never()).cancelFilteredAbilityOnStack(any(), any(), anyBoolean());
+		verify(ctx).drawCards(1);
+	}
+
+	@Test
+	void famfritStillDrawsWhenThatForwardHasLeftTheField() {
+		CardData from = makeForward("Trigger Source", "Fire", 4, 7000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.isP1()).thenReturn(true);
+		when(ctx.chooseAbilityOnStack(any(), any())).thenReturn(autoEntryFrom(from, false));
+		when(ctx.fieldSlotOf(from)).thenReturn(null);
+
+		ActionResolver.parse(FAMFRIT_25_088H).accept(ctx);
+
+		verify(ctx, never()).forceTargetToBreakZone(any());
+		verify(ctx).drawCards(1);
+	}
+
+	@SuppressWarnings("unchecked")
+	@Test
+	void famfritChoosesOnlyAnAutoAbilityFromAForward() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.isP1()).thenReturn(true);
+		ActionResolver.parse(FAMFRIT_25_088H).accept(ctx);
+		ArgumentCaptor<Predicate<StackEntry>> filter = ArgumentCaptor.forClass(Predicate.class);
+		verify(ctx).chooseAbilityOnStack(filter.capture(), any());
+		assertTrue(filter.getValue().test(autoEntryFrom(makeForward("Fwd", "Fire", 9, 7000), false)));
+		assertFalse(filter.getValue().test(autoEntryFrom(makePlainBackup("Bkp", "Fire", 2), false)));
+	}
+
+	@Test
+	void famfritOnARealBoardLeavesTheAbilityOnTheStack() {
+		MainWindow mw = new MainWindow();
+		CardData from = makeForward("Trigger Source", "Fire", 4, 7000);
+		// The equal copy sits on P1's side: two on one side would trip the uniqueness rule, and on
+		// P1's it is the one an equality lookup would reach first, since P1's field is searched first.
+		CardData twin = makeForward("Trigger Source", "Fire", 4, 7000);
+		mw.placeCardInForwardZone(twin);
+		placeP2Forward(mw, from);
+		StackEntry entry = autoEntryFrom(from, false);
+		mw.gameState.pushStack(entry);
+		mw.gameState.getP1MainDeck().add(makeForward("Deck Card", "Fire", 1, 1000));
+
+		ActionResolver.parse(FAMFRIT_25_088H).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.gameState.getP2BreakZone().stream().anyMatch(c -> c == from), "that Forward");
+		assertTrue(mw.p1ForwardCards.stream().anyMatch(c -> c == twin), "not its twin");
+		assertTrue(mw.gameState.getStack().contains(entry), "chosen, not cancelled");
+		assertEquals(1, mw.gameState.getP1Hand().size(), "drew 1");
+	}
+
+	// =========================================================================================
+	// 16-089H Zack: "play 1 Category VII Character from your hand onto the field. If its cost is 5
+	// or more, Zack deals you 1 point of damage." The play used to be read alone and the drawback
+	// dropped, leaving him stronger than his printing.
+	// =========================================================================================
+
+	private static final String ZACK_16_089H =
+			"play 1 Category VII Character from your hand onto the field. "
+			+ "If its cost is 5 or more, Zack deals you 1 point of damage.";
+
+	/** Resolves Zack's text against a mock whose play puts down {@code played} (or nothing). */
+	private static GameContext resolveZackPlaying(CardData played) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.playCharacterFromHand(anyBoolean(), anyBoolean(), anyBoolean(), anyInt(), any(),
+				anyInt(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean(), any()))
+				.thenReturn(played);
+		Consumer<GameContext> effect = ActionResolver.parse(ZACK_16_089H, makeForward("Zack", "Earth", 3, 7000));
+		assertNotNull(effect);
+		effect.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void zackTakesTheDamageWhenThePlayedCardCostsFiveOrMore() {
+		verify(resolveZackPlaying(makeForward("Dear", "Earth", 5, 9000))).dealDamageToSelf(1);
+	}
+
+	@Test
+	void zackTakesNoDamageForACheaperCard() {
+		verify(resolveZackPlaying(makeForward("Cheap", "Earth", 4, 7000)), never()).dealDamageToSelf(anyInt());
+	}
+
+	@Test
+	void zackTakesNoDamageWhenNothingWasPlayed() {
+		// The play is optional; declining it leaves no card whose cost could be measured.
+		verify(resolveZackPlaying(null), never()).dealDamageToSelf(anyInt());
+	}
+
+	@Test
+	void zackPlaysWithTheCategoryFilterStillApplied() {
+		GameContext ctx = resolveZackPlaying(null);
+		verify(ctx).playCharacterFromHand(eq(true), eq(true), eq(true), eq(-1), isNull(), eq(-1),
+				isNull(), isNull(), eq("VII"), isNull(), isNull(), eq(false), isNull(), eq(false), isNull());
+	}
+
+	@Test
+	void theRealPlayReportsTheCardItPutDown() {
+		MainWindow mw = new MainWindow();
+		CardData inHand = makeForward("Hand Card", "Earth", 5, 7000);
+		// P2's seat is the AI's, which plays the first eligible card without a dialog.
+		mw.gameState.getP2Hand().add(inHand);
+		CardData played = mw.buildGameContext(false).playCharacterFromHand(true, true, true, -1, null, -1,
+				null, null, null, null, null, false, null, false, null);
+		assertSame(inHand, played);
+		assertTrue(mw.p2ForwardCards.stream().anyMatch(c -> c == inHand));
+		assertNull(mw.buildGameContext(false).playCharacterFromHand(true, true, true, -1, null, -1,
+				null, null, null, null, null, false, null, false, null), "nothing left to play");
+	}
+
+	// =========================================================================================
+	// 28-001R Ursula: "When Ursula enters the field, you may pay 《Fire》. When you do so, choose 1
+	// Forward. Deal it 4000 damage." The payment dialog was told only "1 CP" and took any Element;
+	// every optional element cost paid through it (mayPayElementCpToEffect, mayPayCostToEffect,
+	// mayPayCostOrElse, mayPayToReplayAbility) had the same hole, and so did the AI's payment.
+	// =========================================================================================
+
+	@Test
+	void aPayRunNamesTheElementsItInsistsOn() {
+		assertEquals(Map.of("Fire", 1), AutoAbilityTriggers.payRunElementNeeds("《Fire》"));
+		assertEquals(Map.of("Wind", 3), AutoAbilityTriggers.payRunElementNeeds("《Wind》《Wind》《Wind》《2》"));
+		assertTrue(AutoAbilityTriggers.payRunElementNeeds("《2》").isEmpty());
+		assertTrue(AutoAbilityTriggers.payRunElementNeeds("《X》").isEmpty());
+	}
+
+	@Test
+	void anOffElementCardDoesNotPayAnElementCost() {
+		Map<String, Integer> fire = Map.of("Fire", 1);
+		CardData water = makePlainBackup("Water Backup", "Water", 2);
+		CardData flame = makePlainBackup("Fire Backup", "Fire", 2);
+		assertFalse(CpPaymentUtils.elementNeedsMet(List.of(water), List.of(), fire), "Water is not Fire");
+		assertTrue(CpPaymentUtils.elementNeedsMet(List.of(flame), List.of(), fire));
+		assertTrue(CpPaymentUtils.elementNeedsMet(List.of(), List.of(makeForward("Fire Card", "Fire", 3, 7000)), fire),
+				"a discarded Fire card pays it too");
+		assertTrue(CpPaymentUtils.elementNeedsMet(List.of(water), List.of(), Map.of()), "no element named");
+	}
+
+	@Test
+	void aMultiElementCardFillsWhicheverNeedIsShort() {
+		Map<String, Integer> needs = Map.of("Fire", 1, "Ice", 1);
+		CardData both = makePlainBackup("Both", "Fire/Ice", 2);
+		CardData fire = makePlainBackup("Fire", "Fire", 2);
+		assertTrue(CpPaymentUtils.elementNeedsMet(List.of(fire, both), List.of(), needs),
+				"the Fire/Ice card goes to Ice once Fire is covered");
+	}
+
+	@Test
+	void theAiWillNotPayAnElementCostOffElement() {
+		MainWindow mw = new MainWindow();
+		CardData water = makePlainBackup("Water Backup", "Water", 2);
+		placeBackup(mw, water, false);
+
+		assertEquals(0, mw.autoAbilityTriggers.aiPayCp(false, 1, Map.of("Fire", 1)));
+		assertEquals(CardState.ACTIVE, mw.p2BackupStates[0], "nothing spent on a cost it cannot finish");
+	}
+
+	@Test
+	void theAiPaysAnElementCostWithTheMatchingBackup() {
+		MainWindow mw = new MainWindow();
+		placeBackup(mw, makePlainBackup("Water Backup", "Water", 2), false);
+		placeBackup(mw, makePlainBackup("Fire Backup", "Fire", 2), false);
+
+		assertEquals(1, mw.autoAbilityTriggers.aiPayCp(false, 1, Map.of("Fire", 1)));
+		assertEquals(CardState.ACTIVE, mw.p2BackupStates[0], "the Water Backup is left alone");
+		assertEquals(CardState.DULL, mw.p2BackupStates[1], "the Fire Backup pays");
 	}
 
 	// =========================================================================================

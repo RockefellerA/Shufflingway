@@ -5001,8 +5001,8 @@ final class AutoAbilityTriggers {
 	 *
 	 * <p>Every printing but one is a single token, and a lone 《X》 prices at one CP per unit — the
 	 * reading the single-token code had. 25-057R Cutter prints 《X》《X》, two CP for each 1 of X.
-	 * An element token counts as the one CP it is; which element cannot be enforced here, and was
-	 * not before.
+	 * An element token counts as the one CP it is here; which element is
+	 * {@link #payRunElementNeeds}'s to say.
 	 */
 	static int[] tallyPayRun(String costRun) {
 		int fixedCp = 0, cpPerUnitOfX = 0;
@@ -5016,6 +5016,21 @@ final class AutoAbilityTriggers {
 			catch (NumberFormatException e) { return null; }
 		}
 		return new int[]{ fixedCp, cpPerUnitOfX };
+	}
+
+	/**
+	 * The Element CP a cost run insists on, e.g. {@code {"Fire": 1}} for 《Fire》, in printed order;
+	 * empty when every token is generic or 《X》. The payment has to include these, not merely add
+	 * up to {@link #tallyPayRun}'s total.
+	 */
+	static Map<String, Integer> payRunElementNeeds(String costRun) {
+		Map<String, Integer> needs = new LinkedHashMap<>();
+		Matcher tok = FA_COST_TOKEN.matcher(costRun);
+		while (tok.find()) {
+			String costToken = tok.group(1).trim();
+			if (ELEMENT_NAMES.contains(costToken.toLowerCase(Locale.ROOT))) needs.merge(costToken, 1, Integer::sum);
+		}
+		return needs;
 	}
 
 	/**
@@ -5053,18 +5068,17 @@ final class AutoAbilityTriggers {
 				? (maxM.find() ? fixedCost + Integer.parseInt(maxM.group(1)) * xPerUnit : Integer.MAX_VALUE)
 				: fixedCost;
 
-		// For fixed CP costs, check whether the paying player can actually generate enough CP.
-		// effectIsP1 identifies the player who would pay (already accounts for opponentMay).
-		// Skip the ability entirely if they cannot — no active backups and insufficient hand cards.
+		Map<String, Integer> elementNeeds = payRunElementNeeds(costRun);
+
+		// For fixed CP costs, check whether the paying player can actually generate enough CP, of
+		// the right Element where the cost names one. effectIsP1 identifies the player who would
+		// pay (already accounts for opponentMay). Skip the ability entirely if they cannot.
 		if (!isXCost && fixedCost > 0) {
-			CardData[] bkpCards  = mw.playerBackupCards(effectIsP1);
-			CardState[] bkpStates = mw.playerBackupStates(effectIsP1);
-			int availCp = 0;
-			for (int i = 0; i < bkpCards.length; i++)
-				if (bkpCards[i] != null && bkpStates[i] == CardState.ACTIVE) availCp++;
-			availCp += mw.playerHand(effectIsP1).size() * 2;
-			if (availCp < fixedCost) {
-				mw.logEntry("[AutoAbility] " + source.name() + " — cannot afford " + fixedCost + " CP (" + costRun + "), skipping");
+			List<String> tokens = new ArrayList<>();
+			elementNeeds.forEach((elem, n) -> tokens.addAll(Collections.nCopies(n, elem)));
+			while (tokens.size() < fixedCost) tokens.add("");
+			if (!mw.canAffordCpTokens(tokens, fixedCost, effectIsP1)) {
+				mw.logEntry("[AutoAbility] " + source.name() + " — cannot afford " + costRun + ", skipping");
 				return;
 			}
 		}
@@ -5094,13 +5108,17 @@ final class AutoAbilityTriggers {
 		if (!isP1) {
 			// The AI buys one unit of X, which is what it has always done for a plain 《X》.
 			int target = isXCost ? fixedCost + xPerUnit : fixedCost;
-			int paid   = aiPayCp(effectIsP1, target);
+			int paid   = aiPayCp(effectIsP1, target, elementNeeds);
+			if (paid < fixedCost) {
+				mw.logEntry("[AutoAbility] " + source.name() + " — [AI] could not pay " + costRun);
+				return;
+			}
 			applyPayWhenDoSoEffect(subEffect, source, xFromPaid.applyAsInt(paid), effectIsP1);
 			return;
 		}
 
 		String finalSubEffect = subEffect;
-		showAutoAbilityPaymentDialog(source.name(), fixedCost, maxCp, isP1, 0,
+		showAutoAbilityPaymentDialog(source.name(), fixedCost, maxCp, isP1, 0, elementNeeds,
 				paid -> applyPayWhenDoSoEffect(finalSubEffect, source, xFromPaid.applyAsInt(paid), effectIsP1), null);
 	}
 
@@ -5170,6 +5188,59 @@ final class AutoAbilityTriggers {
 		}
 		for (int di : discardIdx) mw.playerBreakFromHand(payerIsP1, di);
 		return Math.min(paid, target);
+	}
+
+	/**
+	 * {@link #aiPayCp(boolean, int)} with per-element minimums ({@code {"Fire": 1}} for 《Fire》),
+	 * the AI half of {@link #showAutoAbilityPaymentDialog}'s element check. The whole payment is
+	 * planned before anything is dulled or discarded: element needs first, from matching Backups and
+	 * then matching hand cards, the rest of {@code target} from whatever is left. If an element
+	 * cannot be covered nothing is spent and 0 is returned — the cost is not partly payable.
+	 */
+	int aiPayCp(boolean payerIsP1, int target, Map<String, Integer> elementNeeds) {
+		if (elementNeeds.isEmpty()) return aiPayCp(payerIsP1, target);
+		CardData[]     bkpCards  = mw.playerBackupCards(payerIsP1);
+		CardState[]    bkpStates = mw.playerBackupStates(payerIsP1);
+		List<CardData> hand      = mw.playerHand(payerIsP1);
+		List<Integer>  dulls     = new ArrayList<>();
+		List<Integer>  discards  = new ArrayList<>();
+		int planned = 0;
+		for (Map.Entry<String, Integer> need : elementNeeds.entrySet()) {
+			int shortBy = need.getValue();
+			for (int i = 0; i < bkpCards.length && shortBy > 0; i++) {
+				if (bkpCards[i] == null || bkpStates[i] != CardState.ACTIVE || dulls.contains(i)) continue;
+				if (!bkpCards[i].containsElement(need.getKey())) continue;
+				dulls.add(i); shortBy--; planned++;
+			}
+			for (int i = hand.size() - 1; i >= 0 && shortBy > 0; i--) {
+				if (discards.contains(i) || !hand.get(i).containsElement(need.getKey())) continue;
+				if (!CpPaymentUtils.canDiscardForCp(hand.get(i), Set.of())) continue;
+				discards.add(i); shortBy -= 2; planned += 2;
+			}
+			if (shortBy > 0) {
+				mw.logEntry("[AI] Cannot produce 《" + need.getKey() + "》 — pays nothing");
+				return 0;
+			}
+		}
+		for (int i = 0; i < bkpCards.length && planned < target; i++) {
+			if (bkpCards[i] == null || bkpStates[i] != CardState.ACTIVE || dulls.contains(i)) continue;
+			dulls.add(i); planned++;
+		}
+		for (int i = hand.size() - 1; i >= 0 && planned < target; i--) {
+			if (discards.contains(i)) continue;
+			discards.add(i); planned += 2;
+		}
+		for (int i : dulls) {
+			bkpStates[i] = CardState.DULL;
+			mw.playerDullBackupSlot(payerIsP1, i);
+			mw.logEntry("[AI] Pay CP: dull " + bkpCards[i].name());
+		}
+		discards.sort(Comparator.reverseOrder());
+		for (int di : discards) {
+			mw.logEntry("[AI] Pay CP: discard " + hand.get(di).name() + " from hand");
+			mw.playerBreakFromHand(payerIsP1, di);
+		}
+		return Math.min(planned, target);
 	}
 
 	// ─── "Select N of M following actions" auto-ability ─────────────────────────
@@ -5467,12 +5538,32 @@ final class AutoAbilityTriggers {
 	 */
 	void showAutoAbilityPaymentDialog(String cardName, int minCp, int maxCp,
 			boolean isP1, int crystalAltCost, java.util.function.IntConsumer onConfirm, Runnable onCrystalPaid) {
+		showAutoAbilityPaymentDialog(cardName, minCp, maxCp, isP1, crystalAltCost, Map.of(),
+				onConfirm, onCrystalPaid);
+	}
+
+	/**
+	 * As above, with per-element minimums: {@code elementNeeds} maps an element to the CP of it the
+	 * payment must include ({@code {"Fire": 1}} for 《Fire》). Confirm stays disabled until the
+	 * selection meets every one, whatever its total — 28-001R Ursula's 《Fire》 used to accept any
+	 * 1 CP. The element CP counts toward {@code minCp}, which is the whole cost.
+	 */
+	void showAutoAbilityPaymentDialog(String cardName, int minCp, int maxCp,
+			boolean isP1, int crystalAltCost, Map<String, Integer> elementNeeds,
+			java.util.function.IntConsumer onConfirm, Runnable onCrystalPaid) {
 		CardData[]     bkpCards  = mw.playerBackupCards(isP1);
 		CardState[]    bkpStates = mw.playerBackupStates(isP1);
 		String[]       bkpUrls  = mw.playerBackupUrls(isP1);
 		List<CardData> hand      = mw.playerHand(isP1);
 
-		String title = (maxCp == minCp)
+		String elemLabel = elementNeeds.entrySet().stream()
+				.map(e -> ("《" + e.getKey() + "》").repeat(e.getValue()))
+				.collect(java.util.stream.Collectors.joining());
+		String title = !elemLabel.isEmpty() && maxCp == minCp
+				? cardName + " — Pay " + elemLabel
+						+ (minCp > elementNeeds.values().stream().mapToInt(Integer::intValue).sum()
+								? " (" + minCp + " CP total)" : "")
+				: (maxCp == minCp)
 				? cardName + " — Pay " + minCp + " CP"
 				: cardName + " — Pay up to " + (maxCp == Integer.MAX_VALUE ? "any" : maxCp) + " CP";
 		JDialog dlg = new JDialog(mw.frame, title, true);
@@ -5511,11 +5602,20 @@ final class AutoAbilityTriggers {
 				canAddBackup[0]  = !atMax;
 				canAddDiscard[0] = maxCp == Integer.MAX_VALUE || total + 2 <= maxCp;
 			}
-			confirmBtn.setEnabled(total >= minCp);
+			List<CardData> dulled    = selectedBackups.stream().map(i -> bkpCards[i]).toList();
+			List<CardData> discarded = selectedDiscards.stream().map(hand::get).toList();
+			Map<String, Integer> elemPaid = CpPaymentUtils.elementCpPaid(dulled, discarded, elementNeeds);
+			confirmBtn.setEnabled(total >= minCp
+					&& CpPaymentUtils.elementNeedsMet(dulled, discarded, elementNeeds));
 
 			String cap = maxCp == Integer.MAX_VALUE ? "∞" : String.valueOf(maxCp);
+			StringBuilder elemProgress = new StringBuilder();
+			for (Map.Entry<String, Integer> need : elementNeeds.entrySet())
+				elemProgress.append("  ").append(need.getKey()).append(": ")
+						.append(Math.min(elemPaid.getOrDefault(need.getKey(), 0), need.getValue()))
+						.append("/").append(need.getValue());
 			cpLabel.setText("CP produced: " + total + " / " + cap
-					+ (minCp > 0 ? "  (min " + minCp + ")" : ""));
+					+ (minCp > 0 ? "  (min " + minCp + ")" : "") + elemProgress);
 
 			for (int i = 0; i < backupLbls.size(); i++) {
 				JLabel  lbl = backupLbls.get(i);

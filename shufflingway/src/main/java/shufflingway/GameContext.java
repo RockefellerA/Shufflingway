@@ -335,6 +335,27 @@ public interface GameContext {
     StackEntry cancelFilteredAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt, boolean requiresControllerTarget);
 
     /**
+     * Chooses one Stack entry matching {@code filter} and leaves it where it is — the choice is
+     * the whole of this call, for effects that act on what the ability came from rather than on
+     * the ability. 25-088H Famfrit, the Darkening Cloud: "Choose 1 auto-ability triggered from a
+     * Forward. Put that Forward into the Break Zone."
+     *
+     * <p>Chosen the way {@link #cancelFilteredAbilityOnStack} chooses, except that protection from
+     * being cancelled does not apply: nothing is being cancelled.
+     *
+     * @return the chosen entry, or {@code null} when nothing matched or the choice was declined
+     */
+    StackEntry chooseAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt);
+
+    /**
+     * Where {@code card} — this very card, by identity — sits on either player's field, or
+     * {@code null} if it is not there. For effects that name a card they did not choose on the
+     * board ("that Forward", reached through a Stack entry), which must not act on another copy
+     * of the same printing.
+     */
+    ForwardTarget fieldSlotOf(CardData card);
+
+    /**
      * The plural form of {@link #cancelFilteredAbilityOnStack}: lets the resolving player pick as
      * many matching Stack entries as they like and cancels every one of them — Jecht 14-108H's
      * Jecht Block and Shelke 16-029R's Countertek.
@@ -558,8 +579,10 @@ public interface GameContext {
      * @param costVal2    second exact cost value for "cost N or M" two-value filter; {@code -1} = unused
      * @param excludeName card name to exclude from eligible choices; {@code null} = none
      * @param entersDull  if {@code true} the placed card enters the field in a dulled state
+     * @return the card that was played, or {@code null} when none was — nothing eligible, or the
+     *     player declined. 16-089H Zack's "If its cost is 5 or more, …" reads it.
      */
-    void playCharacterFromHand(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+    CardData playCharacterFromHand(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             int costVal, String costCmp, int costVal2,
             String jobFilter, String cardNameFilter, String categoryFilter,
             String elementFilter, String excludeName, boolean entersDull, String excludeElement,
