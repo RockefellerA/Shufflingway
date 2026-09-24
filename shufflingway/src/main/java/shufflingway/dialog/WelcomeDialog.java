@@ -114,8 +114,7 @@ public class WelcomeDialog extends JDialog {
 		content.add(left(step2Title));
 		content.add(Box.createVerticalStrut(4));
 		step2Body.setText("<html><div style='width:380px'>Open the Deck Manager (File → Deck "
-				+ "Manager) to build a deck from your cards and save it. Then choose File → New "
-				+ "Game to play it.</div></html>");
+				+ "Manager) to build a deck and save it. Then choose File → New Game to play it.</div></html>");
 		content.add(left(step2Body));
 		content.add(Box.createVerticalStrut(6));
 		deckManager.addActionListener(e -> {
@@ -187,7 +186,7 @@ public class WelcomeDialog extends JDialog {
 					fetchResult.setText(String.format("Done — the database now holds %,d cards.", count));
 				} else {
 					fetchResult.setForeground(MISSING_COLOR);
-					fetchResult.setText("No cards were fetched. Check your internet connection and try again.");
+					fetchResult.setText("No cards were fetched. Check your firewall / internet connection and try again.");
 				}
 				showCardCount(count);
 				pack();
