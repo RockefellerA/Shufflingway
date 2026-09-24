@@ -43,6 +43,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BooleanSupplier;
@@ -154,6 +155,27 @@ public class MainWindow {
 	/** Damage resolution rules; MainWindow keeps thin delegators to these. */
 	final DamageResolver      damageResolver      = new DamageResolver(this);
 	final Priming             priming             = new Priming(this);
+
+	/**
+	 * The shuffle stream for each main deck, from this client's point of view: P1's is the local
+	 * player's deck, P2's the opponent's. Every mid-game shuffle of a deck draws from its own.
+	 *
+	 * <p>In multiplayer these are the very streams that dealt the decks ({@link
+	 * MatchSetup#localDeckRandom()} and {@link MatchSetup#remoteDeckRandom()}), kept rather than
+	 * dropped after the deal. Both clients hold the same stream for the same deck, and both run
+	 * every effect that shuffles a deck, so each shuffle comes out the same on both sides. A
+	 * shuffle drawn from anywhere else — {@code Collections.shuffle} with no stream, as these all
+	 * used to be — gave each client its own order, and the first search split the two decks.
+	 *
+	 * <p>Only a shuffle both clients perform may draw from these. One that happens on a single
+	 * client and is sent as its result (the deck-look dialogs' indices) must not, or the streams
+	 * would fall out of step.
+	 */
+	Random p1DeckRandom = new Random();
+	Random p2DeckRandom = new Random();
+
+	/** The shuffle stream for {@code isP1}'s main deck; see {@link #p1DeckRandom}. */
+	Random deckRandom(boolean isP1) { return isP1 ? p1DeckRandom : p2DeckRandom; }
 	/** Sequences card arrivals on the field: animation, then the card, then its auto abilities. */
 	final FieldEntryAnimator  fieldEntryAnimator  = new FieldEntryAnimator(this);
 
@@ -2717,7 +2739,8 @@ public class MainWindow {
 					if (card.isLb()) lb.add(cd);
 					else             main.add(cd);
 				}
-				gameState.initializeDeck(main, lb, setup.localDeckRandom());
+				p1DeckRandom = setup.localDeckRandom();
+				gameState.initializeDeck(main, lb, p1DeckRandom);
 
 				List<CardData> p2Main = new ArrayList<>();
 				List<CardData> p2Lb   = new ArrayList<>();
@@ -2726,7 +2749,8 @@ public class MainWindow {
 					if (card.isLb()) p2Lb.add(cd);
 					else             p2Main.add(cd);
 				}
-				gameState.initializeP2MainDeck(p2Main, setup.remoteDeckRandom());
+				p2DeckRandom = setup.remoteDeckRandom();
+				gameState.initializeP2MainDeck(p2Main, p2DeckRandom);
 				gameState.initializeP2LbDeck(p2Lb);
 
 				// Both decks are shuffled and untouched — the one moment the two clients can be
@@ -2813,7 +2837,7 @@ public class MainWindow {
 	}
 
 	/** Sends an action to the remote player; a no-op in a game against the AI. */
-	private void sendToOpponent(GameAction action) {
+	void sendToOpponent(GameAction action) {
 		if (opponent instanceof RemoteOpponent remote) remote.send(action);
 	}
 
@@ -6066,6 +6090,95 @@ public class MainWindow {
 		return trait == CardData.Trait.WARP ? c.hasWarp() : c.getTraits().contains(trait);
 	}
 
+	/**
+	 * The player at seat {@code chooserIsP1} takes cards from {@code matches}, the cards in their
+	 * own deck a search found, and the picks come back in the order they were made.
+	 *
+	 * <p>Through {@link #decide}, so a remote player's search takes what they chose rather than
+	 * what the AI would have: before this, the searching player's client asked them and told
+	 * nobody, and the other client picked at random, so the two could put different cards in the
+	 * same hand. The answer is positions in {@code matches}, which both clients build in deck
+	 * order from the same deck.
+	 *
+	 * @param legal what else a remote answer must satisfy — a pick rider or a cost budget
+	 */
+	List<CardData> chooseFromDeckSearch(boolean chooserIsP1, List<CardData> matches, int count,
+	                                    Supplier<List<CardData>> localPick,
+	                                    Supplier<List<CardData>> cpuPick,
+	                                    Predicate<List<CardData>> legal) {
+		if (matches.isEmpty()) return List.of();
+		List<Integer> answer = decide(PlayerChoice.by(chooserIsP1, ChoiceKind.DECK_SEARCH)
+				.prompting("Waiting for your opponent to search their deck...")
+				.locally(() -> positionsIn(matches, localPick.get()))
+				.byCpu(() -> positionsIn(matches, cpuPick.get()))
+				.legalWhen(a -> {
+					if (a.size() > count || a.stream().distinct().count() != a.size()) return false;
+					if (!a.stream().allMatch(i -> i >= 0 && i < matches.size())) return false;
+					return legal.test(a.stream().map(matches::get).toList());
+				}, "they took a card this search could not have found here"));
+		List<CardData> out = new ArrayList<>(answer.size());
+		for (int i : answer) out.add(matches.get(i));
+		return out;
+	}
+
+	/** Each of {@code picked}'s position in {@code pool}, by identity. */
+	private static List<Integer> positionsIn(List<CardData> pool, List<CardData> picked) {
+		List<Integer> out = new ArrayList<>(picked.size());
+		for (CardData p : picked)
+			for (int i = 0; i < pool.size(); i++)
+				if (pool.get(i) == p && !out.contains(i)) { out.add(i); break; }
+		return out;
+	}
+
+	/** Takes {@code card} itself out of {@code deck}, not the first card equal to it. */
+	private static void removeByIdentity(Deque<CardData> deck, CardData card) {
+		java.util.Iterator<CardData> it = deck.iterator();
+		while (it.hasNext()) if (it.next() == card) { it.remove(); return; }
+	}
+
+	/**
+	 * The AI's picks for a deck search, without touching the deck: at random, but bound by the
+	 * search's pick rider and cost budget as a player would be.
+	 */
+	private static List<CardData> cpuDeckSearchPicks(List<CardData> matches, int count,
+			PickGate gate, int budget) {
+		List<CardData> pool   = new ArrayList<>(matches);
+		List<CardData> chosen = new ArrayList<>();
+		int spent = 0;
+		for (int i = 0; i < count && !pool.isEmpty(); i++) {
+			List<CardData> copy = new ArrayList<>(pool);
+			Collections.shuffle(copy);
+			CardData pick = copy.get(0);
+			// A selection rider ("with different names", "each of a different Element") binds
+			// the AI too: it takes the first card its standing picks still leave legal, and
+			// stops when none do. A hand it could not legally have chosen is not one the rules
+			// let it take.
+			if (gate != PickGate.ANY) {
+				CardData legal = null;
+				for (CardData c : copy) if (gate.allows(chosen, c)) { legal = c; break; }
+				if (legal == null) break;
+				pick = legal;
+			}
+			// A shared allowance binds it the same way, and is spent to buy board rather than
+			// count: the dearest card still inside the remaining budget, since the effect
+			// plays what it finds onto the field.
+			if (budget >= 0) {
+				CardData best = null;
+				for (CardData c : copy) {
+					if (gate != PickGate.ANY && !gate.allows(chosen, c)) continue;
+					if (spent + c.cost() > budget) continue;
+					if (best == null || c.cost() > best.cost()) best = c;
+				}
+				if (best == null) break;
+				pick = best;
+				spent += pick.cost();
+			}
+			pool.remove(pick);
+			chosen.add(pick);
+		}
+		return chosen;
+	}
+
 	/** @return whether a card was found, chosen, and moved to {@code destination}. */
 	private boolean searchDeckForCardImpl(boolean isP1,
 			boolean inclForwards, boolean inclBackups,
@@ -6125,55 +6238,29 @@ public class MainWindow {
 			logEntry("Search: no matching card found in deck");
 			return false;
 		}
-		List<CardData> chosen = new ArrayList<>();
-		int spent = 0;
-		if (!isP1) {
-			for (int i = 0; i < count && !matches.isEmpty(); i++) {
-				List<CardData> copy = new ArrayList<>(matches);
-				Collections.shuffle(copy);
-				CardData pick = copy.get(0);
-				// A selection rider ("with different names", "each of a different Element") binds
-				// the AI too: it takes the first card its standing picks still leave legal, and
-				// stops when none do. A hand it could not legally have chosen is not one the rules
-				// let it take.
-				if (searchPickGate != PickGate.ANY) {
-					CardData legal = null;
-					for (CardData c : copy) if (searchPickGate.allows(chosen, c)) { legal = c; break; }
-					if (legal == null) break;
-					pick = legal;
-				}
-				// A shared allowance binds it the same way, and is spent to buy board rather than
-				// count: the dearest card still inside the remaining budget, since the effect
-				// plays what it finds onto the field.
-				if (searchTotalCostBudget >= 0) {
-					CardData best = null;
-					for (CardData c : copy) {
-						if (searchPickGate != PickGate.ANY && !searchPickGate.allows(chosen, c)) continue;
-						if (spent + c.cost() > searchTotalCostBudget) continue;
-						if (best == null || c.cost() > best.cost()) best = c;
+		// Read once: the riders are fields a caller sets around this call, and the answers below
+		// are computed out of order with it (the CPU's here, a remote player's on their client).
+		final PickGate gate   = searchPickGate;
+		final int      budget = searchTotalCostBudget;
+		List<CardData> chosen = new ArrayList<>(chooseFromDeckSearch(isP1, matches, count,
+				() -> count > 1
+						? cardPickerDialog.pickMultiFromDeckSearch(matches, count, gate, budget)
+						: java.util.Optional.ofNullable(cardPickerDialog.pickFromDeckSearch(matches))
+								.map(List::of).orElse(List.of()),
+				() -> cpuDeckSearchPicks(matches, count, gate, budget),
+				picks -> {
+					List<CardData> sofar = new ArrayList<>();
+					int total = 0;
+					for (CardData c : picks) {
+						if (gate != PickGate.ANY && !gate.allows(sofar, c)) return false;
+						total += c.cost();
+						sofar.add(c);
 					}
-					if (best == null) break;
-					pick = best;
-					spent += pick.cost();
-				}
-				logEntry("[AI] chose " + pick.name());
-				matches.remove(pick);
-				deck.remove(pick);
-				chosen.add(pick);
-			}
-		} else if (count > 1) {
-			List<CardData> picks = cardPickerDialog.pickMultiFromDeckSearch(
-				matches, count, searchPickGate, searchTotalCostBudget);
-			for (CardData pick : picks) {
-				gameState.removeFromP1MainDeck(pick);
-				chosen.add(pick);
-			}
-		} else {
-			CardData pick = cardPickerDialog.pickFromDeckSearch(matches);
-			if (pick != null) {
-				gameState.removeFromP1MainDeck(pick);
-				chosen.add(pick);
-			}
+					return budget < 0 || total <= budget;
+				}));
+		for (CardData pick : chosen) {
+			if (!isP1) logEntry("[P2] chose " + pick.name());
+			removeByIdentity(deck, pick);
 		}
 		shuffleDeck(isP1);
 		if (chosen.isEmpty()) {
@@ -6252,7 +6339,7 @@ public class MainWindow {
 	void shuffleDeck(boolean isP1) {
 		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
 		List<CardData> list = new ArrayList<>(deck);
-		Collections.shuffle(list);
+		Collections.shuffle(list, deckRandom(isP1));
 		deck.clear();
 		deck.addAll(list);
 		if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
@@ -8061,11 +8148,25 @@ public class MainWindow {
 	                                        int maxCount, String title, String waitPrompt,
 	                                        Supplier<List<ForwardTarget>> localPick,
 	                                        Supplier<List<ForwardTarget>> cpuPick) {
+		return selectChosenTargets(ChoiceKind.CHOSEN_TARGETS, chooserIsP1, eligible, maxCount,
+				title, waitPrompt, localPick, cpuPick);
+	}
+
+	/**
+	 * As above, answered under {@code kind} — {@link ChoiceKind#BREAK_ZONE_TARGETS} for the
+	 * Break Zone choices an effect makes as it resolves, which cross the wire at a different
+	 * moment from the targets fixed as an effect goes on the Stack.
+	 */
+	List<ForwardTarget> selectChosenTargets(ChoiceKind kind, boolean chooserIsP1,
+	                                        List<ForwardTarget> eligible,
+	                                        int maxCount, String title, String waitPrompt,
+	                                        Supplier<List<ForwardTarget>> localPick,
+	                                        Supplier<List<ForwardTarget>> cpuPick) {
 		if (eligible.isEmpty()) return List.of();
 		// "Any number of" is a bound the board sets rather than the text, so the legality check
 		// below measures against whichever of the two is smaller.
 		int bound = Math.min(maxCount, eligible.size());
-		List<Integer> answer = decide(PlayerChoice.by(chooserIsP1, ChoiceKind.CHOSEN_TARGETS)
+		List<Integer> answer = decide(PlayerChoice.by(chooserIsP1, kind)
 				.prompting(waitPrompt)
 				.locally(() -> localPick.get().stream().map(ForwardTarget::choiceCode).toList())
 				.byCpu(() -> cpuPick.get().stream().map(ForwardTarget::choiceCode).toList())
@@ -20002,13 +20103,6 @@ public class MainWindow {
 						autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p2ForwardCards.get(idx), false);
 				}, false);
 
-		if (fwd.hasPriming() && p2ForwardPrimedTop.get(idx) == null) {
-			JMenuItem primeItem = new JMenuItem("Prime (" + fwd.primingTarget() + ")");
-			primeItem.setEnabled(!priming.primingTargetOnField(fwd.primingTarget(), false));
-			primeItem.addActionListener(ae -> priming.applyP2PrimedCard(fwd, idx));
-			menu.add(primeItem);
-		}
-
 		if (menu.getComponentCount() > 0) menu.show(slot, e.getX(), e.getY());
 	}
 
@@ -20030,7 +20124,7 @@ public class MainWindow {
 	/** Shuffles P1's main deck in-place and refreshes the deck label. */
 	void shuffleP1MainDeck() {
 		List<CardData> list = new ArrayList<>(gameState.getP1MainDeck());
-		Collections.shuffle(list);
+		Collections.shuffle(list, deckRandom(true));
 		gameState.getP1MainDeck().clear();
 		gameState.getP1MainDeck().addAll(list);
 		refreshP1DeckLabel();

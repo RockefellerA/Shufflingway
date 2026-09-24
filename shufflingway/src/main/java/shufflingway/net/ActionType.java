@@ -69,6 +69,16 @@ public enum ActionType {
                     //   on both boards from the same count without being told to.
                     //   No "alt" or "extra": nothing in the corpus prints a Warp cost alongside
                     //   an alternate cost or a surcharge, and they are separate menu items.
+    PRIME,          // payload: { "slot": n, "card": "...", "discards": [idx, ...], "backups": [slot, ...],
+                    //            "found": n, "chosen": "...", "deck": [n, ...] }
+                    //   The sender primed their Forward in "slot" (named "card" as a check). The
+                    //   payment indices address their hand and Backup row as they stood before it.
+                    //   "found" is the position, in their main deck as it stood before the search,
+                    //   of the card that came out onto the Forward — -1 when the search found none,
+                    //   and then "chosen" is absent. "deck" is the deck afterwards, each entry a
+                    //   position in that same before-search deck. The receiver shuffles from its
+                    //   own stream for this deck, as the sender did, and checks the result against
+                    //   "deck"; both already hold the deck, so it reveals nothing.
     ACTIVATE_ABILITY, // payload: { "zone": "FORWARD"|"BACKUP"|"MONSTER", "idx": n, "card": "...",
                     //             "ability": n, "discards": [idx, ...], "backups": [slot, ...],
                     //             "bzTargets": [{ "idx": n, "zone": "FORWARD" }, ...],
