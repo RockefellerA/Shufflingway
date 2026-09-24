@@ -5657,6 +5657,7 @@ public class CardBehaviorTest {
     @Test
     void anLbCardCannotBeCastOnATurnThePlayerCannotCastAtAll() {
         MainWindow mw = new MainWindow();
+        advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
         CardData lb = lbForward("Limit Cast", "Fire", 2, 1);
         assertFalse(mw.lbCastBlocked(lb), "nothing stands in its way yet");
 
@@ -5671,6 +5672,7 @@ public class CardBehaviorTest {
         // blocks every card in the LB deck — including one with no name or Element conflict of
         // its own.
         MainWindow mw = new MainWindow();
+        advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
         mw.placeCardInForwardZone(makeFieldAbilityForward("Warden",
                 "You can only cast up to 2 cards per turn."));
         CardData lb = lbForward("Unconflicted", "Fire", 2, 1);
@@ -5686,11 +5688,55 @@ public class CardBehaviorTest {
         // The cast limit is an addition, not a replacement: a duplicate name on the field is
         // still a block, with no limit in force.
         MainWindow mw = new MainWindow();
+        advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
         mw.placeCardInForwardZone(makeForward("Twin", "Fire", 2, 7000));
 
         assertTrue(mw.lbCastBlocked(lbForward("Twin", "Fire", 2, 1)),
                 "a second copy of a name already on the field cannot be cast");
         assertFalse(mw.lbCastBlocked(lbForward("Someone Else", "Fire", 2, 1)));
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Timing. The LB deck asked no timing question at all, so a Forward could be cast out of it
+    // on the opponent's turn. It now gets the same timing check as a card in hand.
+    // -----------------------------------------------------------------------------------------
+
+    @Test
+    void anLbCharacterIsCastableOnlyInTheOwnersMainPhase() {
+        MainWindow mw = new MainWindow();
+        CardData lb = lbForward("Limit Forward", "Fire", 2, 1);
+
+        advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+        assertFalse(mw.lbCastBlocked(lb), "P1's own Main Phase is open to it");
+
+        advanceTo(mw, GameState.Player.P2, GameState.GamePhase.MAIN_1);
+        assertTrue(mw.lbCastBlocked(lb), "not on the opponent's turn");
+
+        mw.offerP1MainPhasePriority(() -> {});
+        assertTrue(mw.lbCastBlocked(lb),
+                "not even holding priority there: a Character without Back Attack is not Summon speed");
+
+        advanceTo(mw, GameState.Player.P1, GameState.GamePhase.END);
+        assertTrue(mw.lbCastBlocked(lb), "and not outside a Main Phase on P1's own turn");
+    }
+
+    @Test
+    void anLbBackupNeedsAFreeBackupSlotAsOneFromHandDoes() {
+        MainWindow mw = new MainWindow();
+        advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+        CardData lb = new CardData(null, "Limit Backup", "Fire", 2, 0, "Backup", true, 1, false, false,
+                Set.of(), 0, List.of(), "", List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                null, null, null, "");
+        assertFalse(mw.lbCastBlocked(lb), "a slot is free");
+
+        // A slot counts as taken when it shows a card, which is what hasAvailableBackupSlot reads.
+        for (javax.swing.JLabel slot : mw.p1BackupLabels)
+            slot.setIcon(new javax.swing.ImageIcon(new java.awt.image.BufferedImage(1, 1,
+                    java.awt.image.BufferedImage.TYPE_INT_ARGB)));
+        assertTrue(mw.lbCastBlocked(lb), "all five Backup slots are taken");
     }
 
     @Test
@@ -7284,6 +7330,8 @@ public class CardBehaviorTest {
         // P2 has not yet passed, so nobody may act.
         assertFalse(mw.castTimingWindowOpen(jinnai), "no window before P2 passes priority");
 
+        // In hand, so the window has something to be spent on and does not pass itself.
+        mw.gameState.getP1Hand().add(jinnai);
         mw.offerP1MainPhasePriority(() -> {});
         assertTrue(mw.castTimingWindowOpen(jinnai), "Back Attack may be cast in P2's Main Phase");
         assertFalse(mw.castTimingWindowOpen(grunt),  "an ordinary Forward may not");
@@ -7359,6 +7407,8 @@ public class CardBehaviorTest {
 
         // P2's Main Phase with priority: both halves agree, which is the only time Gogo is castable.
         advanceTo(mw, GameState.Player.P2, GameState.GamePhase.MAIN_1);
+        // In hand, so the window has something to be spent on and does not pass itself.
+        mw.gameState.getP1Hand().add(gogo);
         mw.offerP1MainPhasePriority(() -> {});
         assertTrue(mw.castTimingWindowOpen(gogo));
         assertTrue(mw.castRestrictionMet(gogo));
