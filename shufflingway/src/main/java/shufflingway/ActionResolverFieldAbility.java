@@ -7,6 +7,7 @@ import static shufflingway.ActionResolver.*;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -525,6 +526,38 @@ final class ActionResolverFieldAbility {
     }
 
     /**
+     * "[sweep] and [effect]" where the effect is a clause of its own — 23-121L Cait Sith: "Freeze
+     * all the Backups opponent controls and your opponent discards 1 card." The sweep guard
+     * rightly refused the sweep with "and your opponent …" unread after it, and
+     * {@code tryParseOpponentDiscard} then took the text under {@code find()} and dropped the
+     * freeze.
+     *
+     * <p>Strict on purpose, since "and" also joins a sweep's own targets: it declines when
+     * {@link #tryParseAllFieldEffect} reads the whole text (the two-sided "… and all the Backups you
+     * control", 15-097H), and claims only when the sweep reads whole on its own and the tail
+     * parses as an effect. {@link #tryParseAllFieldEffectAndDraw} keeps "and draw N".
+     * <b>Must precede {@link #tryParseAllFieldEffect}</b> in every chain, as that one does.
+     */
+    static Consumer<GameContext> tryParseAllFieldEffectAndThen(String text, CardData source) {
+        String body = text.trim();
+        if (tryParseAllFieldEffect(body) != null) return null;
+        Matcher m = ALL_FIELD_EFFECT_PATTERN.matcher(body);
+        if (!m.lookingAt()) return null;
+        Matcher and = SWEEP_AND_TAIL.matcher(body.substring(m.end()));
+        if (!and.matches()) return null;
+        Consumer<GameContext> sweep = tryParseAllFieldEffect(m.group().trim() + ".");
+        if (sweep == null) return null;
+        String tail = and.group("tail").trim();
+        Consumer<GameContext> then = ActionResolver.parse(
+                Character.toUpperCase(tail.charAt(0)) + tail.substring(1), source);
+        if (then == null) return null;
+        return ctx -> {
+            sweep.accept(ctx);
+            then.accept(ctx);
+        };
+    }
+
+    /**
      * Parses 14-062L Titan, Lord of Crags: "Break all the Forwards with power less than [Self].
      * When N or more Forwards are put from the field into the Break Zone by this effect, [Self]
      * deals your opponent M point(s) of damage."
@@ -889,6 +922,95 @@ final class ActionResolverFieldAbility {
                         extra);
         };
     }
+    /**
+     * "[Activate/Dull/Freeze] all the … . They gain +N power / Keyword[s] until the end of the turn.
+     * [effect]" — 17-017H Sabin and 5-099H Illua. The sweep parsed and "They gain …" was dropped:
+     * read alone, "they" found no set, and the payoff never ran (Sabin's standalone reading even
+     * boosted Sabin himself, the one Forward his sweep spares).
+     *
+     * <p>"They" is the set the sweep just named, and none of these sweeps moves a card, so the set is
+     * re-derived by applying the sweep's own filter to the grant. That holds only while every filter
+     * the sweep carries is one the grant primitive can also take — side, element, a single cost
+     * comparison, category, and for power an excluded name. Any other filter declines the whole
+     * text rather than widening the grant past the sweep. A trailing effect (Illua's second sweep)
+     * must parse, or none of it is claimed.
+     *
+     * <p>17-016L Hien's grant is quoted — "This Forward can attack twice in the same turn." — and is
+     * the one quotation read, through {@link GameContext#applyMassFieldMaxAttacks}.
+     */
+    static Consumer<GameContext> tryParseAllFieldEffectThenTheyGain(String text, CardData source) {
+        Matcher tg = SWEEP_THEN_THEY_GAIN.matcher(text.trim());
+        if (!tg.matches()) return null;
+        String sweepText = tg.group("sweep").trim();
+        Consumer<GameContext> sweep = tryParseAllFieldEffect(sweepText);
+        if (sweep == null) return null;
+        Matcher m = ALL_FIELD_EFFECT_PATTERN.matcher(sweepText);
+        if (!m.find()) return null;
+        String action = m.group("action").toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+        // Only sweeps that leave every card where it was, so the set they named is still the set.
+        if (!Set.of("activate", "dull", "freeze", "dull and freeze").contains(action)) return null;
+        for (String g : List.of("job", "name", "state", "trait", "counter", "costlist", "costjob",
+                "powerval", "countermin", "excludecost"))
+            if (m.group(g) != null) return null;
+
+        String targets = m.group("targets");
+        String tgt = targets == null ? "" : targets.toLowerCase(Locale.ROOT);
+        boolean inclForwards = tgt.contains("forward") || tgt.contains("character");
+        boolean inclMonsters = tgt.contains("monster") || tgt.contains("character");
+        if (!inclForwards && !inclMonsters) return null;   // Backups hold no power and no keyword
+        String control  = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase(Locale.ROOT).contains("you control");
+        boolean selfOnly     = control != null && control.toLowerCase(Locale.ROOT).contains("you control");
+        String element  = m.group("element");
+        String category = m.group("category");
+        int    costVal  = m.group("cost") != null ? Integer.parseInt(m.group("cost")) : -1;
+        String costCmp  = m.group("costcmp");
+        String exclude  = m.group("excludename") != null ? m.group("excludename").trim() : null;
+        if (exclude != null && exclude.matches("(?i)^(?:Job|Category)\\b.*")) return null;
+
+        String quoted = tg.group("quoted");
+        String grant  = quoted != null ? quoted.trim() : tg.group("grant").trim();
+        Matcher power = THEY_GAIN_POWER.matcher(grant);
+        Consumer<GameContext> grantFn;
+        if (quoted != null) {
+            // The only quotation read here; any other declines rather than being run as a bare
+            // sentence against the wrong subject.
+            if (!THEY_GAIN_ATTACK_TWICE.matcher(grant).matches() || !inclForwards) return null;
+            grantFn = ctx -> {
+                ctx.logEntry("Effect: They can attack twice this turn");
+                ctx.applyMassFieldMaxAttacks(2, opponentOnly, selfOnly, element, costVal, costCmp,
+                        category, exclude);
+            };
+        } else if (power.matches()) {
+            int amount = Integer.parseInt(power.group("amount"));
+            grantFn = ctx -> {
+                ctx.logEntry("Effect: They gain +" + amount + " power until the end of the turn");
+                ctx.applyMassFieldPowerBoost(amount, inclForwards, inclMonsters, opponentOnly, selfOnly,
+                        element, costVal, costCmp, category, exclude);
+            };
+        } else if (THEY_GAIN_KEYWORDS.matcher(grant).matches()) {
+            // The keyword grant takes no exclusion, so a sweep that spared a card cannot be matched.
+            if (exclude != null) return null;
+            EnumSet<CardData.Trait> traits = parseTraits(grant);
+            grantFn = ctx -> {
+                ctx.logEntry("Effect: They gain " + grant + " until the end of the turn");
+                ctx.applyMassFieldKeywordGrant(traits, inclForwards, inclMonsters, opponentOnly, selfOnly,
+                        element, costVal, costCmp, category);
+            };
+        } else {
+            return null;
+        }
+
+        String rest = tg.group("rest").trim();
+        Consumer<GameContext> then = rest.isEmpty() ? null : ActionResolver.parse(rest, source);
+        if (!rest.isEmpty() && then == null) return null;
+        return ctx -> {
+            sweep.accept(ctx);
+            grantFn.accept(ctx);
+            if (then != null) then.accept(ctx);
+        };
+    }
+
     /**
      * Parses "All [the] Job X [targets] [you control] gain Keyword[, ...] until end of turn."
      */

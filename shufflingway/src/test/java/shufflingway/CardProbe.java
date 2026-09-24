@@ -78,6 +78,21 @@ public final class CardProbe {
 			for (AutoAbility a : c.autoAbilities())     show("AUTO(" + a.trigger() + ")", a.effectText(), c);
 			for (ActionAbility a : c.actionAbilities()) show("ACTION", a.effectText(), c);
 			for (FieldAbility a : c.fieldAbilities())   show("FIELD", a.effectText(), c);
+			// A Summon's effect lives in summonEffect(), not in an ability list — the gap that kept
+			// every Summon out of the reports until 2026-09-20. Gated on type because summonEffect()
+			// only strips markup, and on any other card returns its whole text.
+			if ("Summon".equalsIgnoreCase(c.type()) && c.summonEffect() != null && !c.summonEffect().isBlank()) {
+				String raw = c.summonEffect();
+				show("SUMMON", raw, c);
+				// The printed text is not what resolves when it carries an extra-cost clause: the cast
+				// path strips it (unpaid) or rewrites it (paid) first. Show both, since the printed row
+				// can be unparsed while both real ones work (18-096C Leviathan).
+				String paid = ActionResolver.applyExtraCostPaid(raw);
+				if (!paid.equals(raw)) {
+					show("SUMMON(unpaid)", ActionResolver.stripExtraCostClause(raw), c);
+					show("SUMMON(paid)", paid, c);
+				}
+			}
 		}
 	}
 

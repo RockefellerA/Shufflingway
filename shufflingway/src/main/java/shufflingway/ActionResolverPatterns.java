@@ -8621,6 +8621,39 @@ final class ActionResolverPatterns {
         "\\s+and\\s+all\\s+(?:the\\s+)?" +
         "(?<second>[^.!]+?\\s+(?:(?:your\\s+)?opponent\\s+controls?|you\\s+control))\\s*[.!]?$"
     );
+    /**
+     * "[sweep sentence] [Until the end of the turn,] They gain [grant] [until the end of the turn].
+     * [rest]" — 17-017H Sabin, 5-099H Illua. The sweep must be one sentence. The grant is either
+     * plain ({@code grant}) or a quotation ({@code quoted}, 17-016L Hien's "This Forward can attack
+     * twice in the same turn."), whose own period sits inside the quotes.
+     * Groups: {@code sweep}, {@code grant} or {@code quoted}, {@code rest}.
+     */
+    static final Pattern SWEEP_THEN_THEY_GAIN = Pattern.compile(
+        "(?i)^(?<sweep>(?:Activate|Dull\\s+and\\s+Freeze|Dull|Freeze)\\s+all\\b[^.!\"]*[.!])\\s*" +
+        "(?:Until\\s+the\\s+end\\s+of\\s+the\\s+turn,\\s+)?They\\s+gain\\s+" +
+        "(?:\"(?<quoted>[^\"]+)\"|(?<grant>[^.!\"]+?)(?:\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn)?[.!])" +
+        "\\s*(?<rest>.*)$"
+    );
+    /** Hien's quoted grant: "This Forward can attack twice in the same turn." */
+    static final Pattern THEY_GAIN_ATTACK_TWICE = Pattern.compile(
+        "(?i)^This\\s+Forward\\s+can\\s+attack\\s+twice\\s+in\\s+the\\s+same\\s+turn[.!]?$"
+    );
+    /**
+     * "[head sentence(s)] Your opponent discards N card(s) [from their hand]." — 24-026H Zalera's
+     * options, 23-117L Chaos. The head ends on a sentence terminator. Groups: {@code head}, {@code count}.
+     */
+    static final Pattern EFFECT_THEN_OPPONENT_DISCARD = Pattern.compile(
+        "(?i)^(?<head>.+[.!])\\s*Your\\s+opponent\\s+discards\\s+(?<count>\\d+)\\s+cards?" +
+        "(?:\\s+from\\s+(?:his/her|their)\\s+hand)?[.!]?$"
+    );
+    /** What follows a sweep in "[sweep] and [effect]" (23-121L Cait Sith). Group {@code tail}. */
+    static final Pattern SWEEP_AND_TAIL = Pattern.compile("(?i)^\\s+and\\s+(?<tail>[^.!]+[.!]?)\\s*$");
+    /** The power form of {@link #SWEEP_THEN_THEY_GAIN}'s grant: "+2000 power". Group {@code amount}. */
+    static final Pattern THEY_GAIN_POWER = Pattern.compile("(?i)^\\+(?<amount>\\d+)\\s+power$");
+    /** The keyword form: a list of Haste / First Strike / Brave and nothing else. */
+    static final Pattern THEY_GAIN_KEYWORDS = Pattern.compile(
+        "(?i)^(?:Haste|First\\s+Strike|Brave)(?:(?:\\s*,\\s*(?:and\\s+)?|\\s+and\\s+)(?:Haste|First\\s+Strike|Brave))*$"
+    );
     static final Pattern ALL_FIELD_EFFECT_PATTERN = Pattern.compile(
         "(?i)(?<action>Break|Activate|dull\\s+and\\s+freeze|dull|freeze)\\s+" +
         // "all the OTHER Forwards opponent controls" is never a sweep of its own: in all four

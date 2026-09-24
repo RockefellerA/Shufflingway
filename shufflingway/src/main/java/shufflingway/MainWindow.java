@@ -13390,6 +13390,7 @@ public class MainWindow {
 		if (ability.minCounterRequired() > 0 && ability.minCounterType() != null) { if (!firstRestrict) restrict.append(", "); restrict.append("≥").append(ability.minCounterRequired()).append(" ").append(ability.minCounterType()).append(" Ctr"); firstRestrict = false; }
 		if (ability.maxCounterAllowed() >= 0 && ability.maxCounterType() != null) { if (!firstRestrict) restrict.append(", "); restrict.append("no ").append(ability.maxCounterType()).append(" Ctr"); firstRestrict = false; }
 		if (ability.requiresSelfPowerAtLeast() > 0) { if (!firstRestrict) restrict.append(", "); restrict.append("pow≥").append(ability.requiresSelfPowerAtLeast()); firstRestrict = false; }
+		if (ability.requiresSelfDamageAtLeast() > 0) { if (!firstRestrict) restrict.append(", "); restrict.append("dmg≥").append(ability.requiresSelfDamageAtLeast()); firstRestrict = false; }
 		if (ability.yourTurnOnly())                 { if (!firstRestrict) restrict.append(", "); restrict.append("your turn");     firstRestrict = false; }
 		if (ability.opponentTurnOnly())             { if (!firstRestrict) restrict.append(", "); restrict.append("opp turn");      firstRestrict = false; }
 		if (ability.oncePerTurn())                  { if (!firstRestrict) restrict.append(", "); restrict.append("1/turn");        firstRestrict = false; }
@@ -14368,6 +14369,14 @@ public class MainWindow {
 			ForwardTarget slot = findFieldSlot(source, isP1);
 			if (slot == null) return false;
 			if (fieldForwardPower(isP1, slot.zone(), slot.idx()) < ability.requiresSelfPowerAtLeast()) return false;
+		}
+		if (ability.requiresSelfDamageAtLeast() > 0) {
+			// The damage the source carries now: only a Forward holds any, and it clears at the end
+			// of the turn. 12-017H Magissa and 20-053H Number 128 were usable undamaged.
+			ForwardTarget slot = findFieldSlot(source, isP1);
+			if (slot == null || slot.zone() != ForwardTarget.CardZone.FORWARD) return false;
+			int dmg = (isP1 ? p1ForwardDamage : p2ForwardDamage).get(slot.idx());
+			if (dmg < ability.requiresSelfDamageAtLeast()) return false;
 		}
 		if (ability.maxCounterAllowed() >= 0 && ability.maxCounterType() != null) {
 			if (gameState.getCounters(source, ability.maxCounterType()) > ability.maxCounterAllowed()) return false;

@@ -9737,6 +9737,26 @@ final class GameContextImpl implements GameContext {
 					}
 			}
 
+			@Override public void applyMassFieldMaxAttacks(int maxAttacks, boolean opponentOnly,
+					boolean selfOnly, String element, int costVal, String costCmp, String category,
+					String excludeName) {
+				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
+				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
+				// Collected first, then granted, as the job/name sibling does per side: the grant goes
+				// through the single-card form for its end-of-turn revocation.
+				List<CardData> grantees = new ArrayList<>();
+				if (touchP1) for (int i = 0; i < mw.p1ForwardCards.size(); i++) grantees.add(p1Forward(i));
+				if (touchP2) grantees.addAll(mw.p2ForwardCards);
+				for (CardData c : grantees) {
+					if (c == null) continue;
+					if (element != null && !mw.effectiveContainsElement(c, element)) continue;
+					if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
+					if (!CardFilters.meetsCategoryFilter(c, category)) continue;
+					if (excludeName != null && c.name().equalsIgnoreCase(excludeName)) continue;
+					grantMaxAttacksUntilEndOfTurn(c, maxAttacks);
+				}
+			}
+
 			@Override public void applyMassFieldJobKeywordGrant(EnumSet<CardData.Trait> traits,
 					boolean inclForwards, boolean inclMonsters,
 					boolean opponentOnly, boolean selfOnly,

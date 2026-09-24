@@ -4843,6 +4843,17 @@ public interface GameContext {
             String jobFilter, String cardNameFilter);
 
     /**
+     * Grants "can attack {@code maxAttacks} times in the same turn" until end of turn to every
+     * Forward matching the element / cost / category filters and not named {@code excludeName} —
+     * the filters {@link #applyMassFieldKeywordGrant} takes, for a sweep that names its set that way.
+     * 17-016L Hien: "activate all the Category XIV Forwards you control. Until the end of the turn,
+     * they gain "This Forward can attack twice in the same turn."" Forwards only, as its job/name
+     * sibling explains.
+     */
+    void applyMassFieldMaxAttacks(int maxAttacks, boolean opponentOnly, boolean selfOnly,
+            String element, int costVal, String costCmp, String category, String excludeName);
+
+    /**
      * Returns all {@link FieldAbility} instances currently active — that is, belonging to
      * any card (Forward, Backup, or Monster) on either player's field.
      *

@@ -445,6 +445,28 @@ final class ActionResolverHand {
             ctx.nameCardTypeOpponentDiscardDrawIfMatch();
         };
     }
+    /**
+     * "[effect]. Your opponent discards N card(s)." — the effect first, then the discard, both run.
+     * {@link #tryParseOpponentDiscard} matches with {@code find()} and took such a text whole,
+     * dropping the effect in front: 24-026H Zalera's options and 23-117L Chaos's payoff ran the
+     * discard and never put the selected Forward into the Break Zone.
+     *
+     * <p>Claims only when the head parses on its own. Dispatched directly ahead of
+     * {@link #tryParseOpponentDiscard}, so it sees only texts that one would otherwise take.
+     */
+    static Consumer<GameContext> tryParseEffectThenOpponentDiscard(String text, CardData source) {
+        Matcher m = EFFECT_THEN_OPPONENT_DISCARD.matcher(text.trim());
+        if (!m.matches()) return null;
+        Consumer<GameContext> head = ActionResolver.parse(m.group("head").trim(), source);
+        if (head == null) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            head.accept(ctx);
+            ctx.logEntry("Effect: Opponent discards " + count + " card(s)");
+            ctx.forceOpponentDiscard(count);
+        };
+    }
+
     static Consumer<GameContext> tryParseOpponentDiscard(String text) {
         Matcher m = OPPONENT_DISCARD.matcher(text);
         if (!m.find()) return null;

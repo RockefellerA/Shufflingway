@@ -113,6 +113,15 @@ public class ActionResolver {
         boolean isAlso   = m.group("also") != null;
         String effect    = m.group("effect").trim();
         boolean isInstead = m.group("instead") != null;
+        // "instead" need not close the text. 24-106H Leviathan's replacement runs on past it —
+        // "… they control instead (select as many as possible). Put them into the Break Zone." —
+        // and read as additive, the paid cast resolved the base selection and dropped the upgrade.
+        // The word is dropped from the replacement, which it would otherwise be read as part of.
+        Matcher midInstead = Pattern.compile("(?i)\\s+instead\\b").matcher(effect);
+        if (!isInstead && midInstead.find()) {
+            isInstead = true;
+            effect = midInstead.replaceFirst("").trim();
+        }
 
         String cap = Character.toUpperCase(effect.charAt(0)) + effect.substring(1);
         if (!cap.endsWith(".")) cap += ".";
@@ -931,6 +940,16 @@ public class ActionResolver {
         result = tryParseAllFieldEffectAndDraw(effectText);
         if (result != null) return result;
 
+        // Same reason, for any other clause joined by "and" (23-121L Cait Sith's discard). Must
+        // also precede tryParseOpponentDiscard and its kind, which take the tail under find().
+        result = tryParseAllFieldEffectAndThen(effectText, source);
+        if (result != null) return result;
+
+        // Must precede tryParseAllFieldEffect for the same reason: the sweep sentence is read whole
+        // and "They gain …" after it was dropped (17-017H Sabin, 5-099H Illua).
+        result = tryParseAllFieldEffectThenTheyGain(effectText, source);
+        if (result != null) return result;
+
         result = tryParseAllFieldEffect(effectText);
         if (result != null) return result;
 
@@ -1516,6 +1535,11 @@ public class ActionResolver {
         // unconditionally. Disjoint from tryParseIfRfpCount, which needs a literal "there are"
         // and counts both players' RFP zones rather than only the ability user's.
         result = tryParseIfSelfRfgCount(effectText, source);
+        if (result != null) return result;
+
+        // Directly ahead of tryParseOpponentDiscard, whose find() takes the whole text and drops
+        // whatever comes before the discard (24-026H Zalera, 23-117L Chaos).
+        result = tryParseEffectThenOpponentDiscard(effectText, source);
         if (result != null) return result;
 
         result = tryParseOpponentDiscard(effectText);
@@ -2317,6 +2341,7 @@ public class ActionResolver {
         if (tryParseSelfGainsWhenAttacksEOT(effectText, source)        != null) return "SelfGainsWhenAttacksEOT";
         if (tryParseDealDamageToForwardsForEach(effectText)             != null) return "DealDamageToForwardsForEach";
         if (tryParseDealDamageToForwardsExceptElement(effectText)       != null) return "DealDamageToForwardsExceptElement";
+        if (tryParseRfpAllFwdExceptElementsThenTwiceDeck(effectText)    != null) return "RfpAllFwdExceptElementsThenTwiceDeck";
         // Mirrors parse(): read beside the fixed-amount family it cannot use.
         if (tryParseDealSameAmountToAllForwardsExcept(effectText, source, 0) != null)
             return "DealSameAmountToAllForwardsExcept";
@@ -2493,6 +2518,8 @@ public class ActionResolver {
         // Mirrors parse(): ahead of AllFieldEffect, which names the sweep alone and leaves the
         // draw out of the report.
         if (tryParseAllFieldEffectAndDraw(effectText)         != null) return "AllFieldEffectAndDraw";
+        if (tryParseAllFieldEffectAndThen(effectText, source) != null) return "AllFieldEffectAndThen";
+        if (tryParseAllFieldEffectThenTheyGain(effectText, source) != null) return "AllFieldEffectThenTheyGain";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText, source) != null) {
             String trimmed = effectText.trim();
@@ -2692,6 +2719,7 @@ public class ActionResolver {
         // gate — 16-022R Erwin and 23-020C Red Mage, which reached this shape the moment their
         // replacement clause gained a parser of its own.
         if (tryParseControlGatedInsteadUpgrade(effectText, source, 0) != null) return "ControlGatedInsteadUpgrade";
+        if (tryParseEffectThenOpponentDiscard(effectText, source) != null) return "EffectThenOpponentDiscard";
         if (tryParseOpponentDiscard(effectText)               != null) return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText)           != null) return "DiscardHandThenDraw";
         if (tryParseDrawThenPlaceHandToBottom(effectText)     != null) return "DrawThenPlaceHandToBottom";
@@ -4397,6 +4425,8 @@ public class ActionResolver {
         }
         // Mirrors parse(): ahead of AllFieldEffect, which describes the sweep alone.
         if (tryParseAllFieldEffectAndDraw(effectText) != null)              return "AllFieldEffectAndDraw";
+        if (tryParseAllFieldEffectAndThen(effectText, source) != null)      return "AllFieldEffectAndThen";
+        if (tryParseAllFieldEffectThenTheyGain(effectText, source) != null) return "AllFieldEffectThenTheyGain";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText, source) != null) {
             String trimmed = effectText.trim();
@@ -4609,6 +4639,7 @@ public class ActionResolver {
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null)     return "EachPlayerSalvageFromBreakZone";
         if (tryParseEachPlayerDraw(effectText) != null)                     return "EachPlayerDraw";
         if (tryParseNameCardTypeOpponentDiscardDrawIfMatch(effectText) != null) return "NameCardTypeOpponentDiscardDrawIfMatch";
+        if (tryParseEffectThenOpponentDiscard(effectText, source) != null)  return "EffectThenOpponentDiscard";
         if (tryParseOpponentDiscard(effectText) != null)                    return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText) != null)                return "DiscardHandThenDraw";
         if (tryParseDrawDiscardRetriggerIfCardName(effectText, source) != null) return "DrawDiscardRetriggerIfCardName";

@@ -15745,6 +15745,64 @@ public class CardBehaviorTest {
 				"a 3000-power Hyoh can still use the ungated ability");
 	}
 
+	// 12-017H Magissa (and 20-053H Number 128, the same restriction): "You can only use this ability
+	// if Magissa has received 4000 damage or more and only once per turn." Only the once-per-turn
+	// half was read, so she could fetch her Forward undamaged.
+	private static final String MAGISSA_12_017H = "《Fire》: Search for 1 Fire Forward of cost 3 and play "
+			+ "it onto the field. You can only use this ability if Magissa has received 4000 damage or more "
+			+ "and only once per turn.";
+
+	@Test
+	void magissasAbilityCarriesBothRestrictions() {
+		ActionAbility ab = CardData.parseActionAbilities(MAGISSA_12_017H).get(0);
+		assertEquals(4000, ab.requiresSelfDamageAtLeast());
+		assertTrue(ab.oncePerTurn(), "the other half is still read");
+	}
+
+	@Test
+	void magissaIsLockedUntilSheHasTakenFourThousand() {
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		mw.p1BackupCards[0]  = makePlainBackup("Kindling", "Fire", 2);
+		mw.p1BackupStates[0] = CardState.ACTIVE;
+		CardData magissa = makeForward("Magissa", "Fire", 4, 9000, CardData.parseActionAbilities(MAGISSA_12_017H));
+		mw.placeCardInForwardZone(magissa);
+		ActionAbility ab = magissa.actionAbilities().get(0);
+
+		assertFalse(mw.canActivateAbility(ab, false, CardState.ACTIVE, 0, magissa, true), "undamaged");
+		mw.p1ForwardDamage.set(0, 3000);
+		assertFalse(mw.canActivateAbility(ab, false, CardState.ACTIVE, 0, magissa, true), "3000 is short");
+		mw.p1ForwardDamage.set(0, 4000);
+		assertTrue(mw.canActivateAbility(ab, false, CardState.ACTIVE, 0, magissa, true));
+	}
+
+	@Test
+	void theSelfDamageGateSurvivesACostChange() {
+		// The copies an ability goes through at use time (cost changes, waived costs) must carry the
+		// restriction, not fall back to the constructor that defaults it away.
+		ActionAbility ab = CardData.parseActionAbilities(MAGISSA_12_017H).get(0);
+		assertEquals(4000, ab.withIncreasedCp(2).requiresSelfDamageAtLeast());
+		assertEquals(4000, ab.withCostsWaived().requiresSelfDamageAtLeast());
+		assertEquals(4000, ab.withEffectText("Draw 1 card.").requiresSelfDamageAtLeast());
+	}
+
+	// 11-039H Mewt: "You can only use this ability during your turn and if your opponent controls 5
+	// or more Backups." The turn half was read; the Backup count matched no pattern.
+	@Test
+	void mewtNeedsTheOpponentsFiveBackups() {
+		ActionAbility ab = CardData.parseActionAbilities("《Dull》: Dull and Freeze all the Backups opponent "
+				+ "controls. You can only use this ability during your turn and if your opponent controls 5 or "
+				+ "more Backups.").get(0);
+		assertTrue(ab.yourTurnOnly());
+		assertNotNull(ab.controlCondition(), "the Backup count is recorded");
+
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < 4; i++) placeBackup(mw, makePlainBackup("Opp " + i, "Wind", 2), false);
+		assertFalse(mw.controlConditionMet(ab.controlCondition(), true), "four is not enough");
+		placeBackup(mw, makePlainBackup("Opp 4", "Wind", 2), false);
+		assertTrue(mw.controlConditionMet(ab.controlCondition(), true));
+	}
+
 	@Test
 	void theRestrictionSentenceIsStrippedFromTheEffectText() {
 		// Left in place it would split the ability into two sentences and defeat the end anchor.
@@ -63455,6 +63513,100 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// "[sweep]. They gain …" — 17-017H Sabin, 5-099H Illua. The sweep parsed and the grant after
+	// it was dropped. "They" is re-derived by applying the sweep's own filter to the grant.
+	// =========================================================================================
+
+	@Test
+	void sabinsForwardsGainTheBoostAndSabinIsStillSpared() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Activate all the Forwards other than Sabin you control. "
+				+ "They gain +2000 power until the end of the turn.").accept(ctx);
+		verify(ctx).applyMassFieldPowerBoost(2000, true, false, false, true, null, -1, null, null, "Sabin");
+	}
+
+	@Test
+	void illuasForwardsGainHasteAndHerSecondSweepRuns() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Activate all the Forwards you control. They gain Haste until the end of the "
+				+ "turn. All the Forwards opponent controls lose 2000 power until the end of the turn.").accept(ctx);
+		verify(ctx).applyMassFieldKeywordGrant(EnumSet.of(CardData.Trait.HASTE), true, false, false, true,
+				null, -1, null, null);
+		verify(ctx).applyMassFieldPowerBoost(eq(-2000), eq(true), eq(false), eq(true), eq(false),
+				isNull(), eq(-1), isNull(), isNull(), isNull(), any());
+	}
+
+	@Test
+	void aSweepFilterTheGrantCannotCarryDeclinesTheGrantReading() {
+		// A Job filter has no slot on the power boost, so the grant would reach past the sweep.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffectThenTheyGain(
+				"Activate all the Job Moogle you control. They gain +1000 power until the end of the turn.", null));
+		// The keyword grant takes no exclusion, so a spared card cannot be matched.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffectThenTheyGain(
+				"Activate all the Forwards other than Sabin you control. They gain Haste until the end of the turn.", null));
+		// A quotation other than the attack-twice permission is not guessed at.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffectThenTheyGain(
+				"Activate all the Forwards you control. Until the end of the turn, they gain "
+				+ "\"This Forward cannot be blocked.\"", null));
+	}
+
+	@Test
+	void hiensCategoryForwardsMayAttackTwice() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("activate all the Category XIV Forwards you control. Until the end of the turn, "
+				+ "they gain \"This Forward can attack twice in the same turn.\"").accept(ctx);
+		verify(ctx).applyMassFieldMaxAttacks(2, false, true, null, -1, null, "XIV", null);
+	}
+
+	@Test
+	void theMassAttackTwiceGrantReachesOnlyTheMatchingForwards() {
+		MainWindow mw = new MainWindow();
+		CardData xiv   = makeCategoryForward("Warrior of XIV", "Fire", "XIV");
+		CardData other = makeForward("Bystander", "Fire", 3, 7000);
+		mw.placeCardInForwardZone(xiv);
+		mw.placeCardInForwardZone(other);
+
+		mw.buildGameContext(true).applyMassFieldMaxAttacks(2, false, true, null, -1, null, "XIV", null);
+
+		assertEquals(2, mw.grantedMaxAttacks.get(xiv));
+		assertNull(mw.grantedMaxAttacks.get(other), "not Category XIV");
+	}
+
+	// 23-121L Cait Sith: "if you control 5 or more Ice Backups, Freeze all the Backups opponent
+	// controls and your opponent discards 1 card." The discard took the text and the freeze was lost.
+	@Test
+	void caitSithFreezesAndTheOpponentDiscards() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.controlConditionMet(any())).thenReturn(true);
+		ActionResolver.parse("if you control 5 or more Ice Backups, Freeze all the Backups opponent controls "
+				+ "and your opponent discards 1 card.").accept(ctx);
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.FREEZE), eq(false), eq(true), eq(false),
+				eq(true), eq(false), isNull(), eq(-1), isNull(), eq(-1), isNull(), isNull(), any(), isNull(),
+				isNull(), isNull(), isNull(), isNull());
+		verify(ctx).forceOpponentDiscard(1);
+	}
+
+	@Test
+	void aSweepWhoseAndJoinsItsOwnTargetsIsLeftToTheSweep() {
+		// 15-097H's "and all the Backups you control" is the sweep's second half, not a new clause.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffectAndThen(
+				"break all the Forwards opponent controls and all the Backups you control.", null));
+	}
+
+	@Test
+	void aTailThatDoesNotParseLeavesTheWholeUnclaimed() {
+		// 22-105H: "negate all damage dealt to them" has no reading of its own.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffectAndThen(
+				"activate all the Forwards you control and negate all damage dealt to them.", null));
+	}
+
+	@Test
+	void aSweepThatMovesCardsIsNotReadBackAsTheSameSet() {
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffectThenTheyGain(
+				"Break all the Forwards opponent controls. They gain +1000 power until the end of the turn.", null));
+	}
+
+	// =========================================================================================
 	// 27-048R Seven and 16-058R Fina: "Choose 1 auto-ability triggered from a Forward [of cost 5
 	// or less]. Cancel its effect." The compound fallback used to read the second sentence alone.
 	// =========================================================================================
@@ -63720,6 +63872,90 @@ public class CardBehaviorTest {
 		assertTrue(mw.p2ForwardCards.stream().anyMatch(c -> c == inHand));
 		assertNull(mw.buildGameContext(false).playCharacterFromHand(true, true, true, -1, null, -1,
 				null, null, null, null, null, false, null, false, null), "nothing left to play");
+	}
+
+	// =========================================================================================
+	// A Summon's leading casting rule ("the cost to cast X is reduced by …", "You can only cast X
+	// during your turn", …) is enforced when it is cast, and summonEffect() now leaves it out.
+	// In front of the effect it defeated anchored parsers: Zalera and Alexander never offered their
+	// choice, Hecatoncheir resolved nothing, and Zodiark's board wipe needed its cost condition.
+	// =========================================================================================
+
+	@Test
+	void aLeadingCastRuleIsNotPartOfTheSummonsEffect() {
+		CardData zalera = makeSummon("Zalera, the Death Seraph", "Ice", 4,
+				"You can only cast Zalera, the Death Seraph during your turn.[[br]]Select 1 of the 2 following "
+				+ "actions. [[br]]\"Choose 1 Forward. Break it.\" [[br]]\"Draw 1 card.\"");
+		assertTrue(zalera.summonEffect().startsWith("Select 1 of the 2 following actions."), zalera.summonEffect());
+		assertEquals("SelectFollowingActions", ActionResolver.matchedPatternName(zalera.summonEffect(), zalera));
+	}
+
+	@Test
+	void everyLeadingCastRuleIsStripped() {
+		CardData madeen = makeSummon("Madeen", "Light", 6, "You can only cast Madeen during your turn.[[br]]"
+				+ "If you have received 5 points of damage or more, the cost required to cast Madeen is reduced by 2."
+				+ "[[br]]Deal 8000 damage to all the Forwards opponent controls.");
+		assertEquals("Deal 8000 damage to all the Forwards opponent controls.", madeen.summonEffect());
+	}
+
+	@Test
+	void aCostConditionNoLongerGatesTheEffect() {
+		CardData zodiark = makeSummon("Zodiark, Keeper of Precepts", "Dark", 6, "If you control a Dark Forward, "
+				+ "the cost to cast Zodiark, Keeper of Precepts is reduced by 3.[[br]] Break all the Forwards "
+				+ "opponent controls.");
+		assertEquals("Break all the Forwards opponent controls.", zodiark.summonEffect());
+	}
+
+	@Test
+	void anEffectThatMentionsCastingIsKept() {
+		// Past tense, and after the effect: this is the Summon's own payoff, not a casting rule.
+		String text = "Choose 1 Forward. Deal it 9000 damage. If the cost to cast Bahamut was paid with CP of 3 "
+				+ "or more different Elements, deal it 12000 damage instead.";
+		assertEquals(text, makeSummon("Bahamut", "Fire", 6, text).summonEffect());
+	}
+
+	@Test
+	void theDiscardNoLongerTakesTheEffectInFrontOfIt() {
+		// 24-026H Zalera's options and 23-117L Chaos's payoff ran the discard alone.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Your opponent selects 1 Forward of cost 5 or more they control. Put it into the "
+				+ "Break Zone. Your opponent discards 1 card.").accept(ctx);
+		verify(ctx).opponentSelectsOwnCharacters(eq(1), eq(false), isNull(), isNull(), isNull(), eq(5), eq("more"),
+				eq(true), eq(false), eq(false), any());
+		verify(ctx).forceOpponentDiscard(1);
+	}
+
+	// =========================================================================================
+	// "If you paid the extra cost, … instead" where "instead" does not close the text. The paid
+	// branch was read as an addition, so the base ran and the upgrade was dropped: 24-106H
+	// Leviathan's opponent put 1 card into the Break Zone, not up to 2, and 8-060L Fina still
+	// selected 1 action, not 2.
+	// =========================================================================================
+
+	@Test
+	void aMidTextInsteadReplacesTheBase() {
+		assertEquals("Your opponent selects up to 2 Forwards and/or Monsters they control "
+				+ "(select as many as possible). Put them into the Break Zone.",
+				ActionResolver.applyExtraCostPaid("Your opponent selects 1 Forward or Monster they control. "
+						+ "Put it into the Break Zone. If you paid the extra cost, your opponent selects up to 2 "
+						+ "Forwards and/or Monsters they control instead (select as many as possible). "
+						+ "Put them into the Break Zone."));
+	}
+
+	@Test
+	void finasPaidBranchSelectsBothActions() {
+		String paid = ActionResolver.applyExtraCostPaid("select 1 of the 2 following actions. If you paid the "
+				+ "extra cost, select 2 of the 2 following actions instead. \"Deal 5000 damage to all the "
+				+ "Forwards opponent controls.\" \"Activate all the Characters you control.\"");
+		assertTrue(paid.startsWith("Select 2 of the 2 following actions."), paid);
+		assertFalse(paid.toLowerCase().contains("select 1"), "the base count is replaced, not kept");
+	}
+
+	@Test
+	void anInsteadThatClosesTheTextIsUnchanged() {
+		assertEquals("Break all the Forwards of cost 3 or less.",
+				ActionResolver.applyExtraCostPaid("Break all the Forwards of cost 2 or less. If you paid the "
+						+ "extra cost, break all the Forwards of cost 3 or less instead."));
 	}
 
 	// =========================================================================================

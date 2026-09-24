@@ -1180,8 +1180,39 @@ public record CardData(
             t = sb.toString().trim();
         }
         t = SUMMON_MARKUP.matcher(t).replaceAll(" ");
-        return t.replaceAll("\\s+", " ").trim();
+        t = t.replaceAll("\\s+", " ").trim();
+        // A leading casting rule is enforced from the card text when the Summon is cast, and is not
+        // part of what it does when it resolves. Left in front, it defeated anchored parsers and
+        // handed the text to a find() parser reading a fragment: 24-026H Zalera ran a bare discard
+        // instead of letting its caster select an action, 19-035R Alexander ran both branches'
+        // breaks, 15-082H Hecatoncheir did nothing at all, and 3-145L Ultima's removal only
+        // happened when its cost-reduction condition held.
+        Matcher rule;
+        while ((rule = LEADING_CAST_RULE.matcher(t)).lookingAt() && rule.end() < t.length())
+            t = t.substring(rule.end()).trim();
+        return t;
     }
+
+    /**
+     * One casting-rule sentence at the start of a Summon's text: a cost change ("[If …,] the cost
+     * [required] to cast X is reduced by N"), a timing or payment limit ("You can only cast X …",
+     * "You can only pay with … to cast X"), a prerequisite ("You must control … to cast X"), or an
+     * alternative payment offered before casting ("Before paying the cost to cast X, …").
+     *
+     * <p>Anchored and one sentence long, so it cannot reach an effect that merely mentions casting:
+     * "If the cost to cast X was paid with CP of 3 or more different Elements, …" is past tense
+     * and matches none of the arms.
+     */
+    static final Pattern LEADING_CAST_RULE = Pattern.compile(
+        "(?i)^(?:" +
+            "(?:If\\s+[^,.!]+,\\s+)?the\\s+cost(?:\\s+required)?\\s+to\\s+cast\\s+[^.!]+?\\s+is\\s+" +
+                "(?:reduced|increased)\\s+by\\s+[^.!(]+?(?:\\s*\\([^)]*\\))?" +
+            "|You\\s+can\\s+only\\s+cast\\s+[^.!]+?" +
+            "|You\\s+can\\s+only\\s+pay\\s+with\\s+[^.!]+?\\s+to\\s+cast\\s+[^.!]+?" +
+            "|You\\s+must\\s+control\\s+[^.!]+?\\s+to\\s+cast\\s+[^.!]+?" +
+            "|Before\\s+paying\\s+the\\s+cost\\s+to\\s+cast\\s+[^.!]+?,\\s+[^.!]+?" +
+        ")[.!]\\s*"
+    );
 
     /**
      * Returns the element whose Backup CP must be used to cast/play this card, or
@@ -2542,6 +2573,9 @@ public record CardData(
             // card's own name, and the activation site is, so the self check belongs there.
             if (bottomDeckRaw != null && m.group("bottomdeckname") != null)
                 parsed = parsed.withBottomOfDeckCost(m.group("bottomdeckname").trim());
+            Matcher selfDamageM = SELF_DAMAGE_AT_LEAST_RESTRICTION.matcher(effectRaw);
+            if (selfDamageM.find())
+                parsed = parsed.withSelfDamageAtLeast(Integer.parseInt(selfDamageM.group("damage")));
             if (revealRaw != null && m.group("revealcount") != null)
                 parsed = parsed.withRevealCost(new RevealCost(
                         Integer.parseInt(m.group("revealcount")),
@@ -2585,7 +2619,7 @@ public record CardData(
                 // Spelled out rather than routed through the compatibility constructor, which
                 // would silently drop both from the copy.
                 a.usableByEitherPlayer(), a.requiresSelfPowerAtLeast(),
-                a.bottomOfDeckCostCardName(), a.revealCost());
+                a.bottomOfDeckCostCardName(), a.revealCost(), a.requiresSelfDamageAtLeast());
     }
 
     /** Parses a "discard N [filter]" cost phrase into a {@link DiscardCost} list (0 or 1 item). */
@@ -2781,6 +2815,17 @@ public record CardData(
         "(?<power>\\d+)\\s+power\\s+or\\s+more[.!]?"
     );
 
+    /**
+     * "You can only use this ability if [CardName] has received N damage or more [and only once per
+     * turn]." — 12-017H Magissa and 20-053H Number 128, where the card names itself. The damage is
+     * what the source carries now, cleared at the end of the turn. The once-per-turn half is read
+     * by its own pattern, so this stops at "or more". Group {@code damage}.
+     */
+    static final Pattern SELF_DAMAGE_AT_LEAST_RESTRICTION = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+(?<card>[^.!]+?)\\s+has\\s+received\\s+" +
+        "(?<damage>\\d+)\\s+damage\\s+or\\s+more\\b"
+    );
+
     /** "You can only use this ability if you have received N points of damage or more." */
     static final Pattern OWN_DAMAGE_THRESHOLD_RESTRICTION = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+you\\s+have\\s+received\\s+(?<count>\\d+)\\s+points?\\s+of\\s+damage\\s+or\\s+more[.!]?"
@@ -2952,8 +2997,12 @@ public record CardData(
     );
 
     /** Captures count and type from "You can only use this ability if your opponent controls N or more [type]". */
+    // "during your turn and " is optional: 11-039H Mewt prints both halves, and with it in the way
+    // neither this nor the you-control compound matched, so her Backup count went unenforced. The
+    // turn half is yourTurnOnly's, read by its own pattern.
     static final Pattern OPPONENT_CONTROLS_N_OR_MORE_PATTERN = Pattern.compile(
-        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+your\\s+opponent\\s+controls?\\s+" +
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+(?:during\\s+your\\s+turn\\s+and\\s+)?" +
+        "if\\s+your\\s+opponent\\s+controls?\\s+" +
         "(?<count>\\d+)\\s+or\\s+more\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s*[.!]?\\s*$"
     );
 
