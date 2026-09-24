@@ -63731,4 +63731,39 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// The CPU's own hand casts had the same gap from a different direction: it planned and paid the
+	// printed cost, so no field reduction ever reached a P2 cast. CostCalculator.castCostFor prices
+	// them the way P1's hand is priced.
+
+	@Test
+	void theCpusHandForwardsGetItsOwnSterneLeonisDiscountOnly() {
+		MainWindow mw = new MainWindow();
+		CardData forward = makeForward("Hand Forward", "Wind", 3, 7000);
+		CardData summon  = makeJobCard("Hand Summon", "Wind", "Summon", null);
+		assertEquals(3, mw.castCostFor(forward, false), "no reduction on the field");
+
+		placeP1Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		assertEquals(3, mw.castCostFor(forward, false), "P1's Sterne Leonis discounts P1's Forwards");
+
+		placeP2Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		assertEquals(2, mw.castCostFor(forward, false));
+		assertEquals(3, mw.castCostFor(summon, false), "a Summon is not one of \"your Forwards\"");
+	}
+
+	@Test
+	void theCpuCastsAForwardOnlyItsSterneLeonisMakesAffordable() {
+		// Two Wind Backups and nothing else to discard: 2 CP, for a Forward printed at 3.
+		MainWindow mw = new MainWindow();
+		placeBackup(mw, makePlainBackup("Wind A", "Wind", 2), false);
+		placeBackup(mw, makePlainBackup("Wind B", "Wind", 2), false);
+		mw.gameState.getP2Hand().add(makeForward("Hand Forward", "Wind", 3, 7000));
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		assertFalse(cpu.hasLegalHandCast(), "3 CP needed, 2 available");
+
+		placeP2Forward(mw, makeCostTextForward("Sterne Leonis", "Fire", 5, STERNE_LEONIS_TEXT));
+		assertTrue(cpu.hasLegalHandCast(), "the discount brings it to 2, which the Backups cover");
+	}
+
+	// =========================================================================================
+
 }

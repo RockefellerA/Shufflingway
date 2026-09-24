@@ -9187,6 +9187,7 @@ public class MainWindow {
 
 	/** @see CostCalculator#effectiveCastCost */
 	int effectiveCastCost(CardData card) { return costs.effectiveCastCost(card); }
+	int castCostFor(CardData card, boolean isP1) { return costs.castCostFor(card, isP1); }
 
 	/**
 	 * Doublecast (Yuna): records the printed cost of a Summon just cast by {@code isP1} so that

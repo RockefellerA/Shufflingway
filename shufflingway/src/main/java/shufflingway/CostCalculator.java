@@ -38,6 +38,24 @@ class CostCalculator {
 		if (card.isSummon() && mw.p1DoublecastFreeSummons
 				&& mw.p1DoublecastLastSummonCost >= 0 && card.cost() < mw.p1DoublecastLastSummonCost)
 			return 0;
+		int cost = castCostFor(card, true);
+		for (CostReductionModifier m : mw.activeCostReductions) {
+			if (m.matches(card)) return m.apply(cost);
+		}
+		return cost;
+	}
+
+	/**
+	 * What {@code card} costs {@code isP1} to cast from hand under the card's own cost modifiers and
+	 * the field's cost reductions — the part of {@link #effectiveCastCost} that belongs to a side.
+	 *
+	 * <p>The CPU prices its hand casts here. It used to plan and pay the printed cost, so a field
+	 * discount such as Sterne Leonis's "The cost required to cast your Forwards is reduced by 1"
+	 * never reached a P2 cast. {@link MainWindow#activeCostReductions} is left out: those one-shot
+	 * discounts are not recorded against a player, and the P2 path that grants one applies and
+	 * removes it itself.
+	 */
+	int castCostFor(CardData card, boolean isP1) {
 		int selfRed = 0;
 		int selfInc = 0;
 		int selfFloor = 0;
@@ -46,10 +64,10 @@ class CostCalculator {
 			// A "becomes N" modifier replaces the printed cost rather than shifting it, so it is
 			// kept out of the delta arithmetic — its scaling type is read only as the on/off test.
 			if (mod.setsToCost() >= 0) {
-				if (computeSelfCostUnits(mod, true) > 0) setTo = mod.setsToCost();
+				if (computeSelfCostUnits(mod, isP1) > 0) setTo = mod.setsToCost();
 				continue;
 			}
-			int units = computeSelfCostUnits(mod, true);
+			int units = computeSelfCostUnits(mod, isP1);
 			int delta = mod.amountPerUnit() * units;
 			if (mod.isIncrease()) selfInc += delta;
 			else {
@@ -61,11 +79,7 @@ class CostCalculator {
 		// they can only lower it further, so nothing can raise a cost back out of "becomes 0".
 		int cost = (setTo != null ? setTo : card.cost()) + selfInc - selfRed;
 		cost = Math.max(selfFloor, cost);
-		cost = mw.applyFieldReductions(cost, card, true);
-		for (CostReductionModifier m : mw.activeCostReductions) {
-			if (m.matches(card)) return m.apply(cost);
-		}
-		return cost;
+		return mw.applyFieldReductions(cost, card, isP1);
 	}
 
 	/** Returns {@code true} if any card in P1's hand has self-cost modifiers that vary with game state. */
