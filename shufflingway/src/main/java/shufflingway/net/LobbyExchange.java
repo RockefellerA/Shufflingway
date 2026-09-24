@@ -5,6 +5,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.function.Consumer;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -23,9 +24,10 @@ import shufflingway.AppSettings;
  *
  * <p>Order on the wire:
  * <pre>
+ *   host → joiner : LOBBY_SETTINGS (on connect, and again whenever the host changes one)
  *   host → joiner : DECK_LIST      (once the host has picked a deck and pressed Start)
  *   joiner → host : DECK_LIST      (as soon as the joiner connects)
- *   host → joiner : GAME_SETUP     (seed + coin flip; host-authored)
+ *   host → joiner : GAME_SETUP     (seed + coin flip + final settings; host-authored)
  * </pre>
  */
 public final class LobbyExchange {
@@ -62,7 +64,21 @@ public final class LobbyExchange {
 	 *                     a DISCONNECT, whose reason is surfaced as the message
 	 */
 	public static RemoteDeck awaitDeckList(GameConnection conn) throws IOException {
+		return awaitDeckList(conn, debug -> {});
+	}
+
+	/**
+	 * Joiner side of {@link #awaitDeckList(GameConnection)}: the host's LOBBY_SETTINGS may arrive
+	 * any number of times before its deck list, and each is handed to {@code onDebugSetting}
+	 * (on this background thread) rather than taken for the deck list.
+	 */
+	public static RemoteDeck awaitDeckList(GameConnection conn, Consumer<Boolean> onDebugSetting)
+			throws IOException {
 		GameAction action = conn.receiveSync();
+		while (action.type() == ActionType.LOBBY_SETTINGS) {
+			onDebugSetting.accept(action.payload().optBoolean("debug", false));
+			action = conn.receiveSync();
+		}
 		if (action.type() == ActionType.DISCONNECT) {
 			throw new IOException(action.payload().optString("reason", "Opponent left the lobby"));
 		}
@@ -79,18 +95,26 @@ public final class LobbyExchange {
 				AppSettings.clampUsername(action.payload().optString("username", "")), serials);
 	}
 
-	/** Host side: picks the seed and the coin flip, and tells the joiner. */
-	public static long sendGameSetup(GameConnection conn, boolean hostGoesFirst) {
+	/** The host's lobby options as they stand, for the joiner to display before Start. */
+	public static GameAction lobbySettingsAction(boolean debugEnabled) {
+		return GameAction.of(ActionType.LOBBY_SETTINGS, new JSONObject().put("debug", debugEnabled));
+	}
+
+	/** Host side: picks the seed and the coin flip, and tells the joiner along with the final settings. */
+	public static long sendGameSetup(GameConnection conn, boolean hostGoesFirst, boolean debugEnabled) {
 		long seed = new Random().nextLong();
 		conn.send(GameAction.of(ActionType.GAME_SETUP, new JSONObject()
 				.put("seed", seed)
-				.put("hostGoesFirst", hostGoesFirst)));
+				.put("hostGoesFirst", hostGoesFirst)
+				.put("debug", debugEnabled)));
 		return seed;
 	}
 
 	/** Joiner side: blocks for the host's GAME_SETUP. */
 	public static GameAction awaitGameSetup(GameConnection conn) throws IOException {
 		GameAction action = conn.receiveSync();
+		// A settings change sent just before Start can still be in flight; GAME_SETUP supersedes it.
+		while (action.type() == ActionType.LOBBY_SETTINGS) action = conn.receiveSync();
 		if (action.type() == ActionType.DISCONNECT) {
 			throw new IOException(action.payload().optString("reason", "Host left the lobby"));
 		}

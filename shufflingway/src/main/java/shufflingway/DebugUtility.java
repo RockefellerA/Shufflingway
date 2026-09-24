@@ -342,16 +342,22 @@ class DebugUtility {
     }
 
     /**
-     * Debug tool: set any card on the field to ACTIVE or DULL directly.
+     * Debug tool: set any card on the field to ACTIVE or DULL directly, or break it.
      *
      * <p>The state is written straight to the zone's state list rather than going through
      * {@code dullTarget} / the activation steps, so nothing here fires "when this is dulled" or
      * "when this is activated" triggers — same reasoning as {@link #setDamageAndCrystals}: a debug
      * tool used to set up the board a trigger is being tested on must not fire that trigger itself.
+     * The card still turns with the usual rotation, so the board shows what changed.
+     *
+     * <p>Break is the exception, and deliberately: it is a real break through
+     * {@link MainWindow#breakFieldCard}, with its animation and every "leaves the field" and
+     * "put into the Break Zone" trigger, because testing those triggers is what a manual break
+     * is for.
      */
-    void activateDullCards() {
+    void activateDullCardsOrBreak() {
         if (!mw.gameInProgress()) {
-            JOptionPane.showMessageDialog(mw.frame, "Start a game first.", "Debug Activate/Dull",
+            JOptionPane.showMessageDialog(mw.frame, "Start a game first.", "Debug Activate/Dull/Break",
                     JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -367,16 +373,19 @@ class DebugUtility {
         JScrollPane scroll = new JScrollPane(table);
         scroll.setPreferredSize(new Dimension(460, 220));
 
-        JDialog dialog = new JDialog(mw.frame, "Activate/Dull Cards", false);
+        JDialog dialog = new JDialog(mw.frame, "Activate/Dull/Break", false);
 
         JButton activateBtn = new JButton("Activate", arrowIcon(true, new Color(0x2e9e46)));
         activateBtn.addActionListener(e -> applyStateChange(dialog, table, model, rows, CardState.ACTIVE));
         JButton dullBtn = new JButton("Dull", arrowIcon(false, new Color(0xc0392b)));
         dullBtn.addActionListener(e -> applyStateChange(dialog, table, model, rows, CardState.DULL));
+        JButton breakBtn = new JButton("Break", crossIcon(new Color(0x8a8a8a)));
+        breakBtn.addActionListener(e -> applyBreak(dialog, table, model, rows));
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 6));
         buttons.add(activateBtn);
         buttons.add(dullBtn);
+        buttons.add(breakBtn);
 
         dialog.setLayout(new BorderLayout());
         dialog.add(scroll, BorderLayout.CENTER);
@@ -386,30 +395,64 @@ class DebugUtility {
         dialog.setVisible(true);
     }
 
-    /** Sets the selected row's card to {@code state} and refreshes its field slot. */
-    private void applyStateChange(JDialog dialog, JTable table, DefaultTableModel model,
-                                  List<BoardSlot> rows, CardState state) {
+    /**
+     * The selected row's slot, or {@code null} after telling the user why there is none.
+     *
+     * <p>The dialog is modeless, so the board can move underneath it — a Forward broken while it
+     * is open shifts every later index. Acting on a stale index would hit the wrong card, so the
+     * row is re-checked against the field and the table rebuilt if it has drifted.
+     */
+    private BoardSlot selectedLiveSlot(JDialog dialog, JTable table, DefaultTableModel model,
+                                       List<BoardSlot> rows) {
         int row = table.getSelectedRow();
         if (row < 0 || row >= rows.size()) {
-            JOptionPane.showMessageDialog(dialog, "Select a card in the table first.", "Debug Activate/Dull",
+            JOptionPane.showMessageDialog(dialog, "Select a card in the table first.", "Debug Activate/Dull/Break",
                     JOptionPane.WARNING_MESSAGE);
-            return;
+            return null;
         }
         BoardSlot slot = rows.get(row);
-        // The dialog is modeless, so the board can move underneath it — a Forward broken while it
-        // is open shifts every later index. Writing a state by a stale index would dull the wrong
-        // card, so the row is re-checked against the field and the table rebuilt if it has drifted.
         if (cardAt(slot) != slot.card()) {
             collectBoardRows(rows, model, true);
             JOptionPane.showMessageDialog(dialog, "The board changed — the card list has been refreshed.",
-                    "Debug Activate/Dull", JOptionPane.INFORMATION_MESSAGE);
-            return;
+                    "Debug Activate/Dull/Break", JOptionPane.INFORMATION_MESSAGE);
+            return null;
         }
+        return slot;
+    }
+
+    /** Sets the selected row's card to {@code state} and turns its field slot to match. */
+    private void applyStateChange(JDialog dialog, JTable table, DefaultTableModel model,
+                                  List<BoardSlot> rows, CardState state) {
+        BoardSlot slot = selectedLiveSlot(dialog, table, model, rows);
+        if (slot == null) return;
+        int row = table.getSelectedRow();
         if (stateOf(slot) == state) return; // already there — nothing to log
         setSlotState(slot, state);
         model.setValueAt(stateLabel(state), row, 4);
         mw.logEntry("[Debug] " + (state == CardState.ACTIVE ? "Activated " : "Dulled ") + slot.card().name()
                 + " (" + (slot.isP1() ? "P1" : "P2") + " " + zoneLabel(slot.zone()) + " " + (slot.index() + 1) + ").");
+    }
+
+    /**
+     * Breaks the selected row's card. The table is rebuilt afterwards: the card is gone, and in a
+     * Forward or Monster row every later card has moved up one position.
+     */
+    private void applyBreak(JDialog dialog, JTable table, DefaultTableModel model, List<BoardSlot> rows) {
+        BoardSlot slot = selectedLiveSlot(dialog, table, model, rows);
+        if (slot == null) return;
+        mw.logEntry("[Debug] Broke " + slot.card().name()
+                + " (" + (slot.isP1() ? "P1" : "P2") + " " + zoneLabel(slot.zone()) + " " + (slot.index() + 1) + ").");
+        mw.breakFieldCard(slot.isP1(), cardZone(slot.zone()), slot.index());
+        collectBoardRows(rows, model, true);
+    }
+
+    /** The board-wide zone name for a debug row's zone. */
+    private static ForwardTarget.CardZone cardZone(FieldZone zone) {
+        return switch (zone) {
+            case BACKUP  -> ForwardTarget.CardZone.BACKUP;
+            case FORWARD -> ForwardTarget.CardZone.FORWARD;
+            case MONSTER -> ForwardTarget.CardZone.MONSTER;
+        };
     }
 
     /** The card currently occupying {@code slot}'s zone and index, or {@code null} if there is none. */
@@ -448,24 +491,20 @@ class DebugUtility {
         }
     }
 
-    /** Writes {@code state} into {@code slot}'s zone and repaints that slot on the board. */
+    /**
+     * Writes {@code state} into {@code slot}'s zone and turns that slot on the board to match, with
+     * the same rotation a dull or activation in play shows. The rotation re-renders the slot when
+     * it finishes.
+     */
     private void setSlotState(BoardSlot slot, CardState state) {
         boolean isP1 = slot.isP1();
         int idx = slot.index();
         switch (slot.zone()) {
-            case BACKUP -> {
-                if (isP1) { mw.p1BackupStates[idx] = state; mw.refreshP1BackupSlot(idx); }
-                else      { mw.p2BackupStates[idx] = state; mw.refreshP2BackupSlot(idx); }
-            }
-            case FORWARD -> {
-                if (isP1) { mw.p1ForwardStates.set(idx, state); mw.refreshP1ForwardSlot(idx); }
-                else      { mw.p2ForwardStates.set(idx, state); mw.refreshP2ForwardSlot(idx); }
-            }
-            case MONSTER -> {
-                if (isP1) { mw.p1MonsterStates.set(idx, state); mw.refreshP1MonsterSlot(idx); }
-                else      { mw.p2MonsterStates.set(idx, state); mw.refreshP2MonsterSlot(idx); }
-            }
+            case BACKUP  -> (isP1 ? mw.p1BackupStates : mw.p2BackupStates)[idx] = state;
+            case FORWARD -> (isP1 ? mw.p1ForwardStates : mw.p2ForwardStates).set(idx, state);
+            case MONSTER -> (isP1 ? mw.p1MonsterStates : mw.p2MonsterStates).set(idx, state);
         }
+        mw.animateFieldCardRotation(isP1, cardZone(slot.zone()), idx, state == CardState.DULL);
     }
 
     /** How a state reads in the dialog's State column. */
@@ -492,6 +531,20 @@ class DebugUtility {
         int[] xs = { 1, sz - 1, sz / 2 };
         int[] ys = up ? new int[] { sz - 2, sz - 2, 1 } : new int[] { 1, 1, sz - 2 };
         g.fillPolygon(xs, ys, 3);
+        g.dispose();
+        return new ImageIcon(img);
+    }
+
+    /** Paints a small round-capped {@code X} icon in the given color. */
+    private static Icon crossIcon(Color color) {
+        int sz = 12;
+        BufferedImage img = new BufferedImage(sz, sz, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(color);
+        g.setStroke(new BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.drawLine(2, 2, sz - 3, sz - 3);
+        g.drawLine(sz - 3, 2, 2, sz - 3);
         g.dispose();
         return new ImageIcon(img);
     }

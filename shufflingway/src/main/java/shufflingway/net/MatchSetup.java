@@ -17,13 +17,22 @@ import java.util.Random;
  * @param seed           shared shuffle seed; see {@link #hostDeckRandom()}
  * @param localIsHost    true on the client that hosted the lobby
  * @param hostGoesFirst  whether the host takes the first turn (the host's coin flip)
+ * @param debugEnabled   whether the host allowed the Debug menu for this match; when false it
+ *                       is unusable on both clients for the whole game
  */
 public record MatchSetup(int localDeckId, List<String> remoteSerials, String remoteDeckName,
                          String remoteUsername, long seed, boolean localIsHost,
-                         boolean hostGoesFirst) {
+                         boolean hostGoesFirst, boolean debugEnabled) {
 
 	public MatchSetup {
 		remoteSerials = List.copyOf(remoteSerials);
+	}
+
+	/** A match with debugging off, the lobby's default. */
+	public MatchSetup(int localDeckId, List<String> remoteSerials, String remoteDeckName,
+	                  String remoteUsername, long seed, boolean localIsHost, boolean hostGoesFirst) {
+		this(localDeckId, remoteSerials, remoteDeckName, remoteUsername, seed, localIsHost,
+				hostGoesFirst, false);
 	}
 
 	/** True when the local player takes the first turn. */

@@ -710,6 +710,8 @@ public class MainWindow {
 	private Timer         p2AutoPassTimer;
 	/** Polls for a Main Phase P1 has nothing left to do in; see {@link #pollMainPhaseAutoAdvance}. */
 	private Timer         mainPhaseAutoAdvanceTimer;
+	/** The Debug menu, or {@code null} when debug mode is off. */
+	private DebugMenu debugMenu;
 	private final MainPhaseAutoAdvance mainPhaseAutoAdvance = new MainPhaseAutoAdvance(MAIN_PHASE_AUTO_ADVANCE_DELAY_MS);
 	/** Non-null while P1 holds priority during P2's main phase; callback advances to the next phase. */
 	Runnable              p1PriorityInP2MainOnDone = null;
@@ -1740,8 +1742,9 @@ public class MainWindow {
 
 		if (AppSettings.isDebugEnabled()) {
 			DebugUtility debug = new DebugUtility(this);
-			menuBar.add(new DebugMenu(debug::spawnOnField, debug::addToHand, debug::addToBreakZone,
-					debug::addRemoveCounters, debug::activateDullCards, debug::setDamageAndCrystals));
+			debugMenu = new DebugMenu(debug::spawnOnField, debug::addToHand, debug::addToBreakZone,
+					debug::addRemoveCounters, debug::activateDullCardsOrBreak, debug::setDamageAndCrystals);
+			menuBar.add(debugMenu);
 		}
 
 		Dimension cardSize = new Dimension(CARD_W, CARD_H);
@@ -2443,6 +2446,7 @@ public class MainWindow {
 
 	private void startGame(int deckId, int p2DeckId) {
 		matchSetup = null;              // a local game against the AI
+		refreshDebugMenuAvailability();
 		resetForNewGame();
 		applyTurnPillNames();
 		loadCpuGameDecks(deckId, p2DeckId);
@@ -2458,6 +2462,7 @@ public class MainWindow {
 	 */
 	void startMultiplayerGame(MatchSetup setup) {
 		matchSetup         = setup;
+		refreshDebugMenuAvailability();
 		localDealChecksum  = null;
 		remoteDealChecksum = null;
 		localHandKept      = false;
@@ -2466,6 +2471,18 @@ public class MainWindow {
 		resetForNewGame();
 		applyTurnPillNames();
 		loadMultiplayerDecks(setup);
+	}
+
+	/**
+	 * Greys out the Debug menu for a networked match whose host left "Enable Debugging" unchecked,
+	 * on both clients alike, and restores it for any other game. A local game against the AI always
+	 * has it. No-op when debug mode is off, as there is no menu.
+	 */
+	private void refreshDebugMenuAvailability() {
+		if (debugMenu == null) return;
+		boolean allowed = matchSetup == null || matchSetup.debugEnabled();
+		debugMenu.setEnabled(allowed);
+		debugMenu.setToolTipText(allowed ? null : "The host has not enabled debugging for this game.");
 	}
 
 	/**
@@ -13028,6 +13045,28 @@ public class MainWindow {
 	void animateActivateP2Monster(int idx) {
 		animateCardRotation(p2MonsterUrls.get(idx), p2MonsterLabels.get(idx), false, null,
 				() -> refreshP2MonsterSlot(idx), null);
+	}
+
+	/**
+	 * Turns any field card between upright and dulled with the usual rotation, for either player
+	 * and any zone. Animation only: the caller has already written the state, and the slot is
+	 * re-rendered from it when the rotation finishes.
+	 */
+	void animateFieldCardRotation(boolean isP1, ForwardTarget.CardZone zone, int idx, boolean dulling) {
+		switch (zone) {
+			case BACKUP -> {
+				if (isP1) animateDullBackup(idx, dulling); else animateDullP2Backup(idx, dulling);
+			}
+			case FORWARD -> animateCardRotation(
+					(isP1 ? p1ForwardUrls : p2ForwardUrls).get(idx),
+					(isP1 ? p1ForwardLabels : p2ForwardLabels).get(idx), dulling, null,
+					() -> { if (isP1) refreshP1ForwardSlot(idx); else refreshP2ForwardSlot(idx); }, null);
+			case MONSTER -> animateCardRotation(
+					(isP1 ? p1MonsterUrls : p2MonsterUrls).get(idx),
+					(isP1 ? p1MonsterLabels : p2MonsterLabels).get(idx), dulling, null,
+					() -> { if (isP1) refreshP1MonsterSlot(idx); else refreshP2MonsterSlot(idx); }, null);
+			default -> { }
+		}
 	}
 
 	private static String buildCounterTooltip(Map<String, Integer> countersMap) {
