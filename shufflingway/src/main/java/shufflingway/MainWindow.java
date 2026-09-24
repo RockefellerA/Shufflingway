@@ -143,6 +143,7 @@ import shufflingway.net.ChoiceKind;
 import shufflingway.net.GameAction;
 import shufflingway.net.GameConnection;
 import shufflingway.net.MatchSetup;
+import shufflingway.net.NewGameDialog;
 
 public class MainWindow {
 
@@ -710,6 +711,8 @@ public class MainWindow {
 	private Timer         p2AutoPassTimer;
 	/** Polls for a Main Phase P1 has nothing left to do in; see {@link #pollMainPhaseAutoAdvance}. */
 	private Timer         mainPhaseAutoAdvanceTimer;
+	/** The open File → New Game negotiation on a multiplayer connection, or {@code null}. */
+	private NewGameDialog newGameDialog;
 	/** The Debug menu, or {@code null} when debug mode is off. */
 	private DebugMenu debugMenu;
 	private final MainPhaseAutoAdvance mainPhaseAutoAdvance = new MainPhaseAutoAdvance(MAIN_PHASE_AUTO_ADVANCE_DELAY_MS);
@@ -1711,7 +1714,8 @@ public class MainWindow {
 		frame.setJMenuBar(menuBar);
 		menuBar.add(new FileMenu(frame, (p1Id, p2Id) -> startGame(p1Id, p2Id),
 				() -> applySidePanelSide(AppSettings.getSidePanelSide()),
-				this::applyBoardColor));
+				this::applyBoardColor,
+				this::multiplayerConnected, this::requestMultiplayerNewGame));
 		multiplayerMenu = new MultiplayerMenu(frame,
 				setup -> {
 					SwingUtilities.invokeLater(() -> {
@@ -1723,6 +1727,8 @@ public class MainWindow {
 				reason -> SwingUtilities.invokeLater(() -> {
 					chatInput.setEnabled(false);
 					chatSendBtn.setEnabled(false);
+					if (newGameDialog != null) newGameDialog.connectionLost();
+					refreshDebugMenuAvailability();   // the host's setting ends with the session
 					onOpponentDisconnected(reason);
 				}),
 				action -> {
@@ -1731,6 +1737,8 @@ public class MainWindow {
 						if (!msg.isEmpty()) logEntry("[Opponent] " + msg);
 					} else if (action.type() == ActionType.STATE_CHECKSUM) {
 						onRemoteChecksum(action.payload());
+					} else if (isNewGameMessage(action.type())) {
+						onNewGameMessage(action);
 					} else if (opponent instanceof RemoteOpponent remote) {
 						// Everything else is the opponent playing; they own its interpretation.
 						if (!remote.onActionReceived(action))
@@ -2475,14 +2483,68 @@ public class MainWindow {
 
 	/**
 	 * Greys out the Debug menu for a networked match whose host left "Enable Debugging" unchecked,
-	 * on both clients alike, and restores it for any other game. A local game against the AI always
-	 * has it. No-op when debug mode is off, as there is no menu.
+	 * on both clients alike, and restores it for any other game and as soon as the connection
+	 * ends. A local game against the AI always has it. No-op when debug mode is off, as there is
+	 * no menu.
 	 */
 	private void refreshDebugMenuAvailability() {
 		if (debugMenu == null) return;
-		boolean allowed = matchSetup == null || matchSetup.debugEnabled();
+		boolean allowed = matchSetup == null || !multiplayerConnected() || matchSetup.debugEnabled();
 		debugMenu.setEnabled(allowed);
 		debugMenu.setToolTipText(allowed ? null : "The host has not enabled debugging for this game.");
+	}
+
+	/** Whether a multiplayer connection is open. */
+	private boolean multiplayerConnected() {
+		return multiplayerMenu != null && multiplayerMenu.getActiveConnection() != null;
+	}
+
+	/** Sends straight to the peer, past the opponent controller, which a new game replaces. */
+	private void sendOnConnection(GameAction action) {
+		GameConnection conn = multiplayerMenu == null ? null : multiplayerMenu.getActiveConnection();
+		if (conn != null) conn.send(action);
+	}
+
+	/**
+	 * File → New Game while connected: confirm, ask the opponent, and pick a deck while waiting
+	 * for them. The game in progress carries on underneath if either player cancels.
+	 */
+	private void requestMultiplayerNewGame() {
+		if (newGameDialog != null || matchSetup == null) return;
+		int choice = JOptionPane.showConfirmDialog(frame, "Do you want to start a new game?",
+				"New Game", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+		if (choice != JOptionPane.YES_OPTION) return;
+		sendOnConnection(GameAction.of(ActionType.NEW_GAME_REQUEST));
+		openNewGameDialog(true);
+	}
+
+	/** The messages {@link NewGameDialog} negotiates with. GAME_SETUP only arrives after the lobby for a new game. */
+	private static boolean isNewGameMessage(ActionType type) {
+		return type == ActionType.NEW_GAME_REQUEST || type == ActionType.NEW_GAME_READY
+				|| type == ActionType.NEW_GAME_CANCEL || type == ActionType.GAME_SETUP;
+	}
+
+	private void onNewGameMessage(GameAction action) {
+		if (newGameDialog != null && newGameDialog.onAction(action)) return;
+		if (action.type() == ActionType.NEW_GAME_REQUEST && matchSetup != null) openNewGameDialog(false);
+		// Anything else belongs to a negotiation this side has already closed — a Ready crossing
+		// a Cancel on the wire — and has nothing left to act on.
+	}
+
+	/**
+	 * Shows the new-game dialog until it starts, is cancelled, or the connection drops. Modal,
+	 * but its nested event loop keeps delivering inbound actions, which reach it through
+	 * {@link #onNewGameMessage} — including the GAME_SETUP that starts the game from inside it.
+	 */
+	private void openNewGameDialog(boolean requestedLocally) {
+		NewGameDialog dlg = new NewGameDialog(frame, matchSetup, requestedLocally,
+				this::sendOnConnection, this::startMultiplayerGame);
+		newGameDialog = dlg;
+		try {
+			dlg.setVisible(true);
+		} finally {
+			if (newGameDialog == dlg) newGameDialog = null;
+		}
 	}
 
 	/**

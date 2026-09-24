@@ -13,6 +13,12 @@ public enum ActionType {
     GAME_SETUP,     // payload: { "seed": <long>, "hostGoesFirst": <bool>, "debug": <bool> }
                     //   Host-authored. The seed drives both decks' shuffles on both clients;
                     //   "debug" is whether the Debug menu is usable during the match.
+    NEW_GAME_REQUEST, // payload: {}
+                    //   Mid-session: the sender wants to abandon the game in progress and start a
+                    //   new one on the same connection. The receiver is asked to pick a deck.
+    NEW_GAME_READY, // payload: as DECK_LIST — the sender's deck for the new game, sent on Ready
+    NEW_GAME_CANCEL,// payload: {} — the sender backed out; both return to the game in progress.
+                    //   Once both sides are Ready the host starts the new game with GAME_SETUP.
     LOBBY_SETTINGS, // payload: { "debug": <bool> }
                     //   Host → joiner while both wait in the lobby: the host's current match
                     //   options, sent on connect and again whenever one changes, so the joiner

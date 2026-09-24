@@ -39,11 +39,16 @@ public final class LobbyExchange {
 	 * the local player's username so the peer can label us on their board.
 	 */
 	public static GameAction deckListAction(int deckId, String deckName) throws SQLException {
+		return deckListAction(ActionType.DECK_LIST, deckId, deckName);
+	}
+
+	/** {@link #deckListAction(int, String)} under another type — NEW_GAME_READY carries the same payload. */
+	public static GameAction deckListAction(ActionType type, int deckId, String deckName) throws SQLException {
 		List<String> serials;
 		try (DeckDatabase db = new DeckDatabase()) {
 			serials = db.getDeckSerials(deckId);
 		}
-		return GameAction.of(ActionType.DECK_LIST, new JSONObject()
+		return GameAction.of(type, new JSONObject()
 				.put("deckName", deckName == null ? "Opponent's deck" : deckName)
 				.put("username", AppSettings.getUsername())
 				.put("serials", new JSONArray(serials)));
@@ -85,6 +90,15 @@ public final class LobbyExchange {
 		if (action.type() != ActionType.DECK_LIST) {
 			throw new IOException("Expected a deck list, got " + action.type());
 		}
+		return remoteDeckOf(action);
+	}
+
+	/**
+	 * The deck a DECK_LIST-shaped payload carries (DECK_LIST, or NEW_GAME_READY between games).
+	 *
+	 * @throws IOException if it names no cards
+	 */
+	public static RemoteDeck remoteDeckOf(GameAction action) throws IOException {
 		JSONArray arr = action.payload().optJSONArray("serials");
 		if (arr == null || arr.isEmpty()) {
 			throw new IOException("Opponent sent an empty deck");
