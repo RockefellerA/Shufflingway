@@ -31,7 +31,8 @@ final class ActionResolverPatterns {
      *                                 25-057R Cutter, the corpus's only one). Callers that have an
      *                                 X value read it from there; callers that do not have to
      *                                 decline rather than parse the group as a number.</li>
-     *   <li>Group {@code condition} — optional: "dull", "damaged", "attacking", "blocking", or "active"</li>
+     *   <li>Group {@code condition} — optional: "dull", "damaged", "attacking", "blocking",
+     *                                 "attacking or blocking", or "active"</li>
      *   <li>Group {@code element}   — optional element name, e.g. "Fire", "Earth"</li>
      *   <li>Group {@code category}  — optional category filter, e.g. "VII" in "Category VII Forward"</li>
      *   <li>Group {@code targets}   — card type(s): "Forward(s)", "Forward(s) or Monster(s)",
@@ -53,7 +54,7 @@ final class ActionResolverPatterns {
     static final Pattern CHOOSE_CHARACTER_PATTERN = Pattern.compile(
             "(?i)Choose\\s+" +
                     "(?:(?<anycount>any\\s+number)|(?<upto>up\\s+to\\s+)?(?<count>\\d+|X))\\s+(?:of\\s+)?" +
-                    "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
+                    "(?:(?<condition>dull|damaged|attacking or blocking|attacking|blocking|active)\\s+)?" +
                     "(?:(?<element>(?:Multi-Element|Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
                     "(?:Category\\s+(?<category>.+?)(?=\\s+(?:cards?|Forwards?|Backups?|Characters?|Monsters?|Summons?))\\s+)?" +
                     // "Summon or Monster" (Citra 10-127H) is the Break Zone's own union, and the
@@ -2055,6 +2056,19 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_REMOVE_FROM_GAME = Pattern.compile(
         "(?i)Remove\\s+(?:it|them)\\s+from\\s+(?:the\\s+)?game"
     );
+
+    /**
+     * "Remove it/them from the game and &lt;effect&gt;." — a second, independent effect joined to the
+     * removal (24-070L Lightning: "… and return Lightning to its owner's hand"). Group {@code rest}
+     * is parsed on its own. Read ahead of {@link #FOLLOWUP_REMOVE_FROM_GAME}, which find()s the
+     * prefix and would drop the rest.
+     */
+    static final Pattern FOLLOWUP_REMOVE_FROM_GAME_AND_EFFECT = Pattern.compile(
+        "(?i)^Remove\\s+(?:it|them)\\s+from\\s+(?:the\\s+)?game\\s+and\\s+(?<rest>.+?)[.!]?\\s*$"
+    );
+
+    /** A bare "it"/"them" — a tail that would point back at the card just chosen. */
+    static final Pattern PRONOUN_IT_THEM = Pattern.compile("(?i)\\b(?:it|them)\\b");
 
     /**
      * "Remove them, and all the Forwards and Monsters opponent controls from the game." —

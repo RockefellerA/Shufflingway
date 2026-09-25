@@ -5957,17 +5957,15 @@ public class CardBehaviorTest {
         assertEquals("choose 1 Forward opponent controls. Deal it 9000 damage.", m.group("sub").trim());
     }
 
-    // The bug was a misdispatch, so the ordering that produced it has to stay pinned: the generic
-    // pattern must claim this text before the self-break pattern is ever consulted.
+    // The bug was a misdispatch: the self-break pattern read "1 Fire Backup you control" as a card
+    // name. The generic pattern is still checked first, and the self-break pattern no longer takes a
+    // subject that opens with a count, so either alone keeps this text on the right handler.
     @Test
     void elementQualifiedPutIntoBreakZoneIsNotClaimedBySelfBreak() {
         assertTrue(AutoAbilityTriggers.FA_PUT_INTO_BZ_WHEN_DO_SO.matcher(VINCENT_PUT_FIRE_BACKUP).find(),
                 "generic put-into-BZ is checked first and must match");
-        java.util.regex.Matcher selfM =
-                AutoAbilityTriggers.FA_PUT_SELF_INTO_BZ_IF_DO_SO.matcher(VINCENT_PUT_FIRE_BACKUP);
-        assertTrue(selfM.find(), "the self-break pattern still matches this shape — hence the ordering");
-        assertEquals("1 Fire Backup you control", selfM.group("cardname"),
-                "documents the wrong-handler capture the ordering exists to prevent");
+        assertFalse(AutoAbilityTriggers.FA_PUT_SELF_INTO_BZ_IF_DO_SO.matcher(VINCENT_PUT_FIRE_BACKUP).find(),
+                "a counted subject is no card's name");
     }
 
     @Test
@@ -65497,6 +65495,291 @@ public class CardBehaviorTest {
 				cards, any, any, RevealRest.BOTTOM, true);
 		assertEquals(List.of(0), and.toField());
 		assertEquals(List.of(1), and.toHand());
+	}
+
+	// =========================================================================================
+	// 24-070L Lightning. Her action ability is used from the hand and plays her from there, at a
+	// cost of 《1》 and a Lightning removed from the Break Zone; her auto removes an attacking or
+	// blocking Forward and then returns her to hand.
+	// =========================================================================================
+
+	private static final String LIGHTNING_24_070L = "When Lightning blocks or is blocked, choose 1 attacking or "
+			+ "blocking Forward opponent controls. Remove it from the game and return Lightning to its owner's "
+			+ "hand.[[br]]《1》, reveal Lightning from your hand, remove 1 Card Name Lightning in the Break Zone "
+			+ "from the game: Play Lightning onto the field. You can only use this ability if Lightning is in "
+			+ "your hand.";
+
+	@Test
+	void lightningsHandAbilityReadsItsWholeCost() {
+		List<ActionAbility> abilities = CardData.parseActionAbilities(LIGHTNING_24_070L);
+		assertEquals(1, abilities.size());
+		ActionAbility ab = abilities.get(0);
+		assertTrue(ab.whileCardInHand());
+		assertEquals(List.of(""), ab.cpCost(), "《1》");
+		assertEquals(List.of(new RemoveFromGameCost("BREAK_ZONE", 1, "Lightning", null, null, null)),
+				ab.removeFromGameCosts(), "the auto's \"Remove it from the game\" is not this cost");
+	}
+
+	@Test
+	void aRemoveCostDoesNotStartInThePreviousAbility() {
+		List<ActionAbility> lenne = CardData.parseActionAbilities("At the beginning of the Attack Phase during "
+				+ "each of your turns, remove the top card of your deck from the game. You can cast it at any time "
+				+ "you could normally cast it this turn.[[br]]《1》, remove Lenne from the game: Choose 1 Summon in "
+				+ "your Break Zone. Remove it from the game. During this game, you can cast it at any time you "
+				+ "could normally cast it.");
+		assertEquals(1, lenne.size());
+		assertEquals(List.of(""), lenne.get(0).cpCost());
+		assertEquals("Lenne", lenne.get(0).removeFromGameCosts().get(0).cardName());
+
+		List<ActionAbility> lightning = CardData.parseActionAbilities("When Lightning in any zone is removed "
+				+ "from the game, you may pay 《4》. When you do so, choose 1 Forward opponent controls. Remove it "
+				+ "from the game.[[br]]《6》, remove Lightning in your Break Zone from the game: Search for 1 Card "
+				+ "Name Lightning of cost 6 or less and play it onto the field. You can only use this ability "
+				+ "during your turn and if Lightning is in the Break Zone.");
+		assertEquals(1, lightning.size());
+		assertEquals(6, lightning.get(0).cpCost().size(), "《6》 used to be swallowed with the auto's text");
+		assertEquals(List.of(new RemoveFromGameCost("BREAK_ZONE", 1, "Lightning", null, null, null)),
+				lightning.get(0).removeFromGameCosts());
+	}
+
+	@Test
+	void meiasRemovalCostTakesAnyMobiusCardFromTheBreakZone() {
+		List<ActionAbility> meia = CardData.parseActionAbilities("《Dull》, remove 1 Category MOBIUS card in the "
+				+ "Break Zone from the game: During this turn, the cost required to cast your next Summon is "
+				+ "reduced by 1 (it cannot become 0).");
+		assertEquals(1, meia.size());
+		RemoveFromGameCost rfg = meia.get(0).removeFromGameCosts().get(0);
+		assertEquals(new RemoveFromGameCost("BREAK_ZONE", 1, null, null, "Category MOBIUS card", null), rfg);
+
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP1BreakZone().add(makeForward("Other", "Fire", 3, 5000));
+		assertFalse(mw.autoAbilityTriggers.rfgCostSatisfied(rfg, true), "no MOBIUS card to remove");
+		mw.gameState.getP1BreakZone().add(makeCategoryCard("Wol", "MOBIUS", "Backup"));
+		assertTrue(mw.autoAbilityTriggers.rfgCostSatisfied(rfg, true));
+	}
+
+	@Test
+	void aRevealFromHandCostIsOnlyReadOnAHandAbility() {
+		assertTrue(CardData.parseActionAbilities("《1》, reveal Foo from your hand: Draw 1 card.").isEmpty(),
+				"nothing guarantees Foo is in hand, and the reveal is not enforced");
+	}
+
+	@Test
+	void lightningPlaysHerselfFromHandNotFromTheBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData inHand = makeTextCard("Lightning", "Earth", "Forward", 2, 7000, null, LIGHTNING_24_070L);
+		CardData inBz   = makeTextCard("Lightning", "Earth", "Forward", 2, 7000, null, LIGHTNING_24_070L);
+		mw.gameState.getIdentity().put(inHand, true);
+		mw.gameState.getIdentity().put(inBz, true);
+		mw.gameState.getP1Hand().add(inHand);
+		mw.gameState.getP1BreakZone().add(inBz);
+
+		ActionResolver.parse(inHand.actionAbilities().get(0).effectText(), inHand)
+				.accept(mw.buildGameContext(true));
+
+		assertTrue(mw.p1ForwardCards.contains(inHand));
+		assertTrue(mw.gameState.getP1Hand().isEmpty());
+		assertEquals(1, mw.gameState.getP1BreakZone().size(), "the Break Zone copy stays put");
+	}
+
+	@Test
+	void lightningRemovesTheAttackingOrBlockingForwardAndReturnsToHand() {
+		CardData lightning = makeTextCard("Lightning", "Earth", "Forward", 2, 7000, null, LIGHTNING_24_070L);
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+		stubChosenForwards(ctx, List.of(t));
+
+		ActionResolver.parse(lightning.autoAbilities().get(0).effectText(), lightning).accept(ctx);
+
+		verify(ctx).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				eq("attacking or blocking"), any(), anyInt(), any(), anyInt(), any(),
+				anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx).removeTargetFromGame(t);
+		verify(ctx).returnNamedCardToOwnersHand("Lightning");
+	}
+
+	@Test
+	void attackingOrBlockingAdmitsEitherButNotNeither() {
+		assertTrue(CardFilters.meetsTargetCondition(CardState.DULL, 0, true, false, "attacking or blocking"));
+		assertTrue(CardFilters.meetsTargetCondition(CardState.ACTIVE, 0, false, true, "attacking or blocking"));
+		assertFalse(CardFilters.meetsTargetCondition(CardState.ACTIVE, 0, false, false, "attacking or blocking"));
+	}
+
+	// =========================================================================================
+	// Self-sacrifice watchers of an arriving Forward. "Put [Self] into the Break Zone. If you do so,
+	// deal it 8000 damage" — "it" is the Forward that entered. The payoff used to be unread, so the
+	// card was put into the Break Zone for nothing; it is now read against the arrival, and read
+	// before anything is paid.
+	// =========================================================================================
+
+	/** P1's Forward arrives on P1's field and fires P2's watchers. */
+	private static CardData arriveOnP1(MainWindow mw, int power) {
+		CardData foe = makeForward("Foe", "Ice", 3, power);
+		mw.gameState.getIdentity().put(foe, true);
+		mw.placeCardInForwardZone(foe);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(foe, true);
+		return foe;
+	}
+
+	@Test
+	void grenadeBreaksItselfToDamageTheArrival() {
+		MainWindow mw = new MainWindow();
+		CardData grenade = makeTextCard("Grenade", "Fire", "Monster", 2, 0, null, "When a Forward of your "
+				+ "opponent with 8000 power or less enters the field, put Grenade into the Break Zone. If you "
+				+ "do so, deal it 8000 damage.");
+		mw.gameState.getIdentity().put(grenade, false);
+		mw.placeP2CardInMonsterZone(grenade);
+
+		CardData foe = arriveOnP1(mw, 8000);
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(grenade));
+		assertFalse(mw.p1ForwardCards.contains(foe), "8000 damage breaks the 8000 Forward");
+	}
+
+	@Test
+	void grenadeIgnoresAnArrivalOverItsPowerBound() {
+		MainWindow mw = new MainWindow();
+		CardData grenade = makeTextCard("Grenade", "Fire", "Monster", 2, 0, null, "When a Forward of your "
+				+ "opponent with 8000 power or less enters the field, put Grenade into the Break Zone. If you "
+				+ "do so, deal it 8000 damage.");
+		mw.gameState.getIdentity().put(grenade, false);
+		mw.placeP2CardInMonsterZone(grenade);
+
+		CardData foe = arriveOnP1(mw, 9000);
+
+		assertTrue(mw.p2MonsterCards.contains(grenade), "\"with 8000 power or less\" is a bound");
+		assertTrue(mw.p1ForwardCards.contains(foe));
+	}
+
+	@Test
+	void buffasaurDealsItsDamageAndThenItsDrawback() {
+		MainWindow mw = new MainWindow();
+		CardData buffasaur = makeTextCard("Buffasaur", "Fire", "Monster", 2, 0, null, "When a Forward of "
+				+ "your opponent enters the field, you may put Buffasaur into the Break Zone. When you do so, "
+				+ "deal it 8000 damage. Buffasaur deals you 1 point of damage.");
+		mw.gameState.getIdentity().put(buffasaur, false);
+		mw.placeP2CardInMonsterZone(buffasaur);
+		stackP2Deck(mw, makeForward("Top", "Fire", 1, 1000));
+
+		CardData foe = arriveOnP1(mw, 7000);
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(buffasaur));
+		assertFalse(mw.p1ForwardCards.contains(foe), "the 8000 used to be dropped");
+		assertEquals(1, mw.gameState.getP2DamageZone().size());
+	}
+
+	@Test
+	void selphiesGrantReachesTheArrivalThroughTheTriggerBatch() {
+		// The enters-field watchers are collected into a batch and resolved after the watcher has
+		// cleared the arriving card, so it has to travel on the batch item.
+		MainWindow mw = new MainWindow();
+		CardData selphie = makeAutoAbilityForward("Selphie", "Fire", 5000,
+				"When a Multi-Element Forward enters your field, " + SELPHIE_13_009H);
+		mw.gameState.getIdentity().put(selphie, false);
+		mw.placeP2CardInForwardZone(selphie);
+		activeP2Backups(mw, "Fire", 1);
+		CardData arrival = makeForward("Arriving", "Fire/Ice", 4, 7000);
+		mw.gameState.getIdentity().put(arrival, false);
+		mw.placeP2CardInForwardZone(arrival);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(arrival, false);
+
+		assertEquals(2000, mw.p2ForwardPowerBoost.get(mw.p2ForwardCards.indexOf(arrival)));
+	}
+
+	// ---- Who may pay 《X》: 17-020R Montblanc, 26-040R Menphina --------------------------------
+
+	private static final String MONTBLANC_17_020R = "When Montblanc enters the field, you may pay 《X》. "
+			+ "When you do so, search for 1 Card Name Hurdy of cost X and play it onto the field. You can only "
+			+ "use Ice CP to pay 《X》.";
+
+	@Test
+	void xPaymentSourceReadsBothRestrictions() {
+		Predicate<CardData> ice = AutoAbilityTriggers.xPaymentSource("You can only use Ice CP to pay 《X》.");
+		assertTrue(ice.test(makePlainBackup("I", "Ice", 1)));
+		assertFalse(ice.test(makePlainBackup("F", "Fire", 1)));
+
+		Predicate<CardData> twelve = AutoAbilityTriggers.xPaymentSource("You can only pay 《X》 with CP produced "
+				+ "by Job The Twelve Backups and/or discarding Job The Twelve cards.");
+		assertTrue(twelve.test(makeJobCard("Nald'thal", "Fire", "Backup", "The Twelve")));
+		assertFalse(twelve.test(makePlainBackup("Other", "Fire", 1)));
+
+		assertNull(AutoAbilityTriggers.xPaymentSource("search for 1 Forward of cost X."));
+	}
+
+	@Test
+	void theRestrictionSentenceIsNotLeftInThePayoff() {
+		assertEquals("search for 1 Card Name Hurdy of cost X and play it onto the field.",
+				AutoAbilityTriggers.withoutXPaymentSource("search for 1 Card Name Hurdy of cost X and play it "
+						+ "onto the field. You can only use Ice CP to pay 《X》."));
+	}
+
+	@Test
+	void theAiPaysMontblancsXOnlyWithIce() {
+		MainWindow mw = new MainWindow();
+		activeP2Backups(mw, "Fire", 1);
+		activeP2Backups(mw, "Ice", 1);
+		CardData montblanc = makeTextCard("Montblanc", "Ice", "Backup", 2, 0, null, MONTBLANC_17_020R);
+		mw.gameState.getIdentity().put(montblanc, false);
+
+		mw.placeP2CardInFirstBackupSlot(montblanc);   // fires its enters-the-field trigger
+
+		for (int i = 0; i < mw.p2BackupCards.length; i++) {
+			CardData b = mw.p2BackupCards[i];
+			if (b == null || b == montblanc) continue;
+			assertEquals(b.containsElement("Ice") ? CardState.DULL : CardState.ACTIVE, mw.p2BackupStates[i],
+					b.name());
+		}
+	}
+
+	@Test
+	void aMillOrAnyNumberSacrificeIsNotReadAsSelfSacrifice() {
+		// The self-sacrifice shape took these and then refused them as not naming the source, so
+		// all five did nothing. They belong to parse(), which reads each one whole.
+		for (String text : List.of(
+				"put the top 2 cards of your deck into the Break Zone. When you do so, choose 1 Forward. "
+						+ "It loses 5000 power until the end of the turn.",
+				"put any number of Forwards and/or Monsters you control into the Break Zone. When you do "
+						+ "so, your opponent selects 1 Forward they control for each Character you put into the "
+						+ "Break Zone by this effect (select as many as possible). Put them into the Break Zone. "
+						+ "Your opponent discards 1 card for each Character you put into the Break Zone by this "
+						+ "effect."))
+			assertNull(AutoAbilityTriggers.inlineShapeOf(text), text);
+		assertEquals("PutSelfIntoBzIfDoSo", AutoAbilityTriggers.inlineShapeOf(
+				"put Grenade into the Break Zone. If you do so, deal it 8000 damage."));
+	}
+
+	@Test
+	void aMillTriggerNowReachesTheStack() {
+		MainWindow mw = new MainWindow();
+		CardData miller = makeTextCard("Miller", "Fire", "Forward", 3, 7000, null, "When Miller enters the "
+				+ "field, put the top 2 cards of your deck into the Break Zone. When you do so, choose 1 "
+				+ "Forward. It loses 5000 power until the end of the turn.");
+		mw.gameState.getIdentity().put(miller, false);
+		mw.placeP2CardInForwardZone(miller);   // fires its enters-the-field trigger
+
+		assertEquals(1, mw.gameState.getStack().size());
+		assertSame(miller, mw.gameState.getStack().get(0).source());
+	}
+
+	@Test
+	void aSelfSacrificeWithAnUnreadPayoffKeepsTheCard() {
+		MainWindow mw = new MainWindow();
+		CardData bomb = makeTextCard("Bomb", "Fire", "Monster", 2, 0, null, "When a Forward of your "
+				+ "opponent enters the field, put Bomb into the Break Zone. If you do so, frobnicate it.");
+		mw.gameState.getIdentity().put(bomb, false);
+		mw.placeP2CardInMonsterZone(bomb);
+
+		arriveOnP1(mw, 7000);
+
+		assertTrue(mw.p2MonsterCards.contains(bomb), "not paid for an effect nothing reads");
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+	}
+
+	@Test
+	void aRemovalJoinedToAnUnreadEffectDeclines() {
+		assertNull(ActionResolver.parse("Choose 1 Forward. Remove it from the game and frobnicate the moon.", null));
 	}
 
 	// =========================================================================================

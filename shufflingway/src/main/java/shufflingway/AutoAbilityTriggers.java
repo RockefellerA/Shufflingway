@@ -25,6 +25,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.IntUnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -135,18 +137,23 @@ final class AutoAbilityTriggers {
 			List<StackOrderingDialog.Item> ordered = StackOrderingDialog.show(mw.frame,
 					"Choose Stack Order — " + role + " (" + (controllerIsP1 ? "P1" : "P2") + ")",
 					items);
-			for (int i = ordered.size() - 1; i >= 0; i--) {
-				StackOrderingDialog.Item it = ordered.get(i);
-				executeAutoAbilityImpl(it.ability(), it.source(), it.controllerIsP1(), it.paidExtraCost(),
-						it.triggerCard());
-			}
+			for (int i = ordered.size() - 1; i >= 0; i--) runBatchItem(ordered.get(i));
 		} else {
 			// No dialog: preserve historical iteration order (first walked = pushed
 			// first = bottom of stack = resolves last).
-			for (StackOrderingDialog.Item it : items) {
-				executeAutoAbilityImpl(it.ability(), it.source(), it.controllerIsP1(), it.paidExtraCost(),
-						it.triggerCard());
-			}
+			for (StackOrderingDialog.Item it : items) runBatchItem(it);
+		}
+	}
+
+	/** Runs one collected trigger with the arriving card it was collected under standing again. */
+	private void runBatchItem(StackOrderingDialog.Item it) {
+		CardData previousEntered = mw.triggeringEnteredCard;
+		mw.triggeringEnteredCard = it.enteredCard();
+		try {
+			executeAutoAbilityImpl(it.ability(), it.source(), it.controllerIsP1(), it.paidExtraCost(),
+					it.triggerCard());
+		} finally {
+			mw.triggeringEnteredCard = previousEntered;
 		}
 	}
 
@@ -232,9 +239,15 @@ final class AutoAbilityTriggers {
 	 * Matches "put [CardName] into the Break Zone. If/When you do so, [sub-effect]"
 	 * where [CardName] is the source card itself (self-break with conditional follow-up).
 	 * Distinct from {@link #FA_PUT_INTO_BZ_WHEN_DO_SO} which requires a numeric count and "you control".
+	 *
+	 * <p>{@code cardname} may not open with a quantity. "put the top 5 cards of your deck" (18-009H,
+	 * 22-005R, 22-079L, 26-117R) and "put any number of Forwards and/or Monsters you control"
+	 * (24-033L Bhunivelze) are no card's name, and claimed here the handler refused them as not
+	 * naming the source — so all five did nothing at all, although parse() reads each whole.
 	 */
 	static final Pattern FA_PUT_SELF_INTO_BZ_IF_DO_SO = Pattern.compile(
-			"(?i)^put\\s+(?<cardname>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.,]?\\s+" +
+			"(?i)^put\\s+(?!the\\s+top\\b|any\\s+number\\b|up\\s+to\\b|all\\b|\\d)" +
+			"(?<cardname>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.,]?\\s+" +
 			"(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(?<sub>.+?)$",
 			Pattern.DOTALL
 	);
@@ -1971,10 +1984,15 @@ final class AutoAbilityTriggers {
 		for (AutoAbility fa : mw.effectiveAutoAbilities(watcher)) {
 			if (!fa.trigger().equals("enters opponent's field not from hand")) continue;
 			if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard, watcher)) continue;
-			// Only the "if your opponent doesn't pay 《N》, [action]" form (Remedi) is wired for inline
-			// resolution with the entering card as its target. Other watchers of this trigger (e.g. Cid
-			// Raines / Jack Garland's "you may put self into the Break Zone. When you do so, …") need
-			// their own self-sacrifice + entering-card plumbing and remain dormant for now.
+			// The self-sacrifice form (26-031H Cid Raines, 28-010R Jack Garland: "you may put [Self]
+			// into the Break Zone. When you do so, break it / deal that Forward 9000 damage") goes
+			// through the trigger layer with the entering card standing behind "it".
+			if ("PutSelfIntoBzIfDoSo".equals(inlineShapeOf(fa.effectText()))) {
+				executeWithEnteredCard(fa, watcher, watcherIsP1, enteringCard);
+				continue;
+			}
+			// Otherwise only the "if your opponent doesn't pay 《N》, [action]" form (Remedi) is wired,
+			// resolved inline with the entering card as its target; any other watcher stays dormant.
 			if (!ActionResolver.isIfOppNotPayAction(fa.effectText())) continue;
 			Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), watcher);
 			if (effect == null) continue;
@@ -2140,12 +2158,29 @@ final class AutoAbilityTriggers {
 			// pay 《1》 and discard 1 Monster. When you do so, break that Forward." parses today as
 			// the discard alone, so running it would pay the cost and drop the payoff — worse than
 			// not firing. Wiring that sentence is what makes this branch go away.
-			if (REFERS_TO_ENTERING_CARD.matcher(fa.effectText()).find()) {
+			if (REFERS_TO_ENTERING_CARD.matcher(fa.effectText()).find()
+					&& !"PutSelfIntoBzIfDoSo".equals(AutoAbilityTriggers.inlineShapeOf(fa.effectText()))) {
 				mw.logEntry("[AutoAbility] " + watcher.name()
 						+ " — not wired to act on the entering card; skipped");
 				continue;
 			}
+			executeWithEnteredCard(fa, watcher, watcherIsP1, enteringCard);
+		}
+	}
+
+	/**
+	 * Runs {@code fa} with {@code enteringCard} standing as the card whose arrival fired it, as
+	 * {@link #fireEntersYourFieldWatcher} does. The self-sacrifice payoffs name it as "it" or "that
+	 * Forward" — see {@link #readSelfSacrificePayoff}.
+	 */
+	private void executeWithEnteredCard(AutoAbility fa, CardData watcher, boolean watcherIsP1,
+			CardData enteringCard) {
+		CardData previousEntered = mw.triggeringEnteredCard;
+		mw.triggeringEnteredCard = enteringCard;
+		try {
 			executeAutoAbility(fa, watcher, watcherIsP1);
+		} finally {
+			mw.triggeringEnteredCard = previousEntered;
 		}
 	}
 
@@ -2184,6 +2219,19 @@ final class AutoAbilityTriggers {
 	// =========================================================================================
 	// Trigger-subject matching
 	// =========================================================================================
+	/**
+	 * A subject ending in a cost or power bound: "… of cost 4 or less", "… of cost 1", "… with 8000
+	 * power or less", "… of power 9000 or more". Group {@code base} is the rest of the subject.
+	 */
+	private static final Pattern SUBJECT_COST_OR_POWER = Pattern.compile(
+			"(?i)^(?<base>.+?)\\s+(?:of\\s+cost\\s+(?<cost>\\d+)"
+			+ "|with\\s+(?<power>\\d+)\\s+power|of\\s+power\\s+(?<power2>\\d+))"
+			+ "(?:\\s+or\\s+(?<cmp>less|more))?$");
+
+	/** "a Forward of your opponent" — group 1 is the subject without the side. */
+	private static final Pattern SUBJECT_OF_YOUR_OPPONENT = Pattern.compile(
+			"(?i)^(.+?)\\s+of\\s+your\\s+opponent$");
+
 	/**
 	 * Returns {@code true} if {@code enteringCard} matches the watcher's subject phrase.
 	 * Compound disjunctive subjects ("X or a Y or a Card Name Z") produced by
@@ -2235,6 +2283,29 @@ final class AutoAbilityTriggers {
 
 	private boolean matchesSingleSubject(String subject, CardData enteringCard, CardData self) {
 		if (subject.isEmpty()) return false;
+		// A cost or power qualifier on any other subject — "a Forward of your opponent with 8000
+		// power or less" (5-008R Grenade), "a Character of cost 6 or more" (7-070R), eight printings.
+		// Without it the whole phrase fell through to the card-name match below and never fired.
+		Matcher qualM = SUBJECT_COST_OR_POWER.matcher(subject);
+		if (qualM.matches()) {
+			if (!matchesSingleSubject(qualM.group("base").trim(), enteringCard, self)) return false;
+			boolean orLess = "less".equalsIgnoreCase(qualM.group("cmp"));
+			boolean exact  = qualM.group("cmp") == null;
+			int value, bound;
+			if (qualM.group("cost") != null) {
+				value = enteringCard.cost();
+				bound = Integer.parseInt(qualM.group("cost"));
+			} else {
+				boolean side = Boolean.TRUE.equals(mw.gameState.getIdentity().get(enteringCard));
+				ForwardTarget at = enteringCardTarget(enteringCard, side);
+				value = at != null ? mw.fieldForwardPower(side, at.zone(), at.idx()) : enteringCard.power();
+				bound = Integer.parseInt(qualM.group("power") != null ? qualM.group("power") : qualM.group("power2"));
+			}
+			return exact ? value == bound : orLess ? value <= bound : value >= bound;
+		}
+		// "of your opponent" says only which side, which the trigger itself already says.
+		Matcher sideM = SUBJECT_OF_YOUR_OPPONENT.matcher(subject);
+		if (sideM.matches()) return matchesSingleSubject(sideM.group(1).trim(), enteringCard, self);
 		// "a [X] other than [Name]" — match base subject but exclude the named card
 		Matcher otherThanM = java.util.regex.Pattern.compile(
 				"(?i)^(.+?)\\s+other\\s+than\\s+(.+)$").matcher(subject);
@@ -4081,7 +4152,8 @@ final class AutoAbilityTriggers {
 			CardData triggerCard) {
 		if (mw.lostAbilitiesCards.contains(source)) return;
 		if (pendingBatch != null) {
-			pendingBatch.add(new StackOrderingDialog.Item(fa, source, isP1, paidExtraCost, triggerCard));
+			pendingBatch.add(new StackOrderingDialog.Item(fa, source, isP1, paidExtraCost, triggerCard,
+					mw.triggeringEnteredCard));
 			return;
 		}
 		executeAutoAbilityImpl(fa, source, isP1, paidExtraCost, triggerCard);
@@ -4476,8 +4548,31 @@ final class AutoAbilityTriggers {
 				boolean effectIsP1, Matcher m);
 	}
 
-	/** One shape {@link #dispatchInlineAutoAbility} resolves itself, found with {@code find()}. */
-	private record InlineShape(String name, Pattern pattern, InlineHandler handler) {}
+	/**
+	 * One shape {@link #dispatchInlineAutoAbility} resolves itself, found with {@code find()}.
+	 *
+	 * <p>{@code payoffs} names the text(s) the handler parses for the same match, so the
+	 * partial-parse report can measure what the layer actually runs; {@link #inlinePayoffReadable}
+	 * says which reader that is. {@code null} when {@link #inlineClaimOf} supplies them itself.
+	 */
+	private record InlineShape(String name, Pattern pattern, InlineHandler handler,
+			Function<Matcher, List<String>> payoffs) {}
+
+	/** The payoff of the many shapes that parse their {@code sub} group. */
+	private static List<String> subPayoff(Matcher m) {
+		return List.of(m.group("sub").trim());
+	}
+
+	/**
+	 * What {@link #readSelfSacrificePayoff} hands to {@link ActionResolver#parse}: the whole payoff,
+	 * or only the sentences after an arrival sentence it reads itself.
+	 */
+	private static List<String> selfSacrificePayoffs(Matcher m) {
+		String sub = m.group("sub").trim();
+		String[] parts = sub.split("(?<=[.!])\\s+(?=[A-Z])", 2);
+		if (!SACRIFICE_PAYOFF_ON_ARRIVAL.matcher(parts[0].trim()).matches()) return List.of(sub);
+		return parts.length > 1 ? List.of(parts[1].trim()) : List.of();
+	}
 
 	/**
 	 * The shapes {@code executeAutoAbilityImpl} resolves itself instead of pushing onto the Stack —
@@ -4492,43 +4587,106 @@ final class AutoAbilityTriggers {
 	private static final List<InlineShape> INLINE_SHAPES = List.of(
 		// "remove N [Name] Counter(s) from [CardName]. When you do so, [effect]"
 		new InlineShape("RemoveCounterWhenDoSo", FA_REMOVE_COUNTER_WHEN_DO_SO,
-				AutoAbilityTriggers::executeCounterRemovalWhenDoSoAutoAbility),
+				AutoAbilityTriggers::executeCounterRemovalWhenDoSoAutoAbility,
+				AutoAbilityTriggers::subPayoff),
 		// "pay 《X/N》. When you do so, [effect]" — requires a payment dialog before resolving.
 		new InlineShape("PayWhenDoSo", FA_PAY_WHEN_DO_SO,
-				AutoAbilityTriggers::executePayWhenDoSoAutoAbility),
+				AutoAbilityTriggers::executePayWhenDoSoAutoAbility,
+				m -> List.of(withoutXPaymentSource(m.group(2).trim()).replaceAll("[.!,]+$", ""))),
 		// "pay 《…》 or 《C》《C》. When you do so, [effect]" — CP or Crystals, the payer's choice
 		new InlineShape("PayOrCrystalsWhenDoSo", FA_PAY_OR_CRYSTALS_WHEN_DO_SO,
-				AutoAbilityTriggers::executePayOrCrystalsWhenDoSoAutoAbility),
+				AutoAbilityTriggers::executePayOrCrystalsWhenDoSoAutoAbility,
+				m -> List.of(m.group(3).trim().replaceAll("[.!,]+$", ""))),
 		// "remove N [type] [without 《Keyword》] you control from the game. When you do so, [effect]"
 		new InlineShape("RemoveFieldWhenDoSo", FA_REMOVE_FIELD_WHEN_DO_SO,
-				AutoAbilityTriggers::executeRemoveFieldWhenDoSoAutoAbility),
+				AutoAbilityTriggers::executeRemoveFieldWhenDoSoAutoAbility,
+				AutoAbilityTriggers::subPayoff),
 		// "put N [Job/CardName/type] you control into the Break Zone. When you do so, [effect]"
 		new InlineShape("PutIntoBzWhenDoSo", FA_PUT_INTO_BZ_WHEN_DO_SO,
-				AutoAbilityTriggers::executePutIntoBzWhenDoSoAutoAbility),
+				AutoAbilityTriggers::executePutIntoBzWhenDoSoAutoAbility,
+				AutoAbilityTriggers::subPayoff),
 		// "dull [CardName] if it is active. If/When you do so, [effect]" (self-dull)
 		new InlineShape("DullSelfIfDoSo", FA_DULL_SELF_IF_DO_SO,
-				AutoAbilityTriggers::executeDullSelfIfDoSoAutoAbility),
+				AutoAbilityTriggers::executeDullSelfIfDoSoAutoAbility,
+				AutoAbilityTriggers::subPayoff),
 		// "put [CardName] into the Break Zone. If/When you do so, [effect]" (self-break)
 		new InlineShape("PutSelfIntoBzIfDoSo", FA_PUT_SELF_INTO_BZ_IF_DO_SO,
-				AutoAbilityTriggers::executePutSelfIntoBzIfDoSoAutoAbility),
+				AutoAbilityTriggers::executePutSelfIntoBzIfDoSoAutoAbility,
+				AutoAbilityTriggers::selfSacrificePayoffs),
 		// "choose 1 <target>. You may put 1 <price> into the Break Zone. If you do so, <payoff>"
+		// The payoff is read by parseFormerLatterGroupAction; see inlinePayoffReadable.
 		new InlineShape("ChooseThenMayPutIntoBz", FA_CHOOSE_THEN_MAY_PUT_INTO_BZ,
-				AutoAbilityTriggers::executeChooseThenMayPutIntoBzAutoAbility),
-		// "select [up to] N of the M following actions. "..." "..."..."
+				AutoAbilityTriggers::executeChooseThenMayPutIntoBzAutoAbility,
+				AutoAbilityTriggers::subPayoff),
+		// "select [up to] N of the M following actions. "..." "..."..." — parse() reads the whole
+		// text, which inlineClaimOf supplies itself
 		new InlineShape("SelectFollowingActions", FA_SELECT_FOLLOWING_ACTIONS,
-				AutoAbilityTriggers::executeSelectFollowingActionsAutoAbility),
+				AutoAbilityTriggers::executeSelectFollowingActionsAutoAbility,
+				m -> null),
 		// "reveal any number of Summons from your hand. When you reveal no Summons, [effect0]. When you reveal N or more Summons, [effectN]."
 		new InlineShape("RevealSummonsConditional", FA_REVEAL_SUMMONS_CONDITIONAL,
-				AutoAbilityTriggers::executeRevealSummonsConditionalAutoAbility),
+				AutoAbilityTriggers::executeRevealSummonsConditionalAutoAbility,
+				m -> List.of(m.group("effect0").trim(), m.group("effectN").trim())),
 		// "reveal any number of Summons from your hand. When you do so, [effect on up to the same number of Characters]."
 		new InlineShape("RevealSummonsSameNumber", FA_REVEAL_SUMMONS_SAME_NUMBER,
-				AutoAbilityTriggers::executeRevealSummonsSameNumberAutoAbility),
+				AutoAbilityTriggers::executeRevealSummonsSameNumberAutoAbility,
+				m -> List.of(withRevealedCount(m.group("effect").trim(), 2))),
 		// "select the following actions from top to bottom up to the same number of Elements other than X as the cost you paid to cast [CardName]."
 		new InlineShape("SelectFollowingActionsDynamicElements", FA_SELECT_FOLLOWING_ACTIONS_DYNAMIC_ELEMENTS,
-				AutoAbilityTriggers::executeSelectFollowingActionsDynamicElements),
+				AutoAbilityTriggers::executeSelectFollowingActionsDynamicElements,
+				m -> ActionResolver.selectFollowingOptions(m.group("actions"))),
 		// "if [cast count | control count], you may put/pay …" — gate, then the rest re-dispatched
 		new InlineShape("ConditionGateMay", FA_CONDITION_GATE_MAY,
-				AutoAbilityTriggers::executeConditionGateMayAutoAbility));
+				AutoAbilityTriggers::executeConditionGateMayAutoAbility,
+				m -> {
+					InlineClaim inner = inlineClaimOf(m.group("rest").trim());
+					return inner == null ? List.of() : inner.payoffs();
+				}));
+
+	/**
+	 * What {@link #INLINE_SHAPES} does with one auto-ability's text, for the partial-parse report:
+	 * the shape that claims it, the payoff text(s) its handler parses ({@code null} when the handler
+	 * does not use {@link ActionResolver#parse}), and the text either side of the shape's
+	 * {@code find()} match, which no handler reads.
+	 */
+	record InlineClaim(String shape, List<String> payoffs, String before, String after) {}
+
+	/**
+	 * Whether a payoff {@link #inlineClaimOf} reported is one its handler can read, asked the way
+	 * the handler asks. The pay shapes resolve through {@link #applyPayWhenDoSoEffect}, which knows X
+	 * (one unit here, as the AI buys) and falls back to {@link ActionResolver#parsePayGatedFollowup}.
+	 */
+	static boolean inlinePayoffReadable(String shape, String payoff, CardData source) {
+		// A per-target action on the card chosen up front (4-087R Delita, 7-020C Lulu).
+		if (shape.endsWith("ChooseThenMayPutIntoBz"))
+			return ActionResolver.parseFormerLatterGroupAction(payoff) != null;
+		if (shape.endsWith("PayWhenDoSo") || shape.endsWith("PayOrCrystalsWhenDoSo"))
+			return ActionResolver.isGainCrystalPerX(payoff)
+					|| ActionResolver.parsePayGatedFollowup(payoff, source, 1) != null;
+		return ActionResolver.parse(payoff, source) != null;
+	}
+
+	/** The {@link InlineClaim} for {@code effectText}, or {@code null} when no shape takes it. */
+	static InlineClaim inlineClaimOf(String effectText) {
+		for (InlineShape s : INLINE_SHAPES) {
+			Matcher m = s.pattern().matcher(effectText);
+			if (!m.find()) continue;
+			// Its handler hands parse() the whole text, so nothing lies outside what it reads.
+			if (s.name().equals("SelectFollowingActions"))
+				return new InlineClaim(s.name(), List.of(effectText.trim()), "", "");
+			String before = effectText.substring(0, m.start());
+			String after  = effectText.substring(m.end());
+			// The gate re-dispatches its rest, so what lies outside the inner match is outside too.
+			if (s.name().equals("ConditionGateMay")) {
+				InlineClaim inner = inlineClaimOf(m.group("rest").trim());
+				if (inner != null)
+					return new InlineClaim(s.name() + ">" + inner.shape(), inner.payoffs(),
+							before + inner.before(), inner.after() + after);
+			}
+			return new InlineClaim(s.name(), s.payoffs().apply(m), before, after);
+		}
+		return null;
+	}
 
 	/**
 	 * The name of the inline shape that claims {@code effectText}, or {@code null} when it goes to
@@ -4782,6 +4940,15 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
+		// Read before anything is paid: a payoff nothing reads leaves the card where it is rather
+		// than breaking it for no effect (5-008R Grenade and 5-106R Black Knight, which are not
+		// optional, used to do exactly that on every trigger).
+		Consumer<GameContext> effect = readSelfSacrificePayoff(subEffect, source);
+		if (effect == null) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — unrecognized sub-effect, not paying for it: " + subEffect);
+			return;
+		}
+
 		// Only a printed "you may put …" is declinable, which the parser has already lifted into
 		// youMay/opponentMay. "If you do so" is not the choice it looks like: it gates the
 		// sub-effect on a step that has just happened unconditionally, and reading it as an offer
@@ -4825,14 +4992,61 @@ final class AutoAbilityTriggers {
 		}
 		mw.buildGameContext(isP1).forceTargetToBreakZone(slot);
 
-		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source);
-		if (effect == null) {
-			mw.logEntry("[AutoAbility] Unrecognized sub-effect: " + subEffect);
-			return;
-		}
 		mw.logEntry("[AutoAbility] " + source.name() + " — if you do so: " + subEffect);
 		effect.accept(mw.buildGameContext(effectIsP1));
 	}
+
+	/**
+	 * The payoff of "put [Self] into the Break Zone. If/When you do so, [payoff]".
+	 *
+	 * <p>Every printing whose first payoff sentence says "it" or "that Forward" is a watcher of a
+	 * card entering the field — 5-008R Grenade, 5-106R Black Knight, 19-008R Buffasaur, 26-031H Cid
+	 * Raines, 28-010R Jack Garland — and the source is already in the Break Zone, so the card meant
+	 * is the one that arrived. That sentence is read here, against the arriving card, and never
+	 * reaches {@link ActionResolver#parse}, whose chain reads "it" as a card a Choose picked (see
+	 * {@link ActionResolverPatterns#TRIGGERED_TARGET_ACTION_BARE}). Any sentences after it parse as
+	 * usual and must all be read, so Buffasaur's self-damage cannot run without its 8000.
+	 *
+	 * <p>{@code null} when any part is unread, or when no arriving card stands behind the trigger.
+	 */
+	private Consumer<GameContext> readSelfSacrificePayoff(String sub, CardData source) {
+		String[] parts = sub.trim().split("(?<=[.!])\\s+(?=[A-Z])", 2);
+		Matcher em = SACRIFICE_PAYOFF_ON_ARRIVAL.matcher(parts[0].trim());
+		if (!em.matches()) return ActionResolver.parse(sub, source);
+
+		// Set by the enters-field watchers around the dispatch. Absent (a trigger resolved from a
+		// batch, or some other event), the payoff is declined rather than guessed at.
+		CardData arrived = mw.triggeringEnteredCard;
+		if (arrived == null) return null;
+		boolean arrivedIsP1 = Boolean.TRUE.equals(mw.gameState.getIdentity().get(arrived));
+		if (enteringCardTarget(arrived, arrivedIsP1) == null) return null;
+		String verb = em.group("verb").trim();
+		String action = Character.toUpperCase(verb.charAt(0)) + verb.substring(1).toLowerCase(Locale.ROOT)
+				+ " it" + (em.group("tail") != null ? em.group("tail") : "");
+		BiConsumer<GameContext, List<ForwardTarget>> onArrival = ActionResolver.parseTargetAction(action, 0);
+		if (onArrival == null) return null;
+		Consumer<GameContext> rest = null;
+		if (parts.length > 1) {
+			rest = ActionResolver.parse(parts[1].trim(), source);
+			if (rest == null) return null;
+		}
+		Consumer<GameContext> then = rest;
+		return ctx -> {
+			// Looked up when the payoff runs, after the source has left: it may have shared a row.
+			ForwardTarget t = enteringCardTarget(arrived, arrivedIsP1);
+			if (t == null) ctx.logEntry(arrived.name() + " is no longer on the field");
+			else onArrival.accept(ctx, List.of(t));
+			if (then != null) then.accept(ctx);
+		};
+	}
+
+	/**
+	 * The first sentence of a self-sacrifice payoff that acts on the card whose arrival fired the
+	 * trigger: "deal it 8000 damage", "break it", "deal that Forward 9000 damage". Group
+	 * {@code verb} is the verb, and {@code tail} whatever follows the object.
+	 */
+	private static final Pattern SACRIFICE_PAYOFF_ON_ARRIVAL = Pattern.compile(
+			"(?i)^(?<verb>deal|break)\\s+(?:it|that\\s+(?:Forward|Character))(?<tail>\\s+\\d+\\s+damage)?\\s*[.!]?$");
 
 	/**
 	 * "Choose 1 &lt;target&gt;. You may put 1 &lt;price&gt; into the Break Zone. If you do so,
@@ -5124,10 +5338,48 @@ final class AutoAbilityTriggers {
 		return Math.max(0, paid - fixedCp) / cpPerUnitOfX;
 	}
 
+	/**
+	 * A rule on which cards may produce the CP paid for 《X》, as a test of the card producing it —
+	 * the Backup dulled or the card discarded. {@code null} when the text states none.
+	 * <ul>
+	 *   <li>"You can only use Ice CP to pay 《X》." — 17-020R Montblanc;</li>
+	 *   <li>"You can only pay 《X》 with CP produced by Job The Twelve Backups and/or discarding Job
+	 *       The Twelve cards." — 26-040R Menphina.</li>
+	 * </ul>
+	 */
+	static Predicate<CardData> xPaymentSource(String text) {
+		Matcher elem = FA_X_ONLY_ELEMENT_CP.matcher(text);
+		if (elem.find()) {
+			String e = elem.group("elem");
+			return c -> c.containsElement(e);
+		}
+		Matcher job = FA_X_ONLY_JOB_CP.matcher(text);
+		if (job.find() && job.group("job").trim().equalsIgnoreCase(job.group("job2").trim())) {
+			String j = job.group("job").trim();
+			return c -> c.hasJob(j);
+		}
+		return null;
+	}
+
+	/** {@code text} without the sentence {@link #xPaymentSource} reads, which is enforced at payment. */
+	static String withoutXPaymentSource(String text) {
+		String t = FA_X_ONLY_ELEMENT_CP.matcher(text).replaceAll("");
+		return FA_X_ONLY_JOB_CP.matcher(t).replaceAll("").trim();
+	}
+
+	private static final Pattern FA_X_ONLY_ELEMENT_CP = Pattern.compile(
+			"(?i)\\s*You\\s+can\\s+only\\s+use\\s+(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)"
+			+ "\\s+CP\\s+to\\s+pay\\s+《X》[.!]?");
+
+	private static final Pattern FA_X_ONLY_JOB_CP = Pattern.compile(
+			"(?i)\\s*You\\s+can\\s+only\\s+pay\\s+《X》\\s+with\\s+CP\\s+produced\\s+by\\s+Job\\s+(?<job>.+?)"
+			+ "\\s+Backups\\s+and/or\\s+discarding\\s+Job\\s+(?<job2>.+?)\\s+cards[.!]?");
+
 	private void executePayWhenDoSoAutoAbility(AutoAbility fa, CardData source, boolean isP1,
 			boolean effectIsP1, Matcher payM) {
 		String costRun   = payM.group(1).trim();
-		String subEffect = payM.group(2).trim().replaceAll("[.!,]+$", "");
+		Predicate<CardData> cpSource = xPaymentSource(payM.group(2));
+		String subEffect = withoutXPaymentSource(payM.group(2).trim()).replaceAll("[.!,]+$", "");
 
 		int[] tally = tallyPayRun(costRun);
 		if (tally == null) {
@@ -5140,6 +5392,12 @@ final class AutoAbilityTriggers {
 		final int fixedCost = tally[0];
 		final int xPerUnit  = tally[1];
 		final boolean isXCost = xPerUnit > 0;
+		// The rule covers 《X》 only. Both printings pay nothing else, so the whole payment is X; a
+		// run with a fixed part as well would need the two halves sourced apart, which nothing does.
+		if (cpSource != null && fixedCost > 0) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — 《X》 source rule beside a fixed cost is not supported, skipping");
+			return;
+		}
 
 		Matcher maxM = FA_MAX_X.matcher(fa.effectText());
 		// "The maximum you can pay for 《X》 is N" bounds X, so the CP ceiling is the fixed part plus
@@ -5188,7 +5446,7 @@ final class AutoAbilityTriggers {
 		if (!isP1) {
 			// The AI buys one unit of X, which is what it has always done for a plain 《X》.
 			int target = isXCost ? fixedCost + xPerUnit : fixedCost;
-			int paid   = aiPayCp(effectIsP1, target, elementNeeds);
+			int paid   = aiPayCp(effectIsP1, target, elementNeeds, cpSource);
 			if (paid < fixedCost) {
 				mw.logEntry("[AutoAbility] " + source.name() + " — [AI] could not pay " + costRun);
 				return;
@@ -5198,7 +5456,7 @@ final class AutoAbilityTriggers {
 		}
 
 		String finalSubEffect = subEffect;
-		showAutoAbilityPaymentDialog(source.name(), fixedCost, maxCp, isP1, 0, elementNeeds,
+		showAutoAbilityPaymentDialog(source.name(), fixedCost, maxCp, isP1, 0, elementNeeds, cpSource,
 				paid -> applyPayWhenDoSoEffect(finalSubEffect, source, xFromPaid.applyAsInt(paid), effectIsP1), null);
 	}
 
@@ -5344,7 +5602,16 @@ final class AutoAbilityTriggers {
 	 * cannot be covered nothing is spent and 0 is returned — the cost is not partly payable.
 	 */
 	int aiPayCp(boolean payerIsP1, int target, Map<String, Integer> elementNeeds) {
-		if (elementNeeds.isEmpty()) return aiPayCp(payerIsP1, target);
+		return aiPayCp(payerIsP1, target, elementNeeds, null);
+	}
+
+	/**
+	 * As above, with {@code cpSource} limiting which Backups may be dulled and which cards discarded
+	 * ({@link #xPaymentSource}); {@code null} for any.
+	 */
+	int aiPayCp(boolean payerIsP1, int target, Map<String, Integer> elementNeeds, Predicate<CardData> cpSource) {
+		if (elementNeeds.isEmpty() && cpSource == null) return aiPayCp(payerIsP1, target);
+		Predicate<CardData> may = cpSource != null ? cpSource : c -> true;
 		CardData[]     bkpCards  = mw.playerBackupCards(payerIsP1);
 		CardState[]    bkpStates = mw.playerBackupStates(payerIsP1);
 		List<CardData> hand      = mw.playerHand(payerIsP1);
@@ -5355,12 +5622,12 @@ final class AutoAbilityTriggers {
 			int shortBy = need.getValue();
 			for (int i = 0; i < bkpCards.length && shortBy > 0; i++) {
 				if (bkpCards[i] == null || bkpStates[i] != CardState.ACTIVE || dulls.contains(i)) continue;
-				if (!bkpCards[i].containsElement(need.getKey())) continue;
+				if (!bkpCards[i].containsElement(need.getKey()) || !may.test(bkpCards[i])) continue;
 				dulls.add(i); shortBy--; planned++;
 			}
 			for (int i = hand.size() - 1; i >= 0 && shortBy > 0; i--) {
 				if (discards.contains(i) || !hand.get(i).containsElement(need.getKey())) continue;
-				if (!CpPaymentUtils.canDiscardForCp(hand.get(i), Set.of())) continue;
+				if (!CpPaymentUtils.canDiscardForCp(hand.get(i), Set.of()) || !may.test(hand.get(i))) continue;
 				discards.add(i); shortBy -= 2; planned += 2;
 			}
 			if (shortBy > 0) {
@@ -5370,10 +5637,13 @@ final class AutoAbilityTriggers {
 		}
 		for (int i = 0; i < bkpCards.length && planned < target; i++) {
 			if (bkpCards[i] == null || bkpStates[i] != CardState.ACTIVE || dulls.contains(i)) continue;
+			if (!may.test(bkpCards[i])) continue;
 			dulls.add(i); planned++;
 		}
 		for (int i = hand.size() - 1; i >= 0 && planned < target; i--) {
 			if (discards.contains(i)) continue;
+			if (cpSource != null && (!CpPaymentUtils.canDiscardForCp(hand.get(i), Set.of()) || !may.test(hand.get(i))))
+				continue;
 			discards.add(i); planned += 2;
 		}
 		for (int i : dulls) {
@@ -5697,6 +5967,17 @@ final class AutoAbilityTriggers {
 	void showAutoAbilityPaymentDialog(String cardName, int minCp, int maxCp,
 			boolean isP1, int crystalAltCost, Map<String, Integer> elementNeeds,
 			java.util.function.IntConsumer onConfirm, Runnable onCrystalPaid) {
+		showAutoAbilityPaymentDialog(cardName, minCp, maxCp, isP1, crystalAltCost, elementNeeds, null,
+				onConfirm, onCrystalPaid);
+	}
+
+	/**
+	 * As above, with {@code cpSource} limiting which cards may produce the CP — the Backup dulled or
+	 * the card discarded ({@link #xPaymentSource}); {@code null} for any card.
+	 */
+	void showAutoAbilityPaymentDialog(String cardName, int minCp, int maxCp,
+			boolean isP1, int crystalAltCost, Map<String, Integer> elementNeeds, Predicate<CardData> cpSource,
+			java.util.function.IntConsumer onConfirm, Runnable onCrystalPaid) {
 		CardData[]     bkpCards  = mw.playerBackupCards(isP1);
 		CardState[]    bkpStates = mw.playerBackupStates(isP1);
 		String[]       bkpUrls  = mw.playerBackupUrls(isP1);
@@ -5787,7 +6068,8 @@ final class AutoAbilityTriggers {
 
 		List<Integer> eligibleBackupSlots = new ArrayList<>();
 		for (int i = 0; i < bkpCards.length; i++)
-			if (bkpCards[i] != null && bkpStates[i] == CardState.ACTIVE) eligibleBackupSlots.add(i);
+			if (bkpCards[i] != null && bkpStates[i] == CardState.ACTIVE
+					&& (cpSource == null || cpSource.test(bkpCards[i]))) eligibleBackupSlots.add(i);
 
 		if (!eligibleBackupSlots.isEmpty()) {
 			JLabel hdr = new JLabel("Backups — dull for 1 CP each:");
@@ -5830,7 +6112,8 @@ final class AutoAbilityTriggers {
 			JPanel dp = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6)); dp.setAlignmentX(Component.LEFT_ALIGNMENT);
 			for (int i = 0; i < hand.size(); i++) {
 				final int hi = i; CardData hc = hand.get(i);
-				boolean payable = CpPaymentUtils.canDiscardForCp(hc, ldGrants);
+				boolean payable = CpPaymentUtils.canDiscardForCp(hc, ldGrants)
+						&& (cpSource == null || cpSource.test(hc));
 				JLabel lbl = new JLabel("...", SwingConstants.CENTER);
 				lbl.setPreferredSize(new Dimension(CARD_W, CARD_H)); lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
 				lbl.setOpaque(true); lbl.setBackground(payable ? Color.DARK_GRAY : new Color(50, 50, 50));

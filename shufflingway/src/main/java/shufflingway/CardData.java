@@ -2155,9 +2155,16 @@ public record CardData(
         "(?=(?:《|(?i:put)\\b|(?i:discard)\\b|(?i:remove)\\b|(?i:return)\\b|(?i:dull)\\b))" + // lookahead: must start with 《, put, discard, remove, return, or dull
         "((?:《[^》]*》\\s*)*)"                                            +  // group 3: zero or more 《cost》 tokens
         "(?:\\s*\\(This cost is reduced by 1 for each Job (?<inlinejob>[^)]+?) other than (?<inlineexclude>[^)]+?) you control\\.\\))?" + // groups 4-5 (named): optional inline cost modifier
+        // Optional "reveal [Self] from your hand" (24-070L Lightning). Non-capturing so groups 6-11
+        // keep their numbers; the parse site finds it again with REVEAL_FROM_HAND_COST and only
+        // accepts it on an ability usable solely from the hand, where the reveal is a formality.
+        "(?:(?i)(?:,\\s*)?reveal\\s+[^:,\\[]+?\\s+from\\s+your\\s+hand\\s*)?" +
         "((?i)(?:,\\s*)?put\\s+(?:(?!\\[\\[br\\]\\]).)+?\\s+into\\s+the\\s+Break\\s+Zone\\s*)?"  + // group 6: optional BZ cost phrase
         "((?i)(?:,\\s*)?discard(?:(?!,\\s*(?:remove|return)\\b)[^:\\[])+)?"  +  // group 7: optional discard cost phrase (never crosses [[…]] markup)
-        "((?i)(?:,\\s*)?remove\\s+[^:]+?\\s+from\\s+(?:the\\s+)?game\\s*)?" + // group 8: optional remove-from-game cost phrase
+        // Never crosses [[…]] markup either: an auto ability's "Remove it from the game and …"
+        // otherwise ran through [[br]] to the next ability's colon and took its whole cost line
+        // (24-070L Lightning read as costing nothing but "remove it").
+        "((?i)(?:,\\s*)?remove\\s+[^:\\[]+?\\s+from\\s+(?:the\\s+)?game\\s*)?" + // group 8: optional remove-from-game cost phrase
         "((?i)(?:,\\s*)?return\\s+[^:]+?\\s+to\\s+(?:its|their)\\s+owner(?:'s|s')?\\s+hand\\s*)?" + // group 9: optional return-to-hand cost phrase
         // Neither half may cross [[…]] markup, for the reason the Break Zone and discard groups
         // above may not: a counter-removal *sentence* elsewhere on the card ("You can remove 3 Reel
@@ -2195,6 +2202,15 @@ public record CardData(
         "in\\s+your\\s+hand\\s*)?" +
         ":\\s*"                                                              +  // colon separator
         "(?<effecttext>(?:[^\\[]|\\[(?!\\[))*)"                                // effect text (up to next [[markup]])
+    );
+
+    /**
+     * The "reveal X from your hand" cost slot of {@link #ACTION_ABILITY_PATTERN}, found again in the
+     * matched cost text. Unenforced: it is only accepted where the ability can be used from the
+     * hand alone, so the card is known to be there.
+     */
+    private static final Pattern REVEAL_FROM_HAND_COST = Pattern.compile(
+        "(?i)reveal\\s+[^:,\\[]+?\\s+from\\s+your\\s+hand"
     );
 
     // Captures the content between "put " and " into the Break Zone"
@@ -2447,6 +2463,8 @@ public record CardData(
             Matcher wBlkM             = WHILE_CARD_BLOCKING_PATTERN.matcher(effectRaw);
             String  whileCardBlk      = wBlkM.find() ? wBlkM.group("card").trim() : null;
             boolean whileCardInHand   = WHILE_CARD_IN_HAND_PATTERN.matcher(effectRaw).find();
+            if (!whileCardInHand && REVEAL_FROM_HAND_COST.matcher(
+                    m.group().substring(0, m.start("effecttext") - m.start())).find()) continue;
             boolean hasBlockingTarget = HAS_BLOCKING_TARGET_EFFECT_PATTERN.matcher(effectRaw).find();
             boolean sourceInBattle    = SOURCE_IN_BATTLE_PATTERN.matcher(effectRaw).find();
             boolean requiresOppDiscardedThisTurn = OPP_DISCARD_THIS_TURN_PATTERN.matcher(effectRaw).find();
@@ -9529,6 +9547,15 @@ public record CardData(
         ).matcher(inner);
         if (elemCardM.find())
             return new RemoveFromGameCost(zone, Integer.parseInt(elemCardM.group(1)), null, elemCardM.group(2), null, null);
+
+        // "N Category X <type>" (25-101L Meia: "1 Category MOBIUS card"). Carried whole as the card
+        // type, which CardFilters.matchesDiscardType reads as a category gate on the base type.
+        // Without it the name fallback below took the phrase as a card name no card has.
+        Matcher catM = Pattern.compile(
+            "(?i)(\\d+)\\s+(Category\\s+\\S+\\s+(?:Summons?|Forwards?|Backups?|Monsters?|Characters?|cards?))"
+        ).matcher(inner);
+        if (catM.find())
+            return new RemoveFromGameCost(zone, Integer.parseInt(catM.group(1)), null, null, catM.group(2), null);
 
         // "N <element>? <type>s?" — covers typed and generic "card(s)"
         Matcher typedM = Pattern.compile(

@@ -4967,6 +4967,18 @@ final class ActionResolverChoose {
         }
 
         // --- Remove from game followup ---
+        // "Remove it from the game and <effect>" runs the joined effect after the removal. A tail
+        // that does not parse on its own, or that points back at the chosen card, declines the
+        // whole followup rather than removing and dropping it.
+        Consumer<GameContext> rfgTail = null;
+        Matcher rfgAndM = FOLLOWUP_REMOVE_FROM_GAME_AND_EFFECT.matcher(primaryFollowup);
+        if (rfgAndM.matches()) {
+            String rest = rfgAndM.group("rest").trim();
+            if (PRONOUN_IT_THEM.matcher(rest).find()) return null;
+            rfgTail = parse(Character.toUpperCase(rest.charAt(0)) + rest.substring(1) + ".", source);
+            if (rfgTail == null) return null;
+        }
+        final Consumer<GameContext> rfgThen = rfgTail;
         if (FOLLOWUP_REMOVE_FROM_GAME.matcher(primaryFollowup).find()) {
             return ctx -> {
                 ctx.logChooseHeader(choosePrefix + " — Remove From Game");
@@ -4990,6 +5002,7 @@ final class ActionResolverChoose {
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.removeTargetFromGame(t));
                 removedByEffect[0] = ctx.cardsRemovedBySourceCount(source)      - beforeCards;
                 removedByEffect[1] = ctx.charactersRemovedBySourceCount(source) - beforeChars;
+                if (rfgThen != null) rfgThen.accept(ctx);
                 if (secondary != null) secondary.accept(ctx);
             };
         }

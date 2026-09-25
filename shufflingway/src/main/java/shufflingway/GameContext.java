@@ -3023,6 +3023,13 @@ public interface GameContext {
     void playSourceFromRfpOntoField(CardData source);
 
     /**
+     * Plays {@code source} itself from the ability controller's hand onto their field. Marks the
+     * effect fizzled when it is no longer there. 24-070L Lightning's hand ability: "Play Lightning
+     * onto the field. You can only use this ability if Lightning is in your hand."
+     */
+    void playSourceFromHandOntoField(CardData source);
+
+    /**
      * Plays the card named {@code cardName} onto the field from whichever holding zone currently
      * holds it — the RFG zone first, then the controller's Break Zone.
      *

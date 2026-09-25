@@ -263,6 +263,7 @@ public final class CardFilters {
             case "damaged"                  -> damage > 0;
             case "attacking"                -> isAttacking;
             case "blocking"                 -> isBlocking;
+            case "attacking or blocking"    -> isAttacking || isBlocking;
             // Handled inline by caller (requires turn-tracking state not available here)
             case "entered the field this turn" -> false;
             default                         -> true;

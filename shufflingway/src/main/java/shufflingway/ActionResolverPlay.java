@@ -463,6 +463,14 @@ final class ActionResolverPlay {
         String resolvedName = name.equalsIgnoreCase("it") ? source.name() : name;
         if (!resolvedName.equalsIgnoreCase(source.name())) return null;
         boolean dull = m.group("dull") != null;
+        // An ability usable only while the card is in hand plays it from there (24-070L Lightning).
+        if (CardData.WHILE_CARD_IN_HAND_PATTERN.matcher(text).find()) {
+            if (dull) return null;
+            return ctx -> {
+                ctx.logEntry("Effect: Play " + resolvedName + " from hand → field");
+                ctx.playSourceFromHandOntoField(source);
+            };
+        }
         return ctx -> {
             ctx.logEntry("Effect: Play " + resolvedName + " from Break Zone → field" + (dull ? " dull" : ""));
             ctx.playAllByNameFromOwnBreakZoneDull(resolvedName, dull);

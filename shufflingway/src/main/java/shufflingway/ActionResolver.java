@@ -404,6 +404,12 @@ public class ActionResolver {
         if (result != null) return result;
         result = tryParseRevealAnyFromHandThresholds(effectText, source);
         if (result != null) return result;
+        // 24-033L Bhunivelze's "put any number of Forwards and/or Monsters you control into the
+        // Break Zone. When you do so, …" — the count drives both payoffs. Anchored end to end. It
+        // once passed the guard only because the trigger layer's self-break shape claimed the text
+        // (and then refused it, so the card did nothing in play).
+        result = tryParsePutAnyNumberToBzOppSelectsAndDiscards(effectText);
+        if (result != null) return result;
 
         // Fail closed on "X. When/If you do so, Y" when nothing above read it and X does not parse
         // on its own. Every find() parser below would otherwise take Y and run it without X — a free
@@ -1475,12 +1481,6 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParsePutOwnTypeToBzIfDoSo(effectText, source);
-        if (result != null) return result;
-
-        // Must precede tryParseOpponentDiscard: Bhunivelze 24-033L ends in a sentence that is a
-        // clean OPPONENT_DISCARD match under find(), and losing the race there drops the whole
-        // sacrifice and both "for each" scalings. Anchored end to end, so it claims nothing else.
-        result = tryParsePutAnyNumberToBzOppSelectsAndDiscards(effectText);
         if (result != null) return result;
 
         result = tryParseYouMayPutSelfToBZWhenDoSo(effectText, source);
@@ -5256,6 +5256,7 @@ public class ActionResolver {
             case "damaged"        -> currentDamage > 0;
             case "attacking"      -> isAttacking;
             case "blocking"       -> isBlocking;
+            case "attacking or blocking" -> isAttacking || isBlocking;
             default               -> true;
         };
     }

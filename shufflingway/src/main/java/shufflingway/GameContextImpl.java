@@ -4331,6 +4331,27 @@ final class GameContextImpl implements GameContext {
 				logEntry((forP1 ? "" : "[P2] ") + card.name() + " played from hand onto field"
 						+ (entersDull ? " (dull)" : "") + (suppressAutoAbility ? " (no ETF auto-ability)" : ""));
 				if (suppressAutoAbility) mw.suppressAutoAbilityForNextCards = 1;
+				placeFromHand(forP1, card, entersDull);
+				return card;
+			}
+
+			@Override public void playSourceFromHandOntoField(CardData source) {
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				int handIdx = -1;
+				for (int i = 0; i < hand.size(); i++) if (hand.get(i) == source) { handIdx = i; break; }
+				if (handIdx < 0) handIdx = hand.indexOf(source);
+				if (handIdx < 0 || source.playByEffectProhibited(true)) {
+					logEntry(source.name() + " is not in hand — nothing to play");
+					markEffectFizzled();
+					return;
+				}
+				CardData card = hand.remove(handIdx);
+				logEntry((isP1 ? "" : "[P2] ") + card.name() + " played from hand onto field");
+				placeFromHand(isP1, card, false);
+			}
+
+			/** Puts a card just taken out of {@code forP1}'s hand into the matching field zone. */
+			private void placeFromHand(boolean forP1, CardData card, boolean entersDull) {
 				if (forP1) {
 					if (card.isBackup()) {
 						mw.placeCardInFirstBackupSlot(card);
@@ -4360,7 +4381,6 @@ final class GameContextImpl implements GameContext {
 					}
 					mw.refreshP2HandCountLabel();
 				}
-				return card;
 			}
 
 			@Override public void playAnyNumberFromHand(boolean inclForwards, boolean inclBackups,

@@ -52,13 +52,22 @@ public final class StackOrderingDialog {
 	 * because a batch can collect two triggers on the same watcher from two different events — one
 	 * break causing another inside the same batch — and each has to resolve against the card that
 	 * fired it. {@code null} for every trigger whose effect never refers back to one.
+	 *
+	 * <p>{@code enteredCard} is the card whose arrival fired an enters-the-field watcher, carried for
+	 * the same reason: the watcher sets it only around its own collection, and the batch resolves
+	 * after that has been undone.
 	 */
 	public record Item(AutoAbility ability, CardData source, boolean controllerIsP1, boolean paidExtraCost,
-			CardData triggerCard) {
+			CardData triggerCard, CardData enteredCard) {
 
 		/** The common case: a trigger whose effect refers to no card but its own source. */
 		public Item(AutoAbility ability, CardData source, boolean controllerIsP1, boolean paidExtraCost) {
-			this(ability, source, controllerIsP1, paidExtraCost, null);
+			this(ability, source, controllerIsP1, paidExtraCost, null, null);
+		}
+
+		public Item(AutoAbility ability, CardData source, boolean controllerIsP1, boolean paidExtraCost,
+				CardData triggerCard) {
+			this(ability, source, controllerIsP1, paidExtraCost, triggerCard, null);
 		}
 
 		String displayEffect() {
