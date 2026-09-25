@@ -771,6 +771,17 @@ final class ActionResolverSearch {
             ctx.revealTopDeckCostParityEffect(onEven, onOdd, false);
         };
     }
+    /**
+     * {@link #tryParseRevealTopDeck} for the cost-tiered form only — "When the revealed card's cost
+     * is 2 or less, … When … is 6 or more, …" (10-072L Shantotto). Read ahead of the Choose chain,
+     * which found the first tier's "choose 1 Summon in your Break Zone" and ran it with no reveal.
+     * Narrowed to that wording so the rest of the reveal family keeps its place in the chain.
+     */
+    static Consumer<GameContext> tryParseRevealTopDeckCostTiers(String text, CardData source) {
+        if (!REVEALED_CARD_COST_CLAUSE.matcher(text).find()) return null;
+        return tryParseRevealTopDeck(text, source);
+    }
+
     static Consumer<GameContext> tryParseRevealTopDeck(String text, CardData source) {
         Matcher header = REVEAL_TOP_DECK_HEADER.matcher(text);
         if (!header.find()) return null;
@@ -778,8 +789,8 @@ final class ActionResolverSearch {
         List<RevealClause> clauses = new ArrayList<>();
         Matcher m = REVEAL_CLAUSE_PATTERN.matcher(text);
         while (m.find()) {
-            RevealClause clause = buildRevealClause(
-                m.group("cond").trim(), m.group("action").trim(), source);
+            String cond = (m.group("costkw") != null ? "cost " : "") + m.group("cond").trim();
+            RevealClause clause = buildRevealClause(cond, m.group("action").trim(), source);
             if (clause == null) return null;
             clauses.add(clause);
         }

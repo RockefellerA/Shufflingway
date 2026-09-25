@@ -523,8 +523,10 @@ public interface GameContext {
 
     /**
      * Reveals the top card of the specified deck in a modal popup, then evaluates
-     * each clause in order against the revealed card.  The first matching clause fires
-     * its action; if no clause matches the card is returned to the top of the deck.
+     * each clause in order against the revealed card. Every matching effect clause fires, since
+     * the printed "If it is …" sentences are independent (28-029C Shantotto's Ice/Fire reveal
+     * meets two); the first matching clause that moves the card ends the reveal. If no clause
+     * matches, the card is returned to the top of the deck.
      *
      * @param clauses      ordered list of condition/action pairs built by the parser
      * @param opponentDeck {@code true} to reveal from the opponent's deck instead of the ability user's

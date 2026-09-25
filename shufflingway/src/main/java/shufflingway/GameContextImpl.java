@@ -3815,10 +3815,18 @@ final class GameContextImpl implements GameContext {
 					dlg.setVisible(true); // modal — blocks until dismissed
 				}
 
-				// Find the first matching clause and execute its action
+				// Every matching clause resolves, in printed order: the "If it is …" sentences are
+				// independent, and a multi-Element card can meet two of them — 28-029C Shantotto's
+				// Ice/Fire reveal both makes the opponent discard and draws. A clause that moves the
+				// revealed card still ends the reveal, since the card can only go one place, and one
+				// reached after an effect has put the card back on the deck is skipped.
+				boolean returnedToDeck = false;
+				boolean anyMatched = false;
 				for (RevealClause clause : clauses) {
 					if (!clause.condition().test(card)) continue;
+					anyMatched = true;
 					logEntry(p + "Condition matched for " + card.name());
+					if (clause.cardOp() != null && returnedToDeck) continue;
 					if (clause.cardOp() != null) {
 						switch (clause.cardOp()) {
 							case "playOntoField", "mayPlayOntoField" -> {
@@ -3894,16 +3902,19 @@ final class GameContextImpl implements GameContext {
 								mw.showSummonOnStack(card, isP1);
 							}
 						}
-					} else {
-						// Standalone effect — return card to top of appropriate deck first
-						// so any subsequent draw includes it
+						refreshDeck.run();
+						return;
+					}
+					// Standalone effect — return card to top of appropriate deck first
+					// so any subsequent draw includes it
+					if (!returnedToDeck) {
 						deck.addFirst(card);
 						refreshDeck.run();
-						clause.effect().accept(this);
+						returnedToDeck = true;
 					}
-					refreshDeck.run();
-					return;
+					clause.effect().accept(this);
 				}
+				if (anyMatched) return;
 				// No clause matched — put card back on top
 				logEntry(p + "No condition matched — returning " + card.name() + " to top of " + deckLabel);
 				deck.addFirst(card);

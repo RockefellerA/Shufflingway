@@ -24,6 +24,26 @@ final class ActionResolverHand {
 	private ActionResolverHand() {}
 
     /**
+     * 2-134C Horne — see {@link ActionResolverPatterns#DRAW_PER_JOB_THEN_BOTTOM_AS_MANY}. Draws one
+     * per Job Moogle you control, then puts back as many as were actually drawn: a short deck draws
+     * fewer, and the put-back follows the draw rather than the count.
+     */
+    static Consumer<GameContext> tryParseDrawPerJobThenBottomAsMany(String text) {
+        Matcher m = DRAW_PER_JOB_THEN_BOTTOM_AS_MANY.matcher(text.trim());
+        if (!m.matches()) return null;
+        String job = m.group("job").trim();
+        return ctx -> {
+            int n = ctx.countSelfFieldCards(true, true, true, job, null);
+            ctx.logEntry("Effect: Draw 1 card for each Job " + job + " you control (" + n + ")");
+            if (n <= 0) return;
+            int before = ctx.yourHandSize();
+            ctx.drawCards(n);
+            int drawn = Math.max(0, ctx.yourHandSize() - before);
+            if (drawn > 0) ctx.placeFromHandToBottomOfDeck(drawn);
+        };
+    }
+
+    /**
      * Parses "If your opponent has [no | N cards or less] cards in his/her hand, [effect]."
      * The inner effect is parsed recursively; returns {@code null} if the inner effect is
      * not yet supported.

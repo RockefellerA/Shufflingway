@@ -65845,6 +65845,95 @@ public class CardBehaviorTest {
 		assertNull(mw.afterCastPayment, "the step is spent");
 	}
 
+	// ---- Stronger than printed: 2-134C Horne, 3-111H Jack ---------------------------------------
+
+	@Test
+	void horneDrawsPerMoogleAndPutsTheSameNumberBack() {
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < 2; i++) {
+			CardData moogle = makeJobCard("Moogle " + i, "Water", "Backup", "Moogle");
+			mw.gameState.getIdentity().put(moogle, false);
+			mw.placeP2CardInFirstBackupSlot(moogle);
+		}
+		stackP2Deck(mw, makeForward("D1", "Fire", 1, 1000), makeForward("D2", "Fire", 1, 1000),
+				makeForward("D3", "Fire", 1, 1000), makeForward("D4", "Fire", 1, 1000));
+		CardData held = makeForward("Held", "Ice", 2, 5000);
+		mw.gameState.getIdentity().put(held, false);
+		mw.gameState.getP2Hand().add(held);
+
+		ActionResolver.parse("Draw 1 card for each Job Moogle you control. Then, place as many cards as drawn "
+				+ "from your hand at the bottom of your deck in any order.", makePlainBackup("Horne", "Water", 2))
+				.accept(mw.buildGameContext(false));
+
+		assertEquals(1, mw.gameState.getP2Hand().size(), "drew 2, put 2 back");
+		assertEquals(4, mw.gameState.getP2MainDeck().size());
+	}
+
+	@Test
+	void jackLosesHisAbilitiesAfterActivating() {
+		CardData jack = makeForward("Jack", "Lightning", 1, 7000);
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+		stubChosenForwards(ctx, List.of(t));
+
+		ActionResolver.parse("Activate Jack. Jack loses all his abilities until the end of the turn.", jack)
+				.accept(ctx);
+
+		verify(ctx).activateTarget(t);
+		verify(ctx).selfLoseAllAbilitiesUntilEndOfTurn(jack);
+	}
+
+	// ---- Reveal-gated Shantottos: 28-029C, 10-072L ----------------------------------------------
+
+	private static final String SHANTOTTO_28_029C = "reveal the top card of your deck. If it is an Ice card, "
+			+ "your opponent discards 1 card. If it has an Element other than Ice, draw 1 card.";
+
+	/** The clauses 28-029C hands to the reveal, captured off a mock. */
+	@SuppressWarnings("unchecked")
+	private static List<RevealClause> shantottoClauses() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(SHANTOTTO_28_029C, makeForward("Shantotto", "Ice", 2, 5000)).accept(ctx);
+		org.mockito.ArgumentCaptor<List<RevealClause>> captor = org.mockito.ArgumentCaptor.forClass(List.class);
+		verify(ctx).revealTopDeckCard(captor.capture(), eq(false));
+		return captor.getValue();
+	}
+
+	@Test
+	void shantottosClausesSplitIceFromOtherElements() {
+		List<RevealClause> clauses = shantottoClauses();
+		assertEquals(2, clauses.size());
+		CardData ice = makeForward("Ice", "Ice", 3, 5000), fire = makeForward("Fire", "Fire", 3, 5000),
+				dual = makeForward("Dual", "Ice/Fire", 3, 5000);
+		assertTrue(clauses.get(0).condition().test(ice));
+		assertFalse(clauses.get(1).condition().test(ice), "no Element other than Ice");
+		assertFalse(clauses.get(0).condition().test(fire));
+		assertTrue(clauses.get(1).condition().test(fire));
+		assertTrue(clauses.get(0).condition().test(dual) && clauses.get(1).condition().test(dual));
+	}
+
+	@Test
+	void anIceAndFireRevealResolvesBothClauses() {
+		// Revealed by P2, so no dialog; P1's hand is empty, so the discard asks nobody anything. The
+		// draw is the second clause, which used to be skipped once the first had matched.
+		MainWindow mw = new MainWindow();
+		stackP2Deck(mw, makeForward("Dual", "Ice/Fire", 3, 5000), makeForward("Under", "Fire", 1, 1000));
+		ActionResolver.parse(SHANTOTTO_28_029C, makeForward("Shantotto", "Ice", 2, 5000))
+				.accept(mw.buildGameContext(false));
+		assertEquals(1, mw.gameState.getP2Hand().size(), "the draw resolved after the discard");
+	}
+
+	@Test
+	void shantottosTiersReadTheRevealedCost() {
+		assertTrue(ActionResolver.parseRevealCondition("cost 2 or less").test(makeForward("A", "Fire", 2, 1000)));
+		assertFalse(ActionResolver.parseRevealCondition("cost 2 or less").test(makeForward("A", "Fire", 3, 1000)));
+		assertTrue(ActionResolver.parseRevealCondition("cost 4 or 5").test(makeForward("A", "Fire", 5, 1000)));
+		assertFalse(ActionResolver.parseRevealCondition("cost 4 or 5").test(makeForward("A", "Fire", 6, 1000)));
+		assertTrue(ActionResolver.parseRevealCondition("cost 6 or more").test(makeForward("A", "Fire", 7, 1000)));
+		assertEquals("RevealTopDeck", ActionResolver.matchedPatternName("reveal the top card of your deck. When the "
+				+ "revealed card's cost is 2 or less, choose 1 Summon in your Break Zone. Add it to your hand. When "
+				+ "the revealed card's cost is 6 or more, choose 1 Forward opponent controls. Break it.", null));
+	}
+
 	// ---- Who may pay 《X》: 17-020R Montblanc, 26-040R Menphina --------------------------------
 
 	private static final String MONTBLANC_17_020R = "When Montblanc enters the field, you may pay 《X》. "

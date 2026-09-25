@@ -4845,7 +4845,7 @@ final class ActionResolverPatterns {
      * Group: {@code name}.
      */
     static final Pattern STANDALONE_SELF_LOSES_ALL_ABILITIES = Pattern.compile(
-        "(?i)^(?<name>.+?)\\s+loses\\s+all\\s+(?:its|their)\\s+abilities\\s+" +
+        "(?i)^(?<name>.+?)\\s+loses\\s+all\\s+(?:its|their|his|her)\\s+abilities\\s+" +
         "until\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?$"
     );
 
@@ -7559,9 +7559,17 @@ final class ActionResolverPatterns {
      * </ul>
      * The lookahead stops each {@code action} capture before the next clause or end of text.
      */
+    /** "When the revealed card's cost is …" — the cost-tiered reveal clause (10-072L). */
+    static final Pattern REVEALED_CARD_COST_CLAUSE = Pattern.compile(
+        "(?i)\\bWhen\\s+the\\s+revealed\\s+card's\\s+cost\\s+is\\b"
+    );
+
     static final Pattern REVEAL_CLAUSE_PATTERN = Pattern.compile(
-        "If\\s+it\\s+(?:is|has)\\s+(?<cond>[^,]+?)\\s*,\\s*(?<action>.+?)" +
-        "(?=[.!]?\\s+If\\s+it\\s+(?:is|has)\\b|[.!]?\\s*$)",
+        // "When the revealed card's cost is 4 or 5, …" (10-072L Shantotto) is the same clause with
+        // a cost condition; group {@code costkw} marks it so the condition is read as a cost.
+        "(?:If\\s+it\\s+(?:is|has)\\s+|When\\s+the\\s+revealed\\s+card's\\s+(?<costkw>cost)\\s+is\\s+)" +
+        "(?<cond>[^,]+?)\\s*,\\s*(?<action>.+?)" +
+        "(?=[.!]?\\s+(?:If\\s+it\\s+(?:is|has)|When\\s+the\\s+revealed\\s+card's)\\b|[.!]?\\s*$)",
         Pattern.CASE_INSENSITIVE | Pattern.DOTALL
     );
     /**
@@ -12308,6 +12316,18 @@ final class ActionResolverPatterns {
      * ability." (Hilda 6-122H). Draws {@code min(Forwards you control, N)} — the cap is a hard limit
      * on the ability, not deck protection, so a too-small deck still mills the drawer out.
      */
+    /**
+     * 2-134C Horne, end to end: "Draw 1 card for each Job Moogle you control. Then, place as many
+     * cards as drawn from your hand at the bottom of your deck in any order." Group {@code job}.
+     * Anchored, because the bare DrawCards parser find()s "Draw 1 card" out of the front and drew a
+     * flat 1 with nothing put back.
+     */
+    static final Pattern DRAW_PER_JOB_THEN_BOTTOM_AS_MANY = Pattern.compile(
+        "(?i)^Draw\\s+1\\s+card\\s+for\\s+each\\s+Job\\s+(?<job>.+?)\\s+you\\s+control\\.\\s+" +
+        "Then,\\s+place\\s+as\\s+many\\s+cards\\s+as\\s+drawn\\s+from\\s+your\\s+hand\\s+at\\s+the\\s+" +
+        "bottom\\s+of\\s+your\\s+deck\\s+in\\s+any\\s+order[.!]?$"
+    );
+
     static final Pattern DRAW_ONE_PER_FORWARD_CAPPED = Pattern.compile(
         "(?i)^draw\\s+1\\s+card\\s+for\\s+each\\s+Forward\\s+you\\s+control\\.\\s+" +
         "You\\s+can\\s+only\\s+draw\\s+up\\s+to\\s+(?<cap>\\d+)\\s+cards?\\s+with\\s+this\\s+ability[.!]?$");

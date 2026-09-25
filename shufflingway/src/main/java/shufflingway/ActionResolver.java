@@ -1,6 +1,7 @@
 package shufflingway;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
@@ -387,6 +388,10 @@ public class ActionResolver {
         //  - tryParseRemoveNamedFromGame's lazy name group reads 29-086H Shadow's "Remove 2 Warp
         //    Counters from Shadow" as the thing to remove from the game.
         result = tryParseSearchNamedRfgThenIfDoSo(effectText, source);
+        if (result != null) return result;
+        // 2-134C Horne, anchored: DrawCards find()s "Draw 1 card" off the front and drops both
+        // the per-Moogle count and the put-back.
+        result = tryParseDrawPerJobThenBottomAsMany(effectText);
         if (result != null) return result;
         result = tryParsePlayFaceDownLbCardOntoFieldDull(effectText);
         if (result != null) return result;
@@ -787,6 +792,11 @@ public class ActionResolver {
         // choose-and-damage sentence, which that parser finds in the middle of the ability and
         // runs with neither the reveal nor the count in front of it.
         result = tryParseRevealHandElementThresholds(effectText, source);
+        if (result != null) return result;
+
+        // Must precede tryParseChooseCharacter, for the same reason as the parser above: 10-072L
+        // Shantotto's cost-2-or-less tier is a whole choose sentence, found and run without a reveal.
+        result = ActionResolverSearch.tryParseRevealTopDeckCostTiers(effectText, source);
         if (result != null) return result;
 
         result = tryParseChooseCharacter(effectText, source, xValue);
@@ -2297,6 +2307,9 @@ public class ActionResolver {
         // 16-125C's conditional half off the end of the sentence carrying the condition.
         if (tryParseCastPaymentElementsGate(effectText, source, 0) != null)
             return "CastPaymentElementsGate";
+        // Mirrors parse(): the cost-tiered reveal (10-072L) is read ahead of the Choose chain.
+        if (ActionResolverSearch.tryParseRevealTopDeckCostTiers(effectText, source) != null)
+            return "RevealTopDeck";
         // Mirrors parse(): ahead of the Choose chain, which would name Lorenzo's quotation.
         if (tryParseUntilEotDoublesPowerAndQuoted(effectText, source) != null)
             return "UntilEotDoublesPowerAndQuoted";
@@ -2792,6 +2805,8 @@ public class ActionResolver {
         // is a question about the shape of the sentence, not about any particular payment.
         if (tryParsePayCpWhenDoSo(effectText, source, 1)      != null) return "PayCpWhenDoSo";
         if (tryParseDrawDiscardRetriggerIfCardName(effectText, source) != null) return "DrawDiscardRetriggerIfCardName";
+        // Mirrors parse(), which reads 2-134C Horne whole long before DrawCards.
+        if (tryParseDrawPerJobThenBottomAsMany(effectText) != null) return "DrawPerJobThenBottomAsMany";
         if (tryParseDrawCards(effectText)                     != null) return "DrawCards";
         if (tryParseDiscardCategoryType(effectText)           != null) return "DiscardCategoryType";
         if (tryParseYouMayDiscardType(effectText)             != null) return "YouMayDiscardType";
@@ -3595,6 +3610,9 @@ public class ActionResolver {
         // Strip trailing use-restriction sentences so they don't short-circuit before effect patterns match
         String noRestriction = stripRestrictionSentences(effectText);
         if (!noRestriction.isEmpty()) effectText = noRestriction;
+        // Mirrors parse(): the cost-tiered reveal (10-072L) is read ahead of the Choose chain.
+        if (ActionResolverSearch.tryParseRevealTopDeckCostTiers(effectText, source) != null)
+            return revealTopDeckDescription(effectText, source);
         // Mirrors parse(): ahead of the Choose chain, which would describe Lorenzo's quotation.
         if (tryParseUntilEotDoublesPowerAndQuoted(effectText, source) != null)
             return "UntilEotDoublesPowerAndQuoted";
@@ -4750,6 +4768,8 @@ public class ActionResolver {
                 return "PayCp(EnteringCardBoost)";
             return "PayCp(" + describeOrName(followup, source) + ")";
         }
+        // Mirrors parse(), which reads 2-134C Horne whole long before DrawCards.
+        if (tryParseDrawPerJobThenBottomAsMany(effectText) != null) return "DrawPerJobThenBottomAsMany";
         if (tryParseDrawCards(effectText) != null)                          return "DrawCards";
         if (tryParseDiscardCategoryType(effectText) != null)                return "DiscardCategoryType";
         if (tryParseYouMayDiscardType(effectText) != null)                  return "YouMayDiscardType";
@@ -7775,6 +7795,25 @@ public class ActionResolver {
      */
     static Predicate<CardData> parseRevealCondition(String cond) {
         cond = cond.trim();
+        // "cost 2 or less", "cost 4 or 5", "cost 6 or more" — built by tryParseRevealTopDeck from
+        // "When the revealed card's cost is …" (10-072L Shantotto).
+        Matcher costM = Pattern.compile("(?i)^cost\\s+(\\d+)(?:\\s+or\\s+(less|more|\\d+))?$").matcher(cond);
+        if (costM.matches()) {
+            int n = Integer.parseInt(costM.group(1));
+            String tail = costM.group(2);
+            if (tail == null) return card -> card.cost() == n;
+            if (tail.equalsIgnoreCase("less")) return card -> card.cost() <= n;
+            if (tail.equalsIgnoreCase("more")) return card -> card.cost() >= n;
+            int m = Integer.parseInt(tail);
+            return card -> card.cost() == n || card.cost() == m;
+        }
+        // "an Element other than Ice" (28-029C Shantotto): any Element of the card's that is not X.
+        Matcher otherElemM = Pattern.compile(
+            "(?i)^an?\\s+Element\\s+other\\s+than\\s+(Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)$").matcher(cond);
+        if (otherElemM.matches()) {
+            String excluded = otherElemM.group(1);
+            return card -> Arrays.stream(card.elements()).anyMatch(e -> !e.equalsIgnoreCase(excluded));
+        }
         boolean negated = false;
 
         Matcher negM = Pattern.compile("(?i)^not\\s+an?\\s+(.+)$").matcher(cond);
