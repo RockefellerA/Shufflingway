@@ -803,6 +803,15 @@ public class CardPickerDialog {
      */
     public List<Integer> pickMultiCardImage(List<CardData> cards, String title, int count,
             boolean eachDifferentType, boolean showCost) {
+        return pickMultiCardImage(cards, title, count, eachDifferentType, showCost, count);
+    }
+
+    /**
+     * As above, confirmable with anywhere from {@code min} to {@code count} cards selected — "any
+     * number of" (15-088H Vayne's cost reduction) is {@code min} 1, {@code count} all of them.
+     */
+    public List<Integer> pickMultiCardImage(List<CardData> cards, String title, int count,
+            boolean eachDifferentType, boolean showCost, int min) {
         if (cards.isEmpty() || count <= 0) return null;
         JDialog dlg = new JDialog(owner, title, true);
         dlg.setResizable(false);
@@ -825,8 +834,8 @@ public class CardPickerDialog {
                 labels.get(i).setBorder(sel ? CardAnimation.createCardGlowBorder(Color.YELLOW)
                         : BorderFactory.createLineBorder(Color.GRAY, 2));
             }
-            selectBtn.setEnabled(selected.size() == count);
-            hint.setText("Select " + count + " card" + (count > 1 ? "s" : "")
+            selectBtn.setEnabled(selected.size() >= min && selected.size() <= count);
+            hint.setText("Select " + (min < count ? "up to " : "") + count + " card" + (count > 1 ? "s" : "")
                     + " (" + selected.size() + "/" + count + ")");
         };
 

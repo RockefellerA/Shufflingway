@@ -1278,6 +1278,12 @@ public class MainWindow {
 
 	/** Tracks once-per-turn ability uses this turn; keyed by card instance identity, value is set of effectText strings used. */
 	final IdentityHashMap<CardData, Set<String>> usedOncePerTurnAbilities = new IdentityHashMap<>();
+	/**
+	 * How many times each action ability has been used this turn, keyed like
+	 * {@link #usedOncePerTurnAbilities}. Read by "up to N times per turn" (29-011H); see
+	 * {@link UseConditions}.
+	 */
+	final IdentityHashMap<CardData, Map<String, Integer>> abilityUsesThisTurn = new IdentityHashMap<>();
 
 	/** Special abilities activated this turn (either player), in activation order, for Gogo's "Mimic". Cleared each turn. */
 	final List<UsedSpecialAbility> specialAbilitiesUsedThisTurn = new ArrayList<>();
@@ -1662,6 +1668,12 @@ public class MainWindow {
 	 * behind for the outer one to read.
 	 */
 	CardData triggeringEnteredCard = null;
+	/**
+	 * A cost step {@link #executePlay} runs once, after the CP is paid and before the card leaves
+	 * the hand for the field: 15-088H Vayne's Backups are removed from the game there. Set by
+	 * {@link #executeAltPlay} and cleared by whichever of the two finishes first.
+	 */
+	Runnable afterCastPayment = null;
 	/** True while a card is being placed as a direct result of being cast from hand; gates castOnly field abilities. */
 	boolean lastCardWasCast = false;
 	/** True while a card is entering the field via Warp resolution; gates warpOnly field abilities. */
@@ -2606,6 +2618,7 @@ public class MainWindow {
 		// Per-game / per-turn collections that are not covered by gameState.reset() or clearUIZones().
 		cancelledStackEntries.clear();
 		usedOncePerTurnAbilities.clear();
+		abilityUsesThisTurn.clear();
 		specialAbilitiesUsedThisTurn.clear();
 		elementOverrideMap.clear();
 		permanentExtraJobMap.clear();
@@ -3478,7 +3491,7 @@ public class MainWindow {
 	private static boolean hasAltCost(CardData card) {
 		return card.altCrystalCost() > 0 || card.altCpCost() > 0 || card.altFieldRemoval() != null
 				|| !card.altDullCosts().isEmpty() || card.altPutToBzCost() != null
-				|| card.altPutToBzReduction() != null;
+				|| card.altPutToBzReduction() != null || card.altFieldRemovalPerCard() != null;
 	}
 
 	/** "Play (Alt: …)": the card's alternative cost can be paid now. */
@@ -4003,6 +4016,7 @@ public class MainWindow {
 					opponent.runTurn();
 				}
 				usedOncePerTurnAbilities.clear();
+				abilityUsesThisTurn.clear();
 				specialAbilitiesUsedThisTurn.clear();
 			}
 		}
@@ -8927,9 +8941,14 @@ public class MainWindow {
 					: "dull " + altDull.stream().map(MainWindow::describeAltDullClause)
 							.collect(Collectors.joining(" + "))
 					  + (altElems.isEmpty() && afr == null ? "" : " + ");
-			String removalStr = afr == null ? ""
-					: "remove " + afr.count() + " " + afr.element() + " " + afr.type()
-					  + (altElems.isEmpty() ? "" : " + ");
+			CardData.AltFieldRemovalPerCard perCard = card.altFieldRemovalPerCard();
+			String removalStr = afr != null
+					? "remove " + afr.count() + " " + afr.element() + " " + afr.type()
+					  + (altElems.isEmpty() ? "" : " + ")
+					: perCard != null
+					? "remove any number of " + describeAltFieldRemovalPerCard(perCard)
+					  + ", -" + perCard.reductionEach() + " CP each"
+					: "";
 			String crystalStr = ac > 0 ? "《C》".repeat(ac) : "";
 			String cpStr = altElems.isEmpty() ? "" : (ac > 0 ? " + " : "") + altElems.stream()
 					.collect(Collectors.groupingBy(elem -> elem.isEmpty() ? "generic" : elem, LinkedHashMap::new, Collectors.counting()))
@@ -10350,10 +10369,19 @@ public class MainWindow {
 		// only reserved here: cancelling the payment must leave the board untouched, so the actual
 		// removal waits until payment is confirmed below.
 		CardData.AltFieldRemoval fieldRemoval = card.altFieldRemoval();
+		CardData.AltFieldRemovalPerCard perCard = card.altFieldRemovalPerCard();
 		final List<Integer> removalSlots;
 		if (fieldRemoval != null) {
 			removalSlots = selectAltFieldRemoval(card, fieldRemoval);
 			if (removalSlots == null) return;
+		} else if (perCard != null) {
+			// 15-088H Vayne: any number of active Backups, each worth its reduction. Chosen before the
+			// CP window, since how many go decides what is left to pay; like the fixed-count form
+			// above they are only reserved here and leave once the CP is paid.
+			removalSlots = selectAltFieldRemovalPerCard(card, perCard);
+			if (removalSlots == null) return;
+			altElemsList = card.cpElementsReducedBy(perCard.reductionEach() * removalSlots.size());
+			altCp = altElemsList.size();
 		} else {
 			removalSlots = List.of();
 		}
@@ -10395,7 +10423,8 @@ public class MainWindow {
 		// Kefka 4-080L reaches this with no CP left to pay at all: its sentence buys the play
 		// outright rather than reducing a cost.
 		if (altElemsList.isEmpty() && altC == 0
-				&& (!dullIdxs.isEmpty() || !bzPayment.isEmpty() || !bzReducePayment.isEmpty())) {
+				&& (!dullIdxs.isEmpty() || !bzPayment.isEmpty() || !bzReducePayment.isEmpty()
+						|| (perCard != null && !removalSlots.isEmpty()))) {
 			executeAltPlayAndSend(card, handIdx,
 					altPayment(0, dullIdxs, removalSlots, bzPayment, bzReducePayment, bzRemovals),
 					Collections.emptyList(), Collections.emptyList(), Map.of());
@@ -10453,6 +10482,27 @@ public class MainWindow {
 	}
 
 
+	/** "active Backups", "Fire Backups" — the cards a per-card removal takes, as the menu shows them. */
+	static String describeAltFieldRemovalPerCard(CardData.AltFieldRemovalPerCard r) {
+		return (r.activeOnly() ? "active " : "") + (r.element() != null ? r.element() + " " : "") + r.type();
+	}
+
+	/**
+	 * P1 Backup slots {@code removal} may take: 15-088H Vayne's "any number of active Backups you
+	 * control". Backups only, for the reason {@link #altFieldRemovalCandidates} gives.
+	 */
+	List<Integer> altFieldRemovalPerCardCandidates(CardData.AltFieldRemovalPerCard removal) {
+		List<Integer> out = new ArrayList<>();
+		if (removal == null || !removal.type().toLowerCase(Locale.ROOT).startsWith("backup")) return out;
+		for (int i = 0; i < p1BackupCards.length; i++) {
+			if (p1BackupCards[i] == null) continue;
+			if (removal.activeOnly() && p1BackupStates[i] != CardState.ACTIVE) continue;
+			if (removal.element() != null && !effectiveContainsElement(p1BackupCards[i], removal.element())) continue;
+			out.add(i);
+		}
+		return out;
+	}
+
 	/**
 	 * P1 backup slot indices that could pay {@code removal} — the cards the player may hand over
 	 * for the alternate cast cost.
@@ -10467,6 +10517,24 @@ public class MainWindow {
 		for (int i = 0; i < p1BackupCards.length; i++)
 			if (p1BackupCards[i] != null && effectiveContainsElement(p1BackupCards[i], removal.element())) out.add(i);
 		return out;
+	}
+
+	/**
+	 * Asks the player which of their eligible Backups to remove for {@code removal} — at least one,
+	 * up to all of them — returning the chosen slots, or {@code null} if they cancelled. Only
+	 * reserved: {@link #executeAltPlay} removes them once the CP is paid.
+	 */
+	private List<Integer> selectAltFieldRemovalPerCard(CardData card, CardData.AltFieldRemovalPerCard removal) {
+		List<Integer> candidates = altFieldRemovalPerCardCandidates(removal);
+		if (candidates.isEmpty()) return null;
+		List<CardData> options = candidates.stream().map(i -> p1BackupCards[i]).toList();
+		String title = card.name() + " — remove " + describeAltFieldRemovalPerCard(removal)
+				+ " from the game (-" + removal.reductionEach() + " CP each, cost " + card.cost() + ")";
+		List<Integer> picks = cardPickerDialog.pickMultiCardImage(options, title, options.size(), false, false, 1);
+		if (picks == null || picks.isEmpty()) return null;
+		List<Integer> chosen = new ArrayList<>();
+		for (int p : picks) chosen.add(candidates.get(p));
+		return chosen;
 	}
 
 	/**
@@ -10993,9 +11061,21 @@ public class MainWindow {
 			List<Integer> discardIndices, List<Integer> backupDullIndices,
 			Map<Integer, String> backupBreaks,
 			List<ForwardTarget> summonTargets, boolean targetsAreReplayed) {
-		applyAltPayment(isP1, payment);
-		withAltCostArmed(() -> executePlay(isP1, card, handIdx, discardIndices, backupDullIndices,
-				Map.of(), summonTargets, targetsAreReplayed, backupBreaks));
+		// Vayne's Backups leave once the CP is paid, just before he enters, rather than up front
+		// with the rest of an alternate payment. Their slots stay reserved from the payment until then.
+		AltPayment upFront = payment;
+		if (payment != null && card.altFieldRemovalPerCard() != null && !payment.removeBackups().isEmpty()) {
+			upFront = new AltPayment(payment.crystals(), payment.dullForwards(), List.of(),
+					payment.putToBz(), payment.bzRemovals());
+			afterCastPayment = () -> executeAltFieldRemoval(isP1, payment.removeBackups());
+		}
+		applyAltPayment(isP1, upFront);
+		try {
+			withAltCostArmed(() -> executePlay(isP1, card, handIdx, discardIndices, backupDullIndices,
+					Map.of(), summonTargets, targetsAreReplayed, backupBreaks));
+		} finally {
+			afterCastPayment = null;
+		}
 		executeAltFollowup(isP1, card.altFollowupText(), card);
 	}
 
@@ -11718,6 +11798,12 @@ public class MainWindow {
 		for (String e : cpToClear) {
 			spendCp(isP1, e, cpForElement(isP1, e));
 			clearCp(isP1, e);
+		}
+		// The CP is paid; a cost step that belongs between that and the card arriving runs now.
+		if (afterCastPayment != null) {
+			Runnable step = afterCastPayment;
+			afterCastPayment = null;
+			step.run();
 		}
 		// Record distinct element types used for payment (checked by castPaymentMinElements field abilities)
 		lastCastPaymentDistinctElements = (int) execCpAccum.keySet().stream()
@@ -14373,10 +14459,9 @@ public class MainWindow {
 				if (!handCanPay && !canPaySpecialCostWithCrystal(source, isP1) && !costWaived) return false;
 			}
 		}
-		if (ability.damageThreshold() > 0) {
-			int dmg = isP1 ? gameState.getP1DamageZone().size() : gameState.getP2DamageZone().size();
-			if (dmg < ability.damageThreshold()) return false;
-		}
+		// Turn history, hands, damage, the Break Zone, the field: the same check the Break Zone and
+		// hand paths make.
+		if (!UseConditions.met(this, ability, source, isP1)) return false;
 		if (ability.minCounterRequired() > 0 && ability.minCounterType() != null) {
 			if (gameState.getCounters(source, ability.minCounterType()) < ability.minCounterRequired()) return false;
 		}
@@ -14398,53 +14483,12 @@ public class MainWindow {
 		if (ability.maxCounterAllowed() >= 0 && ability.maxCounterType() != null) {
 			if (gameState.getCounters(source, ability.maxCounterType()) > ability.maxCounterAllowed()) return false;
 		}
-		if (ability.requiresOppDiscardedThisTurn()) {
-			boolean caused = turn(isP1).causedOpponentDiscardThisTurn;
-			if (!caused) return false;
-		}
-		if (ability.requiresCastSummonThisTurn()) {
-			if (!(turn(isP1).summonCastThisTurn)) return false;
-		}
-		if (ability.requiresOpponentEmptyHand()) {
-			List<CardData> oppHand = isP1 ? gameState.getP2Hand() : gameState.getP1Hand();
-			if (!oppHand.isEmpty()) return false;
-		}
-		if (ability.maxOpponentHandSize() >= 0) {
-			List<CardData> oppHand = isP1 ? gameState.getP2Hand() : gameState.getP1Hand();
-			if (oppHand.size() > ability.maxOpponentHandSize()) return false;
-		}
-		if (ability.requiresOwnWarpCard()) {
-			List<GameState.WarpEntry> zone = isP1 ? gameState.getP1WarpZone() : gameState.getP2WarpZone();
-			if (zone.isEmpty()) return false;
-		}
 		if (ability.revealCost() != null) {
 			// Revealing costs nothing, but a cost that cannot be paid still bars the activation.
 			int matching = 0;
 			for (CardData c : playerHand(isP1)) if (ability.revealCost().matches(c)) matching++;
 			if (revealAndSpecialCostCompeteForOneCard(ability, source, isP1)) matching--;
 			if (matching < ability.revealCost().count()) return false;
-		}
-		if (ability.requiresSelfEmptyHand()) {
-			List<CardData> selfHand = isP1 ? gameState.getP1Hand() : gameState.getP2Hand();
-			if (!selfHand.isEmpty()) return false;
-		}
-		if (ability.requiresNamedCardTookDamageThisTurn() != null) {
-			Set<String> damaged = turn(isP1).cardsTookDamageThisTurn;
-			if (!damaged.contains(ability.requiresNamedCardTookDamageThisTurn())) return false;
-		}
-		if (ability.requiresSelfReceivedDamageThisTurn()) {
-			if (!(turn(isP1).receivedDamageThisTurn)) return false;
-		}
-		if (ability.requiresForwardPutToBZThisTurn()) {
-			if (!(turn(isP1).forwardPutToBZThisTurn)) return false;
-		}
-		if (ability.requiresJobPutToBZThisTurn() != null) {
-			Set<String> brokenJobs = turn(isP1).brokenJobsThisTurn;
-			if (!brokenJobs.contains(ability.requiresJobPutToBZThisTurn())) return false;
-		}
-		if (ability.requiresElementForwardEnteredThisTurn() != null) {
-			Set<String> entered = turn(isP1).elementForwardsEnteredThisTurn;
-			if (!entered.contains(ability.requiresElementForwardEnteredThisTurn())) return false;
 		}
 		if (ability.requiresSourceIsForward()) {
 			boolean inMonsterZone = isP1 ? p1MonsterCards.contains(source) : p2MonsterCards.contains(source);
@@ -14453,7 +14497,6 @@ public class MainWindow {
 				if (!tempFwdMap.containsKey(source)) return false;
 			}
 		}
-		if (ability.controlCondition() != null && !controlConditionMet(ability.controlCondition(), isP1)) return false;
 		// Everything below prices a cost, and a waived ability has none — "without paying the cost"
 		// covers the CP as squarely as the 《S》. The restrictions above are not costs and still bind:
 		// a waived ability is no more legal to use than it was, only cheaper.

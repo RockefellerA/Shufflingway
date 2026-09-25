@@ -777,6 +777,17 @@ class CostCalculator {
 		}
 
 		List<String> altElems = card.altCpElements();
+		// Per-card removal (15-088H Vayne): priced at its best, every eligible Backup removed —
+		// each is worth its reduction there and only 1 CP dulled, so no split does better. Those
+		// Backups are then reserved, and cannot also be counted as CP below.
+		CardData.AltFieldRemovalPerCard perCard = card.altFieldRemovalPerCard();
+		Set<Integer> reserved = Set.of();
+		if (perCard != null) {
+			List<Integer> candidates = mw.altFieldRemovalPerCardCandidates(perCard);
+			if (candidates.isEmpty()) return false;
+			reserved = Set.copyOf(candidates);
+			altElems = card.cpElementsReducedBy(perCard.reductionEach() * candidates.size());
+		}
 		if (altElems.isEmpty()) return true;
 
 		// Count available CP sources (backup-only restriction respected)
@@ -788,7 +799,7 @@ class CostCalculator {
 		int totalSources = 0;
 		for (String e : elems) totalSources += mw.gameState.getP1CpForElement(e);
 		for (int i = 0; i < mw.p1BackupCards.length && !mw.backupCpSuppressed(true); i++)
-			if (mw.p1BackupCards[i] != null && mw.p1BackupStates[i] == CardState.ACTIVE
+			if (mw.p1BackupCards[i] != null && mw.p1BackupStates[i] == CardState.ACTIVE && !reserved.contains(i)
 					&& (genericNeeded > 0 || matchesAnyElement(mw.p1BackupCards[i], elems))) totalSources++;
 		if (!card.altBackupOnlyCp()) {
 			Set<String> ldGrants = mw.lightDarkDiscardGrants(true);

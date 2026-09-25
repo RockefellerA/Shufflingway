@@ -147,7 +147,8 @@ public record CardData(
      * <p>Requiring the "Before paying the cost to cast" prefix and a numeric count is what keeps
      * this off the other "you can remove … from the game" costs: the Break Zone family removes
      * "… in your Break Zone" rather than "… you control", Vayne 15-088H removes "any number of"
-     * with no digit, and Sonon 18-123L's is an instead-of-paying cost with no prefix.
+     * with no digit ({@link #ALT_COST_REMOVE_ANY_NUMBER}), and Sonon 18-123L's is an
+     * instead-of-paying cost with no prefix.
      */
     private static final Pattern ALT_COST_SUMMON_REMOVE_FIELD = Pattern.compile(
         "(?i)Before\\s+paying\\s+the\\s+cost\\s+to\\s+cast\\s+.+?,\\s+" +
@@ -156,6 +157,21 @@ public record CardData(
         "(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control\\s+" +
         "from\\s+the\\s+game\\s+to\\s+reduce\\s+the\\s+cost\\s+required\\s+to\\s+cast\\s+.+?\\s+" +
         "by\\s+(?<reduction>\\d+)\\."
+    );
+
+    /**
+     * The per-card form of {@link #ALT_COST_SUMMON_REMOVE_FIELD}: "Before paying the cost to cast
+     * Vayne, you can remove any number of active Backups you control from the game to reduce the
+     * cost required to cast Vayne by 4 for each Backup you removed this way." — 15-088H Vayne, the
+     * one printing. The count is the caster's choice, so the reduction is only known at the cast.
+     */
+    private static final Pattern ALT_COST_REMOVE_ANY_NUMBER = Pattern.compile(
+        "(?i)Before\\s+paying\\s+the\\s+cost\\s+to\\s+cast\\s+.+?,\\s+" +
+        "you\\s+can\\s+remove\\s+any\\s+number\\s+of\\s+(?<active>active\\s+)?" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<type>Forwards|Backups|Monsters|Characters)\\s+you\\s+control\\s+" +
+        "from\\s+the\\s+game\\s+to\\s+reduce\\s+the\\s+cost\\s+required\\s+to\\s+cast\\s+.+?\\s+" +
+        "by\\s+(?<each>\\d+)\\s+for\\s+each\\s+\\S+\\s+you\\s+removed\\s+this\\s+way\\."
     );
 
     /**
@@ -515,6 +531,27 @@ public record CardData(
         if (!m.find()) return null;
         return new AltFieldRemoval(Integer.parseInt(m.group("count")),
                 m.group("element").trim(), m.group("type").trim());
+    }
+
+    /**
+     * A cast-cost reduction bought per card removed from your field, the count left to the caster:
+     * {@code activeOnly} and {@code element} filter the cards, {@code type} is the printed type
+     * ("Backups"), and each one removed takes {@code reductionEach} off the cost, which cannot go
+     * below 0.
+     */
+    public record AltFieldRemovalPerCard(boolean activeOnly, String element, String type, int reductionEach) {}
+
+    /** This card's {@link AltFieldRemovalPerCard}, or {@code null} when it prints none. */
+    public AltFieldRemovalPerCard altFieldRemovalPerCard() {
+        Matcher m = ALT_COST_REMOVE_ANY_NUMBER.matcher(textEn);
+        if (!m.find()) return null;
+        return new AltFieldRemovalPerCard(m.group("active") != null, m.group("element"),
+                m.group("type").trim(), Integer.parseInt(m.group("each")));
+    }
+
+    /** The CP owed to cast this card with its cost reduced by {@code reduction}, floored at 0. */
+    public List<String> cpElementsReducedBy(int reduction) {
+        return reducedCastCpElements(reduction);
     }
 
     /** Convenience: total CP to pay for the alternate cast ({@code altCpElements().size()}). */
@@ -2536,6 +2573,12 @@ public record CardData(
                         }
                     }
                 }
+            } else {
+                // A Break Zone ability states its control condition beside the zone clause — "if
+                // you control 2 or more Category DFF Forwards and if Bartz is in the Break Zone"
+                // (21-134S, 25-017R). Unread, both were usable with nothing on the field.
+                Matcher bzCtrlM = BZ_ABILITY_CONTROL_IF_PATTERN.matcher(effectRaw);
+                if (bzCtrlM.find()) controlCondition = parseControlCondition(bzCtrlM.group("condition"));
             }
             Matcher cpBkpM = CP_BACKUP_ONLY_ABILITY.matcher(effectRaw);
             String cpBackupElement = cpBkpM.find()
@@ -2804,7 +2847,9 @@ public record CardData(
     );
     static final Pattern WHILE_CARD_IN_HAND_PATTERN = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability" +
-        "(?:\\s+during\\s+your\\s+turn\\s+and)?" +
+        // "during your Main Phase and" too — 28-116H Louise, which otherwise read as a field
+        // ability and was offered nowhere, since the hand menu lists only whileCardInHand ones.
+        "(?:\\s+during\\s+your\\s+(?:turn|Main\\s+Phase)\\s+and)?" +
         "\\s+if\\s+.+?\\s+is\\s+in\\s+your\\s+hand[.!]?"
     );
 
@@ -2993,6 +3038,11 @@ public record CardData(
     );
 
     /** Captures the raw condition text from "You can only use this ability if you control [X]". */
+    /** "…[,] if you control X and if [Self] is in the Break Zone." — group {@code condition} is X. */
+    static final Pattern BZ_ABILITY_CONTROL_IF_PATTERN = Pattern.compile(
+        "(?i)\\bif\\s+you\\s+control\\s+(?<condition>.+?)\\s+and\\s+if\\s+.+?\\s+is\\s+in\\s+the\\s+Break\\s+Zone"
+    );
+
     static final Pattern CONTROL_IF_PATTERN = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+you\\s+control\\s+(?<condition>.+?)\\s*[.!]?\\s*$"
     );
@@ -9036,6 +9086,7 @@ public record CardData(
             // Alternate-cost declarations
             if (ALT_COST_SUMMON.matcher(seg).find())    continue;
             if (ALT_COST_SUMMON_REMOVE_FIELD.matcher(seg).find()) continue;
+            if (ALT_COST_REMOVE_ANY_NUMBER.matcher(seg).find()) continue;
             if (ALT_COST_NONSUMMON.matcher(seg).find()) continue;
             if (ALT_COST_DULL.matcher(seg).find())      continue;
             if (ALT_COST_PUT_TO_BZ.matcher(seg).find()) continue;

@@ -65688,6 +65688,163 @@ public class CardBehaviorTest {
 		assertEquals(2000, mw.p2ForwardPowerBoost.get(mw.p2ForwardCards.indexOf(arrival)));
 	}
 
+	// =========================================================================================
+	// Use conditions shared by the field, Break Zone and hand. Six restrictions were enforced
+	// nowhere: 11-130L, 18-040H, 26-057C and 29-011H had no field to hold them, 25-017R and 21-134S
+	// lost their control condition on a Break Zone ability, and 21-057R Fran's "a Card Name Balthier
+	// has entered your field this turn" was parsed and never read.
+	// =========================================================================================
+
+	private static ActionAbility soleAction(String text) {
+		List<ActionAbility> abs = CardData.parseActionAbilities(text);
+		assertEquals(1, abs.size(), text);
+		return abs.get(0);
+	}
+
+	@Test
+	void eachPlayersDamageGatesTheAbility() {
+		MainWindow mw = new MainWindow();
+		CardData src = makeForward("Src", "Fire", 3, 7000);
+		ActionAbility ab = soleAction("《1》: Draw 1 card. You can only use this ability if each player has "
+				+ "received 5 points of damage or more.");
+		for (int i = 0; i < 5; i++) mw.gameState.getP1DamageZone().add(makeForward("D" + i, "Fire", 1, 1000));
+		assertFalse(UseConditions.met(mw, ab, src, true), "only one player is at 5");
+		for (int i = 0; i < 5; i++) mw.gameState.getP2DamageZone().add(makeForward("E" + i, "Fire", 1, 1000));
+		assertTrue(UseConditions.met(mw, ab, src, true));
+	}
+
+	@Test
+	void castCountAndBreakZoneElementCountGateTheirAbilities() {
+		MainWindow mw = new MainWindow();
+		CardData src = makeForward("Src", "Fire", 3, 7000);
+		ActionAbility cast = soleAction("《1》: Draw 1 card. You can only use this ability if you have cast 2 or "
+				+ "more cards this turn and only once per turn.");
+		mw.turn(true).cardsCastThisTurn = 1;
+		assertFalse(UseConditions.met(mw, cast, src, true));
+		mw.turn(true).cardsCastThisTurn = 2;
+		assertTrue(UseConditions.met(mw, cast, src, true));
+
+		ActionAbility wind = soleAction("《1》: Draw 1 card. You can only use this ability if there are 15 or "
+				+ "more Wind cards in your Break Zone.");
+		for (int i = 0; i < 14; i++) mw.gameState.getP1BreakZone().add(makeForward("W" + i, "Wind", 1, 1000));
+		mw.gameState.getP1BreakZone().add(makeForward("F", "Fire", 1, 1000));
+		assertFalse(UseConditions.met(mw, wind, src, true), "14 Wind and a Fire");
+		mw.gameState.getP1BreakZone().add(makeForward("W14", "Wind", 1, 1000));
+		assertTrue(UseConditions.met(mw, wind, src, true));
+	}
+
+	@Test
+	void upToThreeTimesPerTurnStopsAtThree() {
+		MainWindow mw = new MainWindow();
+		CardData src = makeForward("Src", "Fire", 3, 7000);
+		ActionAbility ab = soleAction("《1》: Draw 1 card. You can only use this ability up to 3 times per turn.");
+		mw.abilityUsesThisTurn.put(src, new java.util.HashMap<>(Map.of(ab.effectText(), 2)));
+		assertTrue(UseConditions.met(mw, ab, src, true));
+		mw.abilityUsesThisTurn.get(src).put(ab.effectText(), 3);
+		assertFalse(UseConditions.met(mw, ab, src, true));
+	}
+
+	@Test
+	void franNeedsABalthierToHaveEnteredThisTurn() {
+		MainWindow mw = new MainWindow();
+		CardData fran = makeForward("Fran", "Wind", 3, 7000);
+		ActionAbility ab = soleAction("Remove 1 card in your hand from the game: Play Fran onto the field dull. "
+				+ "You can only use this ability if a Card Name Balthier has entered your field this turn and "
+				+ "if Fran is in the Break Zone.");
+		assertEquals("Balthier", ab.requiresCardNameEnteredThisTurn());
+		assertFalse(UseConditions.met(mw, ab, fran, true));
+		mw.turn(true).charactersEnteredThisTurn.add(makePlainBackup("Balthier", "Wind", 2));
+		assertTrue(UseConditions.met(mw, ab, fran, true), "a Backup Balthier counts");
+	}
+
+	@Test
+	void aBreakZoneAbilityReadsItsControlCondition() {
+		ActionAbility ab = soleAction("《1》: Play Red XIII onto the field. You can only use this ability during "
+				+ "your Main Phase, if you control 2 or more Category VII Forwards and if Red XIII is in the "
+				+ "Break Zone.");
+		assertEquals("Red XIII", ab.breakZoneOnly());
+		assertNotNull(ab.controlCondition());
+		assertEquals(2, ab.controlCondition().minCount());
+	}
+
+	@Test
+	void louiseIsAHandAbility() {
+		ActionAbility ab = soleAction("Discard Louise: Gain 《C》. You can only use this ability during your Main "
+				+ "Phase and if Louise is in your hand.");
+		assertTrue(ab.whileCardInHand());
+		assertTrue(ab.mainPhaseOnly());
+	}
+
+	// =========================================================================================
+	// 15-088H Vayne: "Before paying the cost to cast Vayne, you can remove any number of active
+	// Backups you control from the game to reduce the cost required to cast Vayne by 4 for each
+	// Backup you removed this way." Read as a field ability that did nothing; now an alternate cast.
+	// =========================================================================================
+
+	private static final String VAYNE_15_088H = "Before paying the cost to cast Vayne, you can remove any "
+			+ "number of active Backups you control from the game to reduce the cost required to cast Vayne by "
+			+ "4 for each Backup you removed this way.[[br]]The Forwards you control gain +2000 power.[[br]]"
+			+ "The Forwards opponent controls lose 2000 power.";
+
+	private static CardData vayne() {
+		return makeTextCard("Vayne", "Lightning", "Forward", 8, 9000, null, VAYNE_15_088H);
+	}
+
+	private static void activeP1Backups(MainWindow mw, int n) {
+		for (int i = 0; i < n; i++) {
+			CardData b = makePlainBackup("B" + i, "Water", 1);
+			mw.gameState.getIdentity().put(b, true);
+			mw.p1BackupCards[i]  = b;
+			mw.p1BackupStates[i] = CardState.ACTIVE;
+		}
+	}
+
+	@Test
+	void vaynesReductionIsReadAndIsNotAFieldAbility() {
+		CardData.AltFieldRemovalPerCard r = vayne().altFieldRemovalPerCard();
+		assertNotNull(r);
+		assertTrue(r.activeOnly());
+		assertEquals("Backups", r.type());
+		assertEquals(4, r.reductionEach());
+		assertTrue(vayne().fieldAbilities().stream().noneMatch(f -> f.effectText().contains("Before paying")));
+		assertEquals(4, vayne().cpElementsReducedBy(4).size());
+		assertTrue(vayne().cpElementsReducedBy(12).isEmpty(), "floored at 0");
+	}
+
+	@Test
+	void vayneIsAffordableWithTwoActiveBackupsAndNothingElse() {
+		MainWindow mw = new MainWindow();
+		activeP1Backups(mw, 2);
+		assertTrue(mw.costs.canAffordAltCost(vayne(), -1), "two removed take all 8");
+	}
+
+	@Test
+	void vayneCannotCountARemovedBackupAsCpToo() {
+		MainWindow mw = new MainWindow();
+		activeP1Backups(mw, 1);
+		assertFalse(mw.costs.canAffordAltCost(vayne(), -1), "one removed leaves 4 CP and nothing to pay it");
+		assertFalse(new MainWindow().costs.canAffordAltCost(vayne(), -1), "no Backup, no reduction");
+	}
+
+	@Test
+	void vaynesBackupsLeaveWhenHeIsPlayed() {
+		MainWindow mw = new MainWindow();
+		activeP1Backups(mw, 2);
+		CardData b0 = mw.p1BackupCards[0], b1 = mw.p1BackupCards[1];
+		CardData v = vayne();
+		mw.gameState.getIdentity().put(v, true);
+		mw.gameState.getP1Hand().add(v);
+
+		mw.executeAltPlay(true, v, 0, new AltPayment(0, List.of(), List.of(0, 1), List.of(), List.of()),
+				List.of(), List.of(), Map.of(), null, false);
+
+		assertTrue(mw.p1ForwardCards.contains(v));
+		assertNull(mw.p1BackupCards[0]);
+		assertNull(mw.p1BackupCards[1]);
+		assertTrue(mw.gameState.getP1PermanentRfp().containsAll(List.of(b0, b1)), "removed from the game");
+		assertNull(mw.afterCastPayment, "the step is spent");
+	}
+
 	// ---- Who may pay 《X》: 17-020R Montblanc, 26-040R Menphina --------------------------------
 
 	private static final String MONTBLANC_17_020R = "When Montblanc enters the field, you may pay 《X》. "

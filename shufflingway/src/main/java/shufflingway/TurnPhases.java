@@ -51,6 +51,7 @@ class TurnPhases {
 		mw.p2Turn.putToBzFromFieldThisTurn.clear();
 		mw.p2Turn.castRemovedUsedThisTurn.clear();
 		mw.p2Turn.elementForwardsEnteredThisTurn.clear();
+		mw.p2Turn.charactersEnteredThisTurn.clear();
 		mw.p2Turn.cardsTookDamageThisTurn.clear();
 		mw.p2Turn.forwardEnteredViaWarpThisTurn = false;
 		mw.p2Turn.turnOpponentCharReturnedToHand = false;
@@ -140,6 +141,7 @@ class TurnPhases {
 		mw.p2Turn.putToBzFromFieldThisTurn.clear();
 		mw.p1Turn.castRemovedUsedThisTurn.clear();
 		mw.p1Turn.elementForwardsEnteredThisTurn.clear();
+		mw.p1Turn.charactersEnteredThisTurn.clear();
 		mw.p1Turn.cardsTookDamageThisTurn.clear();
 		mw.p1Turn.forwardEnteredViaWarpThisTurn = false;
 		mw.p1Turn.turnOpponentCharReturnedToHand = false;

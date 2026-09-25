@@ -136,6 +136,11 @@ class PlayerTurnState {
 
 	int forwardsLeftFieldThisTurn = 0;
 	final Set<String> elementForwardsEnteredThisTurn = new HashSet<>();
+	/**
+	 * Every card that entered this player's field this turn, of any type — kept as cards rather
+	 * than names so "a Card Name X has entered your field this turn" (21-057R Fran) matches aliases.
+	 */
+	final List<CardData> charactersEnteredThisTurn = new ArrayList<>();
 	final Set<String> cardsTookDamageThisTurn = new HashSet<>();
 	boolean forwardEnteredViaWarpThisTurn = false;
 	boolean turnOpponentCharReturnedToHand = false;
