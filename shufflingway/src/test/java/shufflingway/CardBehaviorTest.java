@@ -64847,6 +64847,168 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// "discard 1 card. If/When you do so, <payoff> of the same cost / card type as the discarded
+	// card" — 7-017H Meeth, 8-039C Time Mage, 11-125C Alchemist, 27-067C Pictomancer (XIV). The
+	// sentence-splitting fallback ran the discard and dropped the payoff. All on P2's seat, so no
+	// discard or search dialog opens.
+	// =========================================================================================
+
+	/** A fresh board whose P2 hand holds exactly {@code discard}, the only card it can discard. */
+	private static MainWindow boardWithP2Discarding(CardData discard) {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2Hand().clear();
+		mw.gameState.getIdentity().put(discard, false);
+		mw.gameState.getP2Hand().add(discard);
+		return mw;
+	}
+
+	@Test
+	void timeMageDullsAndFreezesOnlyForwardsOfTheDiscardedCost() {
+		CardData timeMage = makeForward("Time Mage", "Ice", 3, 7000);
+		MainWindow mw = boardWithP2Discarding(makeForward("Fodder", "Ice", 3, 7000));
+		placeP1Forward(mw, makeForward("Three", "Fire", 3, 7000));   // idx 0
+		placeP1Forward(mw, makeForward("Two", "Fire", 2, 5000));     // idx 1
+
+		ActionResolver.parse("discard 1 card from your hand. If you do so, dull and Freeze all the "
+				+ "Forwards of the same cost as the discarded card opponent controls.", timeMage)
+				.accept(mw.buildGameContext(false));
+
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertTrue(mw.p1ForwardFrozen.get(0));
+		assertNotEquals(CardState.DULL, mw.p1ForwardStates.get(1), "cost 2, not the discarded 3");
+		assertFalse(mw.p1ForwardFrozen.get(1));
+	}
+
+	@Test
+	void timeMageWithNothingToDiscardDoesNothing() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2Hand().clear();
+		placeP1Forward(mw, makeForward("Three", "Fire", 3, 7000));
+
+		ActionResolver.parse("discard 1 card from your hand. If you do so, dull and Freeze all the "
+				+ "Forwards of the same cost as the discarded card opponent controls.",
+				makeForward("Time Mage", "Ice", 3, 7000)).accept(mw.buildGameContext(false));
+
+		assertNotEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertFalse(mw.p1ForwardFrozen.get(0));
+	}
+
+	@Test
+	void meethSearchesForAForwardOfTheDiscardedCost() {
+		MainWindow mw = boardWithP2Discarding(makeSummon("Fire", "Fire", 2, ""));
+		CardData two = makeForward("Two", "Fire", 2, 5000);
+		CardData four = makeForward("Four", "Fire", 4, 8000);
+		for (CardData c : List.of(four, two)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+
+		ActionResolver.parse("discard 1 card. If you do so, search for 1 Forward of the same cost as "
+				+ "the discarded card and add it to your hand.", makeJobCard("Meeth", "Fire", "Backup", null))
+				.accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(two), mw.gameState.getP2Hand());
+		assertTrue(mw.gameState.getP2MainDeck().contains(four));
+	}
+
+	@Test
+	void alchemistSearchesForTheDiscardedCardType() {
+		MainWindow mw = boardWithP2Discarding(makeJobCard("Old Backup", "Water", "Backup", null));
+		CardData forward = makeForward("Fwd", "Water", 2, 5000);
+		CardData backup = makeJobCard("New Backup", "Water", "Backup", null);
+		for (CardData c : List.of(forward, backup)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+
+		ActionResolver.parse("Discard 1 card from your hand. If you do so, search for 1 card of the same "
+				+ "card type as the discarded card and add it to your hand.",
+				makeJobCard("Alchemist", "Water", "Backup", null)).accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(backup), mw.gameState.getP2Hand());
+		assertTrue(mw.gameState.getP2MainDeck().contains(forward));
+	}
+
+	@Test
+	void pictomancerBreaksAForwardOfTheDiscardedCost() {
+		MainWindow mw = boardWithP2Discarding(makeForward("Fodder", "Earth", 5, 9000));
+		CardData three = makeForward("Three", "Fire", 3, 7000);
+		CardData five = makeForward("Five", "Fire", 5, 9000);
+		placeP1Forward(mw, three);
+		placeP1Forward(mw, five);
+
+		ActionResolver.parse("discard 1 card. When you do so, choose 1 Forward of the same cost as the "
+				+ "discarded card. Break it.", makeForward("Pictomancer (XIV)", "Earth", 3, 7000))
+				.accept(mw.buildGameContext(false));
+
+		assertFalse(mw.p1ForwardCards.contains(five), "cost 5, the discarded card's cost");
+		assertTrue(mw.p1ForwardCards.contains(three));
+	}
+
+	// =========================================================================================
+	// 12-029L The Emperor: "When The Emperor is put from the field into the Break Zone, search for
+	// 1 Card Name The Emperor and put it into the Break Zone. If you do so, play The Emperor from
+	// your Break Zone onto the field dull at the end of the turn." The search ran and the return
+	// was dropped.
+	// =========================================================================================
+
+	private static final String EMPEROR_12_029L_BZ =
+			"search for 1 Card Name The Emperor and put it into the Break Zone. If you do so, play The "
+			+ "Emperor from your Break Zone onto the field dull at the end of the turn.";
+
+	/** P2's Emperor already in its Break Zone, as its trigger finds it; {@code deckCopy} in the deck. */
+	private static MainWindow boardWithEmperorInP2BreakZone(CardData emperor, CardData deckCopy) {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getIdentity().put(emperor, false);
+		mw.gameState.getP2BreakZone().add(emperor);
+		if (deckCopy != null) {
+			mw.gameState.getIdentity().put(deckCopy, false);
+			mw.gameState.getP2MainDeck().add(deckCopy);
+		}
+		return mw;
+	}
+
+	@Test
+	void theEmperorReturnsDullAtTheEndOfTheTurnAfterFindingACopy() {
+		CardData emperor = makeForward("The Emperor", "Ice", 2, 5000);
+		CardData copy = makeForward("The Emperor", "Ice", 2, 5000);
+		MainWindow mw = boardWithEmperorInP2BreakZone(emperor, copy);
+
+		ActionResolver.parse(EMPEROR_12_029L_BZ, emperor).accept(mw.buildGameContext(false));
+		assertFalse(mw.gameState.getP2MainDeck().contains(copy), "the copy was searched out");
+		assertFalse(mw.p2ForwardCards.contains(emperor), "not until the end of the turn");
+
+		mw.fireEndOfTurnEffects(false);
+		int idx = mw.p2ForwardCards.indexOf(emperor);
+		assertTrue(idx >= 0, "by identity: the Emperor that died");
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(idx));
+		assertEquals(1, mw.p2ForwardCards.size(), "one Emperor, not every copy in the Break Zone");
+		assertTrue(mw.gameState.getP2BreakZone().stream().anyMatch(c -> c == copy));
+	}
+
+	@Test
+	void theEmperorStaysInTheBreakZoneWhenNoCopyIsFound() {
+		CardData emperor = makeForward("The Emperor", "Ice", 2, 5000);
+		MainWindow mw = boardWithEmperorInP2BreakZone(emperor, null);
+
+		ActionResolver.parse(EMPEROR_12_029L_BZ, emperor).accept(mw.buildGameContext(false));
+		mw.fireEndOfTurnEffects(false);
+
+		assertTrue(mw.p2ForwardCards.isEmpty());
+		assertTrue(mw.gameState.getP2BreakZone().contains(emperor));
+	}
+
+	@Test
+	void aPayoffKeyedOnTheDiscardedCardFailsClosedWhenItDoesNotParse() {
+		// This parser declines rather than claim the discard alone. (The sentence-splitting fallback
+		// behind it still runs the discard by itself: the partial-parse report's general hole.)
+		assertNull(ActionResolverHand.tryParseDiscardThenSameAsDiscarded("discard 1 card. If you do so, "
+				+ "frobnicate all the Forwards of the same cost as the discarded card.",
+				makeForward("Src", "Ice", 3, 7000)));
+	}
+
+	// =========================================================================================
 	// Aerith 16-067L: removed from the game with 3 Reraise Counters, she loses one at each of her
 	// controller's Main Phase 1s and returns when none are left. The countdown used to read as
 	// "play Aerith onto the field" from the Break Zone -- which she is not in -- and could never

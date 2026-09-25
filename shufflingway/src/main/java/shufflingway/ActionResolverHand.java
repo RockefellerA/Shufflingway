@@ -472,6 +472,55 @@ final class ActionResolverHand {
         };
     }
     /**
+     * Parses "discard 1 card. If/When you do so, &lt;payoff&gt;" where the payoff names "the same
+     * cost as the discarded card" or "the same card type as the discarded card" — 7-017H Meeth,
+     * 8-039C Time Mage, 11-125C Alchemist, 27-067C Pictomancer (XIV).
+     *
+     * <p>The phrase is filled in with the discarded card's cost or type once it is known, and the
+     * payoff parsed then. So that this cannot claim an ability whose payoff would not parse, every
+     * card type, and a sample cost, is tried here first; with any unread, the ability stays unread.
+     */
+    static Consumer<GameContext> tryParseDiscardThenSameAsDiscarded(String text, CardData source) {
+        Matcher m = DISCARD_THEN_SAME_AS_DISCARDED.matcher(text.trim());
+        if (!m.matches()) return null;
+        String payoff = m.group("payoff").trim();
+        boolean byCost = SAME_COST_AS_DISCARDED.matcher(payoff).find();
+        boolean byType = SAME_TYPE_AS_DISCARDED.matcher(payoff).find();
+        if (byCost == byType) return null;
+        List<String> samples = byCost ? List.of("1") : List.of("Forward", "Backup", "Summon", "Monster");
+        for (String sample : samples) {
+            String filled = fillSameAsDiscarded(payoff, byCost, sample);
+            if (filled.toLowerCase(Locale.ROOT).contains("discarded card")) return null;
+            if (parse(filled, source) == null) return null;
+        }
+        return ctx -> {
+            ctx.logEntry("Effect: Discard 1 card");
+            ctx.resetEffectProgress();
+            ctx.selfDiscard(1);
+            CardData discarded = ctx.lastDiscardedCard();
+            if (!ctx.effectMadeProgress() || discarded == null) {
+                ctx.logEntry("Effect: nothing discarded — no payoff");
+                return;
+            }
+            String value = byCost ? String.valueOf(discarded.cost()) : discarded.type();
+            Consumer<GameContext> eff = parse(fillSameAsDiscarded(payoff, byCost, value), source);
+            if (eff == null) {
+                ctx.logEntry("Effect: no payoff for a discarded " + value);
+                return;
+            }
+            ctx.logEntry("Effect: discarded " + discarded.name() + " — "
+                    + (byCost ? "cost " : "type ") + value);
+            eff.accept(ctx);
+        };
+    }
+
+    private static String fillSameAsDiscarded(String payoff, boolean byCost, String value) {
+        return byCost
+                ? SAME_COST_AS_DISCARDED.matcher(payoff).replaceAll("of cost " + value)
+                : SAME_TYPE_AS_DISCARDED.matcher(payoff).replaceAll(value);
+    }
+
+    /**
      * Parses "&lt;effect that discards 1 card&gt;. If the discarded card is Category X, [also]
      * &lt;effect&gt;." — 20-113R Porom. Both halves must parse; the payoff runs only when the card
      * just discarded carries the Category.

@@ -2558,6 +2558,15 @@ public interface GameContext {
     boolean lastDiscardedCardIsMultiElement();
 
     /**
+     * The card most recently discarded by an effect (not a cost) in the current ability chain, or
+     * {@code null} when none has been. For payoffs keyed on the card itself — "search for 1
+     * Forward of the same cost as the discarded card" (7-017H Meeth), "of the same card type"
+     * (11-125C Alchemist). Check {@link #effectMadeProgress()} first: after a discard that found
+     * an empty hand this still names whatever was discarded earlier in the chain.
+     */
+    CardData lastDiscardedCard();
+
+    /**
      * Returns {@code true} when the card most recently discarded by an effect (not a cost) in the
      * current ability chain belongs to Category {@code category} (either of its two category
      * slots). Used by "If the discarded card is a Category X card, …" conditionals attached to a

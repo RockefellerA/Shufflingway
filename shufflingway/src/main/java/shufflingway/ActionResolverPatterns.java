@@ -3532,17 +3532,30 @@ final class ActionResolverPatterns {
      * immediate Break-Zone one — both the timing and the zone wrong, silently.
      */
     /**
-     * Matches "Search for 1 Card Name X and remove it from the game. [If|When] you do so,
-     * &lt;effect&gt;." — 1-093H Vanille, 20-047H Jenova Dreamweaver.
+     * Matches "Search for 1 Card Name X and (remove it from the game|put it into the Break Zone).
+     * [If|When] you do so, &lt;effect&gt;." — 1-093H Vanille, 20-047H Jenova Dreamweaver (removed
+     * from the game), 12-029L The Emperor (Break Zone).
      *
      * <p>The search is mandatory but can still come up empty, which is what the "if you do so"
      * gates on: the deck may hold no copy of the named card. Group {@code effect} is handed back
-     * to {@code parse()} rather than enumerated, so the payoff can be anything.
+     * to {@code parse()} rather than enumerated, so the payoff can be anything. Group {@code bz}
+     * is present when the found card goes to the Break Zone.
      */
     static final Pattern SEARCH_NAMED_RFG_THEN_IF_DO_SO = Pattern.compile(
-        "(?i)^search\\s+for\\s+1\\s+Card\\s+Name\\s+(?<name>.+?)\\s+and\\s+remove\\s+it\\s+from\\s+the\\s+game\\.\\s+" +
+        "(?i)^search\\s+for\\s+1\\s+Card\\s+Name\\s+(?<name>.+?)\\s+and\\s+" +
+        "(?:remove\\s+it\\s+from\\s+the\\s+game|(?<bz>put\\s+it\\s+into\\s+the\\s+Break\\s+Zone))\\.\\s+" +
         "(?:If|When)\\s+you\\s+do\\s+so,\\s+(?<effect>.+)$",
         Pattern.DOTALL
+    );
+    /**
+     * "Play [Self] from your Break Zone onto the field [dull] at the end of the turn." — the
+     * payoff of 12-029L The Emperor's search. Read only from the search parser, like
+     * {@link #RETURN_SOURCE_ONTO_FIELD}, and name-checked against the source by it. Group
+     * {@code dull} is present when the card comes back dull.
+     */
+    static final Pattern PLAY_SOURCE_FROM_BZ_AT_END_OF_TURN = Pattern.compile(
+        "(?i)^play\\s+(?<name>.+?)\\s+from\\s+your\\s+Break\\s+Zone\\s+onto\\s+the\\s+field" +
+        "(?:\\s+(?<dull>dull))?\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?$"
     );
 
     // =========================================================================================
@@ -12343,6 +12356,22 @@ final class ActionResolverPatterns {
         "(?is)^(?<head>.*\\bdiscard\\s+1\\s+card\\b[^.]*[.!])\\s+" +
         "If\\s+the\\s+discarded\\s+card\\s+is\\s+(?:an?\\s+)?Category\\s+(?<cat>\\S+?)(?:\\s+card)?\\s*,\\s*" +
         "(?:also\\s+)?(?<eff>[^.]+?)[.!]?\\s*$");
+    /**
+     * "discard 1 card [from your hand]. If/When you do so, &lt;payoff keyed on the discarded
+     * card&gt;." — 7-017H Meeth, 8-039C Time Mage, 11-125C Alchemist, 27-067C Pictomancer (XIV).
+     * Anchored end to end: the sentence-splitting fallback otherwise ran the discard and dropped
+     * the payoff. Group {@code payoff} still carries its {@link #SAME_COST_AS_DISCARDED} or
+     * {@link #SAME_TYPE_AS_DISCARDED} phrase, filled in once the card is known.
+     */
+    static final Pattern DISCARD_THEN_SAME_AS_DISCARDED = Pattern.compile(
+        "(?is)^discard\\s+1\\s+card(?:\\s+from\\s+your\\s+hand)?\\.\\s+(?:If|When)\\s+you\\s+do\\s+so\\s*,\\s*" +
+        "(?<payoff>.*\\bas\\s+the\\s+discarded\\s+card\\b.*?)\\s*$");
+    /** "of the same cost as the discarded card", replaced by "of cost N". */
+    static final Pattern SAME_COST_AS_DISCARDED = Pattern.compile(
+        "(?i)\\bof\\s+the\\s+same\\s+cost\\s+as\\s+the\\s+discarded\\s+card\\b");
+    /** "card of the same card type as the discarded card", replaced by the type ("Backup"). */
+    static final Pattern SAME_TYPE_AS_DISCARDED = Pattern.compile(
+        "(?i)\\bcard\\s+of\\s+the\\s+same\\s+card\\s+type\\s+as\\s+the\\s+discarded\\s+card\\b");
     /**
      * Matches "[Name] breaks after the attack or the block and doesn't deal any damage."
      * (Vincent 2-078R) — the source deals no damage for the rest of the battle and is broken once

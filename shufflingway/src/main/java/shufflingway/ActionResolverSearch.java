@@ -1874,19 +1874,22 @@ final class ActionResolverSearch {
         if (!m.matches()) return null;
         String searchName = m.group("name").trim();
         String effectText = m.group("effect").trim();
+        boolean toBz = m.group("bz") != null;
 
         Consumer<GameContext> payoff = parse(effectText, source);
         if (payoff == null) payoff = tryParseReturnSourceOntoField(effectText, source);
+        if (payoff == null) payoff = tryParsePlaySourceFromBzAtEndOfTurn(effectText, source);
         if (payoff == null) return null;
 
         final Consumer<GameContext> resolvedPayoff = payoff;
         return ctx -> {
-            ctx.logEntry("Effect: Search 1 Card Name " + searchName + " -> Removed From Game");
+            ctx.logEntry("Effect: Search 1 Card Name " + searchName + " -> "
+                    + (toBz ? "Break Zone" : "Removed From Game"));
             // Every filter left open but the name: the named card may be of any type.
-            boolean removed = ctx.searchDeckForCard(false, false, false, false,
+            boolean found = ctx.searchDeckForCard(false, false, false, false,
                     -1, null, searchName, null, null, null, null, null,
-                    "removedFromGame", 1, false, null);
-            if (removed) {
+                    toBz ? "breakZone" : "removedFromGame", 1, false, null);
+            if (found) {
                 resolvedPayoff.accept(ctx);
             } else {
                 ctx.logEntry("Effect: no " + searchName + " found - \"if you do so\" skipped");
@@ -1917,6 +1920,26 @@ final class ActionResolverSearch {
             // By identity. Vanille's search payoff used the by-name sweep, which returned every
             // copy in the Break Zone; both printings mean the one card the sentence is about.
             ctx.returnSourceFromBreakZoneToField(source, dull);
+        };
+    }
+
+    /**
+     * "Play [Self] from your Break Zone onto the field [dull] at the end of the turn." — 12-029L
+     * The Emperor's search payoff. Queued for the end of the turn and returned by identity, so of
+     * the two Emperors in the Break Zone by then it is the one that died, not both. A no-op if it
+     * has left the Break Zone in the meantime.
+     */
+    static Consumer<GameContext> tryParsePlaySourceFromBzAtEndOfTurn(String text, CardData source) {
+        if (source == null || source.name() == null) return null;
+        Matcher m = PLAY_SOURCE_FROM_BZ_AT_END_OF_TURN.matcher(text.trim());
+        if (!m.matches()) return null;
+        String name = m.group("name").trim();
+        if (!name.equalsIgnoreCase(source.name())) return null;
+        boolean dull = m.group("dull") != null;
+        return ctx -> {
+            ctx.logEntry("Effect: " + name + " returns from the Break Zone at the end of the turn"
+                    + (dull ? " (dull)" : ""));
+            ctx.addEndOfTurnEffect(later -> later.returnSourceFromBreakZoneToField(source, dull));
         };
     }
 

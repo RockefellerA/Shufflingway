@@ -7291,6 +7291,7 @@ final class GameContextImpl implements GameContext {
 			@Override public boolean lastDiscardedCardIsMultiElement() {
 				return mw.lastDiscardedCard != null && mw.lastDiscardedCard.containsElement("Multi-Element");
 			}
+			@Override public CardData lastDiscardedCard() { return mw.lastDiscardedCard; }
 			@Override public boolean lastDiscardedCardIsCategory(String category) {
 				return mw.lastDiscardedCard != null
 					&& meetsCategoryFilter(mw.lastDiscardedCard, category);

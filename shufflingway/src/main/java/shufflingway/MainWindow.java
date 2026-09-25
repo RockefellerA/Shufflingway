@@ -7963,6 +7963,7 @@ public class MainWindow {
 					if (d != null) {
 						logEntry("Discards " + d.name());
 						p1Turn.discardedByEffectThisTurn = true;
+						lastDiscardedCard = d;
 						lastDiscardedCardName = d.name();
 						if (d.isForward()) lastDiscardedForwardPower = d.power();
 					}
@@ -7984,6 +7985,7 @@ public class MainWindow {
 					if (d != null) {
 						logEntry("Discards " + d.name());
 						p1Turn.discardedByEffectThisTurn = true;
+						lastDiscardedCard = d;
 						lastDiscardedCardName = d.name();
 						if (d.isForward()) lastDiscardedForwardPower = d.power();
 					}
@@ -8005,6 +8007,7 @@ public class MainWindow {
 					if (d != null) {
 						logEntry("Discards " + d.name());
 						p1Turn.discardedByEffectThisTurn = true;
+						lastDiscardedCard = d;
 						lastDiscardedCardName = d.name();
 						if (d.isForward()) lastDiscardedForwardPower = d.power();
 					}

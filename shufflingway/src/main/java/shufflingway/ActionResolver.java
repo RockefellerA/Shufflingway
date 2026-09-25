@@ -1665,6 +1665,11 @@ public class ActionResolver {
         result = tryParseDiscardConditionalCategoryBranches(effectText, source, xValue);
         if (result != null) return result;
 
+        // Must precede the sentence-splitting fallback, for the same reason as the Category
+        // branches above: it ran "discard 1 card." alone and dropped the payoff.
+        result = tryParseDiscardThenSameAsDiscarded(effectText, source);
+        if (result != null) return result;
+
         result = tryParseDiscardNCards(effectText);
         if (result != null) return result;
 
@@ -2830,6 +2835,7 @@ public class ActionResolver {
         // Mirrors parse(): ahead of DiscardNCards, which claims this text's opening sentence.
         if (tryParseDiscardConditionalCategoryBranches(effectText, source, 0) != null)
             return "DiscardConditionalCategoryBranches";
+        if (tryParseDiscardThenSameAsDiscarded(effectText, source) != null) return "DiscardThenSameAsDiscarded";
         if (tryParseDiscardNCards(effectText)                 != null) return "DiscardNCards";
         if (tryParseDiscardJobFromHand(effectText)            != null) return "DiscardJobFromHand";
         if (tryParseDiscardThenDraw(effectText)               != null) return "DiscardThenDraw";
@@ -4799,6 +4805,7 @@ public class ActionResolver {
         // Mirrors parse(): ahead of DiscardNCards, which claims this text's opening sentence.
         if (tryParseDiscardConditionalCategoryBranches(effectText, source, 0) != null)
             return "DiscardConditionalCategoryBranches";
+        if (tryParseDiscardThenSameAsDiscarded(effectText, source) != null) return "DiscardThenSameAsDiscarded";
         if (tryParseDiscardNCards(effectText) != null)                      return "DiscardNCards";
         if (tryParseDiscardJobFromHand(effectText) != null)                 return "DiscardJobFromHand";
         if (tryParseDiscardThenDraw(effectText) != null)                    return "DiscardThenDraw";
