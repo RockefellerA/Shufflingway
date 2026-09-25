@@ -1547,6 +1547,14 @@ public interface GameContext {
             boolean summonsOnly, boolean orderRest);
 
     /**
+     * "Reveal the top N cards of your deck. Cast up to 1 Summon among them without paying the cost
+     * and put the rest of the cards into the Break Zone." — 26-067H Eiko. The same free cast as
+     * {@link #lookAtTopDeckCastFreeRestBottom}, except the cast may be skipped and every card not
+     * cast goes to the Break Zone.
+     */
+    void revealTopDeckCastUpToOneSummonFreeRestToBreakZone(int count);
+
+    /**
      * Reduces the target's power by {@code amount} and temporarily removes {@code traits}
      * until the end of the turn.  If effective power drops to 0 or below the card is sent
      * to the break zone (not treated as "broken" mechanically — distinction TBD).
@@ -2841,10 +2849,13 @@ public interface GameContext {
     /**
      * Reveals the opponent's hand, lets the ability user optionally select 1 card to remove from
      * the game permanently; if a card is removed, the opponent then draws 1 card.
-     * (Zidane-style: "You may select 1 card. If you do so, remove it from the game and your
+     * (19-108L Zidane: "You may select 1 card. If you do so, remove it from the game and your
      * opponent draws 1 card.")
+     *
+     * <p>{@code eligible} limits what may be selected (11-133S Cait Sith, "other than a Backup");
+     * {@code null} means any card. With nothing eligible, nothing is removed and nobody draws.
      */
-    void revealHandOptPickRfpOpponentDraws();
+    void revealHandOptPickRfpOpponentDraws(Predicate<CardData> eligible, String eligibleDesc);
 
     /**
      * Forces the ability-user's opponent to remove {@code count} cards from their own

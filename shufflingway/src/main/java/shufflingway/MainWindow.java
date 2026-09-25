@@ -13704,7 +13704,13 @@ public class MainWindow {
 	void playerAddCp(boolean isP1, String e, int n)    { if (isP1) gameState.addP1Cp(e, n);   else gameState.addP2Cp(e, n); }
 	void playerSpendCp(boolean isP1, String e, int n)  { if (isP1) gameState.spendP1Cp(e, n); else gameState.spendP2Cp(e, n); }
 	void playerClearCp(boolean isP1, String e)         { if (isP1) gameState.clearP1Cp(e);    else gameState.clearP2Cp(e); }
-	void playerSpendCrystals(boolean isP1, int n)      { if (isP1) gameState.spendP1Crystals(n); else gameState.spendP2Crystals(n); }
+	void playerSpendCrystals(boolean isP1, int n) {
+		if (isP1) gameState.spendP1Crystals(n); else gameState.spendP2Crystals(n);
+		// Spending the last one can drop a Forward to 0 power — PR-171 Warrior of Light.
+		refreshAllForwardSlots();
+		for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
+		enforceForwardBreakRuleProcess();
+	}
 	CardData playerBreakFromHand(boolean isP1, int i)  {
 		CardData d = isP1 ? gameState.breakFromHand(i) : gameState.breakP2FromHand(i);
 		if (d != null) {
@@ -15049,7 +15055,8 @@ public class MainWindow {
 	boolean icbConditionsMet(IfControlBoost icb, boolean isP1) {
 		for (ControlCondition cond : icb.conditions()) {
 			if (cond.requiresCrystal()) {
-				if (playerCrystals(isP1) < 1) return false;
+				int crystals = playerCrystals(isP1);
+				if (cond.exactCount() ? crystals != cond.minCount() : crystals < 1) return false;
 			} else if (cond.stateCardName() != null) {
 				if (!isNamedCardInState(cond.stateCardName(), cond.namedState(), isP1)) return false;
 			} else {
@@ -16533,7 +16540,10 @@ public class MainWindow {
 					+ (zeroPower ? " at 0 or less power → Break Zone (rule process)"
 					             : " has " + dmgs.get(idx) + " damage vs " + effPow + " power → Break Zone"));
 			pendingCostBreakDestLabel = isP1 ? p1BreakLabel : p2BreakLabel;
-			if (isP1) breakP1Forward(idx); else breakP2Forward(idx);
+			// Lethal damage breaks; 0 power is only a put, so it must not feed the "broken this turn"
+			// trackers.
+			if (zeroPower) { if (isP1) putP1ForwardIntoBreakZone(idx); else putP2ForwardIntoBreakZone(idx); }
+			else           { if (isP1) breakP1Forward(idx);            else breakP2Forward(idx); }
 			brokeAny = true;
 		}
 		return brokeAny;

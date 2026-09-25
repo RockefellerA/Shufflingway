@@ -7134,6 +7134,20 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void lookAtTopDeckCastFreeRestBottom(int count, int maxCost,
 					String excludeElement, boolean summonsOnly, boolean orderRest) {
+				castFreeFromTopOfDeck(count, maxCost, excludeElement, summonsOnly, orderRest, false, false);
+			}
+
+			@Override public void revealTopDeckCastUpToOneSummonFreeRestToBreakZone(int count) {
+				castFreeFromTopOfDeck(count, -1, null, true, false, true, true);
+			}
+
+			/**
+			 * The shared body of the free cast from the top of the deck. {@code optional} lets the
+			 * player skip the cast ("cast up to 1"); {@code restToBreakZone} sends what is left to the
+			 * Break Zone instead of the bottom of the deck, in which case {@code orderRest} is moot.
+			 */
+			private void castFreeFromTopOfDeck(int count, int maxCost, String excludeElement,
+					boolean summonsOnly, boolean orderRest, boolean optional, boolean restToBreakZone) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(count, deck.size());
 				if (n == 0) { logEntry("Look at top: deck is empty."); return; }
@@ -7163,7 +7177,7 @@ final class GameContextImpl implements GameContext {
 					logEntry("No eligible " + what + " among top " + n + " card(s)");
 				} else if (isP1) {
 					String title = "Cast 1 " + what + " from top " + n + " for free";
-					int listIdx = mw.showCardImageChooser(eligible, title, false);
+					int listIdx = mw.showCardImageChooser(eligible, title, optional);
 					if (listIdx >= 0) picked = eligible.get(listIdx);
 				} else {
 					picked = eligible.stream()
@@ -7186,7 +7200,13 @@ final class GameContextImpl implements GameContext {
 
 				List<CardData> rest = new ArrayList<>(peeked);
 				if (picked != null) rest.remove(picked);
-				if (orderRest && !rest.isEmpty()) {
+				if (restToBreakZone) {
+					for (CardData c : rest) {
+						mw.addToBreakZone(c);
+						logEntry(c.name() + " → Break Zone");
+					}
+					if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
+				} else if (orderRest && !rest.isEmpty()) {
 					// "in any order" is the player's choice, not a shuffle. The reveal dialog
 					// already does exactly this arrangement with nothing to take, so it is reused
 					// with a take allowance of 0 rather than given a dialog of its own.
@@ -7822,13 +7842,19 @@ final class GameContextImpl implements GameContext {
 				return -1;
 			}
 
-			@Override public void revealHandOptPickRfpOpponentDraws() {
+			@Override public void revealHandOptPickRfpOpponentDraws(Predicate<CardData> eligible, String eligibleDesc) {
+				List<CardData> oppHand = isP1 ? mw.gameState.getP2Hand() : mw.gameState.getP1Hand();
+				if (oppHand.isEmpty()) { logEntry("Opponent's hand is empty."); return; }
+				List<CardData> choices = new ArrayList<>();
+				for (CardData c : oppHand) if (eligible == null || eligible.test(c)) choices.add(c);
+				if (choices.isEmpty()) {
+					logEntry("Opponent's hand holds no " + eligibleDesc + " — nothing removed.");
+					return;
+				}
 				if (isP1) {
-					List<CardData> hand = mw.gameState.getP2Hand();
-					if (hand.isEmpty()) { logEntry("Opponent's hand is empty."); return; }
-					CardData picked = mw.showRevealHandOptPickDialog(hand);
+					CardData picked = mw.showRevealHandOptPickDialog(choices);
 					if (picked != null) {
-						hand.remove(picked);
+						oppHand.remove(indexByIdentity(oppHand, picked));
 						mw.gameState.addToPermanentRfp(picked);
 						logEntry("[P2] " + picked.name() + " removed from game by P1");
 						mw.refreshP2HandCountLabel();
@@ -7836,12 +7862,9 @@ final class GameContextImpl implements GameContext {
 						drawCardsForOpponent(1);
 					}
 				} else {
-					List<CardData> hand = mw.gameState.getP1Hand();
-					if (hand.isEmpty()) { logEntry("P1 hand is empty."); return; }
-					int best = 0;
-					for (int j = 1; j < hand.size(); j++)
-						if (hand.get(j).cost() > hand.get(best).cost()) best = j;
-					CardData d = mw.gameState.removeFromHand(best);
+					CardData best = choices.get(0);
+					for (CardData c : choices) if (c.cost() > best.cost()) best = c;
+					CardData d = mw.gameState.removeFromHand(indexByIdentity(oppHand, best));
 					if (d != null) {
 						mw.gameState.addToPermanentRfp(d);
 						logEntry("[P2 AI] " + d.name() + " selected from P1 hand — removed from game");

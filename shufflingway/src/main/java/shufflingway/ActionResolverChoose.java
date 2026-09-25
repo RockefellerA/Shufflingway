@@ -412,6 +412,46 @@ final class ActionResolverChoose {
         };
     }
 
+    /**
+     * 15-129L Ardyn — see {@link ActionResolverPatterns#DISCARD_HAND_OPP_SELECTS_REPEATABLE_ACTIONS}.
+     * Discarding an empty hand is not having done so, so nothing follows it. The opponent makes
+     * every pick before any resolves, one single-option choice per pick so the same option can be
+     * taken again; the picks then resolve in printed order, as a menu does.
+     */
+    static Consumer<GameContext> tryParseDiscardHandOppSelectsRepeatableActions(String text, CardData source) {
+        Matcher m = DISCARD_HAND_OPP_SELECTS_REPEATABLE_ACTIONS.matcher(text.trim());
+        if (!m.matches()) return null;
+        final int plus = Integer.parseInt(m.group("plus"));
+        List<String> actions = selectFollowingOptions(m.group("actions"));
+        if (actions.size() != Integer.parseInt(m.group("total"))) return null;
+        List<Consumer<GameContext>> effects = new ArrayList<>();
+        for (String a : actions) {
+            Consumer<GameContext> e = parse(a, source);
+            if (e == null) return null;
+            effects.add(e);
+        }
+        return ctx -> {
+            int discarded = ctx.yourHandSize();
+            ctx.logEntry("Effect: Discard hand (" + discarded + " card(s))");
+            ctx.selfDiscardEntireHand();
+            if (discarded == 0) return;
+            int picks = discarded + plus;
+            int[] times = new int[actions.size()];
+            for (int i = 0; i < picks; i++) {
+                List<String> chosen = ctx.chooseActionsByOpponent(source, actions, 1, false);
+                if (chosen == null || chosen.isEmpty()) continue;
+                int idx = actions.indexOf(chosen.get(0));
+                if (idx >= 0) times[idx]++;
+            }
+            for (int i = 0; i < actions.size(); i++) {
+                for (int n = 0; n < times[i]; n++) {
+                    ctx.logEntry("Opponent selected: " + actions.get(i));
+                    effects.get(i).accept(ctx);
+                }
+            }
+        };
+    }
+
     // =========================================================================================
     // Choose one each; "the former / the latter"
     // =========================================================================================

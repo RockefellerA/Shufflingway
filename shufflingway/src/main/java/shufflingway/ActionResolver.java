@@ -346,6 +346,11 @@ public class ActionResolver {
         result = tryParseSelectFollowingActions(effectText, source);
         if (result != null) return result;
 
+        // Ahead of the choose/search families for the same reason as the line above: its quoted
+        // options match them.
+        result = tryParseDiscardHandOppSelectsRepeatableActions(effectText, source);
+        if (result != null) return result;
+
         // Must precede tryParseWhenYouDoSoSequence: Zidane-style text contains "If you do so"
         // which that parser would split, causing it to match first via OPPONENT_DRAW on the tail.
         result = tryParseRevealHandOptPickDiscardOppDraw(effectText);
@@ -766,6 +771,9 @@ public class ActionResolver {
         // Luso returning from a Break Zone it is not in.
         result = tryParseShuffleDeckThen(effectText, source);
         if (result != null) return result;
+        // Must precede tryParseShuffleDeck, which find()s the opening and drops the free cast.
+        result = tryParseShuffleThenRevealTopCastSummonFreeRestBz(effectText);
+        if (result != null) return result;
 
         // Anchored "<discard>. If the discarded card is Category X, <effect>." Must precede the
         // DrawCards parsers, which find() the draw/discard and drop the gated payoff (20-113R Porom),
@@ -1110,6 +1118,11 @@ public class ActionResolver {
         // scans with find(), so it claims this sentence's "+N power" and drops the per-damage
         // multiplier behind it.
         result = tryParseUntilEotAllFieldPowerPerSelfDamage(effectText);
+        if (result != null) return result;
+
+        // Must precede UntilEotAllFieldPowerBoost for the same reason: 2-087R Hashmal's "+1000
+        // power" is found in the second sentence and the naming, and the named grant, are dropped.
+        result = tryParseNameJobOrElementAllForwardsBoost(effectText);
         if (result != null) return result;
 
         result = tryParseUntilEotAllFieldPowerBoost(effectText);
@@ -2088,9 +2101,6 @@ public class ActionResolver {
         result = tryParseNameJobAndElementSelfGainsPermanent(effectText, source);
         if (result != null) return result;
 
-        result = tryParseNameJobOrElementAllForwardsBoost(effectText);
-        if (result != null) return result;
-
         result = tryParseNameJobOrCategoryRevealAddToHand(effectText);
         if (result != null) return result;
 
@@ -2381,6 +2391,8 @@ public class ActionResolver {
         // SELECT_FOLLOWING_ACTIONS_DETECT fallback the ability is reported as whichever option
         // happens to match first rather than as the choice it is.
         if (tryParseSelectFollowingActions(effectText, source)          != null) return "SelectFollowingActions";
+        if (tryParseDiscardHandOppSelectsRepeatableActions(effectText, source) != null)
+            return "DiscardHandOppSelectsRepeatableActions";
         // Must precede tryParseWhenYouDoSoSequence: Zidane-style text contains "If you do so",
         // which that parser would otherwise claim. Mirrors parse().
         if (tryParseRevealHandOptPickDiscardOppDraw(effectText) != null) return "RevealHandOptPickDiscardOppDraw";
@@ -2488,6 +2500,8 @@ public class ActionResolver {
         if (tryParseIfOpponentDamageAtMost(effectText, source) != null) return "IfOpponentDamageAtMost";
         if (tryParseIfSelfDamageAtMost(effectText, source) != null) return "IfSelfDamageAtMost";
         if (tryParseShuffleDeckThen(effectText, source) != null) return "ShuffleDeckThen";
+        if (tryParseShuffleThenRevealTopCastSummonFreeRestBz(effectText) != null)
+            return "ShuffleThenRevealTopCastSummonFreeRestBz";
         if (tryParseDiscardThenIfDiscardedCategory(effectText, source) != null) return "DiscardThenIfDiscardedCategory";
         if (tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source) != null) return "IfPutFromFieldToBzThisTurnInstead";
         if (tryParseIfPutFromFieldToBzThisTurn(effectText, source)        != null) return "IfPutFromFieldToBzThisTurn";
@@ -2625,6 +2639,7 @@ public class ActionResolver {
         if (tryParseUntilEotDualPowerShift(effectText) != null) return "UntilEotDualPowerShift";
         // Must precede UntilEotAllFieldPowerBoost — see the ordering note in parse().
         if (tryParseUntilEotAllFieldPowerPerSelfDamage(effectText) != null) return "UntilEotAllFieldPowerPerSelfDamage";
+        if (tryParseNameJobOrElementAllForwardsBoost(effectText) != null) return "NameJobOrElementAllForwardsBoost";
         if (tryParseUntilEotAllFieldPowerBoost(effectText) != null) return "UntilEotAllFieldPowerBoost";
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
         if (tryParseStandalonePowerBoostAndCannotBeChosen(effectText, source) != null) return "StandalonePowerBoostAndCannotBeChosen";
@@ -3767,6 +3782,8 @@ public class ActionResolver {
         // modal ability is described as the choice it is, not as one of its quoted options.
         if (tryParseSelectFollowingActions(effectText, source)       != null)
             return selectFollowingActionsDescription(effectText, source);
+        if (tryParseDiscardHandOppSelectsRepeatableActions(effectText, source) != null)
+            return "DiscardHandOppSelectsRepeatableActions";
         // Strict form: see the matching guard in matchedPatternName(). Sitting this early in the
         // chain, the loose predicate claimed the description of any ability whose text ends in a
         // cost-reduction clause, masking the real one.
@@ -3796,6 +3813,8 @@ public class ActionResolver {
             return removeAnyCountersDescription(effectText, source);
         if (tryParseDiscardAnyNumberThenChooseSameNumber(effectText, source) != null)
             return discardAnyNumberDescription(effectText, source);
+        // Must precede WhenYouDoSo, mirroring parse(): "If you do so" is inside Zidane-style text.
+        if (tryParseRevealHandOptPickRfpOppDraw(effectText)             != null) return "RevealHandOptPickRfpOppDraw";
         if (tryParseWhenYouDoSoSequence(effectText, source, 0)          != null) return "WhenYouDoSo";
         if (tryParseDullAnyNumberBackupsPerDulled(effectText, source)   != null) return "DullAnyNumberBackupsPerDulled";
         if (tryParseRevealAnyFromHandPerRevealed(effectText, source)    != null) return "RevealAnyFromHandPerRevealed";
@@ -4003,6 +4022,8 @@ public class ActionResolver {
             if (selfM.find())
                 return "IfSelfDamageAtMost / " + descOrUnread(selfM.group("inner"), source);
         }
+        if (tryParseShuffleThenRevealTopCastSummonFreeRestBz(effectText) != null)
+            return "ShuffleThenRevealTopCastSummonFreeRestBz";
         if (tryParseShuffleDeckThen(effectText, source) != null) {
             Matcher shuffleM = SHUFFLE_DECK_THEN.matcher(effectText.trim());
             if (shuffleM.matches())
@@ -4584,6 +4605,7 @@ public class ActionResolver {
         if (tryParseUntilEotDualPowerShift(effectText) != null)            return "UntilEotDualPowerShift";
         // Must precede UntilEotAllFieldPowerBoost — see the ordering note in parse().
         if (tryParseUntilEotAllFieldPowerPerSelfDamage(effectText) != null) return "UntilEotAllFieldPowerPerSelfDamage";
+        if (tryParseNameJobOrElementAllForwardsBoost(effectText) != null)  return "NameJobOrElementAllForwardsBoost";
         if (tryParseUntilEotAllFieldPowerBoost(effectText) != null)        return "UntilEotAllFieldPowerBoost";
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
         if (tryParseStandalonePowerBoostAndCannotBeChosen(effectText, source) != null) return "StandalonePowerBoostAndCannotBeChosen";
@@ -4650,7 +4672,6 @@ public class ActionResolver {
         if (tryParseStandaloneGainsCannotBeBlocked(effectText, source) != null) return "StandaloneGainsCannotBeBlocked";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealHandOptPickDiscardOppDraw(effectText) != null)    return "RevealHandOptPickDiscardOppDraw";
-        if (tryParseRevealHandOptPickRfpOppDraw(effectText) != null)        return "RevealHandOptPickRfpOppDraw";
         // Must precede RevealSelectHandRfp — see the same guard in parse().
         if (tryParseRevealSelectHandRfpUntilEndOfOppTurn(effectText) != null) return "RevealSelectHandRfpUntilEndOfOppTurn";
         if (tryParseRevealSelectHandRfp(effectText) != null)               return "RevealSelectHandRfp";

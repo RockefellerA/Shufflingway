@@ -3418,6 +3418,9 @@ public record CardData(
           // reach the resolver, which is what left her whole ability reading as unparsed.
           "|up\\s+to\\s+the\\s+same\\s+number\\s+of\\s+the\\s+\\d+\\s+following\\s+actions?[^.!?]*" +
           "|the\\s+following\\s+actions?[^.!?]*" +                                   // "select the following actions..."
+          // "selects 1 more than the number of discarded cards from 3 following actions" — 15-129L
+          // Ardyn, whose count is read at resolution and whose menu allows repeats.
+          "|\\d+\\s+more\\s+than\\s+the\\s+number\\s+of\\s+[^.!?\"]+?\\s+from\\s+(?:the\\s+)?\\d+\\s+following\\s+actions?" +
         ")" +
         // A [[br]] introduces an option, and further options may follow it on the same line rather
         // than each getting its own — 16-031R Scarlet prints all three of hers after one [[br]].
@@ -5015,6 +5018,16 @@ public record CardData(
     );
 
     /**
+     * "If you don't have any 《C》, [target] loses [power] power." — PR-171 Warrior of Light, whose
+     * 20000 printed power is all it has, so without a Crystal the 0-power rule process takes it.
+     * Groups: {@code target}, {@code power} (bare number, stored negative).
+     */
+    private static final Pattern IF_NO_CRYSTAL_LOSE = Pattern.compile(
+        "(?i)^If\\s+you\\s+(?:don'?t|do\\s+not)\\s+have\\s+(?:any|a)\\s*《C》,\\s+(?<target>.+?)\\s+" +
+        "loses?\\s+(?<power>\\d+)\\s+power\\.?\\s*$"
+    );
+
+    /**
      * "If [CardName] is [dull|active|attacking], [target] gains [effects]." — Knight 17-100C's
      * +3000 power, and Queen 21-089R's pair of quoted abilities.
      * Groups: {@code condcard} (the card whose state is the gate), {@code state}, {@code target},
@@ -5646,6 +5659,16 @@ public record CardData(
                     result.add(new IfControlBoost(List.of(crystalCond), "", targetName, targetFilter,
                             powerBonus, traits, "", false, false, false, null));
                 }
+                continue;
+            }
+
+            // "If you don't have any 《C》, [target] loses [N] power."
+            Matcher noCrystalM = IF_NO_CRYSTAL_LOSE.matcher(seg);
+            if (noCrystalM.find()) {
+                String targetName = noCrystalM.group("target").trim();
+                result.add(new IfControlBoost(List.of(ControlCondition.forNoCrystal()), "", targetName,
+                        parseIcbTargetFilter(targetName), -Integer.parseInt(noCrystalM.group("power")),
+                        EnumSet.noneOf(Trait.class), "", false, false, false, null));
                 continue;
             }
 

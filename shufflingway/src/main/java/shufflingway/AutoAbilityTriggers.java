@@ -1900,6 +1900,7 @@ final class AutoAbilityTriggers {
 			// Re-evaluate field boosts even when ETF auto-abilities are suppressed
 			mw.refreshAllForwardSlots();
 			for (int i = 0; i < mw.p2ForwardCards.size(); i++) mw.refreshP2ForwardSlot(i);
+			mw.enforceForwardBreakRuleProcess();
 			return;
 		}
 		// Check if the opponent suppresses this Forward's ETF abilities.
@@ -1946,6 +1947,8 @@ final class AutoAbilityTriggers {
 		// Re-evaluate all conditional field boosts now that the field composition has changed
 		mw.refreshAllForwardSlots();
 		for (int i = 0; i < mw.p2ForwardCards.size(); i++) mw.refreshP2ForwardSlot(i);
+		// A Forward can enter already at 0 power — PR-171 Warrior of Light without a Crystal.
+		mw.enforceForwardBreakRuleProcess();
 		mw.showStackWindowIfNeeded();
 	}
 

@@ -12687,7 +12687,91 @@ public class CardBehaviorTest {
 		assertNotNull(fn);
 		fn.accept(ctx);
 		verify(ctx).revealHandOptPickDiscardOpponentDraws();
-		verify(ctx, never()).revealHandOptPickRfpOpponentDraws();
+		verify(ctx, never()).revealHandOptPickRfpOpponentDraws(any(), any());
+	}
+
+	// 11-133S Cait Sith: the "other than a Backup" restriction reaches the selection. Unread, the
+	// sentence fell to WhenYouDoSo, which drew the opponent a card and removed nothing.
+	@Test
+	void caitSithRevealHandRemovesNonBackupAndOpponentDraws() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"Your opponent reveals their hand. You may select 1 card in their hand other than a "
+				+ "Backup. If you do so, remove it from the game and your opponent draws 1 card.", null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		ArgumentCaptor<Predicate<CardData>> filter = ArgumentCaptor.forClass(Predicate.class);
+		verify(ctx).revealHandOptPickRfpOpponentDraws(filter.capture(), any());
+		assertFalse(filter.getValue().test(cardOfType("Backup")));
+		assertTrue(filter.getValue().test(cardOfType("Forward")));
+		verify(ctx, never()).drawCardsForOpponent(anyInt());
+	}
+
+	// 15-129L Ardyn: discard the hand, then the opponent makes 1 + discarded picks from a menu that
+	// allows repeats. Unread, the options never reached the resolver and the discard bought nothing.
+	private static final String ARDYN_TEXT = "discard your hand. When you do so, your opponent selects "
+			+ "1 more than the number of discarded cards from 3 following actions. Your opponent can "
+			+ "select the same action more than once. \"Your opponent selects 1 Character they control. "
+			+ "Put it into the Break Zone.\" \"Your opponent puts the top 20 cards of their deck into the "
+			+ "Break Zone.\" \"Ardyn deals your opponent 1 point of damage.\"";
+
+	@Test
+	void ardynOpponentPicksOneMoreThanDiscardedWithRepeats() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.yourHandSize()).thenReturn(2);
+		when(ctx.chooseActionsByOpponent(any(), anyList(), eq(1), eq(false)))
+				.thenReturn(List.of("Ardyn deals your opponent 1 point of damage."));
+		Consumer<GameContext> fn = ActionResolver.parse(ARDYN_TEXT, makeForward("Ardyn", "Dark", 5, 9000));
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).selfDiscardEntireHand();
+		verify(ctx, times(3)).chooseActionsByOpponent(any(), anyList(), eq(1), eq(false));
+		verify(ctx, times(3)).dealDamageToOpponent(1);
+	}
+
+	// 26-067H Eiko: the tail after the stacking. SHUFFLE_DECK find()s "shuffle your deck" out of it,
+	// and read that way the reveal and the free cast were dropped.
+	@Test
+	void eikoShufflesThenRevealsFourAndCastsUpToOneSummon() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		Consumer<GameContext> fn = ActionResolver.parse("choose 4 Summons in your Break Zone. Put them "
+				+ "on the top of your deck in any order. Then, shuffle your deck and reveal the top 4 "
+				+ "cards of your deck. Cast up to 1 Summon among them without paying the cost and put the "
+				+ "rest of the cards into the Break Zone.", makeForward("Eiko", "Earth", 4, 7000));
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).shuffleDeck();
+		order.verify(ctx).revealTopDeckCastUpToOneSummonFreeRestToBreakZone(4);
+	}
+
+	// 2-087R Hashmal: the generic all-field boost find()s "+1000 power" and dropped the naming; the
+	// dedicated parser has to be reached first.
+	@Test
+	void hashmalNamesElementAndGrantsItWithTheBoost() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selectJobOrElement(anyString())).thenReturn(new String[] {"element", "Fire"});
+		Consumer<GameContext> fn = ActionResolver.parse("Name 1 Job or 1 Element. Until the end of the "
+				+ "turn, all Forwards you control gain +1000 power and the named Job or Element.", null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).grantAllControlledForwardsElementUntilEOT("Fire");
+		verify(ctx).applyMassFieldPowerBoost(eq(1000), eq(true), eq(false), eq(false), eq(true),
+				isNull(), eq(-1), isNull(), isNull(), isNull());
+	}
+
+	@Test
+	void ardynWithEmptyHandOffersNothing() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.yourHandSize()).thenReturn(0);
+		ActionResolver.parse(ARDYN_TEXT, makeForward("Ardyn", "Dark", 5, 9000)).accept(ctx);
+
+		verify(ctx, never()).chooseActionsByOpponent(any(), anyList(), anyInt(), anyBoolean());
 	}
 
 	// 29-054R Great Malboro: the removal is temporary. The three-sentence prefix is shared with
@@ -14628,7 +14712,7 @@ public class CardBehaviorTest {
 	@Test
 	void aemoCanPushAnAbilityOntoTheOpponentsOwnCharacter() {
 		MainWindow mw = new MainWindow();
-		CardData aemo = makeForward("Aemo", "Water", 2, 0);
+		CardData aemo = makeForward("Aemo", "Water", 2, 5000);
 		// Driven from P2's side so the pick resolves without the modal chooser; the AI takes the
 		// first legal candidate, which is P1's Forward at index 0.
 		mw.placeP2CardInForwardZone(aemo);
@@ -14648,7 +14732,7 @@ public class CardBehaviorTest {
 	@Test
 	void aemoLeavesAnEntryAloneWhenNoOtherTargetIsAValidChoice() {
 		MainWindow mw = new MainWindow();
-		CardData aemo = makeForward("Aemo", "Water", 2, 0);
+		CardData aemo = makeForward("Aemo", "Water", 2, 5000);
 		CardData kuja = makeForward("Kuja", "Dark", 4, 8000);
 		mw.placeP2CardInForwardZone(aemo); // P2 idx 0
 		mw.placeP2CardInForwardZone(kuja); // P2 idx 1
@@ -14671,7 +14755,7 @@ public class CardBehaviorTest {
 	@Test
 	void protectionOnlyBlocksARedirectOntoTheEntryOwnersOpponent() {
 		MainWindow mw = new MainWindow();
-		CardData aemo     = makeForward("Aemo", "Water", 2, 0);
+		CardData aemo     = makeForward("Aemo", "Water", 2, 5000);
 		CardData ownShield = makeForward("Warded", "Wind", 2, 5000);
 		mw.placeP2CardInForwardZone(aemo);                          // P2 idx 0
 		placeP1Forward(mw, ownShield);                              // P1 idx 0
@@ -27597,6 +27681,73 @@ public class CardBehaviorTest {
 		assertTrue(mw.p2Turn.turnOpponentFwdBroken);
 		assertTrue(mw.p1Turn.brokenElementsThisTurn.contains("fire"));
 		assertTrue(mw.p1Turn.forwardPutToBZThisTurn, "a break is also a departure to the Break Zone");
+	}
+
+	// -----------------------------------------------------------------------------------------
+	// PR-171 Warrior of Light: "If you don't have any 《C》, Warrior of Light loses 20000 power."
+	// His printed power is 20000, so without a Crystal he sits at 0 and the rule process moves him
+	// to the Break Zone — a put, not a break, so "cannot be broken" does not save him and nothing
+	// records a Forward as broken.
+	// -----------------------------------------------------------------------------------------
+
+	private static final String WARRIOR_OF_LIGHT_TEXT =
+			"If you don't have any 《C》, Warrior of Light loses 20000 power.";
+
+	private static CardData makeWarriorOfLight() {
+		return new CardData(null, "Warrior of Light", "Light", 8, 20000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), CardData.parseFieldAbilities(WARRIOR_OF_LIGHT_TEXT, "Forward"),
+				CardData.parseIfControlBoosts(WARRIOR_OF_LIGHT_TEXT, "Forward"),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, "I", null, WARRIOR_OF_LIGHT_TEXT);
+	}
+
+	@Test
+	void warriorOfLightParsesAsANoCrystalPowerLoss() {
+		List<IfControlBoost> boosts = CardData.parseIfControlBoosts(WARRIOR_OF_LIGHT_TEXT, "Forward");
+		assertEquals(1, boosts.size());
+		IfControlBoost icb = boosts.get(0);
+		assertEquals("Warrior of Light", icb.targetCardName());
+		assertEquals(-20000, icb.powerBonus());
+		assertEquals("crystals=0", icb.conditions().get(0).toString());
+	}
+
+	@Test
+	void warriorOfLightKeepsHisPowerWhileYouHaveACrystal() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.addP1Crystals(1);
+		placeP1Forward(mw, makeWarriorOfLight());
+
+		assertEquals(20000, mw.effectiveP1ForwardPower(0));
+		mw.enforceForwardBreakRuleProcess();
+		assertEquals(1, mw.p1ForwardCards.size(), "he stays");
+	}
+
+	@Test
+	void spendingTheLastCrystalPutsWarriorOfLightIntoTheBreakZoneWithoutBreakingHim() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.addP1Crystals(1);
+		CardData wol = makeWarriorOfLight();
+		placeP1Forward(mw, wol);
+
+		mw.playerSpendCrystals(true, 1);
+
+		assertTrue(mw.p1ForwardCards.isEmpty(), "0 power: the rule process takes him");
+		assertTrue(mw.gameState.getP1BreakZone().contains(wol));
+		assertFalse(mw.p2Turn.turnOpponentFwdBroken, "a rule-process put is not a break");
+		assertTrue(mw.p1Turn.brokenElementsThisTurn.isEmpty());
+	}
+
+	@Test
+	void warriorOfLightEnteringWithoutACrystalGoesStraightToTheBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData wol = makeWarriorOfLight();
+		placeP1Forward(mw, wol);
+
+		assertTrue(mw.p1ForwardCards.isEmpty(), "he enters at 0 power and the rule process takes him");
+		assertTrue(mw.gameState.getP1BreakZone().contains(wol));
+		assertFalse(mw.p2Turn.turnOpponentFwdBroken);
 	}
 
 	@Test
@@ -54826,7 +54977,7 @@ public class CardBehaviorTest {
 		// The parenthetical is not decoration: the override goes into the store with no end-of-turn
 		// hook behind it, which is what makes it permanent.
 		MainWindow mw = new MainWindow();
-		CardData sarah = makeForward("Princess Sarah", "Light", 1, 0);
+		CardData sarah = makeForward("Princess Sarah", "Light", 1, 1000);
 		placeP1Forward(mw, sarah);
 
 		GameContext ctx = mw.buildGameContext(true);

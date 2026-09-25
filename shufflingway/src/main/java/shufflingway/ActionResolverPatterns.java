@@ -2216,11 +2216,15 @@ final class ActionResolverPatterns {
     /**
      * Matches "Your opponent reveals their hand. You may select 1 card from their hand.
      * If you do so, remove it from the game and your opponent draws 1 card."
-     * (Zidane-style: optional select, you remove it, opponent draws.)
+     * (19-108L Zidane: optional select, you remove it, opponent draws.)
+     *
+     * <p>Group {@code excl} — a card type the selection may not be ("Select 1 card in their hand
+     * <b>other than a Backup</b>", 11-133S Cait Sith); absent when the whole hand is eligible.
      */
     static final Pattern REVEAL_HAND_OPT_PICK_RFP_OPP_DRAW = Pattern.compile(
         "(?i)Your\\s+opponent\\s+reveals?\\s+(?:his/her|his|her|their)\\s+hand[.!]\\s+" +
-        "You\\s+may\\s+select\\s+1\\s+card\\s+from\\s+(?:his/her|his|her|their)\\s+hand[.!]\\s+" +
+        "You\\s+may\\s+select\\s+1\\s+card\\s+(?:from|in)\\s+(?:his/her|his|her|their)\\s+hand" +
+        "(?:\\s+other\\s+than\\s+an?\\s+(?<excl>Forward|Backup|Monster|Summon))?[.!]\\s+" +
         "If\\s+you\\s+do\\s+so,\\s+remove\\s+it\\s+from\\s+(?:the\\s+)?game\\s+" +
         "and\\s+your\\s+opponent\\s+draws\\s+1\\s+card[.!]?"
     );
@@ -2812,6 +2816,18 @@ final class ActionResolverPatterns {
     /** Matches "Shuffle your deck." */
     static final Pattern SHUFFLE_DECK = Pattern.compile(
         "(?i)Shuffle\\s+your\\s+deck\\.?"
+    );
+    /**
+     * 26-067H Eiko's tail: "Then, shuffle your deck and reveal the top 4 cards of your deck. Cast up
+     * to 1 Summon among them without paying the cost and put the rest of the cards into the Break
+     * Zone." Anchored end to end: {@link #SHUFFLE_DECK} matches its opening under {@code find()},
+     * and read that way the shuffle ran and the reveal and free cast were dropped.
+     */
+    static final Pattern SHUFFLE_THEN_REVEAL_TOP_CAST_SUMMON_FREE_REST_BZ = Pattern.compile(
+        "(?i)^(?:Then,?\\s+)?shuffle\\s+your\\s+deck\\s+and\\s+reveal\\s+the\\s+top\\s+(?<count>\\d+)\\s+" +
+        "cards?\\s+of\\s+your\\s+deck[.!]\\s+Cast\\s+up\\s+to\\s+1\\s+Summon\\s+among\\s+them\\s+" +
+        "without\\s+paying\\s+the\\s+cost\\s+and\\s+put\\s+the\\s+rest\\s+of\\s+the\\s+cards\\s+into\\s+" +
+        "the\\s+Break\\s+Zone[.!]?\\s*$"
     );
     /**
      * "Shuffle your deck, then &lt;effect&gt;" — 16-020L Luso. Anchored end to end: {@link #SHUFFLE_DECK}
@@ -9592,6 +9608,23 @@ final class ActionResolverPatterns {
     // =========================================================================================
     // Select following actions
     // =========================================================================================
+    /**
+     * 15-129L Ardyn: "Discard your hand. When you do so, your opponent selects 1 more than the
+     * number of discarded cards from 3 following actions. Your opponent can select the same action
+     * more than once. "a" "b" "c"" — the options arrive quoted on the same line once
+     * {@code CardData.SELECT_ACTIONS_JOINER} has joined them.
+     *
+     * <p>Not a {@link #SELECT_FOLLOWING_ACTIONS} shape: the count is the discard plus {@code plus},
+     * read at resolution, and the menu allows repeats, which that pattern's pick-distinct dialog
+     * cannot express. Anchored end to end so no part of it runs without the rest.
+     */
+    static final Pattern DISCARD_HAND_OPP_SELECTS_REPEATABLE_ACTIONS = Pattern.compile(
+        "(?i)^discard\\s+your\\s+hand[.!]\\s+When\\s+you\\s+do\\s+so,\\s+your\\s+opponent\\s+selects\\s+" +
+        "(?<plus>\\d+)\\s+more\\s+than\\s+the\\s+number\\s+of\\s+discarded\\s+cards\\s+from\\s+" +
+        "(?:the\\s+)?(?<total>\\d+)\\s+following\\s+actions?[.!]\\s+" +
+        "Your\\s+opponent\\s+can\\s+select\\s+the\\s+same\\s+action\\s+more\\s+than\\s+once[.!]\\s*" +
+        "(?<actions>\"[^\"]+\"(?:\\s*\"[^\"]+\")*)\\s*$"
+    );
     /**
      * Detects "select [up to] N of the M following actions" — handled by MainWindow's
      * {@code executeSelectFollowingActionsAutoAbility}, not by ActionResolver's parse chain.

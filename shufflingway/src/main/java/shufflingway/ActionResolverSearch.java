@@ -163,12 +163,17 @@ final class ActionResolverSearch {
             ctx.revealHandOptPickDiscardOpponentDraws();
         };
     }
-    /** Parses "Opponent reveals hand. You may select 1 → remove from game, opponent draws 1." */
+    /** Parses "Opponent reveals hand. You may select 1 [other than a X] → remove from game, opponent draws 1." */
     static Consumer<GameContext> tryParseRevealHandOptPickRfpOppDraw(String text) {
-        if (!REVEAL_HAND_OPT_PICK_RFP_OPP_DRAW.matcher(text).find()) return null;
+        Matcher m = REVEAL_HAND_OPT_PICK_RFP_OPP_DRAW.matcher(text);
+        if (!m.find()) return null;
+        String excluded = m.group("excl");
+        Predicate<CardData> eligible = excluded == null ? null : c -> !excluded.equalsIgnoreCase(c.type());
+        String desc = excluded == null ? "card" : "card other than a " + excluded;
         return ctx -> {
-            ctx.logEntry("Effect: Opponent reveals hand — optionally select 1 to RFP, opponent draws 1");
-            ctx.revealHandOptPickRfpOpponentDraws();
+            ctx.logEntry("Effect: Opponent reveals hand — optionally select 1 " + desc
+                    + " to RFP, opponent draws 1");
+            ctx.revealHandOptPickRfpOpponentDraws(eligible, desc);
         };
     }
     static Consumer<GameContext> tryParsePutSourceToBottomOfDeck(String text, CardData source) {
@@ -1490,6 +1495,19 @@ final class ActionResolverSearch {
     static Consumer<GameContext> tryParseShuffleDeck(String text) {
         if (!SHUFFLE_DECK.matcher(text).find()) return null;
         return ctx -> ctx.shuffleDeck();
+    }
+
+    /** 26-067H Eiko — see {@link ActionResolverPatterns#SHUFFLE_THEN_REVEAL_TOP_CAST_SUMMON_FREE_REST_BZ}. */
+    static Consumer<GameContext> tryParseShuffleThenRevealTopCastSummonFreeRestBz(String text) {
+        Matcher m = SHUFFLE_THEN_REVEAL_TOP_CAST_SUMMON_FREE_REST_BZ.matcher(text.trim());
+        if (!m.matches()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Shuffle deck, reveal top " + count
+                    + " — cast up to 1 Summon for free, rest to Break Zone");
+            ctx.shuffleDeck();
+            ctx.revealTopDeckCastUpToOneSummonFreeRestToBreakZone(count);
+        };
     }
 
     /**

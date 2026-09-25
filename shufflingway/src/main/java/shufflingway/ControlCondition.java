@@ -18,7 +18,8 @@ import java.util.stream.Collectors;
  *       card-name alternatives that each individual card may satisfy instead of the job/element
  *       filters (e.g. "Job Samurai or Card Name Samurai").</li>
  *   <li><b>Crystal mode</b>: {@link #requiresCrystal} is {@code true} — condition is met when
- *       the controlling player has at least 1 Crystal.</li>
+ *       the controlling player has at least 1 Crystal, or, with {@link #exactCount} set, exactly
+ *       {@link #minCount} of them ({@link #forNoCrystal()}).</li>
  *   <li><b>Named-state mode</b>: {@link #stateCardName} is non-null — condition is met when the
  *       named card is on the controlling player's field in the state {@link #namedState} gives
  *       (dull, active, or attacking).</li>
@@ -216,6 +217,15 @@ public record ControlCondition(
     }
 
     /**
+     * "If you don't have any 《C》" — PR-171 Warrior of Light. Crystal mode with an exact count of
+     * zero, the same spelling {@link #forNeitherPlayerControls} uses for "none".
+     */
+    public static ControlCondition forNoCrystal() {
+        return new ControlCondition(List.of(), 0, true, null, null, null, null, 0,
+                List.of(), false, null, null, true, false, false);
+    }
+
+    /**
      * Factory method for an all-have condition: ALL controlled cards of {@code cardType} must
      * satisfy the given {@code element} and/or {@code jobFilter}.
      */
@@ -238,7 +248,7 @@ public record ControlCondition(
         if (!andConditions.isEmpty())
             return andConditions.stream().map(ControlCondition::toString)
                     .collect(Collectors.joining(" & "));
-        if (requiresCrystal) return "hasCrystal";
+        if (requiresCrystal) return exactCount ? "crystals=" + minCount : "hasCrystal";
         if (isNamedMode()) return String.join(anyOf ? " | " : " & ", requiredCardNames);
         if (allHave) {
             StringBuilder ah = new StringBuilder("allHave(").append(cardType != null ? cardType : "any");
