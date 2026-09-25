@@ -654,6 +654,12 @@ final class ActionResolverState {
             gate = PickGate.DISTINCT_ELEMENTS;
             f = elems.replaceFirst(" ").trim();
         }
+        Matcher costs = Pattern.compile("(?i),?\\s*each\\s+of\\s+a\\s+different\\s+cost\\b").matcher(f);
+        if (costs.find()) {
+            if (gate != PickGate.ANY) return null;
+            gate = PickGate.DISTINCT_COSTS;
+            f = costs.replaceFirst(" ").trim();
+        }
 
         int costVal = -1; String costCmp = null;
         Matcher cost = Pattern.compile("(?i),?\\s*of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<cmp>more|less))?\\b")
@@ -735,7 +741,9 @@ final class ActionResolverState {
      * so the first half carries its own "in your Break Zone" and the second does not.
      */
     private static final Pattern BZ_REMOVAL_AND_OR = Pattern.compile(
-        "(?i)^(?<a>.+?)\\s+in\\s+(?:your|the)\\s+Break\\s+Zone\\s+and/or\\s+(?<b>.+)$");
+        // The zone words after the first half are optional: 12-112L Selh'teus prints "Fire Forwards
+        // and/or Ice Forwards in your Break Zone", naming the zone once, after both.
+        "(?i)^(?<a>.+?)(?:\\s+in\\s+(?:your|the)\\s+Break\\s+Zone)?\\s+and/or\\s+(?<b>.+)$");
 
     /** One half of an "and/or" removal, as the Break Zone eligibility builder wants it. */
     private static TargetSpec bzUnionSpec(BzRemovalFilters f, int maxCount, boolean upTo,
@@ -768,7 +776,10 @@ final class ActionResolverState {
             if (unionA.gate() != PickGate.ANY || unionB.gate() != PickGate.ANY) return null;
         }
 
-        BzRemovalFilters f = unionA != null ? null : parseBzRemovalFilters(m.group("filters"));
+        // A rider printed after the zone joins the filter phrase, where the filter reader lifts it.
+        String filters = m.group("filters") + (m.group("rider") != null ? ", " + m.group("rider") : "");
+        if (unionA != null && m.group("rider") != null) return null;   // a gate cannot span two pools
+        BzRemovalFilters f = unionA != null ? null : parseBzRemovalFilters(filters);
         if (f == null && unionA == null) return null;
 
         String qty = m.group("qty") == null ? "" : m.group("qty").toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
@@ -890,6 +901,23 @@ final class ActionResolverState {
                         null, null, null, null, false, null, false);
                 action.accept(ctx, ts);
                 if (after != null) after.accept(ctx);
+            });
+        }
+        // "When you do so, / Then, … of cost equal to or less than the number of cards you
+        // removed …" — 12-076R Exdeath and 12-112L Selh'teus. The ceiling is written in as a plain
+        // "cost N or less" once the removal has said what N is, and the sentence is then read like
+        // any other. Checked at parse time with N = 1, so an unreadable payoff declines here.
+        Matcher sized = REMOVED_COUNT_COST_TAIL.matcher(tail);
+        if (sized.matches() && COST_UP_TO_NUMBER_REMOVED.matcher(sized.group("effect")).find()) {
+            String effect = sized.group("effect").trim();
+            boolean whenDoSo = sized.group("when") != null;
+            if (parse(COST_UP_TO_NUMBER_REMOVED.matcher(effect).replaceAll("cost 1 or less"), source) == null)
+                return null;
+            return base.andThen(ctx -> {
+                if (whenDoSo && removed[0] == 0) return;   // removing nothing is not doing so
+                Consumer<GameContext> sizedPayoff = parse(COST_UP_TO_NUMBER_REMOVED.matcher(effect)
+                        .replaceAll("cost " + removed[0] + " or less"), source);
+                if (sizedPayoff != null) sizedPayoff.accept(ctx);
             });
         }
         // A trailing sentence this parser cannot account for declines the whole ability. Handing it

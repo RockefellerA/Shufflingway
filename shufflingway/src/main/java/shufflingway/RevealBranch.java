@@ -24,9 +24,17 @@ package shufflingway;
  * @param costCmp       how {@code costVal} is compared — the {@code CardFilters} spelling, where
  *                      {@code null} means an exact cost. Yuri's "of cost 3" is exact and not a
  *                      ceiling, which is the whole reason this is a pair and not a maximum.
+ * @param nameFilter    a card name that qualifies as an alternative to {@code jobFilter} — "Job
+ *                      Samurai or Card Name Samurai" (26-002R Ayame); {@code null} for none
  */
 record RevealBranch(int max, String elementFilter, String typeFilter, String jobFilter,
-		int costVal, String costCmp) {
+		int costVal, String costCmp, String nameFilter) {
+
+	/** A branch with no card-name alternative. */
+	RevealBranch(int max, String elementFilter, String typeFilter, String jobFilter,
+			int costVal, String costCmp) {
+		this(max, elementFilter, typeFilter, jobFilter, costVal, costCmp, null);
+	}
 
 	/** A branch taking {@code max} cards of {@code typeFilter} and nothing else. */
 	static RevealBranch of(int max, String typeFilter) {
@@ -37,8 +45,15 @@ record RevealBranch(int max, String elementFilter, String typeFilter, String job
 	boolean accepts(CardData card) {
 		return matchesType(card)
 				&& CardFilters.meetsElementFilter(card, elementFilter)
-				&& CardFilters.meetsJobFilter(card, jobFilter)
+				&& matchesIdentity(card)
 				&& CardFilters.meetsCostConstraint(card.cost(), costVal, costCmp);
+	}
+
+	/** The Job, or the name printed as its alternative; either qualifies. */
+	private boolean matchesIdentity(CardData card) {
+		if (nameFilter == null) return CardFilters.meetsJobFilter(card, jobFilter);
+		return CardFilters.meetsCardNameFilter(card, nameFilter)
+				|| (jobFilter != null && CardFilters.meetsJobFilter(card, jobFilter));
 	}
 
 	private boolean matchesType(CardData card) {
@@ -57,6 +72,7 @@ record RevealBranch(int max, String elementFilter, String typeFilter, String job
 	String describe() {
 		return max + (elementFilter != null ? " " + elementFilter.replace("|", " or ") : "")
 				+ (jobFilter != null ? " Job " + jobFilter.replace("|", " or ") : "")
+				+ (nameFilter != null ? (jobFilter != null ? " or" : "") + " Card Name " + nameFilter : "")
 				+ " " + typeFilter + CardFilters.formatCostFilterLabel(costVal, costCmp);
 	}
 }

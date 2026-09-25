@@ -3692,19 +3692,25 @@ public record CardData(
 
     /**
      * Matches "select N [spec]. You may put it into the Break Zone. When/If you do so, [sub]" —
-     * 14-011H Susano, Lord of the Revel and 14-061H Calbrena.
+     * 14-011H Susano, Lord of the Revel and 14-061H Calbrena — and the mandatory "select N [spec].
+     * Put it into the Break Zone. When you do so, [sub]" (29-120R Seymour).
      *
      * <p>The same act the canonical "put N [spec] into the Break Zone. When you do so, [sub]"
      * describes, split across two sentences with the option stated inline. Normalised into that
      * form rather than given an executor of its own, so the one dispatcher and its selection,
      * decline prompt and AI handling serve both wordings.
-     * Groups: {@code spec} — everything the selection filters on; {@code sub} — the payoff.
+     * Groups: {@code spec} — everything the selection filters on; {@code may} — present when the
+     * put is optional; {@code sub} — the payoff.
      */
     private static final Pattern FA_SELECT_MAY_PUT_INTO_BZ = Pattern.compile(
-        "(?i)^select\\s+(?<spec>\\d+\\s+.+?)[.,]\\s*You\\s+may\\s+put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.,]\\s*" +
+        "(?i)^select\\s+(?<spec>\\d+\\s+.+?)[.,]\\s*(?<may>You\\s+may\\s+)?put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.,]\\s*" +
         "(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s*(?<sub>.+?)\\s*$",
         Pattern.DOTALL
     );
+
+    /** "you may [rest]" at the very start of an effect; see its use in parseAutoAbilityRestrictions. */
+    private static final Pattern FA_LEADING_YOU_MAY = Pattern.compile(
+        "(?i)^you\\s+may\\s+(?<rest>.+)$", Pattern.DOTALL);
 
     /**
      * Matches a prefix condition requiring the card's cast cost to have been paid with CP from
@@ -4683,10 +4689,38 @@ public record CardData(
         // adjustment below, because both are the same act: settling optionality between the
         // ability and its effect text.
         Matcher selMayBz = FA_SELECT_MAY_PUT_INTO_BZ.matcher(effect);
-        if (selMayBz.matches()) {
+        // The mandatory form is left alone when its payoff refers back to the card put — 14-098R
+        // Ultimecia's "of the same cost as the Forward you put into the Break Zone" is read whole by
+        // a parser that keeps that card, which the canonical shape's dispatcher does not.
+        // A bare type ("select 1 Monster you control. Put it into the Break Zone.", 23-074C Wrieg)
+        // is left alone too: the resolver reads that whole, on the Stack. Only a qualified
+        // selection — 29-120R Seymour's "1 Job Summoner" — needs the canonical shape.
+        boolean mandatory  = selMayBz.matches() && selMayBz.group("may") == null;
+        boolean refersBack = mandatory
+                && selMayBz.group("sub").matches("(?is).*\\byou\\s+put\\s+into\\s+the\\s+Break\\s+Zone\\b.*");
+        boolean bareType   = mandatory && selMayBz.group("spec").trim()
+                .matches("(?i)1\\s+(?:Forward|Backup|Monster|Character)s?\\s+you\\s+control");
+        if (selMayBz.matches() && !refersBack && !bareType) {
             effect = "put " + selMayBz.group("spec").trim() + " into the Break Zone. When you do so, "
                     + selMayBz.group("sub").trim();
-            youMay = true;
+            if (selMayBz.group("may") != null) youMay = true;
+        }
+        // The phase-trigger forms ("At the end of each of your turns, you may …") hand their effect
+        // over with the "you may" still on it, where every other trigger's pattern has already lifted
+        // it. The inline layer reads optionality off the ability and matches its cost shapes from the
+        // start of the text, so a leading "you may" hid 28-050C Paine's and 28-068R Flowering
+        // Cactoid's self-sacrifice and 23-061H Warrior of Light's 《X》 payment from it entirely.
+        // Lifted only for a remainder that layer claims: everything else resolves through parse(),
+        // which reads its own "you may". Counter removal is excluded: 29-086H Shadow's "you may
+        // remove 2 Warp Counters from Shadow. If you do so, …" is read whole by a parser of its own
+        // that honours the "you may" itself, and the generic counter shape would displace it.
+        if (!youMay && !opponentMay) {
+            Matcher lead = FA_LEADING_YOU_MAY.matcher(effect);
+            String shape = lead.matches() ? AutoAbilityTriggers.inlineShapeOf(lead.group("rest")) : null;
+            if (shape != null && !shape.equals("RemoveCounterWhenDoSo")) {
+                effect = lead.group("rest");
+                youMay = true;
+            }
         }
         // "You may pay 《X》. If you don't pay 《X》, …" — the "you may" belongs to the cost, not to the
         // ability: the gate itself asks whether to pay, and the consequence lands either way. Left as

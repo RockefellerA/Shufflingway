@@ -393,8 +393,9 @@ public class CardDatabase implements AutoCloseable {
         try (CardDatabase db = new CardDatabase("shufflingway.db")) {
             int upgraded  = db.applyReprintTextUpgrades();
             int corrected = db.applyMulticardCorrections();
+            int textFixed = db.applyTextCorrections();
             System.out.printf("Migration complete. Applied %d reprint text upgrade(s), "
-                    + "%d multicard correction(s).%n", upgraded, corrected);
+                    + "%d multicard correction(s), %d text correction(s).%n", upgraded, corrected, textFixed);
         }
     }
 
@@ -486,6 +487,45 @@ public class CardDatabase implements AutoCloseable {
                 ps.setInt   (1, value);
                 ps.setString(2, fix.serial());
                 ps.setInt   (3, value);
+                updated += ps.executeUpdate();
+            }
+        }
+        return updated;
+    }
+
+    // -------------------------------------------------------------------------
+    // Text corrections (final ETL step)
+    // -------------------------------------------------------------------------
+
+    /** A literal typo in a card's scraped text, and what the printed card says instead. */
+    private record TextFix(String serial, String wrong, String right) {}
+
+    /**
+     * Typos in the source data that change how the text reads — not errata. Each entry names the
+     * exact wrong substring, so a source that fixes itself leaves nothing for the step to do.
+     */
+    private static final List<TextFix> TEXT_CORRECTIONS = List.of(
+            new TextFix("5-033R", "Card Name Gumbahand play", "Card Name Gumbah and play")  // Gumbah
+    );
+
+    /**
+     * Final ETL step: replaces each {@link #TEXT_CORRECTIONS} typo in its card's {@code text_en}.
+     *
+     * <p>Idempotent: a row already corrected no longer contains the wrong substring, so the guard
+     * skips it and the count reports only rows actually changed.
+     *
+     * @return number of rows whose text was changed
+     */
+    public int applyTextCorrections() throws SQLException {
+        int updated = 0;
+        try (PreparedStatement ps = conn.prepareStatement(
+                "UPDATE cards SET text_en = REPLACE(text_en, ?, ?) "
+                + "WHERE serial = ? AND INSTR(text_en, ?) > 0")) {
+            for (TextFix fix : TEXT_CORRECTIONS) {
+                ps.setString(1, fix.wrong());
+                ps.setString(2, fix.right());
+                ps.setString(3, fix.serial());
+                ps.setString(4, fix.wrong());
                 updated += ps.executeUpdate();
             }
         }

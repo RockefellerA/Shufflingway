@@ -8,7 +8,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Cost parsers split out of {@link ActionResolver}.
@@ -502,6 +504,121 @@ final class ActionResolverCost {
         return ctx -> {
             ctx.logEntry("Effect: " + logDesc);
             ctx.applyNextCastCostReduction(modifier);
+        };
+    }
+
+    // =========================================================================================
+    // Counted costs: "any number of …", with a payoff scaled by or gated on the count
+    // =========================================================================================
+
+    /**
+     * {@code sub} with each "N [damage|power] for each …" phrase {@code per} matches rewritten to
+     * the total for {@code count} — "3000 damage for each Backup you dulled" at 2 becomes "6000
+     * damage", and the sentence then reads as any fixed-amount effect does.
+     */
+    private static String scaleByCount(String sub, Pattern per, int count) {
+        Matcher m = per.matcher(sub);
+        StringBuilder out = new StringBuilder();
+        while (m.find())
+            m.appendReplacement(out, (Integer.parseInt(m.group("amt")) * count) + " " + m.group("unit"));
+        m.appendTail(out);
+        return out.toString();
+    }
+
+    /**
+     * "…Deal it N damage and [Self] gains +N power until the end of the turn." as two sentences.
+     * Read as one, the Choose chain resolves the damage and silently drops the self-boost joined to
+     * it by "and" (14-003R Illua), so the source's clause is given a sentence of its own.
+     */
+    private static String splitSelfGainClause(String sub, CardData source) {
+        if (source == null) return sub;
+        // The damage may still carry its "for each …" scaling phrase, which is read after this.
+        return sub.replaceFirst("(?i)(Deal\\s+it\\s+\\d+\\s+damage(?:\\s+for\\s+each\\s+[^.]+?)?)\\s+and\\s+("
+                + Pattern.quote(source.name()) + "\\s+gains\\s)", "$1. $2");
+    }
+
+    /**
+     * A payoff scaled by a count is readable only if its scaled form is: checked at parse time with
+     * a count of 1, so a sentence the resolver cannot read is declined here rather than after its
+     * cost has been paid.
+     */
+    private static boolean scaledPayoffReads(String sub, Pattern per, CardData source) {
+        return per.matcher(sub).find() && parse(scaleByCount(sub, per, 1), source) != null;
+    }
+
+    /**
+     * 12-010C Warrior and 14-003R Illua — see {@link ActionResolverPatterns#DULL_ANY_NUMBER_BACKUPS_WHEN_DO_SO}.
+     * The dull is the cost: dulling none is not doing so, and the payoff does not run.
+     */
+    static Consumer<GameContext> tryParseDullAnyNumberBackupsPerDulled(String text, CardData source) {
+        Matcher m = DULL_ANY_NUMBER_BACKUPS_WHEN_DO_SO.matcher(text.trim());
+        if (!m.matches()) return null;
+        String elem = m.group("elem");
+        String sub  = splitSelfGainClause(m.group("sub").trim(), source);
+        if (!scaledPayoffReads(sub, PER_BACKUP_DULLED, source)) return null;
+        String label = "active " + (elem != null ? elem + " " : "") + "Backups";
+        return ctx -> {
+            ctx.logEntry("Effect: Dull any number of " + label + " you control");
+            // Five is the Backup zone's size, so it is "any number" with room for every one.
+            List<ForwardTarget> dulled = ctx.selectCharacters(5, true, false, true, "active", elem,
+                    -1, null, -1, null, false, true, false, null, null, null, null, false, null, false);
+            if (dulled.isEmpty()) {
+                ctx.logEntry("No Backup dulled — no effect");
+                ctx.markEffectFizzled();
+                return;
+            }
+            dulled.forEach(ctx::dullTarget);
+            Consumer<GameContext> payoff = parse(scaleByCount(sub, PER_BACKUP_DULLED, dulled.size()), source);
+            if (payoff != null) payoff.accept(ctx);
+        };
+    }
+
+    /**
+     * The filter a reveal-any-number names ("Lightning cards", "Job Dragoon or Card Name Dragoon"),
+     * or {@code null} when it is a kind this cannot read.
+     */
+    private static Predicate<CardData> revealKindFilter(String spec) {
+        Matcher k = REVEAL_KIND.matcher(spec.trim());
+        if (!k.matches()) return null;
+        if (k.group("elem") != null) {
+            String elem = k.group("elem");
+            return c -> CardFilters.meetsElementFilter(c, elem);
+        }
+        String job = k.group("job").trim(), name = k.group("name").trim();
+        return c -> CardFilters.meetsJobFilter(c, job) || CardFilters.meetsCardNameFilter(c, name);
+    }
+
+    /** 19-080R Vivi — see {@link ActionResolverPatterns#REVEAL_ANY_FROM_HAND_WHEN_DO_SO}. */
+    static Consumer<GameContext> tryParseRevealAnyFromHandPerRevealed(String text, CardData source) {
+        Matcher m = REVEAL_ANY_FROM_HAND_WHEN_DO_SO.matcher(text.trim());
+        if (!m.matches()) return null;
+        String spec = m.group("spec").trim();
+        Predicate<CardData> kind = revealKindFilter(spec);
+        String sub = m.group("sub").trim();
+        if (kind == null || !scaledPayoffReads(sub, PER_CARD_REVEALED, source)) return null;
+        return ctx -> {
+            int n = ctx.revealAnyNumberFromHandMatching(kind, spec);
+            if (n == 0) { ctx.markEffectFizzled(); return; }
+            Consumer<GameContext> payoff = parse(scaleByCount(sub, PER_CARD_REVEALED, n), source);
+            if (payoff != null) payoff.accept(ctx);
+        };
+    }
+
+    /** 12-089C Dragoon — see {@link ActionResolverPatterns#REVEAL_ANY_FROM_HAND_THRESHOLDS}. */
+    static Consumer<GameContext> tryParseRevealAnyFromHandThresholds(String text, CardData source) {
+        Matcher m = REVEAL_ANY_FROM_HAND_THRESHOLDS.matcher(text.trim());
+        if (!m.matches()) return null;
+        String spec = m.group("spec").trim();
+        Predicate<CardData> kind = revealKindFilter(spec);
+        int n1 = Integer.parseInt(m.group("n1")), n2 = Integer.parseInt(m.group("n2"));
+        Consumer<GameContext> first  = parse(m.group("sub1").trim(), source);
+        Consumer<GameContext> second = parse(m.group("sub2").trim(), source);
+        // Both tiers or neither: running one while dropping the other misreads the card.
+        if (kind == null || first == null || second == null) return null;
+        return ctx -> {
+            int n = ctx.revealAnyNumberFromHandMatching(kind, spec);
+            if (n >= n1) first.accept(ctx);
+            if (n >= n2) second.accept(ctx);
         };
     }
 }

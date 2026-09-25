@@ -2234,12 +2234,27 @@ final class ActionResolverPatterns {
      *   <li>{@code zone}    — "your", "the", "your opponent's", "each player's"</li>
      * </ul>
      */
+    /**
+     * A tail after a Break Zone removal whose effect is sized by it — "When you do so, choose 1
+     * Forward of cost equal to or less than the number of cards you removed. Break it." (12-076R
+     * Exdeath), "Then, reveal … Play 1 Forward of cost equal to or less than the number of removed
+     * cards among them …" (12-112L Selh'teus). Groups: {@code when} (present for "When you do so"),
+     * {@code effect}; the count phrase itself is {@link #COST_UP_TO_NUMBER_REMOVED}.
+     */
+    static final Pattern REMOVED_COUNT_COST_TAIL = Pattern.compile(
+        "(?i)^(?:(?<when>When\\s+you\\s+do\\s+so)|Then),\\s+(?<effect>.+)$", Pattern.DOTALL);
+    /** "cost equal to or less than the number of cards you removed / removed cards". */
+    static final Pattern COST_UP_TO_NUMBER_REMOVED = Pattern.compile(
+        "(?i)cost\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+the\\s+number\\s+of\\s+(?:cards\\s+you\\s+removed|removed\\s+cards)");
     static final Pattern REMOVE_FROM_BREAK_ZONE_FROM_GAME = Pattern.compile(
         "(?i)^(?:you\\s+may\\s+)?remove\\s+" +
         "(?<qty>all\\s+the|all|any\\s+number\\s+of|up\\s+to\\s+\\d+|\\d+)?\\s*" +
         "(?<filters>.*?)\\s*" +
         "(?:in|from)\\s+(?<zone>your\\s+opponent'?s|your|the|each\\s+player'?s|either\\s+player'?s)" +
-        "\\s+Break\\s+Zone\\s+from\\s+(?:the\\s+)?game[.!]?"
+        // A selection rider printed after the zone rather than inside the filters — 12-076R
+        // Exdeath's "…in your Break Zone, each of a different cost, from the game".
+        "\\s+Break\\s+Zone(?:,\\s*(?<rider>each\\s+of\\s+a\\s+different\\s+(?:cost|Element)),?)?" +
+        "\\s+from\\s+(?:the\\s+)?game[.!]?"
     );
     /**
      * Matches "[you may] remove any number of [Name] Counters from [Card]. When you do so, choose
@@ -4905,7 +4920,9 @@ final class ActionResolverPatterns {
         // their second sentence as a return-a-named-card.
         "Add\\s+(?<upto>up\\s+to\\s+)?(?<max>\\d+)\\s+" +
         "(?:(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?)" +
-            "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less)?" +
+            // "or more" is a floor rather than a ceiling — 11-023H Verstael's "Characters of cost 5
+            // or more"; {@code costdir} says which.
+            "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<costdir>less|more))?" +
         "|(?<anycard>cards?)\\s+of\\s+cost\\s+(?<anycost>\\d+)\\s+or\\s+less)" +
         "\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
@@ -4950,10 +4967,12 @@ final class ActionResolverPatterns {
      */
     static final Pattern REVEAL_TOP_N_ELEMENT_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Add\\s+(?<max>\\d+)\\s+(?<element>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element)(?:\\s*,\\s*(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element))*" +
+        // "up to" makes the take an offer — 26-018H Phoenix (XVI); captured in {@code upto}.
+        "Add\\s+(?<upto>up\\s+to\\s+)?(?<max>\\d+)\\s+(?<element>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element)(?:\\s*,\\s*(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element))*" +
             "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element))?)\\s+" +
         "(?:" +
-            "or\\s+Category\\s+(?<cat>\\S+)(?:\\s+(?:Forward|Backup|Character|Monster|card)s?)?" +
+            // Phoenix prints the noun on both sides: "Fire cards and/or Category XVI cards".
+            "(?:cards?\\s+)?(?:and/)?or\\s+Category\\s+(?<cat>\\S+)(?:\\s+(?:Forward|Backup|Character|Monster|card)s?)?" +
             "|" +
             "(?:(?<type>Forwards?|Backups?|Monsters?|Characters?)|cards?)" +
         ")\\s+" +
@@ -5249,6 +5268,27 @@ final class ActionResolverPatterns {
         "and\\s+(?:return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?" +
         "|(?<bz>put\\s+the\\s+rest\\s+(?:of\\s+the\\s+cards?\\s+)?into\\s+the\\s+Break\\s+Zone))" +
         "[.!]?\\s*$"
+    );
+
+    /**
+     * The "and" sibling of {@link #REVEAL_ADD_TO_HAND_OR_PLAY_ONTO_FIELD}: "Reveal the top 2 cards
+     * of your deck. Play up to 1 Job Samurai or Card Name Samurai of cost 3 or less among them onto
+     * the field, add up to 1 Job Samurai or Card Name Samurai of cost 9 or less among them to your
+     * hand, and return the other cards to the bottom of your deck in any order." — 26-002R Ayame.
+     *
+     * <p>Both allowances are spent, each on its own card. Only the "Job X or Card Name Y" identity
+     * and a cost ceiling are read on each side, which is all the one printing uses.
+     * Groups: {@code n}; {@code fieldjob}/{@code fieldname}/{@code fieldcost};
+     * {@code handjob}/{@code handname}/{@code handcost}.
+     */
+    static final Pattern REVEAL_PLAY_ONTO_FIELD_AND_ADD_TO_HAND = Pattern.compile(
+        "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Play\\s+up\\s+to\\s+1\\s+Job\\s+(?<fieldjob>.+?)\\s+or\\s+Card\\s+Name\\s+(?<fieldname>.+?)\\s+" +
+        "of\\s+cost\\s+(?<fieldcost>\\d+)\\s+or\\s+less\\s+among\\s+them\\s+onto\\s+the\\s+field,\\s+" +
+        "add\\s+up\\s+to\\s+1\\s+Job\\s+(?<handjob>.+?)\\s+or\\s+Card\\s+Name\\s+(?<handname>.+?)\\s+" +
+        "of\\s+cost\\s+(?<handcost>\\d+)\\s+or\\s+less\\s+among\\s+them\\s+to\\s+your\\s+hand,?\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck" +
+        "(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
 
 
@@ -6522,6 +6562,56 @@ final class ActionResolverPatterns {
      */
     static final Pattern DISCARD_TYPE = Pattern.compile(
         "(?i)discard\\s+1\\s+(?<type>Summon|Forward|Backup|Monster|Character)[.!]?"
+    );
+    /**
+     * "discard 1 Category VII Character." on its own — 25-003C AVALANCHE Member's cost, whose
+     * "When you do so" payoff WhenYouDoSo gates on the discard having happened. Anchored: the
+     * category is the whole point of the cost, so nothing longer is read as it.
+     * Group {@code spec} is handed to the discard-type vocabulary as printed.
+     */
+    static final Pattern DISCARD_CATEGORY_TYPE_STANDALONE = Pattern.compile(
+        "(?i)^discard\\s+1\\s+(?<spec>Category\\s+\\S+\\s+(?:Summon|Forward|Backup|Monster|Character|card)s?)[.!]?$"
+    );
+    /**
+     * "dull any number of active [Element] Backups you control. When you do so, [payoff]" —
+     * 12-010C Warrior and 14-003R Illua, whose payoff is scaled by the number dulled (see
+     * {@link #PER_BACKUP_DULLED}). Groups: {@code elem} (optional), {@code sub}.
+     */
+    static final Pattern DULL_ANY_NUMBER_BACKUPS_WHEN_DO_SO = Pattern.compile(
+        "(?i)^dull\\s+any\\s+number\\s+of\\s+active\\s+" +
+        "(?:(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?Backups\\s+you\\s+control[.!]?\\s+" +
+        "When\\s+you\\s+do\\s+so,\\s+(?<sub>.+)$", Pattern.DOTALL
+    );
+    /** "3000 damage / +3000 power for each Backup you dulled due to this ability"; groups {@code amt}, {@code unit}. */
+    static final Pattern PER_BACKUP_DULLED = Pattern.compile(
+        "(?i)(?<amt>\\d+)\\s+(?<unit>damage|power)\\s+for\\s+each\\s+Backup\\s+you\\s+dulled\\s+due\\s+to\\s+this\\s+ability"
+    );
+    /**
+     * "reveal any number of [kind] from your hand. When you do so, [payoff scaled per card]" —
+     * 19-080R Vivi. Groups: {@code spec} (the kind, read by {@code revealKindFilter}), {@code sub}.
+     */
+    static final Pattern REVEAL_ANY_FROM_HAND_WHEN_DO_SO = Pattern.compile(
+        "(?i)^reveal\\s+any\\s+number\\s+of\\s+(?<spec>.+?)\\s+from\\s+your\\s+hand[.!]?\\s+" +
+        "When\\s+you\\s+do\\s+so,\\s+(?<sub>.+)$", Pattern.DOTALL
+    );
+    /** "2000 damage for each card you revealed"; groups {@code amt}, {@code unit}. */
+    static final Pattern PER_CARD_REVEALED = Pattern.compile(
+        "(?i)(?<amt>\\d+)\\s+(?<unit>damage|power)\\s+for\\s+each\\s+card\\s+you\\s+revealed"
+    );
+    /**
+     * "reveal any number of [kind] from your hand. When you reveal N or more, [effect]. In
+     * addition, when you reveal M or more, [effect]." — 12-089C Dragoon. Groups: {@code spec},
+     * {@code n1}/{@code sub1}, {@code n2}/{@code sub2}.
+     */
+    static final Pattern REVEAL_ANY_FROM_HAND_THRESHOLDS = Pattern.compile(
+        "(?i)^reveal\\s+any\\s+number\\s+of\\s+(?<spec>.+?)\\s+from\\s+your\\s+hand[.!]?\\s+" +
+        "When\\s+you\\s+reveal\\s+(?<n1>\\d+)\\s+or\\s+more,\\s+(?<sub1>.+?[.!])\\s+" +
+        "In\\s+addition,\\s+when\\s+you\\s+reveal\\s+(?<n2>\\d+)\\s+or\\s+more,\\s+(?<sub2>.+)$", Pattern.DOTALL
+    );
+    /** The kind a reveal-any-number names: "[Element] cards" or "Job X or Card Name Y". */
+    static final Pattern REVEAL_KIND = Pattern.compile(
+        "(?i)^(?:(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+cards?" +
+        "|Job\\s+(?<job>.+?)\\s+or\\s+Card\\s+Name\\s+(?<name>.+))$"
     );
     /**
      * Matches "[You may] discard 1 Job [X] [from your hand][.]" — a discard of one card carrying

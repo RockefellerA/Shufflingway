@@ -45382,11 +45382,13 @@ public class CardBehaviorTest {
 	@Test
 	void theBreakZoneRemovalDeclinesWhatItCannotHonour() {
 		CardData probe = makeForward("Probe", "Fire", 4, 8000);
-		// Two filters, one selection: 12-112L Selh'teus and 29-005L Cloud draw a single pick list
-		// from two pools, which the Break Zone selection cannot express. Declined whole rather than
-		// half-honoured — taking Fire Forwards and ignoring the Ice half is not what the card says.
-		assertNull(ActionResolverState.tryParseRemoveFromBreakZoneFromGame(
+		// Two filters, one selection: 12-112L Selh'teus draws a single pick list from two pools, which
+		// the either-spec removal expresses. A half it could not read would decline the whole.
+		assertNotNull(ActionResolverState.tryParseRemoveFromBreakZoneFromGame(
 				"remove up to 5 Fire Forwards and/or Ice Forwards in your Break Zone from the game.",
+				probe));
+		assertNull(ActionResolverState.tryParseRemoveFromBreakZoneFromGame(
+				"remove up to 5 Fire Forwards and/or Forwards with Warp in your Break Zone from the game.",
 				probe));
 		// A trailing sentence the chain cannot read declines too. 11-138S Sephiroth's alternative
 		// ("or put Sephiroth into the Break Zone") is not a "Then, …" clause, and reporting the
@@ -64776,9 +64778,9 @@ public class CardBehaviorTest {
 		assertNull(ActionResolver.parse("you may put Flowering Cactoid into the Break Zone. When you do "
 				+ "so, choose 1 Forward opponent controls. Deal it 10000 damage.", flamingo),
 				"28-068R: a free 10000 before");
-		assertNull(ActionResolver.parse("pay 《Fire》《Fire》《Fire》《2》 or 《C》《C》. When you do so, "
-				+ "choose up to 2 Forwards. Deal them 9000 damage.", makeForward("Ifrit", "Fire", 5, 9000)),
-				"25-010H: a cost with an alternative the payment layer does not read");
+		// 25-010H's CP-or-Crystals price is charged by the trigger layer, which is what exempts it.
+		assertEquals("PayOrCrystalsWhenDoSo", AutoAbilityTriggers.inlineShapeOf("pay 《Fire》《Fire》《Fire》"
+				+ "《2》 or 《C》《C》. When you do so, choose up to 2 Forwards. Deal them 9000 damage."));
 	}
 
 	@Test
@@ -64798,19 +64800,27 @@ public class CardBehaviorTest {
 
 	@Test
 	void aRevealCountGateDeclinesItsPayoff() {
-		assertNull(ActionResolver.parse("reveal any number of Job Dragoon or Card Name Dragoon from your "
-				+ "hand. When you reveal 1 or more, Dragoon gains Haste until the end of the turn. In "
-				+ "addition, when you reveal 4 or more, choose 1 Forward. Break it.",
-				makeForward("Dragoon", "Lightning", 3, 7000)), "12-089C broke a Forward revealing nothing");
+		// A kind the counted reveal cannot read is still declined rather than paid out free.
+		assertNull(ActionResolver.parse("reveal any number of Category XIV cards from your hand. When you "
+				+ "reveal 1 or more, Dragoon gains Haste until the end of the turn. In addition, when you "
+				+ "reveal 4 or more, choose 1 Forward. Break it.",
+				makeForward("Dragoon", "Lightning", 3, 7000)), "an unread count gate breaks nothing");
+		// 12-089C itself is read whole, its tiers gated on the count (see dragoonBreaksOnlyAtFour).
+		assertEquals("RevealAnyFromHandThresholds", ActionResolver.matchedPatternName("reveal any number "
+				+ "of Job Dragoon or Card Name Dragoon from your hand. When you reveal 1 or more, Dragoon "
+				+ "gains Haste until the end of the turn. In addition, when you reveal 4 or more, choose 1 "
+				+ "Forward. Break it.", makeForward("Dragoon", "Lightning", 3, 7000)));
 	}
 
 	@Test
 	void aPickAmongRevealedCardsIsNotACardName() {
-		assertNull(ActionResolver.parse("reveal the top 5 cards of your deck. Add up to 3 Characters of "
-				+ "cost 5 or more among them to your hand and return the other cards to the bottom of your "
-				+ "deck in any order.", makeForward("Gau", "Wind", 3, 7000)));
-		assertNull(ActionResolver.parse("remove any number of Forwards in your Break Zone, each of a "
-				+ "different cost, from the game.", makeForward("Leo", "Earth", 3, 7000)));
+		// Both are read by the parsers of their own family now, not by a card-name reader.
+		assertEquals("RevealTopNTypeToHand", ActionResolver.matchedPatternName("reveal the top 5 cards of "
+				+ "your deck. Add up to 3 Characters of cost 5 or more among them to your hand and return the "
+				+ "other cards to the bottom of your deck in any order.", makeForward("Gau", "Wind", 3, 7000)));
+		assertEquals("RemoveFromBreakZoneFromGame", ActionResolver.matchedPatternName("remove any number of "
+				+ "Forwards in your Break Zone, each of a different cost, from the game.",
+				makeForward("Leo", "Earth", 3, 7000)));
 	}
 
 	@Test
@@ -64976,6 +64986,517 @@ public class CardBehaviorTest {
 		assertTrue(mw.gameState.getP2Hand().isEmpty());
 		assertTrue(mw.rfgAfterUseSummons.contains(summon), "removed after use, not Break Zoned");
 		assertTrue(mw.activeCostReductions.isEmpty(), "the discount does not outlive the cast");
+	}
+
+	// =========================================================================================
+	// Auto abilities wired back up. Each was declined by the partial-parse work because nothing
+	// read the cost or count in front of its "When/If you do so" payoff. The phase triggers now
+	// lift a leading "you may" when the inline layer claims the rest (CardData), 15-061H Lehko's
+	// cast-count gate is its own inline shape, and 29-120R Seymour's mandatory "select … Put it
+	// into the Break Zone" joins the select-then-put rewrite. Driven as P2, where the AI accepts.
+	// =========================================================================================
+
+	/** A card of any type whose abilities are parsed from {@code text}, as the database would. */
+	private static CardData makeTextCard(String name, String element, String type, int cost, int power,
+			String job, String text) {
+		return new CardData(null, name, element, cost, power, type, false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				CardData.parseActionAbilities(text), CardData.parseAutoAbilities(text),
+				CardData.parseFieldAbilities(text, type),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				job, null, null, text);
+	}
+
+	@Test
+	void paineTradesHerselfForAnotherPaineFromHand() {
+		MainWindow mw = new MainWindow();
+		CardData paine = makeTextCard("Paine", "Wind", "Forward", 2, 5000, null,
+				"At the end of each of your turns, you may put Paine into the Break Zone. If you do so, "
+				+ "play 1 Card Name Paine from your hand onto the field.");
+		CardData next = makeForward("Paine", "Wind", 4, 8000);
+		mw.gameState.getIdentity().put(paine, false);
+		mw.gameState.getIdentity().put(next, false);
+		mw.placeP2CardInForwardZone(paine);
+		mw.gameState.getP2Hand().add(next);
+		assertTrue(paine.autoAbilities().get(0).youMay(), "the phase trigger's \"you may\" is lifted");
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false);
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(paine));
+		assertTrue(mw.p2ForwardCards.contains(next));
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+	}
+
+	@Test
+	void floweringCactoidSacrificesItselfForTenThousand() {
+		MainWindow mw = new MainWindow();
+		CardData cactoid = makeTextCard("Flowering Cactoid", "Earth", "Monster", 2, 0, null,
+				"At the end of each of your turns, you may put Flowering Cactoid into the Break Zone. "
+				+ "When you do so, choose 1 Forward opponent controls. Deal it 10000 damage.");
+		CardData victim = makeForward("Victim", "Fire", 5, 9000);
+		mw.gameState.getIdentity().put(cactoid, false);
+		mw.gameState.getIdentity().put(victim, true);
+		mw.placeCardInForwardZone(victim);
+		mw.placeP2CardInMonsterZone(cactoid);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false);
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(cactoid), "the price is paid");
+		assertFalse(mw.p1ForwardCards.contains(victim), "and 10000 breaks a 9000 Forward");
+	}
+
+	private static final String LEHKO_3_OR_4 = "At the end of each of your turns, if you have cast 3 or 4 "
+			+ "cards this turn, you may put Lehko Habhoka into the Break Zone. If you do so, search for 1 "
+			+ "Character of cost 4 or less and play it onto the field.";
+
+	@Test
+	void lehkoSearchesWhenTheCastCountFits() {
+		MainWindow mw = new MainWindow();
+		CardData lehko = makeTextCard("Lehko Habhoka", "Wind", "Backup", 4, 0, null, LEHKO_3_OR_4);
+		CardData four = makeForward("Fran", "Wind", 4, 8000);
+		mw.gameState.getIdentity().put(lehko, false);
+		mw.gameState.getIdentity().put(four, false);
+		mw.gameState.getP2MainDeck().add(four);
+		mw.placeP2CardInFirstBackupSlot(lehko);
+		mw.turn(false).cardsCastThisTurn = 3;
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false);
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(lehko));
+		assertTrue(mw.p2ForwardCards.contains(four));
+	}
+
+	@Test
+	void lehkoStaysPutOutsideTheCastCount() {
+		for (int cast : new int[]{ 2, 5 }) {
+			MainWindow mw = new MainWindow();
+			CardData lehko = makeTextCard("Lehko Habhoka", "Wind", "Backup", 4, 0, null, LEHKO_3_OR_4);
+			CardData four = makeForward("Fran", "Wind", 4, 8000);
+			mw.gameState.getIdentity().put(lehko, false);
+			mw.gameState.getIdentity().put(four, false);
+			mw.gameState.getP2MainDeck().add(four);
+			mw.placeP2CardInFirstBackupSlot(lehko);
+			mw.turn(false).cardsCastThisTurn = cast;
+
+			mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false);
+
+			assertFalse(mw.gameState.getP2BreakZone().contains(lehko), cast + " casts: Lehko stays");
+			assertTrue(mw.gameState.getP2MainDeck().contains(four), cast + " casts: nothing searched");
+		}
+	}
+
+	@Test
+	void warriorOfLightPaysXForAStandardUnitOfCostX() {
+		MainWindow mw = new MainWindow();
+		CardData wol = makeTextCard("Warrior of Light", "Earth", "Forward", 4, 8000, null,
+				"At the beginning of the Attack Phase during each of your turns, you may pay 《X》. When "
+				+ "you do so, choose 1 Job Standard Unit of cost X in your Break Zone. Play it onto the field.");
+		CardData unit = makeTextCard("Soldier", "Earth", "Forward", 1, 3000, "Standard Unit", "");
+		CardData dearer = makeTextCard("Knight", "Earth", "Forward", 2, 5000, "Standard Unit", "");
+		mw.gameState.getIdentity().put(wol, false);
+		mw.gameState.getIdentity().put(unit, false);
+		mw.gameState.getIdentity().put(dearer, false);
+		mw.gameState.getP2BreakZone().add(unit);
+		mw.gameState.getP2BreakZone().add(dearer);
+		mw.p2BackupCards[0]  = makePlainBackup("Backup", "Earth", 1);
+		mw.p2BackupStates[0] = CardState.ACTIVE;
+		mw.placeP2CardInForwardZone(wol);
+		assertTrue(wol.autoAbilities().get(0).youMay());
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(false);
+
+		// The AI buys one unit of X, so only the cost-1 unit qualifies.
+		assertTrue(mw.p2ForwardCards.contains(unit), "cost 1 = X");
+		assertTrue(mw.gameState.getP2BreakZone().contains(dearer));
+		assertEquals(CardState.DULL, mw.p2BackupStates[0], "X was paid");
+	}
+
+	@Test
+	void seymourSacrificesASummonerToBreakADullForward() {
+		MainWindow mw = new MainWindow();
+		CardData seymour = makeTextCard("Seymour", "Ice", "Forward", 7, 9000, null,
+				"When Seymour enters the field, select 1 Job Summoner you control. Put it into the Break "
+				+ "Zone. When you do so, choose 1 dull Forward opponent controls. Break it. Your opponent "
+				+ "discards 1 card.");
+		CardData summoner = makeTextCard("Yuna", "Ice", "Backup", 2, 0, "Summoner", "");
+		CardData victim = makeForward("Victim", "Fire", 5, 9000);
+		mw.gameState.getIdentity().put(seymour, false);
+		mw.gameState.getIdentity().put(summoner, false);
+		mw.placeP2CardInFirstBackupSlot(summoner);
+		mw.gameState.getIdentity().put(victim, true);
+		mw.placeCardInForwardZone(victim);
+		mw.p1ForwardStates.set(0, CardState.DULL);
+		// P1's hand is left empty: the discard falls to P1, and a card there would open its dialog.
+		mw.placeP2CardInForwardZone(seymour);
+		assertFalse(seymour.autoAbilities().get(0).youMay(), "Seymour's cost is not optional");
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(seymour, false);
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(summoner));
+		assertFalse(mw.p1ForwardCards.contains(victim));
+	}
+
+	@Test
+	void verstaelTakesCharactersOfCostFiveOrMore() {
+		MainWindow mw = new MainWindow();
+		CardData five  = makeForward("Ravus", "Ice", 5, 9000);
+		CardData three = makeForward("Aranea", "Ice", 3, 7000);
+		CardData six   = makePlainBackup("Ardyn", "Ice", 6);
+		CardData summon = makeSummon("Shiva", "Ice", 7, "");
+		stackP2Deck(mw, five, three, six, summon);
+
+		ActionResolver.parse("reveal the top 5 cards of your deck. Add up to 3 Characters of cost 5 or "
+				+ "more among them to your hand and return the other cards to the bottom of your deck in "
+				+ "any order.", makeForward("Verstael", "Ice", 5, 8000)).accept(mw.buildGameContext(false));
+
+		assertEquals(Set.of(five, six), Set.copyOf(mw.gameState.getP2Hand()),
+				"cost 5 or more, and a Summon is not a Character");
+		assertTrue(mw.gameState.getP2MainDeck().containsAll(List.of(three, summon)));
+	}
+
+	@Test
+	void phoenixTakesFireOrCategoryXviCards() {
+		MainWindow mw = new MainWindow();
+		CardData fire   = makeForward("Ifrit", "Fire", 3, 7000);
+		CardData xvi    = makeCategoryForward("Jill", "Ice", "XVI");
+		CardData neither = makeForward("Shiva", "Ice", 3, 7000);
+		stackP2Deck(mw, fire, xvi, neither);
+
+		ActionResolver.parse("reveal the top 4 cards of your deck. Add up to 2 Fire cards and/or "
+				+ "Category XVI cards among them to your hand and return the other cards to the bottom of "
+				+ "your deck in any order.", makeForward("Phoenix (XVI)", "Fire", 3, 7000))
+				.accept(mw.buildGameContext(false));
+
+		assertEquals(Set.of(fire, xvi), Set.copyOf(mw.gameState.getP2Hand()));
+		assertTrue(mw.gameState.getP2MainDeck().contains(neither));
+	}
+
+	@Test
+	void ayamePlaysOneSamuraiAndAddsAnother() {
+		MainWindow mw = new MainWindow();
+		CardData cheap = makeTextCard("Kotetsu", "Fire", "Forward", 3, 6000, "Samurai", "");
+		CardData named = makeTextCard("Samurai", "Fire", "Forward", 7, 9000, null, "");
+		stackP2Deck(mw, cheap, named);
+
+		ActionResolver.parse("reveal the top 2 cards of your deck. Play up to 1 Job Samurai or Card Name "
+				+ "Samurai of cost 3 or less among them onto the field, add up to 1 Job Samurai or Card "
+				+ "Name Samurai of cost 9 or less among them to your hand, and return the other cards to "
+				+ "the bottom of your deck in any order.", makeForward("Ayame", "Fire", 5, 8000))
+				.accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p2ForwardCards.contains(cheap), "the cost-3 Samurai is played");
+		assertEquals(List.of(named), mw.gameState.getP2Hand(), "the Card Name Samurai goes to hand");
+	}
+
+	@Test
+	void avalancheMemberDiscardsOnlyACategoryViiCharacter() {
+		CardData vii   = makeCategoryForward("Barret", "Fire", "VII");
+		CardData other = makeCategoryForward("Squall", "Ice", "VIII");
+		CardData summon = makeSummon("Ifrit", "Fire", 3, "");
+		assertTrue(CardFilters.matchesDiscardType(vii, "Category VII Character"));
+		assertFalse(CardFilters.matchesDiscardType(other, "Category VII Character"));
+		assertFalse(CardFilters.matchesDiscardType(summon, "Category VII Character"), "not a Character");
+
+		Consumer<GameContext> fn = ActionResolver.parse("discard 1 Category VII Character. When you do so, "
+				+ "choose 1 Forward. Deal it 7000 damage.", makeForward("AVALANCHE Member", "Fire", 2, 5000));
+		assertNotNull(fn);
+		MainWindow mw = new MainWindow();
+		mw.gameState.getIdentity().put(other, false);
+		mw.gameState.getP2Hand().add(other);
+		CardData victim = makeForward("Victim", "Ice", 3, 7000);
+		mw.gameState.getIdentity().put(victim, true);
+		mw.placeCardInForwardZone(victim);
+
+		fn.accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(other), mw.gameState.getP2Hand(), "no Category VII card, no discard");
+		assertTrue(mw.p1ForwardCards.contains(victim), "and no payoff");
+
+		mw.gameState.getIdentity().put(vii, false);
+		mw.gameState.getP2Hand().add(vii);
+		fn.accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(other), mw.gameState.getP2Hand(), "the Category VII card is the one discarded");
+		assertFalse(mw.p1ForwardCards.contains(victim), "7000 breaks the 7000 Forward");
+	}
+
+	private static final String TIDUS_22_122L = "When Tidus enters the field, if you control 8 or more "
+			+ "Forwards and/or Backups, you may pay 《Water》《Water》《Water》. When you do so, select up to 3 "
+			+ "of the 3 following actions. \"Choose 1 Forward. Put it at the bottom of its owner's deck.\" "
+			+ "\"Choose 1 Backup. Put it on top of its owner's deck.\" \"Draw 2 cards.\"";
+
+	/** Tidus on P2's field with {@code backups} active Water Backups and two other Forwards. */
+	private static MainWindow tidusBoard(CardData tidus, int backups) {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getIdentity().put(tidus, false);
+		for (int i = 0; i < backups; i++) {
+			CardData b = makePlainBackup("Backup" + i, "Water", 1);
+			mw.gameState.getIdentity().put(b, false);
+			mw.placeP2CardInFirstBackupSlot(b);
+		}
+		// Backups enter dull; these have been in play since an earlier turn.
+		java.util.Arrays.fill(mw.p2BackupStates, CardState.ACTIVE);
+		for (int i = 0; i < 2; i++) {
+			CardData f = makeForward("Ally" + i, "Water", 2, 5000);
+			mw.gameState.getIdentity().put(f, false);
+			mw.placeP2CardInForwardZone(f);
+		}
+		mw.placeP2CardInForwardZone(tidus);
+		// The AI declines an optional payoff naming a Forward while P1 has none to aim it at.
+		CardData p1Forward = makeForward("Seymour", "Ice", 7, 9000);
+		mw.gameState.getIdentity().put(p1Forward, true);
+		mw.placeCardInForwardZone(p1Forward);
+		for (int i = 0; i < 5; i++) {
+			CardData d = makeForward("Deck" + i, "Water", 1, 1000);
+			mw.gameState.getIdentity().put(d, false);
+			mw.gameState.getP2MainDeck().add(d);
+		}
+		return mw;
+	}
+
+	private static long dullP2Backups(MainWindow mw) {
+		return java.util.Arrays.stream(mw.p2BackupStates).filter(s -> s == CardState.DULL).count();
+	}
+
+	@Test
+	void tidusPaysAndActsWithEightForwardsAndBackups() {
+		CardData tidus = makeTextCard("Tidus", "Water", "Forward", 5, 9000, null, TIDUS_22_122L);
+		MainWindow mw = tidusBoard(tidus, 5);        // 5 Backups + 3 Forwards = 8
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(tidus, false);
+
+		assertEquals(3, dullP2Backups(mw), "《Water》《Water》《Water》 was paid");
+		assertTrue(mw.gameState.getP2Hand().size() >= 2, "the draw action ran: " + mw.gameState.getP2Hand());
+	}
+
+	@Test
+	void tidusDoesNothingWithSeven() {
+		CardData tidus = makeTextCard("Tidus", "Water", "Forward", 5, 9000, null, TIDUS_22_122L);
+		MainWindow mw = tidusBoard(tidus, 4);        // 4 + 3 = 7
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(tidus, false);
+
+		assertEquals(0, dullP2Backups(mw), "nothing paid");
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+	}
+
+	/** A P1 Forward owned by P1 at slot 0, the one target the P2 payoffs below can aim at. */
+	private static CardData p1Target(MainWindow mw, int power) {
+		CardData t = makeForward("Target", "Ice", 3, power);
+		mw.gameState.getIdentity().put(t, true);
+		mw.placeCardInForwardZone(t);
+		return t;
+	}
+
+	/** {@code n} active P2 Backups of {@code element}. */
+	private static void activeP2Backups(MainWindow mw, String element, int n) {
+		for (int i = 0; i < n; i++) {
+			CardData b = makePlainBackup("B" + element + i, element, 1);
+			mw.gameState.getIdentity().put(b, false);
+			mw.placeP2CardInFirstBackupSlot(b);
+		}
+		java.util.Arrays.fill(mw.p2BackupStates, CardState.ACTIVE);
+	}
+
+	@Test
+	void warriorDealsThreeThousandPerBackupDulled() {
+		MainWindow mw = new MainWindow();
+		activeP2Backups(mw, "Fire", 2);
+		p1Target(mw, 9000);
+
+		ActionResolver.parse("dull any number of active Backups you control. When you do so, choose 1 "
+				+ "Forward. Deal it 3000 damage for each Backup you dulled due to this ability.",
+				makeForward("Warrior", "Fire", 3, 7000)).accept(mw.buildGameContext(false));
+
+		assertEquals(2, dullP2Backups(mw));
+		assertEquals(6000, (int) mw.p1ForwardDamage.get(0), "3000 for each of 2");
+	}
+
+	@Test
+	void illuaCountsOnlyFireBackupsAndGrowsWithThem() {
+		MainWindow mw = new MainWindow();
+		CardData illua = makeForward("Illua", "Fire", 1, 5000);
+		mw.gameState.getIdentity().put(illua, false);
+		mw.placeP2CardInForwardZone(illua);
+		activeP2Backups(mw, "Fire", 2);
+		CardData ice = makePlainBackup("Ice Backup", "Ice", 1);
+		mw.gameState.getIdentity().put(ice, false);
+		mw.placeP2CardInFirstBackupSlot(ice);
+		java.util.Arrays.fill(mw.p2BackupStates, CardState.ACTIVE);
+		p1Target(mw, 9000);
+
+		ActionResolver.parse("dull any number of active Fire Backups you control. When you do so, choose 1 "
+				+ "Forward. Deal it 3000 damage for each Backup you dulled due to this ability and Illua gains "
+				+ "+3000 power for each Backup you dulled due to this ability until the end of the turn.",
+				illua).accept(mw.buildGameContext(false));
+
+		assertEquals(2, dullP2Backups(mw), "the Ice Backup is not a Fire Backup");
+		assertEquals(6000, (int) mw.p1ForwardDamage.get(0));
+		assertEquals(11000, mw.effectiveP2ForwardPower(mw.p2ForwardCards.indexOf(illua)), "+3000 for each of 2");
+	}
+
+	@Test
+	void warriorWithNothingToDullDoesNothing() {
+		MainWindow mw = new MainWindow();
+		p1Target(mw, 9000);
+
+		ActionResolver.parse("dull any number of active Backups you control. When you do so, choose 1 "
+				+ "Forward. Deal it 3000 damage for each Backup you dulled due to this ability.",
+				makeForward("Warrior", "Fire", 3, 7000)).accept(mw.buildGameContext(false));
+
+		assertEquals(0, (int) mw.p1ForwardDamage.get(0));
+	}
+
+	@Test
+	void viviDealsTwoThousandPerLightningCardRevealed() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2Hand().addAll(List.of(makeForward("L1", "Lightning", 1, 1000),
+				makeForward("L2", "Lightning", 1, 1000), makeForward("F1", "Fire", 1, 1000)));
+		p1Target(mw, 9000);
+
+		ActionResolver.parse("reveal any number of Lightning cards from your hand. When you do so, choose 1 "
+				+ "Forward. Deal it 2000 damage for each card you revealed.",
+				makeForward("Vivi", "Lightning", 1, 3000)).accept(mw.buildGameContext(false));
+
+		assertEquals(4000, (int) mw.p1ForwardDamage.get(0), "2 Lightning cards, the Fire one not offered");
+		assertEquals(3, mw.gameState.getP2Hand().size(), "revealing keeps the cards in hand");
+	}
+
+	private static final String DRAGOON_12_089C = "reveal any number of Job Dragoon or Card Name Dragoon "
+			+ "from your hand. When you reveal 1 or more, Dragoon gains Haste until the end of the turn. In "
+			+ "addition, when you reveal 4 or more, choose 1 Forward. Break it.";
+
+	@Test
+	void dragoonBreaksOnlyAtFour() {
+		for (int held : new int[]{ 3, 4 }) {
+			MainWindow mw = new MainWindow();
+			for (int i = 0; i < held; i++)
+				mw.gameState.getP2Hand().add(makeTextCard("Kain" + i, "Wind", "Forward", 3, 7000, "Dragoon", ""));
+			CardData target = p1Target(mw, 9000);
+
+			ActionResolver.parse(DRAGOON_12_089C, makeForward("Dragoon", "Lightning", 3, 7000))
+					.accept(mw.buildGameContext(false));
+
+			assertEquals(held < 4, mw.p1ForwardCards.contains(target), held + " revealed");
+		}
+	}
+
+	@Test
+	void exdeathRemovesOnePerCostThenBreaksUpToThatCost() {
+		MainWindow mw = new MainWindow();
+		for (int cost : new int[]{ 2, 2, 3 }) {
+			CardData f = makeForward("Dead" + cost, "Lightning", cost, 5000);
+			mw.gameState.getIdentity().put(f, false);
+			mw.gameState.getP2BreakZone().add(f);
+		}
+		CardData cheap = makeForward("Cheap", "Ice", 2, 5000);
+		CardData dear  = makeForward("Dear", "Ice", 5, 9000);
+		for (CardData c : List.of(cheap, dear)) {
+			mw.gameState.getIdentity().put(c, true);
+			mw.placeCardInForwardZone(c);
+		}
+
+		ActionResolver.parse("remove any number of Forwards in your Break Zone, each of a different cost, "
+				+ "from the game. When you do so, choose 1 Forward of cost equal to or less than the number "
+				+ "of cards you removed. Break it.", makePlainBackup("Exdeath", "Lightning", 4))
+				.accept(mw.buildGameContext(false));
+
+		assertEquals(1, mw.gameState.getP2BreakZone().size(), "one of each cost removed, the second 2 left");
+		assertFalse(mw.p1ForwardCards.contains(cheap), "2 removed, so a cost-2 Forward can be broken");
+		assertTrue(mw.p1ForwardCards.contains(dear));
+	}
+
+	@Test
+	void selhteusPlaysAForwardCostingNoMoreThanTheRemovedCount() {
+		MainWindow mw = new MainWindow();
+		for (String elem : new String[]{ "Fire", "Ice", "Wind" }) {
+			CardData f = makeForward("Old " + elem, elem, 3, 5000);
+			mw.gameState.getIdentity().put(f, false);
+			mw.gameState.getP2BreakZone().add(f);
+		}
+		CardData two  = makeForward("Two", "Fire", 2, 5000);
+		CardData four = makeForward("Four", "Fire", 4, 8000);
+		stackP2Deck(mw, four, two);
+
+		ActionResolver.parse("remove up to 5 Fire Forwards and/or Ice Forwards in your Break Zone from the "
+				+ "game. Then, reveal the top 5 cards of your deck. Play 1 Forward of cost equal to or less "
+				+ "than the number of removed cards among them onto the field and return the other cards to "
+				+ "the bottom of your deck in any order.", makeForward("Selh'teus", "Fire", 4, 8000))
+				.accept(mw.buildGameContext(false));
+
+		assertEquals(1, mw.gameState.getP2BreakZone().size(), "the Wind Forward is not Fire or Ice");
+		assertTrue(mw.p2ForwardCards.contains(two), "2 removed: cost 2 fits");
+		assertFalse(mw.p2ForwardCards.contains(four));
+	}
+
+	private static final String SALAMANDER_25_010H = "When Salamander (III) enters the field or attacks, you "
+			+ "may pay 《Fire》《Fire》《Fire》《2》 or 《C》《C》. When you do so, choose up to 2 Forwards. Deal them "
+			+ "9000 damage.";
+
+	@Test
+	void salamanderPaysWithCrystalsWhenItHasNoCp() {
+		MainWindow mw = new MainWindow();
+		CardData salamander = makeTextCard("Salamander (III)", "Fire", "Forward", 3, 7000, null, SALAMANDER_25_010H);
+		mw.gameState.getIdentity().put(salamander, false);
+		mw.placeP2CardInForwardZone(salamander);
+		mw.gameState.addP2Crystals(2);
+		CardData a = p1Target(mw, 8000);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(salamander, false);
+
+		assertEquals(0, mw.gameState.getP2Crystals(), "《C》《C》 was paid");
+		assertFalse(mw.p1ForwardCards.contains(a), "9000 breaks the 8000 Forward");
+	}
+
+	@Test
+	void salamanderPrefersCpAndKeepsItsCrystals() {
+		MainWindow mw = new MainWindow();
+		CardData salamander = makeTextCard("Salamander (III)", "Fire", "Forward", 3, 7000, null, SALAMANDER_25_010H);
+		mw.gameState.getIdentity().put(salamander, false);
+		mw.placeP2CardInForwardZone(salamander);
+		activeP2Backups(mw, "Fire", 5);
+		mw.gameState.addP2Crystals(2);
+		p1Target(mw, 8000);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(salamander, false);
+
+		assertEquals(2, mw.gameState.getP2Crystals());
+		assertEquals(5, dullP2Backups(mw), "《Fire》《Fire》《Fire》《2》 is five CP");
+	}
+
+	@Test
+	void salamanderWithNeitherPriceDoesNothing() {
+		MainWindow mw = new MainWindow();
+		CardData salamander = makeTextCard("Salamander (III)", "Fire", "Forward", 3, 7000, null, SALAMANDER_25_010H);
+		mw.gameState.getIdentity().put(salamander, false);
+		mw.placeP2CardInForwardZone(salamander);
+		mw.gameState.addP2Crystals(1);
+		CardData a = p1Target(mw, 8000);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(salamander, false);
+
+		assertEquals(1, mw.gameState.getP2Crystals());
+		assertTrue(mw.p1ForwardCards.contains(a));
+	}
+
+	@Test
+	void gumbahsCorrectedTextSearches() {
+		assertEquals("SearchDeck", ActionResolver.matchedPatternName(
+				"search for 1 Card Name Gumbah and play it onto the field dull.", makePlainBackup("Gumbah", "Ice", 2)));
+	}
+
+	@Test
+	void theOrFormStillTakesOnlyOneBranch() {
+		RevealBranch any = new RevealBranch(1, null, "Character", null, -1, null);
+		List<CardData> cards = List.of(makeForward("A", "Fire", 3, 5000), makeForward("B", "Fire", 2, 5000));
+		DeckLookDecision or = LookAtDeckDialogs.cpuRevealAddToHandOrPlayOntoField(
+				cards, any, any, RevealRest.BOTTOM);
+		assertEquals(1, or.toHand().size() + or.toField().size());
+		DeckLookDecision and = LookAtDeckDialogs.cpuRevealAddToHandOrPlayOntoField(
+				cards, any, any, RevealRest.BOTTOM, true);
+		assertEquals(List.of(0), and.toField());
+		assertEquals(List.of(1), and.toHand());
 	}
 
 	// =========================================================================================

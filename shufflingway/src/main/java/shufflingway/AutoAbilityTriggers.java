@@ -240,6 +240,30 @@ final class AutoAbilityTriggers {
 	);
 
 	/**
+	 * "if [condition], you may [put … | pay …]" — a gate in front of an optional cost this layer
+	 * already pays. Two conditions are read, and only these, so an unrecognised one never reaches
+	 * the handler to be waved through:
+	 * <ul>
+	 *   <li>"you have cast N or M / N or more cards this turn" — 15-061H Lehko Habhoka's two
+	 *       end-of-turn abilities ({@code castmin}, {@code castmax});</li>
+	 *   <li>"you control N or more Forwards and/or Backups" — 22-122L Tidus ({@code ctrlmin},
+	 *       {@code ctrltypes}).</li>
+	 * </ul>
+	 * Only a "you may put"/"you may pay" continuation is claimed: the other "if you have cast"
+	 * printings are plain effects {@link ActionResolver#parse} reads with their gate.
+	 * Group {@code rest} — the cost and its payoff, handed back to the table.
+	 */
+	static final Pattern FA_CONDITION_GATE_MAY = Pattern.compile(
+			"(?i)^if\\s+you\\s+(?:" +
+				"have\\s+cast\\s+(?<castmin>\\d+)\\s+or\\s+(?:(?<castmax>\\d+)|more)\\s+cards\\s+this\\s+turn" +
+			"|" +
+				"control\\s+(?<ctrlmin>\\d+)\\s+or\\s+more\\s+(?<ctrltypes>(?:Forwards|Backups|Monsters|Characters)" +
+				"(?:\\s+and/or\\s+(?:Forwards|Backups|Monsters))*)" +
+			"),\\s+you\\s+may\\s+(?<rest>(?:put|pay)\\s.+)$",
+			Pattern.DOTALL
+	);
+
+	/**
 	 * Matches "choose 1 &lt;target&gt;. You may put 1 &lt;price&gt; into the Break Zone. If you do
 	 * so, &lt;payoff on the chosen card&gt;." — 4-087R Delita and 7-020C Lulu, the only two
 	 * printings of this shape.
@@ -1807,6 +1831,15 @@ final class AutoAbilityTriggers {
 	 */
 	private static final Pattern FA_PAY_WHEN_DO_SO = Pattern.compile(
 		"(?i)^pay\\s+((?:《[^》]+》)+)[.,]?\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(.+?)(?:[.,]?\\s+The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+\\d+\\.?)?$",
+		Pattern.DOTALL
+	);
+	/**
+	 * "pay 《CP run》 or 《C》《C》. When/If you do so, sub-effect" — 25-010H Salamander (III): the
+	 * price may be paid in CP or in Crystals, the payer's choice. Group 1 is the CP run, group 2
+	 * the Crystal run, group 3 the sub-effect.
+	 */
+	private static final Pattern FA_PAY_OR_CRYSTALS_WHEN_DO_SO = Pattern.compile(
+		"(?i)^pay\\s+((?:《[^》]+》)+)\\s+or\\s+((?:《C》)+)[.,]?\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(.+?)$",
 		Pattern.DOTALL
 	);
 	/** One 《…》 token of a {@link #FA_PAY_WHEN_DO_SO} cost run. */
@@ -4463,6 +4496,9 @@ final class AutoAbilityTriggers {
 		// "pay 《X/N》. When you do so, [effect]" — requires a payment dialog before resolving.
 		new InlineShape("PayWhenDoSo", FA_PAY_WHEN_DO_SO,
 				AutoAbilityTriggers::executePayWhenDoSoAutoAbility),
+		// "pay 《…》 or 《C》《C》. When you do so, [effect]" — CP or Crystals, the payer's choice
+		new InlineShape("PayOrCrystalsWhenDoSo", FA_PAY_OR_CRYSTALS_WHEN_DO_SO,
+				AutoAbilityTriggers::executePayOrCrystalsWhenDoSoAutoAbility),
 		// "remove N [type] [without 《Keyword》] you control from the game. When you do so, [effect]"
 		new InlineShape("RemoveFieldWhenDoSo", FA_REMOVE_FIELD_WHEN_DO_SO,
 				AutoAbilityTriggers::executeRemoveFieldWhenDoSoAutoAbility),
@@ -4489,7 +4525,10 @@ final class AutoAbilityTriggers {
 				AutoAbilityTriggers::executeRevealSummonsSameNumberAutoAbility),
 		// "select the following actions from top to bottom up to the same number of Elements other than X as the cost you paid to cast [CardName]."
 		new InlineShape("SelectFollowingActionsDynamicElements", FA_SELECT_FOLLOWING_ACTIONS_DYNAMIC_ELEMENTS,
-				AutoAbilityTriggers::executeSelectFollowingActionsDynamicElements));
+				AutoAbilityTriggers::executeSelectFollowingActionsDynamicElements),
+		// "if [cast count | control count], you may put/pay …" — gate, then the rest re-dispatched
+		new InlineShape("ConditionGateMay", FA_CONDITION_GATE_MAY,
+				AutoAbilityTriggers::executeConditionGateMayAutoAbility));
 
 	/**
 	 * The name of the inline shape that claims {@code effectText}, or {@code null} when it goes to
@@ -4536,6 +4575,45 @@ final class AutoAbilityTriggers {
 			mw.currentAbilitySource    = prevSource;
 			mw.currentAbilityIsSpecial = prevSpecial;
 		}
+	}
+
+	/**
+	 * 15-061H Lehko Habhoka and 22-122L Tidus. The gate is settled here; past it, the rest is an
+	 * optional cost this table already pays ("put Lehko Habhoka into the Break Zone. If you do so,
+	 * …", "pay 《Water》《Water》《Water》. When you do so, …"), so it is handed back to the table
+	 * rather than resolved here. A remainder the table does not claim is left unread rather than
+	 * run without its cost.
+	 */
+	private void executeConditionGateMayAutoAbility(AutoAbility fa, CardData source,
+			boolean isP1, boolean effectIsP1, Matcher m) {
+		boolean met;
+		String  why;
+		if (m.group("castmin") != null) {
+			int cast = mw.turn(isP1).cardsCastThisTurn;
+			int min  = Integer.parseInt(m.group("castmin"));
+			int max  = m.group("castmax") != null ? Integer.parseInt(m.group("castmax")) : Integer.MAX_VALUE;
+			met = cast >= min && cast <= max;
+			why = cast + " card(s) cast this turn";
+		} else {
+			String types = m.group("ctrltypes").toLowerCase(Locale.ROOT);
+			boolean any = types.contains("character");
+			int count = 0;
+			if (any || types.contains("forward"))
+				for (CardData c : isP1 ? mw.p1ForwardCards : mw.p2ForwardCards) if (c != null) count++;
+			if (any || types.contains("backup"))
+				for (CardData c : isP1 ? mw.p1BackupCards : mw.p2BackupCards) if (c != null) count++;
+			if (any || types.contains("monster"))
+				for (CardData c : isP1 ? mw.p1MonsterCards : mw.p2MonsterCards) if (c != null) count++;
+			met = count >= Integer.parseInt(m.group("ctrlmin"));
+			why = "controls " + count + " " + m.group("ctrltypes");
+		}
+		if (!met) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — " + why + "; condition not met");
+			return;
+		}
+		AutoAbility rest = fa.withOptionalEffectText(m.group("rest").trim());
+		if (!dispatchInlineAutoAbility(rest, source, isP1, effectIsP1))
+			mw.logEntry("[AutoAbility] Unrecognized effect after condition: " + rest.effectText());
 	}
 
 	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,
@@ -5122,6 +5200,72 @@ final class AutoAbilityTriggers {
 		String finalSubEffect = subEffect;
 		showAutoAbilityPaymentDialog(source.name(), fixedCost, maxCp, isP1, 0, elementNeeds,
 				paid -> applyPayWhenDoSoEffect(finalSubEffect, source, xFromPaid.applyAsInt(paid), effectIsP1), null);
+	}
+
+	/**
+	 * 25-010H Salamander (III) — see {@link #FA_PAY_OR_CRYSTALS_WHEN_DO_SO}. Offers whichever of
+	 * the two prices the payer can meet; the AI spends CP when it can and keeps its Crystals.
+	 */
+	private void executePayOrCrystalsWhenDoSoAutoAbility(AutoAbility fa, CardData source, boolean isP1,
+			boolean effectIsP1, Matcher m) {
+		String costRun   = m.group(1).trim();
+		int    crystals  = m.group(2).split("》", -1).length - 1;
+		String subEffect = m.group(3).trim().replaceAll("[.!,]+$", "");
+		int[] tally = tallyPayRun(costRun);
+		if (tally == null || tally[1] > 0) {
+			mw.logEntry("[AutoAbility] Unrecognized cost run: " + costRun);
+			return;
+		}
+		int fixedCost = tally[0];
+		Map<String, Integer> elementNeeds = payRunElementNeeds(costRun);
+		List<String> tokens = new ArrayList<>();
+		elementNeeds.forEach((elem, n) -> tokens.addAll(Collections.nCopies(n, elem)));
+		while (tokens.size() < fixedCost) tokens.add("");
+		boolean canCp      = mw.canAffordCpTokens(tokens, fixedCost, effectIsP1);
+		int     held       = effectIsP1 ? mw.gameState.getP1Crystals() : mw.gameState.getP2Crystals();
+		boolean canCrystal = held >= crystals;
+		if (!canCp && !canCrystal) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — cannot pay " + costRun + " or " + crystals + " Crystal(s)");
+			return;
+		}
+
+		boolean payCrystals;
+		// Whoever pays chooses how; effectIsP1 is the payer, "your opponent may" included.
+		if (effectIsP1) {
+			List<String> options = new ArrayList<>();
+			if (canCp)      options.add("Pay " + costRun);
+			if (canCrystal) options.add("Pay " + crystals + " Crystal" + (crystals == 1 ? "" : "s"));
+			options.add("Decline");
+			int choice = mw.showEffectOptionDialog(source.name() + " — " + fa.effectText(),
+					"Auto Ability", options.toArray());
+			if (choice < 0 || choice == options.size() - 1) {
+				mw.logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
+				return;
+			}
+			payCrystals = options.get(choice).contains("Crystal");
+		} else {
+			if (subEffect.toLowerCase(Locale.ROOT).contains("forward") && mw.p1ForwardCards.isEmpty()) {
+				mw.logEntry("[AutoAbility] [AI] declines optional ability — no opponent Forwards to target");
+				return;
+			}
+			payCrystals = !canCp;
+		}
+
+		if (payCrystals) {
+			mw.playerSpendCrystals(effectIsP1, crystals);
+			mw.refreshCrystalDisplays();
+			mw.logEntry((effectIsP1 ? "" : "[P2] ") + "Paid " + crystals + " Crystal(s)");
+			applyPayWhenDoSoEffect(subEffect, source, 0, effectIsP1);
+		} else if (!effectIsP1) {
+			if (aiPayCp(effectIsP1, fixedCost, elementNeeds) < fixedCost) {
+				mw.logEntry("[AutoAbility] " + source.name() + " — [AI] could not pay " + costRun);
+				return;
+			}
+			applyPayWhenDoSoEffect(subEffect, source, 0, effectIsP1);
+		} else {
+			showAutoAbilityPaymentDialog(source.name(), fixedCost, fixedCost, isP1, 0, elementNeeds,
+					paid -> applyPayWhenDoSoEffect(subEffect, source, 0, effectIsP1), null);
+		}
 	}
 
 	private void applyPayWhenDoSoEffect(String subEffect, CardData source, int xValue, boolean effectIsP1) {

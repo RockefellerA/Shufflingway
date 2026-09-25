@@ -122,6 +122,18 @@ public record AutoAbility(
     }
 
     /**
+     * A copy of this ability carrying {@code newEffectText}, made optional for its controller. Used
+     * where a gate in front of "you may …" has been settled and what remains is resolved as its own
+     * optional ability — 15-061H Lehko Habhoka's cast-count gate.
+     */
+    public AutoAbility withOptionalEffectText(String newEffectText) {
+        return new AutoAbility(triggerCard, trigger, true, false, newEffectText,
+                oncePerTurn, yourTurnOnly, opponentTurnOnly, rfpConditionCard, bzConditionCard, bzConditionJob,
+                castPaymentMinElements, castOnly, warpOnly, altCostOnly, damageThreshold,
+                partyMinCount, partyCategory, partyJob, partyCardNames);
+    }
+
+    /**
      * A copy of this ability with {@link #oncePerTurn()} set. Used by the trigger forms that state
      * the limit in the trigger clause rather than as the trailing "This effect will trigger only
      * once per turn." sentence the restriction stripper reads — Colkhab 18-041C's "…for the first

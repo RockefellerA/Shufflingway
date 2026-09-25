@@ -1,8 +1,15 @@
 package shufflingway;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /** Pure static predicates used throughout the targeting and payment systems. */
 public final class CardFilters {
     private CardFilters() {}
+
+    /** "Category X [type]" in the discard-type vocabulary; groups: category, base type. */
+    private static final Pattern DISCARD_CATEGORY_TYPE =
+            Pattern.compile("(?i)^Category\\s+(\\S+)\\s+(\\w+?)s?$");
 
     // -------------------------------------------------------------------------
     // Card-type matching
@@ -18,6 +25,11 @@ public final class CardFilters {
     }
 
     public static boolean matchesDiscardType(CardData c, String cardType) {
+        // "Category VII Character" (25-003C AVALANCHE Member): a category gate on a base type.
+        // Read here so every discard path — the picker, the eligibility check and the AI — agrees.
+        Matcher cat = DISCARD_CATEGORY_TYPE.matcher(cardType);
+        if (cat.matches())
+            return meetsCategoryFilter(c, cat.group(1)) && matchesDiscardType(c, cat.group(2));
         return switch (cardType.toLowerCase()) {
             case "summon"    -> c.isSummon();
             case "forward"   -> c.isForward();

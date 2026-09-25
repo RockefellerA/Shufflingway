@@ -350,6 +350,20 @@ final class ActionResolverHand {
      * Fizzles (marks no progress) when no eligible card is available.
      * The "you may" qualifier is handled at the AutoAbility layer before this is reached.
      */
+    /**
+     * "discard 1 Category X [type]." — 25-003C AVALANCHE Member. Mandatory once reached: the
+     * ability's "you may" was lifted to the trigger, which has already asked. Nothing to discard
+     * marks the effect fizzled, so a following "When you do so" does not run.
+     */
+    static Consumer<GameContext> tryParseDiscardCategoryType(String text) {
+        Matcher m = DISCARD_CATEGORY_TYPE_STANDALONE.matcher(text.trim());
+        if (!m.matches()) return null;
+        String spec = m.group("spec");
+        return ctx -> {
+            ctx.logEntry("Effect: Discard 1 " + spec);
+            ctx.discardCardOfTypeFromHandThenIfDidSo(spec, c -> {});
+        };
+    }
     static Consumer<GameContext> tryParseYouMayDiscardType(String text) {
         Matcher m = DISCARD_TYPE.matcher(text);
         if (!m.find()) return null;

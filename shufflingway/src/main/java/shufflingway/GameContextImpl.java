@@ -10321,6 +10321,16 @@ final class GameContextImpl implements GameContext {
 				return elements.size();
 			}
 
+			@Override public int revealAnyNumberFromHandMatching(Predicate<CardData> eligible, String label) {
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				List<CardData> offered = new ArrayList<>();
+				for (CardData c : hand) if (eligible.test(c)) offered.add(c);
+				if (offered.isEmpty()) { logEntry("Reveal from hand: no " + label + " in hand — 0 revealed"); return 0; }
+				List<CardData> shown = revealAnyNumberFromHand(offered);
+				logRevealed(shown, shown.size() + " " + label + "(s)");
+				return shown.size();
+			}
+
 			@Override public Map<String, Integer> revealAnyNumberFromHandElementCounts() {
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				if (hand.isEmpty()) { logEntry("Reveal from hand: hand is empty"); return Map.of(); }
@@ -11218,6 +11228,19 @@ final class GameContextImpl implements GameContext {
 						elementFilter, orElementFilter, false, mustAdd);
 			}
 
+			@Override public void revealTopAddUpToTypeMinCostRestBottom(int reveal, int maxAdd,
+					String typeFilter, int minCost, boolean mustAdd) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				mw.lookDialogs().revealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd,
+						null, null, null, typeFilter, -1, minCost, null, null, false, mustAdd);
+			}
+
 			@Override public void revealTopNRemoveOneFromGameCastableThisTurnRestBottom(
 					int reveal, String categoryFilter, int costReduction) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
@@ -11545,6 +11568,19 @@ final class GameContextImpl implements GameContext {
 				Consumer<CardData> playOntoField = revealPlacement();
 				mw.lookDialogs().revealAddToHandOrPlayOntoField(
 						peeked, deck, isP1, hand, field, rest, playOntoField);
+			}
+
+			@Override public void revealTopNPlayOntoFieldAndAddToHand(
+					int reveal, RevealBranch field, RevealBranch hand, RevealRest rest) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				mw.lookDialogs().revealAddToHandOrPlayOntoField(
+						peeked, deck, isP1, hand, field, rest, true, revealPlacement());
 			}
 
 			@Override public void revealTopNPlayNamedOntoFieldRestBottom(int reveal, String cardName) {

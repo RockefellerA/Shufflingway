@@ -4085,6 +4085,14 @@ public interface GameContext {
     void revealTopNAddToHandOrPlayOntoField(int reveal, RevealBranch hand, RevealBranch field,
             RevealRest rest);
 
+    /**
+     * The "and" form of {@link #revealTopNAddToHandOrPlayOntoField}: both branches are taken, each
+     * on its own card — "Play up to 1 … among them onto the field, add up to 1 … among them to your
+     * hand, and return the other cards to the bottom of your deck in any order." (26-002R Ayame).
+     */
+    void revealTopNPlayOntoFieldAndAddToHand(int reveal, RevealBranch field, RevealBranch hand,
+            RevealRest rest);
+
     /** Returns {@code true} if the specific element CP was included in the payment for the most recently cast card. */
     boolean wasElementCpPaid(String element);
 
@@ -5395,6 +5403,14 @@ public interface GameContext {
             String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost,
             String elementFilter, String orElementFilter, boolean mustAdd);
 
+    /**
+     * The cost-floor form of {@link #revealTopAddUpToMatchingRestBottom}: "Reveal the top 5 cards of
+     * your deck. Add up to 3 Characters of cost 5 or more among them to your hand and return the
+     * other cards to the bottom of your deck in any order." — 11-023H Verstael.
+     */
+    void revealTopAddUpToTypeMinCostRestBottom(int reveal, int maxAdd, String typeFilter, int minCost,
+            boolean mustAdd);
+
     /** Convenience overload without the disjunct element filter (passes {@code null}). */
     default void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
             String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost,
@@ -5537,6 +5553,16 @@ public interface GameContext {
      * <p>A multi-Element card contributes every Element it prints, and revealing nothing answers 0.
      */
     int revealAnyNumberFromHandDistinctElements();
+
+    /**
+     * "reveal any number of [kind] from your hand" where the count revealed is what the effect
+     * reads — 19-080R Vivi's "Lightning cards", 12-089C Dragoon's "Job Dragoon or Card Name
+     * Dragoon". Only cards {@code eligible} accepts are offered; nothing leaves the hand.
+     *
+     * @param label names the kind in the prompt and the log, e.g. "Lightning card"
+     * @return how many were revealed; 0 when none were held or none were chosen
+     */
+    int revealAnyNumberFromHandMatching(Predicate<CardData> eligible, String label);
 
     /**
      * The same reveal as {@link #revealAnyNumberFromHandDistinctElements}, answered as how many

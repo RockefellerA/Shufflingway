@@ -879,8 +879,16 @@ final class ActionResolverSearch {
         // Normalise plural → singular (e.g. "Monsters" → "Monster")
         String typeFilter = anyCard ? null : m.group("type").replaceAll("(?i)s$", "");
         String costRaw = anyCard ? m.group("anycost") : m.group("cost");
-        int maxCost = costRaw != null ? Integer.parseInt(costRaw) : -1;
         boolean mustAdd = m.group("upto") == null;
+        if (!anyCard && "more".equalsIgnoreCase(m.group("costdir"))) {
+            int minCost = Integer.parseInt(costRaw);
+            return ctx -> {
+                ctx.logEntry("Effect: Reveal top " + n + " — add " + (mustAdd ? "" : "up to ") + max + " "
+                        + typeFilter + " of cost " + minCost + " or more to hand, rest to bottom");
+                ctx.revealTopAddUpToTypeMinCostRestBottom(n, max, typeFilter, minCost, mustAdd);
+            };
+        }
+        int maxCost = costRaw != null ? Integer.parseInt(costRaw) : -1;
         return ctx -> {
             ctx.logEntry("Effect: Reveal top " + n + " — add " + (mustAdd ? "" : "up to ") + max + " "
                     + (typeFilter != null ? typeFilter : "card")
@@ -901,27 +909,26 @@ final class ActionResolverSearch {
         String normElement = elementListFilter(m.group("element"));
         String elementLabel = normElement.replace("|", "/");
         String cat = m.group("cat");
-        // Mandatory unconditionally in both arms below, and not read off a group: like the
-        // Job-or-Name pattern, this one has no "up to" alternative to read — every element
-        // printing in the corpus spells the count bare.
+        // Mandatory unless "up to" is printed, which only 26-018H Phoenix (XVI) does.
+        boolean mustAdd = m.group("upto") == null;
         if (cat != null) {
             // "Add M [Element] or Category [X] card" — element and category are alternatives.
             // The element is a disjunct (orElementFilter), not an AND-gate — "Water OR Category X".
             return ctx -> {
-                ctx.logEntry("Effect: Reveal top " + n + " — add " + max + " " + elementLabel
-                        + " or Category " + cat + " to hand, rest to bottom");
+                ctx.logEntry("Effect: Reveal top " + n + " — add " + (mustAdd ? "" : "up to ") + max
+                        + " " + elementLabel + " or Category " + cat + " to hand, rest to bottom");
                 ctx.revealTopAddUpToMatchingRestBottom(n, max, null, cat, null, null, -1, null,
-                        normElement, true);
+                        normElement, mustAdd);
             };
         }
         String typeRaw = m.group("type");
         String typeFilter = typeRaw != null ? cap(typeRaw.replaceAll("(?i)s$", "")) : null;
         // "Add M [Element] [Type]" — the element is an AND-gate on the type (e.g. "Fire Forward").
         return ctx -> {
-            ctx.logEntry("Effect: Reveal top " + n + " — add " + max + " " + elementLabel
-                    + (typeFilter != null ? " " + typeFilter : " card") + "(s) to hand, rest to bottom");
+            ctx.logEntry("Effect: Reveal top " + n + " — add " + (mustAdd ? "" : "up to ") + max + " "
+                    + elementLabel + (typeFilter != null ? " " + typeFilter : " card") + "(s) to hand, rest to bottom");
             ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter, -1,
-                    normElement, null, true);
+                    normElement, null, mustAdd);
         };
     }
     /**
@@ -1129,6 +1136,22 @@ final class ActionResolverSearch {
         return ctx -> {
             ctx.logEntry("Effect: " + logDesc);
             ctx.revealTopNAddToHandOrPlayOntoField(n, hand, field, rest);
+        };
+    }
+
+    /** 26-002R Ayame — see {@link ActionResolverPatterns#REVEAL_PLAY_ONTO_FIELD_AND_ADD_TO_HAND}. */
+    static Consumer<GameContext> tryParseRevealPlayOntoFieldAndAddToHand(String text) {
+        Matcher m = REVEAL_PLAY_ONTO_FIELD_AND_ADD_TO_HAND.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n = Integer.parseInt(m.group("n"));
+        RevealBranch field = new RevealBranch(1, null, "Character", m.group("fieldjob").trim(),
+                Integer.parseInt(m.group("fieldcost")), "less", m.group("fieldname").trim());
+        RevealBranch hand  = new RevealBranch(1, null, "Character", m.group("handjob").trim(),
+                Integer.parseInt(m.group("handcost")), "less", m.group("handname").trim());
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — play up to " + field.describe()
+                    + " onto field and add up to " + hand.describe() + " to hand; rest to bottom");
+            ctx.revealTopNPlayOntoFieldAndAddToHand(n, field, hand, RevealRest.BOTTOM);
         };
     }
 

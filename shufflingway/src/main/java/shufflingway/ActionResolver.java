@@ -394,6 +394,16 @@ public class ActionResolver {
         if (result != null) return result;
         result = tryParseMayRemoveWarpCountersThenNoCastNoAttack(effectText, source);
         if (result != null) return result;
+        // Counted openers the guard below would decline, read whole with their scaled or tiered
+        // payoff: 12-010C Warrior / 14-003R Illua (dull any number of Backups), 19-080R Vivi and
+        // 12-089C Dragoon (reveal any number from hand). The Choose chain would otherwise take the
+        // payoff alone and deal a fixed amount for nothing paid.
+        result = tryParseDullAnyNumberBackupsPerDulled(effectText, source);
+        if (result != null) return result;
+        result = tryParseRevealAnyFromHandPerRevealed(effectText, source);
+        if (result != null) return result;
+        result = tryParseRevealAnyFromHandThresholds(effectText, source);
+        if (result != null) return result;
 
         // Fail closed on "X. When/If you do so, Y" when nothing above read it and X does not parse
         // on its own. Every find() parser below would otherwise take Y and run it without X — a free
@@ -1362,6 +1372,9 @@ public class ActionResolver {
         result = tryParseRevealAddToHandOrPlayOntoField(effectText);
         if (result != null) return result;
 
+        result = tryParseRevealPlayOntoFieldAndAddToHand(effectText);
+        if (result != null) return result;
+
         // Must precede tryParseReturnNamedToHand. 26-053L Bartz ends "and add the other cards to
         // your hand", which ADD_NAMED_TO_YOUR_HAND reads as a card literally named "the other
         // cards" — the whole reveal-and-play was discarded and Bartz did nothing. Safe this early
@@ -1606,6 +1619,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseDrawCards(effectText);
+        if (result != null) return result;
+
+        result = tryParseDiscardCategoryType(effectText);
         if (result != null) return result;
 
         result = tryParseYouMayDiscardType(effectText);
@@ -2371,6 +2387,9 @@ public class ActionResolver {
         if (tryParseDiscardAnyNumberThenChooseSameNumber(effectText, source) != null)
             return "DiscardAnyNumberThenChooseSameNumber";
         if (tryParseWhenYouDoSoSequence(effectText, source, 0) != null) return "WhenYouDoSo";
+        if (tryParseDullAnyNumberBackupsPerDulled(effectText, source) != null) return "DullAnyNumberBackupsPerDulled";
+        if (tryParseRevealAnyFromHandPerRevealed(effectText, source) != null) return "RevealAnyFromHandPerRevealed";
+        if (tryParseRevealAnyFromHandThresholds(effectText, source) != null) return "RevealAnyFromHandThresholds";
         if (tryParseSelectNumber(effectText, source)                    != null) return "SelectNumber";
         if (tryParseAllMonstersTemporaryForward(effectText) != null) return "AllMonstersTemporaryForward";
         if (tryParseBecomeForwardUntilEot(effectText, source) != null) return "BecomeForwardUntilEot";
@@ -2679,6 +2698,7 @@ public class ActionResolver {
         if (tryParseRevealTopNJobOrNameToHand(effectText) != null) return "RevealTopNJobOrNameToHand";
         if (tryParseRevealTopNElementToHand(effectText) != null) return "RevealTopNElementToHand";
         if (tryParseRevealAddToHandOrPlayOntoField(effectText) != null) return "RevealAddToHandOrPlayOntoField";
+        if (tryParseRevealPlayOntoFieldAndAddToHand(effectText) != null) return "RevealPlayOntoFieldAndAddToHand";
         // Must precede ReturnNamedToHand — see the ordering note in parse().
         if (tryParseRevealPlayElementTypeCostOntoFieldRestBottom(effectText, 0) != null) return "RevealPlayElementTypeCostOntoFieldRestBottom";
         if (tryParseRevealPlayTypeCostOrNamedCostRestBottom(effectText) != null) return "RevealPlayTypeCostOrNamedCostRestBottom";
@@ -2773,6 +2793,7 @@ public class ActionResolver {
         if (tryParsePayCpWhenDoSo(effectText, source, 1)      != null) return "PayCpWhenDoSo";
         if (tryParseDrawDiscardRetriggerIfCardName(effectText, source) != null) return "DrawDiscardRetriggerIfCardName";
         if (tryParseDrawCards(effectText)                     != null) return "DrawCards";
+        if (tryParseDiscardCategoryType(effectText)           != null) return "DiscardCategoryType";
         if (tryParseYouMayDiscardType(effectText)             != null) return "YouMayDiscardType";
         if (tryParseMayRevealElementFromHand(effectText)      != null) return "MayRevealElementFromHand";
         if (tryParseDiscardHand(effectText)                   != null) return "DiscardHand";
@@ -3758,6 +3779,9 @@ public class ActionResolver {
         if (tryParseDiscardAnyNumberThenChooseSameNumber(effectText, source) != null)
             return discardAnyNumberDescription(effectText, source);
         if (tryParseWhenYouDoSoSequence(effectText, source, 0)          != null) return "WhenYouDoSo";
+        if (tryParseDullAnyNumberBackupsPerDulled(effectText, source)   != null) return "DullAnyNumberBackupsPerDulled";
+        if (tryParseRevealAnyFromHandPerRevealed(effectText, source)    != null) return "RevealAnyFromHandPerRevealed";
+        if (tryParseRevealAnyFromHandThresholds(effectText, source)     != null) return "RevealAnyFromHandThresholds";
         if (tryParseIfNotPayOrElse(effectText, source, 0)               != null) return "IfNotPayOrElse";
         if (tryParseRemoveTopThenPileThreshold(effectText, source)          != null) return "RemoveTopThenPileThreshold";
         if (tryParseAddRemovedBySourceAbilityToHand(effectText, source)     != null) return "AddRemovedBySourceAbilityToHand";
@@ -4628,6 +4652,7 @@ public class ActionResolver {
         if (tryParseRevealTopNJobOrNameToHand(effectText)  != null)          return "RevealTopNJobOrNameToHand";
         if (tryParseRevealTopNElementToHand(effectText)    != null)           return "RevealTopNElementToHand";
         if (tryParseRevealAddToHandOrPlayOntoField(effectText) != null) return "RevealAddToHandOrPlayOntoField";
+        if (tryParseRevealPlayOntoFieldAndAddToHand(effectText) != null) return "RevealPlayOntoFieldAndAddToHand";
         // Must precede ReturnNamedToHand — see the ordering note in parse().
         if (tryParseRevealPlayElementTypeCostOntoFieldRestBottom(effectText)     != null) return "RevealPlayElementTypeCostOntoFieldRestBottom";
         if (tryParseRevealPlayTypeCostOrNamedCostRestBottom(effectText)         != null) return "RevealPlayTypeCostOrNamedCostRestBottom";
@@ -4726,6 +4751,7 @@ public class ActionResolver {
             return "PayCp(" + describeOrName(followup, source) + ")";
         }
         if (tryParseDrawCards(effectText) != null)                          return "DrawCards";
+        if (tryParseDiscardCategoryType(effectText) != null)                return "DiscardCategoryType";
         if (tryParseYouMayDiscardType(effectText) != null)                  return "YouMayDiscardType";
         if (tryParseMayRevealElementFromHand(effectText) != null)           return "MayRevealElementFromHand";
         if (tryParseDiscardHand(effectText) != null)                        return "DiscardHand";
