@@ -64494,5 +64494,293 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Partial-parse singles: Luso 16-020L, Cindy 18-078R, Golbez 14-106H, Porom 20-113R and
+	// Black Mage 11-032C. Each ran part of its text, or the wrong text, because a find() parser
+	// claimed it first. "Play it onto the field" after a reveal or a search is the found card,
+	// never the ability's source.
+	// =========================================================================================
+
+	private static final String LUSO_16_020L =
+			"if you have received 5 points of damage or less, shuffle your deck, then reveal the top "
+			+ "card of your deck. If it is a Fire Character, you may play it onto the field.";
+
+	@Test
+	void lusoShufflesAndRevealsOnlyAtFiveDamageOrLess() {
+		CardData luso = makeForward("Luso", "Fire", 6, 9000);
+		Consumer<GameContext> fn = ActionResolver.parse(LUSO_16_020L, luso);
+		assertNotNull(fn);
+
+		GameContext ok = mock(GameContext.class);
+		when(ok.ownDamageCount()).thenReturn(5);
+		fn.accept(ok);
+		InOrder order = inOrder(ok);
+		order.verify(ok).shuffleDeck();
+		order.verify(ok).revealTopDeckCard(argThat(cs -> cs.size() == 1
+				&& "mayPlayOntoField".equals(cs.get(0).cardOp())), eq(false));
+		verify(ok, never()).playAllByNameFromOwnBreakZoneDull(anyString(), anyBoolean());
+
+		GameContext hurt = mock(GameContext.class);
+		when(hurt.ownDamageCount()).thenReturn(6);
+		fn.accept(hurt);
+		verify(hurt, never()).shuffleDeck();
+		verify(hurt, never()).revealTopDeckCard(any(), anyBoolean());
+	}
+
+	@Test
+	void cindyDealsHerControllerDamageOnlyAtFourOrLess() {
+		CardData cindy = makeForward("Cindy", "Lightning", 2, 5000);
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"If you have received 4 points of damage or less, Cindy deals you 1 point of damage.", cindy);
+		assertNotNull(fn);
+
+		GameContext low = mock(GameContext.class);
+		when(low.ownDamageCount()).thenReturn(4);
+		fn.accept(low);
+		verify(low).dealDamageToSelf(1);
+
+		GameContext high = mock(GameContext.class);
+		when(high.ownDamageCount()).thenReturn(5);
+		fn.accept(high);
+		verify(high, never()).dealDamageToSelf(anyInt());
+	}
+
+	@Test
+	void aRevealConditionReadsACostBound() {
+		Predicate<CardData> cond = ActionResolver.parseRevealCondition("a Forward of cost 3 or less");
+		assertNotNull(cond);
+		assertTrue(cond.test(makeForward("Small", "Water", 3, 5000)));
+		assertFalse(cond.test(makeForward("Big", "Water", 4, 8000)), "over the bound");
+		assertFalse(cond.test(makeJobCard("Aide", "Water", "Backup", null)), "not a Forward");
+	}
+
+	@Test
+	void golbezRevealsRatherThanReturningHimselfFromTheBreakZone() {
+		CardData golbez = makeForward("Golbez", "Water", 5, 9000);
+		Consumer<GameContext> fn = ActionResolver.parse("reveal the top card of your deck. If it is a "
+				+ "Forward of cost 3 or less, you may play it onto the field.", golbez);
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+		verify(ctx).revealTopDeckCard(any(), eq(false));
+		verify(ctx, never()).playAllByNameFromOwnBreakZoneDull(anyString(), anyBoolean());
+	}
+
+	@Test
+	void aSearchThenPlayItIsNotReadAsTheSourceReturning() {
+		// 4-094R's wording. Unread is correct: the search it needs is not implemented, and the old
+		// reading played the source back from the Break Zone instead.
+		CardData source = makeForward("Searcher", "Fire", 3, 6000);
+		assertNull(ActionResolver.parse("Search for 1 Forward with the same name as the Forward you "
+				+ "put into the Break Zone and play it onto the field.", source));
+	}
+
+	@Test
+	void aRevealedCardYouMayPlayIsPlayedByTheAi() {
+		MainWindow mw = new MainWindow();
+		CardData top = makeForward("Top Card", "Fire", 2, 5000);
+		mw.gameState.getIdentity().put(top, false);
+		mw.gameState.getP2MainDeck().addFirst(top);
+
+		ActionResolver.parse(LUSO_16_020L.substring(LUSO_16_020L.indexOf("reveal")),
+				makeForward("Luso", "Fire", 6, 9000)).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p2ForwardCards.contains(top));
+		assertFalse(mw.gameState.getP2MainDeck().contains(top));
+	}
+
+	private static final String POROM_20_113R =
+			"draw 1 card, then discard 1 card. If the discarded card is Category IV, also gain 《C》.";
+
+	@Test
+	void poromGainsACrystalOnlyForACategoryIvDiscard() {
+		CardData porom = makeForward("Porom", "Water", 2, 5000);
+		Consumer<GameContext> fn = ActionResolver.parse(POROM_20_113R, porom);
+		assertNotNull(fn);
+
+		GameContext iv = mock(GameContext.class);
+		when(iv.lastDiscardedCardIsCategory("IV")).thenReturn(true);
+		fn.accept(iv);
+		InOrder order = inOrder(iv);
+		order.verify(iv).drawCards(1);
+		order.verify(iv).selfDiscard(1);
+		order.verify(iv).gainCrystal(1);
+
+		GameContext other = mock(GameContext.class);
+		fn.accept(other);
+		verify(other).selfDiscard(1);
+		verify(other, never()).gainCrystal(anyInt());
+	}
+
+	@Test
+	void blackMageCastsASummonFreeAndGetsItBack() {
+		CardData blackMage = makeJobCard("Black Mage", "Ice", "Backup", null);
+		Consumer<GameContext> fn = ActionResolver.parse("Cast 1 Summon of cost X or less from your hand "
+				+ "without paying the cost. Then, return that Summon to your hand after use instead of "
+				+ "putting it in the Break Zone.", blackMage, 3);
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+		verify(ctx).castSummonFromHandFree(3, true, null);
+		verify(ctx, never()).returnNamedCardToYourHand(anyString());
+	}
+
+	// =========================================================================================
+	// Aerith 16-067L: removed from the game with 3 Reraise Counters, she loses one at each of her
+	// controller's Main Phase 1s and returns when none are left. The countdown used to read as
+	// "play Aerith onto the field" from the Break Zone -- which she is not in -- and could never
+	// fire anyway, because only Warp-zone cards were walked for abilities used while removed.
+	// =========================================================================================
+
+	private static final String AERITH_16_067L_COUNTDOWN =
+			"At the beginning of Main Phase 1 during each of your turns, if 1 or more Reraise Counters "
+			+ "are placed on Aerith, remove 1 Reraise Counter from Aerith. Then, if there are no Reraise "
+			+ "Counters on Aerith, play Aerith onto the field. This effect will trigger only if Aerith "
+			+ "is removed from the game.";
+
+	private static CardData removedAerith(MainWindow mw, boolean ownerIsP1, int counters) {
+		CardData aerith = makeJobForwardWithAutos("Aerith", "Earth", 5000, null, AERITH_16_067L_COUNTDOWN);
+		mw.gameState.getIdentity().put(aerith, ownerIsP1);
+		mw.gameState.addToPermanentRfp(aerith);
+		mw.gameState.placeCounters(aerith, "Reraise", counters);
+		return aerith;
+	}
+
+	@Test
+	void aerithTicksDownWhileRemovedAndReturnsAtZero() {
+		MainWindow mw = new MainWindow();
+		CardData aerith = removedAerith(mw, true, 2);
+		CardData theirs = removedAerith(mw, false, 0);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1(true);
+		assertEquals(1, mw.gameState.getCounters(aerith, "Reraise"));
+		assertTrue(mw.gameState.getP1PermanentRfp().contains(aerith), "one counter left: still removed");
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1(true);
+		assertTrue(mw.p1ForwardCards.stream().anyMatch(c -> c == aerith), "the last counter brings her back");
+		assertFalse(mw.gameState.getP1PermanentRfp().contains(aerith));
+		assertTrue(mw.gameState.getP2PermanentRfp().contains(theirs),
+				"the other side's removed Aerith is a different card and stays put");
+	}
+
+	@Test
+	void aerithInTheBreakZoneDoesNotTick() {
+		MainWindow mw = new MainWindow();
+		CardData aerith = makeJobForwardWithAutos("Aerith", "Earth", 5000, null, AERITH_16_067L_COUNTDOWN);
+		mw.gameState.getIdentity().put(aerith, true);
+		mw.gameState.getP1BreakZone().add(aerith);
+		mw.gameState.placeCounters(aerith, "Reraise", 1);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1(true);
+
+		assertEquals(1, mw.gameState.getCounters(aerith, "Reraise"));
+		assertTrue(mw.gameState.getP1BreakZone().contains(aerith));
+		assertTrue(mw.p1ForwardCards.isEmpty());
+	}
+
+	@Test
+	void aerithsCountdownDoesNothingWithoutACounter() {
+		CardData aerith = makeForward("Aerith", "Earth", 2, 5000);
+		Consumer<GameContext> fn = ActionResolver.parse("if 1 or more Reraise Counters are placed on "
+				+ "Aerith, remove 1 Reraise Counter from Aerith. Then, if there are no Reraise Counters "
+				+ "on Aerith, play Aerith onto the field", aerith);
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+		verify(ctx, never()).removeCounters(any(), anyString(), anyInt());
+		verify(ctx, never()).playSourceFromRfpOntoField(any());
+		verify(ctx, never()).playAllByNameFromOwnBreakZoneDull(anyString(), anyBoolean());
+	}
+
+	// =========================================================================================
+	// Payoffs claimed without their price. "X. When/If you do so, Y" with an X nothing reads, and
+	// a leading "reveal any number … When you reveal N or more" count gate, are declined: every
+	// find() parser below them took Y and ran it free. A cost the trigger layer charges itself
+	// (AutoAbilityTriggers.inlineShapeOf) is exempt, as are the whole-text readings hoisted
+	// above the guard. Also here: drawbacks that were dropped (Zodiark, Berserker).
+	// =========================================================================================
+
+	@Test
+	void anUnreadCostDeclinesItsPayoff() {
+		CardData flamingo = makeForward("Flowering Cactoid", "Earth", 3, 0);
+		assertNull(ActionResolver.parse("you may put Flowering Cactoid into the Break Zone. When you do "
+				+ "so, choose 1 Forward opponent controls. Deal it 10000 damage.", flamingo),
+				"28-068R: a free 10000 before");
+		assertNull(ActionResolver.parse("pay 《Fire》《Fire》《Fire》《2》 or 《C》《C》. When you do so, "
+				+ "choose up to 2 Forwards. Deal them 9000 damage.", makeForward("Ifrit", "Fire", 5, 9000)),
+				"25-010H: a cost with an alternative the payment layer does not read");
+		assertNull(ActionResolver.parse("Place Onion Knight at the bottom of your deck. If you do so, "
+				+ "search for 1 Card Name Onion Knight with Job Sage and play it onto the field.",
+				makeForward("Onion Knight", "Wind", 2, 5000)), "4-054L: searched without leaving");
+	}
+
+	@Test
+	void aCostTheTriggerLayerChargesIsNotDeclined() {
+		String text = "pay 《Fire》《1》. When you do so, choose 1 Forward. Deal it 8000 damage.";
+		assertEquals("PayWhenDoSo", AutoAbilityTriggers.inlineShapeOf(text));
+		assertNotNull(ActionResolver.parse(text, makeForward("Samurai", "Fire", 3, 7000)));
+	}
+
+	@Test
+	void aWholeTextDoSoReadingSurvivesTheGuard() {
+		// 1-093H Vanille: its search is readable only together with its payoff.
+		assertNotNull(ActionResolver.parse("search for 1 Card Name Hecatoncheir and remove it from the "
+				+ "game. If you do so, return Vanille onto the field dull.",
+				makeForward("Vanille", "Earth", 3, 7000)));
+	}
+
+	@Test
+	void aRevealCountGateDeclinesItsPayoff() {
+		assertNull(ActionResolver.parse("reveal any number of Job Dragoon or Card Name Dragoon from your "
+				+ "hand. When you reveal 1 or more, Dragoon gains Haste until the end of the turn. In "
+				+ "addition, when you reveal 4 or more, choose 1 Forward. Break it.",
+				makeForward("Dragoon", "Lightning", 3, 7000)), "12-089C broke a Forward revealing nothing");
+	}
+
+	@Test
+	void aPickAmongRevealedCardsIsNotACardName() {
+		assertNull(ActionResolver.parse("reveal the top 5 cards of your deck. Add up to 3 Characters of "
+				+ "cost 5 or more among them to your hand and return the other cards to the bottom of your "
+				+ "deck in any order.", makeForward("Gau", "Wind", 3, 7000)));
+		assertNull(ActionResolver.parse("remove any number of Forwards in your Break Zone, each of a "
+				+ "different cost, from the game.", makeForward("Leo", "Earth", 3, 7000)));
+	}
+
+	@Test
+	void zodiarkDealsItsCasterOnePointPerForwardBroken() {
+		Consumer<GameContext> fn = ActionResolver.parse("Break all the Forwards opponent controls. You "
+				+ "receive damage equal to the number of Forwards broken by this effect.",
+				makeJobCard("Zodiark, Keeper of Precepts", "Dark", "Summon", null));
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.lastMassBreakForwardCount()).thenReturn(3);
+		fn.accept(ctx);
+		// By name: applyMassFieldEffect has several default overloads, and a mock does not route
+		// one to another, so pinning an arity would test which overload the sweep happens to call.
+		List<String> calls = mockingDetails(ctx).getInvocations().stream()
+				.map(i -> i.getMethod().getName()).filter(n -> !n.equals("logEntry")).toList();
+		assertTrue(calls.indexOf("applyMassFieldEffect") >= 0, "the sweep runs: " + calls);
+		assertTrue(calls.indexOf("applyMassFieldEffect") < calls.indexOf("dealDamageToSelf"),
+				"damage is counted after the sweep: " + calls);
+		verify(ctx).dealDamageToSelf(3);
+
+		GameContext none = mock(GameContext.class);
+		fn.accept(none);
+		verify(none, never()).dealDamageToSelf(anyInt());
+	}
+
+	@Test
+	void berserkerBreaksAtTheEndOfTheTurn() {
+		CardData berserker = makeForward("Berserker", "Fire", 2, 5000);
+		Consumer<GameContext> fn = ActionResolver.parse("Berserker gains +3000 power until the end of the "
+				+ "turn. At the end of the turn, break Berserker.", berserker);
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+		assertTrue(mockingDetails(ctx).getInvocations().stream()
+				.anyMatch(i -> i.getMethod().getName().equals("boostSourceForward")), "the boost still runs");
+		verify(ctx).breakSourceAtEndOfTurn(berserker);
+	}
+
+	// =========================================================================================
 
 }

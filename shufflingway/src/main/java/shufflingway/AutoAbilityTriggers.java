@@ -1878,8 +1878,8 @@ final class AutoAbilityTriggers {
 				fireEntersYourFieldWatchers(card, isP1);
 				// Also fire watcher abilities on break-zone cards (only those gated by bzConditionCard).
 				fireEntersYourFieldBreakZoneWatchers(card, isP1);
-				// And on Warp-zone cards, for the abilities they use from there (23-060L Vincent).
-				for (CardData w : warpZoneResidents(isP1))
+				// And on removed cards, for the abilities they use from there (23-060L Vincent).
+				for (CardData w : removedFromGameResidents(isP1))
 					for (AutoAbility fa : warpZoneAbilities(w))
 						if (fa.trigger().equals("enters your field")
 								&& matchesEntersFieldSubject(fa.triggerCard(), card, w))
@@ -3971,7 +3971,7 @@ final class AutoAbilityTriggers {
 		for (CardData c : fwds) fireEventTriggers(c, isP1, triggerType);
 		for (CardData c : bkps) if (c != null) fireEventTriggers(c, isP1, triggerType);
 		for (CardData c : mons) fireEventTriggers(c, isP1, triggerType);
-		for (CardData c : warpZoneResidents(isP1))
+		for (CardData c : removedFromGameResidents(isP1))
 			for (AutoAbility fa : warpZoneAbilities(c))
 				if (fa.trigger().equals(triggerType)) executeAutoAbility(fa, c, isP1);
 	}
@@ -3981,6 +3981,18 @@ final class AutoAbilityTriggers {
 		List<CardData> out = new ArrayList<>();
 		for (GameState.WarpEntry we : isP1 ? mw.gameState.getP1WarpZone() : mw.gameState.getP2WarpZone())
 			if (we != null) out.add(we.card);
+		return out;
+	}
+
+	/**
+	 * Every card {@code isP1} has removed from the game: the Warp zone and the permanent RFP pile,
+	 * copied for the same reason. Walked with {@link #warpZoneAbilities}, so only the abilities a
+	 * card says it uses while removed can fire — 16-067L Aerith's Reraise countdown ticks from the
+	 * permanent pile, where no Warp entry holds her.
+	 */
+	private List<CardData> removedFromGameResidents(boolean isP1) {
+		List<CardData> out = warpZoneResidents(isP1);
+		out.addAll(isP1 ? mw.gameState.getP1PermanentRfp() : mw.gameState.getP2PermanentRfp());
 		return out;
 	}
 
@@ -4424,93 +4436,83 @@ final class AutoAbilityTriggers {
 	// "When you do so" auto abilities
 	// =========================================================================================
 
+	/** The handler an {@link InlineShape} hands its match to. */
+	@FunctionalInterface
+	private interface InlineHandler {
+		void run(AutoAbilityTriggers self, AutoAbility fa, CardData source, boolean isP1,
+				boolean effectIsP1, Matcher m);
+	}
+
+	/** One shape {@link #dispatchInlineAutoAbility} resolves itself, found with {@code find()}. */
+	private record InlineShape(String name, Pattern pattern, InlineHandler handler) {}
+
 	/**
 	 * The shapes {@code executeAutoAbilityImpl} resolves itself instead of pushing onto the Stack —
 	 * the ones that have to charge a cost, take a choice or read a revealed hand before their
-	 * sub-effect can be parsed at all. Returns whether one of them claimed {@code fa}.
+	 * sub-effect can be parsed at all.
 	 *
 	 * <p>Ordering is load-bearing in the same way the resolver's chains are: every matcher here uses
-	 * {@code find()}, so a broader shape placed ahead of a narrower one claims its text.
+	 * {@code find()}, so a broader shape placed ahead of a narrower one claims its text. One table
+	 * serves both the runtime ({@link #dispatchInlineAutoAbility}) and the partial-parse report
+	 * ({@link #inlineShapeOf}), so the two cannot disagree about which texts this layer takes.
 	 */
+	private static final List<InlineShape> INLINE_SHAPES = List.of(
+		// "remove N [Name] Counter(s) from [CardName]. When you do so, [effect]"
+		new InlineShape("RemoveCounterWhenDoSo", FA_REMOVE_COUNTER_WHEN_DO_SO,
+				AutoAbilityTriggers::executeCounterRemovalWhenDoSoAutoAbility),
+		// "pay 《X/N》. When you do so, [effect]" — requires a payment dialog before resolving.
+		new InlineShape("PayWhenDoSo", FA_PAY_WHEN_DO_SO,
+				AutoAbilityTriggers::executePayWhenDoSoAutoAbility),
+		// "remove N [type] [without 《Keyword》] you control from the game. When you do so, [effect]"
+		new InlineShape("RemoveFieldWhenDoSo", FA_REMOVE_FIELD_WHEN_DO_SO,
+				AutoAbilityTriggers::executeRemoveFieldWhenDoSoAutoAbility),
+		// "put N [Job/CardName/type] you control into the Break Zone. When you do so, [effect]"
+		new InlineShape("PutIntoBzWhenDoSo", FA_PUT_INTO_BZ_WHEN_DO_SO,
+				AutoAbilityTriggers::executePutIntoBzWhenDoSoAutoAbility),
+		// "dull [CardName] if it is active. If/When you do so, [effect]" (self-dull)
+		new InlineShape("DullSelfIfDoSo", FA_DULL_SELF_IF_DO_SO,
+				AutoAbilityTriggers::executeDullSelfIfDoSoAutoAbility),
+		// "put [CardName] into the Break Zone. If/When you do so, [effect]" (self-break)
+		new InlineShape("PutSelfIntoBzIfDoSo", FA_PUT_SELF_INTO_BZ_IF_DO_SO,
+				AutoAbilityTriggers::executePutSelfIntoBzIfDoSoAutoAbility),
+		// "choose 1 <target>. You may put 1 <price> into the Break Zone. If you do so, <payoff>"
+		new InlineShape("ChooseThenMayPutIntoBz", FA_CHOOSE_THEN_MAY_PUT_INTO_BZ,
+				AutoAbilityTriggers::executeChooseThenMayPutIntoBzAutoAbility),
+		// "select [up to] N of the M following actions. "..." "..."..."
+		new InlineShape("SelectFollowingActions", FA_SELECT_FOLLOWING_ACTIONS,
+				AutoAbilityTriggers::executeSelectFollowingActionsAutoAbility),
+		// "reveal any number of Summons from your hand. When you reveal no Summons, [effect0]. When you reveal N or more Summons, [effectN]."
+		new InlineShape("RevealSummonsConditional", FA_REVEAL_SUMMONS_CONDITIONAL,
+				AutoAbilityTriggers::executeRevealSummonsConditionalAutoAbility),
+		// "reveal any number of Summons from your hand. When you do so, [effect on up to the same number of Characters]."
+		new InlineShape("RevealSummonsSameNumber", FA_REVEAL_SUMMONS_SAME_NUMBER,
+				AutoAbilityTriggers::executeRevealSummonsSameNumberAutoAbility),
+		// "select the following actions from top to bottom up to the same number of Elements other than X as the cost you paid to cast [CardName]."
+		new InlineShape("SelectFollowingActionsDynamicElements", FA_SELECT_FOLLOWING_ACTIONS_DYNAMIC_ELEMENTS,
+				AutoAbilityTriggers::executeSelectFollowingActionsDynamicElements));
+
+	/**
+	 * The name of the inline shape that claims {@code effectText}, or {@code null} when it goes to
+	 * the Stack and {@link ActionResolver#parse}. For the partial-parse report: an auto-ability this
+	 * layer takes charges its own cost before parsing the rest, so a cost sentence the resolver never
+	 * reads is not a dropped one.
+	 */
+	static String inlineShapeOf(String effectText) {
+		for (InlineShape s : INLINE_SHAPES)
+			if (s.pattern().matcher(effectText).find()) return s.name();
+		return null;
+	}
+
+	/** Resolves {@code fa} through the first {@link #INLINE_SHAPES} entry that claims it. */
 	private boolean dispatchInlineAutoAbility(AutoAbility fa, CardData source, boolean isP1,
 			boolean effectIsP1) {
-		// Detect "remove N [Name] Counter(s) from [CardName]. When you do so, [effect]"
-		Matcher ctrM = FA_REMOVE_COUNTER_WHEN_DO_SO.matcher(fa.effectText());
-		if (ctrM.find()) {
-			executeCounterRemovalWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, ctrM);
-			return true;
+		for (InlineShape s : INLINE_SHAPES) {
+			Matcher m = s.pattern().matcher(fa.effectText());
+			if (m.find()) {
+				s.handler().run(this, fa, source, isP1, effectIsP1, m);
+				return true;
+			}
 		}
-
-		// Detect "pay 《X/N》. When you do so, [effect]" — requires a payment dialog before resolving.
-		Matcher payM = FA_PAY_WHEN_DO_SO.matcher(fa.effectText());
-		if (payM.find()) {
-			executePayWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, payM);
-			return true;
-		}
-
-		// Detect "remove N [type] [without 《Keyword》] you control from the game. When you do so, [effect]"
-		Matcher rfM = FA_REMOVE_FIELD_WHEN_DO_SO.matcher(fa.effectText());
-		if (rfM.find()) {
-			executeRemoveFieldWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, rfM);
-			return true;
-		}
-
-		// Detect "put N [Job/CardName/type] you control into the Break Zone. When you do so, [effect]"
-		Matcher bzM = FA_PUT_INTO_BZ_WHEN_DO_SO.matcher(fa.effectText());
-		if (bzM.find()) {
-			executePutIntoBzWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, bzM);
-			return true;
-		}
-
-		// Detect "dull [CardName] if it is active. If/When you do so, [effect]" (self-dull)
-		Matcher dullM = FA_DULL_SELF_IF_DO_SO.matcher(fa.effectText());
-		if (dullM.find()) {
-			executeDullSelfIfDoSoAutoAbility(fa, source, isP1, effectIsP1, dullM);
-			return true;
-		}
-
-		// Detect "put [CardName] into the Break Zone. If/When you do so, [effect]" (self-break)
-		Matcher sbzM = FA_PUT_SELF_INTO_BZ_IF_DO_SO.matcher(fa.effectText());
-		if (sbzM.find()) {
-			executePutSelfIntoBzIfDoSoAutoAbility(fa, source, isP1, effectIsP1, sbzM);
-			return true;
-		}
-
-		// Detect "choose 1 <target>. You may put 1 <price> into the Break Zone. If you do so, <payoff>"
-		Matcher cbzM = FA_CHOOSE_THEN_MAY_PUT_INTO_BZ.matcher(fa.effectText());
-		if (cbzM.find()) {
-			executeChooseThenMayPutIntoBzAutoAbility(fa, source, isP1, effectIsP1, cbzM);
-			return true;
-		}
-
-		// Detect "select [up to] N of the M following actions. "..." "..."..."
-		Matcher selM = FA_SELECT_FOLLOWING_ACTIONS.matcher(fa.effectText());
-		if (selM.find()) {
-			executeSelectFollowingActionsAutoAbility(fa, source, isP1, effectIsP1, selM);
-			return true;
-		}
-
-		// Detect "reveal any number of Summons from your hand. When you reveal no Summons, [effect0]. When you reveal N or more Summons, [effectN]."
-		Matcher rvlM = FA_REVEAL_SUMMONS_CONDITIONAL.matcher(fa.effectText());
-		if (rvlM.find()) {
-			executeRevealSummonsConditionalAutoAbility(fa, source, isP1, effectIsP1, rvlM);
-			return true;
-		}
-
-		// Detect "reveal any number of Summons from your hand. When you do so, [effect on up to the same number of Characters]."
-		Matcher rvlSameM = FA_REVEAL_SUMMONS_SAME_NUMBER.matcher(fa.effectText());
-		if (rvlSameM.find()) {
-			executeRevealSummonsSameNumberAutoAbility(fa, source, isP1, effectIsP1, rvlSameM);
-			return true;
-		}
-
-		// Detect "select the following actions from top to bottom up to the same number of Elements other than X as the cost you paid to cast [CardName]."
-		Matcher dynM = FA_SELECT_FOLLOWING_ACTIONS_DYNAMIC_ELEMENTS.matcher(fa.effectText());
-		if (dynM.find()) {
-			executeSelectFollowingActionsDynamicElements(fa, source, isP1, effectIsP1, dynM);
-			return true;
-		}
-
 		return false;
 	}
 

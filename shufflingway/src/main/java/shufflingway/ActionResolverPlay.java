@@ -409,12 +409,57 @@ final class ActionResolverPlay {
         return resolved.equalsIgnoreCase(source.name());
     }
 
+    /**
+     * Parses 16-067L Aerith's countdown: "if 1 or more Reraise Counters are placed on Aerith, remove
+     * 1 Reraise Counter from Aerith. Then, if there are no Reraise Counters on Aerith, play Aerith
+     * onto the field". She uses it from the removed-from-game zone, so the play returns that copy
+     * from there, by identity.
+     */
+    static Consumer<GameContext> tryParseCounterCountdownThenPlaySource(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = COUNTER_COUNTDOWN_THEN_PLAY_SOURCE.matcher(text.trim());
+        if (!m.matches()) return null;
+        for (String g : new String[] { "n1", "n2", "n3", "n4" })
+            if (!m.group(g).trim().equalsIgnoreCase(source.name())) return null;
+        String counter = m.group("counter").trim();
+        return ctx -> {
+            if (ctx.getCounters(source, counter) < 1) {
+                ctx.logEntry(source.name() + " has no " + counter + " Counters — nothing happens");
+                return;
+            }
+            ctx.removeCounters(source, counter, 1);
+            if (ctx.getCounters(source, counter) == 0) ctx.playSourceFromRfpOntoField(source);
+        };
+    }
+
+    /**
+     * Parses "&lt;effect&gt;. At the end of the turn, break [Self]." — 17-013C Berserker's price for
+     * its boost. The effect must parse on its own; the break is scheduled through
+     * {@link GameContext#breakSourceAtEndOfTurn}.
+     */
+    static Consumer<GameContext> tryParseThenBreakSelfAtEndOfTurn(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = THEN_BREAK_SELF_AT_END_OF_TURN.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        Consumer<GameContext> head = parse(m.group("head").trim(), source);
+        if (head == null) return null;
+        return ctx -> {
+            head.accept(ctx);
+            ctx.breakSourceAtEndOfTurn(source);
+        };
+    }
+
     static Consumer<GameContext> tryParsePlaySourceOntoField(String text, CardData source) {
         if (source == null) return null;
         Matcher m = PLAY_SOURCE_ONTO_FIELD_PATTERN.matcher(text);
         if (!m.find()) return null;
         String name = m.group("name").trim();
         // "it" is a self-referential pronoun (e.g. "play it onto the field" in pay-cost abilities)
+        // — unless the text searched or revealed a card first, in which case "it" is that card.
+        // Read as the source, 11-136S / 4-094R / 5-033R played themselves back from the Break
+        // Zone instead of searching, and 14-106H Golbez / 16-020L Luso instead of revealing.
+        if (name.equalsIgnoreCase("it") && SEARCHED_OR_REVEALED_CARD.matcher(text).find()) return null;
         String resolvedName = name.equalsIgnoreCase("it") ? source.name() : name;
         if (!resolvedName.equalsIgnoreCase(source.name())) return null;
         boolean dull = m.group("dull") != null;

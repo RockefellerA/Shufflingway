@@ -526,6 +526,25 @@ final class ActionResolverFieldAbility {
     }
 
     /**
+     * "Break all … . You receive damage equal to the number of Forwards broken by this effect." —
+     * 3-147L Zodiark. The sweep read whole on its own, then the self-damage counted from
+     * {@link GameContext#lastMassBreakForwardCount}. The sweep alone claimed this text before, and
+     * the drawback that prices the board wipe never ran.
+     */
+    static Consumer<GameContext> tryParseBreakAllThenSelfDamagePerBroken(String text) {
+        Matcher m = BREAK_ALL_THEN_SELF_DAMAGE_PER_BROKEN.matcher(text.trim());
+        if (!m.matches()) return null;
+        Consumer<GameContext> sweep = tryParseAllFieldEffect(m.group("sweep").trim());
+        if (sweep == null) return null;
+        return ctx -> {
+            sweep.accept(ctx);
+            int broken = ctx.lastMassBreakForwardCount();
+            ctx.logEntry("Effect: " + broken + " Forward(s) broken — you receive " + broken + " damage");
+            if (broken > 0) ctx.dealDamageToSelf(broken);
+        };
+    }
+
+    /**
      * "[sweep] and [effect]" where the effect is a clause of its own — 23-121L Cait Sith: "Freeze
      * all the Backups opponent controls and your opponent discards 1 card." The sweep guard
      * rightly refused the sweep with "and your opponent …" unread after it, and

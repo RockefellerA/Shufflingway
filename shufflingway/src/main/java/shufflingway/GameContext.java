@@ -2999,6 +2999,16 @@ public interface GameContext {
     void playNamedFromRfpOntoField(String cardName);
 
     /**
+     * Plays {@code source} itself from its owner's permanent RFP zone onto their field, found by
+     * identity. Marks the effect fizzled when that copy is not there.
+     *
+     * <p>{@link #playNamedFromRfpOntoField} matches by name and looks at P1's zone first, so with a
+     * copy removed on each side it can return the wrong one. 16-067L Aerith's "Then, if there are
+     * no Reraise Counters on Aerith, play Aerith onto the field" means the Aerith that ticked down.
+     */
+    void playSourceFromRfpOntoField(CardData source);
+
+    /**
      * Plays the card named {@code cardName} onto the field from whichever holding zone currently
      * holds it — the RFG zone first, then the controller's Break Zone.
      *

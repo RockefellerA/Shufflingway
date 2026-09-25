@@ -5,6 +5,7 @@ import static shufflingway.ActionResolverPatterns.*;
 import static shufflingway.ActionResolver.*;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -516,15 +517,30 @@ final class ActionResolverBreak {
      * corpus and the reason it needs reading rather than assuming.
      */
     static Consumer<GameContext> tryParseIfOpponentDamageAtMost(String text, CardData source) {
-        Matcher m = IF_OPPONENT_DAMAGE_AT_MOST_INNER.matcher(text.trim());
+        return tryParseIfDamageAtMost(text, source, true);
+    }
+
+    /**
+     * Parses "If you have received N points of damage or less, &lt;effect&gt;" — 16-020L Luso,
+     * 18-078R Cindy. The controller-facing twin of {@link #tryParseIfOpponentDamageAtMost}.
+     */
+    static Consumer<GameContext> tryParseIfSelfDamageAtMost(String text, CardData source) {
+        return tryParseIfDamageAtMost(text, source, false);
+    }
+
+    private static Consumer<GameContext> tryParseIfDamageAtMost(String text, CardData source,
+            boolean opponent) {
+        Matcher m = IF_DAMAGE_AT_MOST_INNER.matcher(text.trim());
         if (!m.find()) return null;
+        if (m.group("who").toLowerCase(Locale.ROOT).startsWith("your") != opponent) return null;
         int max = Integer.parseInt(m.group("count"));
         Consumer<GameContext> innerEffect = parse(m.group("inner").trim(), source);
         if (innerEffect == null) return null;
+        String whoLabel = opponent ? "opponent has" : "you have";
         return ctx -> {
-            int received = ctx.opponentDamageCount();
+            int received = opponent ? ctx.opponentDamageCount() : ctx.ownDamageCount();
             if (received <= max) innerEffect.accept(ctx);
-            else ctx.logEntry("Condition not met: opponent has received " + received
+            else ctx.logEntry("Condition not met: " + whoLabel + " received " + received
                     + " points of damage, needs " + max + " or less");
         };
     }

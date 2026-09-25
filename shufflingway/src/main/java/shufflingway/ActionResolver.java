@@ -378,6 +378,29 @@ public class ActionResolver {
         result = tryParseWhenYouDoSoSequence(effectText, source, xValue);
         if (result != null) return result;
 
+        // Anchored whole-text readings of "X. If you do so, Y" whose X parse() cannot read alone.
+        // They sit ahead of the guard below, which declines such texts, and ahead of the find()
+        // parsers each one must precede:
+        //  - tryParseSearchDeck resolves 1-093H Vanille's search alone and leaves the payoff behind;
+        //  - tryParsePlaySourceOntoField find()s "play … onto the field" out of 23-118H Ardyn's
+        //    middle and returns the source from a Break Zone it is not in, dropping the LB deck;
+        //  - tryParseRemoveNamedFromGame's lazy name group reads 29-086H Shadow's "Remove 2 Warp
+        //    Counters from Shadow" as the thing to remove from the game.
+        result = tryParseSearchNamedRfgThenIfDoSo(effectText, source);
+        if (result != null) return result;
+        result = tryParsePlayFaceDownLbCardOntoFieldDull(effectText);
+        if (result != null) return result;
+        result = tryParseRevealElementCardFromHandIfSoDraw(effectText);
+        if (result != null) return result;
+        result = tryParseMayRemoveWarpCountersThenNoCastNoAttack(effectText, source);
+        if (result != null) return result;
+
+        // Fail closed on "X. When/If you do so, Y" when nothing above read it and X does not parse
+        // on its own. Every find() parser below would otherwise take Y and run it without X — a free
+        // payoff: 25-010H and 28-068R dealt their damage with the cost unpaid, 15-061H searched
+        // without Lehko going to the Break Zone, 4-054L without Onion Knight leaving the field.
+        if (whenYouDoSoPrimaryUnread(effectText, source, xValue)) return null;
+
         // Must precede every consequence pattern: those match with find(), so left alone they would
         // claim the text after the gate and resolve the consequence unconditionally.
         result = tryParseIfNotPayOrElse(effectText, source, xValue);
@@ -475,6 +498,12 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseBecomeForwardUntilEot(effectText, source);
+        if (result != null) return result;
+
+        // After tryParseBecomeForwardUntilEot, which reads this closing sentence as part of its own
+        // promotions; ahead of the self-boost parsers, which find() 17-013C Berserker's boost and
+        // drop the break.
+        result = tryParseThenBreakSelfAtEndOfTurn(effectText, source);
         if (result != null) return result;
 
         result = tryParseForEachJobAndNameDealDamageToForwards(effectText);
@@ -707,6 +736,20 @@ public class ActionResolver {
         // opponent's damage wrapping an arbitrary effect (29-013H Bahamut), which the effect
         // parsers below would otherwise claim out of the middle of the sentence and run ungated.
         result = tryParseIfOpponentDamageAtMost(effectText, source);
+        if (result != null) return result;
+        result = tryParseIfSelfDamageAtMost(effectText, source);
+        if (result != null) return result;
+
+        // Anchored "Shuffle your deck, then <effect>". Must precede tryParsePlaySourceOntoField,
+        // which find()s "play it onto the field" out of 16-020L Luso's reveal and resolves "it" as
+        // Luso returning from a Break Zone it is not in.
+        result = tryParseShuffleDeckThen(effectText, source);
+        if (result != null) return result;
+
+        // Anchored "<discard>. If the discarded card is Category X, <effect>." Must precede the
+        // DrawCards parsers, which find() the draw/discard and drop the gated payoff (20-113R Porom),
+        // and GAIN_CRYSTAL, which would find() the payoff and run it ungated.
+        result = tryParseDiscardThenIfDiscardedCategory(effectText, source);
         if (result != null) return result;
 
         result = tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source);
@@ -943,6 +986,11 @@ public class ActionResolver {
         // Same reason, for any other clause joined by "and" (23-121L Cait Sith's discard). Must
         // also precede tryParseOpponentDiscard and its kind, which take the tail under find().
         result = tryParseAllFieldEffectAndThen(effectText, source);
+        if (result != null) return result;
+
+        // Must precede tryParseAllFieldEffect for the same reason: 3-147L Zodiark's per-Forward
+        // self-damage follows the sweep sentence and was dropped.
+        result = tryParseBreakAllThenSelfDamagePerBroken(effectText);
         if (result != null) return result;
 
         // Must precede tryParseAllFieldEffect for the same reason: the sweep sentence is read whole
@@ -1364,12 +1412,6 @@ public class ActionResolver {
         result = tryParseRevealTopNRfgOneCastableRestBottom(effectText);
         if (result != null) return result;
 
-        // Must precede tryParseRemoveNamedFromGame for the same reason as the parser above: on
-        // "Remove 1 Warp Counter from Shadow for each …" its lazy name group reads the counter
-        // clause as the thing being removed from the game.
-        result = tryParseMayRemoveWarpCountersThenNoCastNoAttack(effectText, source);
-        if (result != null) return result;
-
         result = tryParseRemoveWarpCountersFromNamed(effectText, source);
         if (result != null) return result;
 
@@ -1725,11 +1767,6 @@ public class ActionResolver {
         result = tryParseDualSearchPlayOntoField(effectText);
         if (result != null) return result;
 
-        // Must precede tryParseSearchDeck: that parser resolves the search alone and leaves the
-        // "If you do so, ..." payoff behind, which is the whole point of 1-093H Vanille.
-        result = tryParseSearchNamedRfgThenIfDoSo(effectText, source);
-        if (result != null) return result;
-
         // "Return [Self] to the field dull." on its own — Calbrena 5-079H's granted leaves-field
         // trigger, where the sentence arrives with no search in front of it. Anchored end to end
         // and self-named, so it cannot reach Vanille 1-093H's, which is the tail of a longer text
@@ -1774,13 +1811,6 @@ public class ActionResolver {
         result = tryParsePlayBrokenCardOntoFieldDull(effectText);
         if (result != null) return result;
 
-        // Must precede tryParsePlaySourceOntoField for the reason its neighbour above does, and
-        // one more: that parser find()s "play … onto the field" out of this sentence's middle and
-        // would resolve Ardyn 23-118H's LB-deck copy as the source card returning from a Break
-        // Zone it is not in — dropping the LB deck, the face-down pick and the turn-up with it.
-        result = tryParsePlayFaceDownLbCardOntoFieldDull(effectText);
-        if (result != null) return result;
-
         result = tryParseAddBrokenCardToHand(effectText);
         if (result != null) return result;
 
@@ -1789,6 +1819,11 @@ public class ActionResolver {
         // ability's own source and tried to return that card from the Break Zone. 7-106L Agrias
         // did that instead of digging for a Character for as long as the parser has existed.
         result = tryParseFlipUntilCharactersPlayOntoFieldRestShuffleBottom(effectText);
+        if (result != null) return result;
+
+        // Must precede tryParsePlaySourceOntoField, which find()s the countdown's closing "play
+        // Aerith onto the field" and runs it without the counter check.
+        result = tryParseCounterCountdownThenPlaySource(effectText, source);
         if (result != null) return result;
 
         result = tryParsePlaySourceOntoField(effectText, source);
@@ -1996,9 +2031,6 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseRevealPlayTypeOntoFieldRestBottom(effectText);
-        if (result != null) return result;
-
-        result = tryParseRevealElementCardFromHandIfSoDraw(effectText);
         if (result != null) return result;
 
         result = tryParseShuffleDeck(effectText);
@@ -2336,6 +2368,7 @@ public class ActionResolver {
         if (tryParseSelectNumber(effectText, source)                    != null) return "SelectNumber";
         if (tryParseAllMonstersTemporaryForward(effectText) != null) return "AllMonstersTemporaryForward";
         if (tryParseBecomeForwardUntilEot(effectText, source) != null) return "BecomeForwardUntilEot";
+        if (tryParseThenBreakSelfAtEndOfTurn(effectText, source) != null) return "ThenBreakSelfAtEndOfTurn";
         if (tryParseForEachJobAndNameDealDamageToForwards(effectText)   != null) return "ForEachJobAndNameDealDamageToForwards";
         if (tryParseDealNForEachJobOrNameToOppForwards(effectText)      != null) return "DealNForEachJobOrNameToOppForwards";
         if (tryParseSelfGainsWhenAttacksEOT(effectText, source)        != null) return "SelfGainsWhenAttacksEOT";
@@ -2415,6 +2448,9 @@ public class ActionResolver {
         // choose (16-021C Rain), and in parse()'s order — the two compound forms before the
         // leading one, which cannot see past their opening clause.
         if (tryParseIfOpponentDamageAtMost(effectText, source) != null) return "IfOpponentDamageAtMost";
+        if (tryParseIfSelfDamageAtMost(effectText, source) != null) return "IfSelfDamageAtMost";
+        if (tryParseShuffleDeckThen(effectText, source) != null) return "ShuffleDeckThen";
+        if (tryParseDiscardThenIfDiscardedCategory(effectText, source) != null) return "DiscardThenIfDiscardedCategory";
         if (tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source) != null) return "IfPutFromFieldToBzThisTurnInstead";
         if (tryParseIfPutFromFieldToBzThisTurn(effectText, source)        != null) return "IfPutFromFieldToBzThisTurn";
         if (tryParseIfPutFromFieldToBzThisTurnMidGate(effectText, source) != null) return "IfPutFromFieldToBzThisTurnMidGate";
@@ -2519,6 +2555,7 @@ public class ActionResolver {
         // draw out of the report.
         if (tryParseAllFieldEffectAndDraw(effectText)         != null) return "AllFieldEffectAndDraw";
         if (tryParseAllFieldEffectAndThen(effectText, source) != null) return "AllFieldEffectAndThen";
+        if (tryParseBreakAllThenSelfDamagePerBroken(effectText) != null) return "BreakAllThenSelfDamagePerBroken";
         if (tryParseAllFieldEffectThenTheyGain(effectText, source) != null) return "AllFieldEffectThenTheyGain";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText, source) != null) {
@@ -2821,6 +2858,7 @@ public class ActionResolver {
         // with find(), so it reports a hit from the middle of texts an earlier parser claims in
         // parse() ("...search for 1 Forward ... and play it onto the field"). Naming off the loose
         // form moved 9 abilities onto this name and away from the one that actually runs them.
+        if (tryParseCounterCountdownThenPlaySource(effectText, source) != null) return "CounterCountdownThenPlaySource";
         if (isBarePlaySourceOntoField(effectText, source))              return "PlaySourceOntoField";
         if (tryParseSelfSkipNextActivePhase(effectText, source) != null) return "SelfSkipNextActivePhase";
         // Mirrors parse(): ahead of BecomeForwardUntilEot, which cannot see the reminder.
@@ -3910,6 +3948,22 @@ public class ActionResolver {
         // so the report still says what the card does when the condition holds; that inner text is
         // the whole payload, and a bare "IfPutFromFieldToBzThisTurn" would hide it.
         if (tryParseIfOpponentDamageAtMost(effectText, source) != null) return "IfOpponentDamageAtMost";
+        if (tryParseIfSelfDamageAtMost(effectText, source) != null) {
+            Matcher selfM = IF_DAMAGE_AT_MOST_INNER.matcher(effectText.trim());
+            if (selfM.find())
+                return "IfSelfDamageAtMost / " + descOrUnread(selfM.group("inner"), source);
+        }
+        if (tryParseShuffleDeckThen(effectText, source) != null) {
+            Matcher shuffleM = SHUFFLE_DECK_THEN.matcher(effectText.trim());
+            if (shuffleM.matches())
+                return "ShuffleDeck + " + descOrUnread(shuffleM.group("rest"), source);
+        }
+        if (tryParseDiscardThenIfDiscardedCategory(effectText, source) != null) {
+            Matcher discM = DISCARD_THEN_IF_DISCARDED_CATEGORY.matcher(effectText.trim());
+            if (discM.matches())
+                return descOrUnread(discM.group("head"), source) + " + IfDiscardedCategory("
+                        + discM.group("cat").trim() + ": " + descOrUnread(discM.group("eff"), source) + ")";
+        }
         if (tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source) != null) {
             Matcher insteadM = PUT_FROM_FIELD_TO_BZ_THIS_TURN_INSTEAD.matcher(effectText.trim());
             if (insteadM.find())
@@ -3967,6 +4021,11 @@ public class ActionResolver {
             Consumer<GameContext> rider = becomeForwardRiderGrant(effectText, source);
             return "BecomeForwardUntilEot"
                     + (rider != null ? " + " + becomeForwardRiderName(effectText, source) : "");
+        }
+        if (tryParseThenBreakSelfAtEndOfTurn(effectText, source) != null) {
+            Matcher eotM = THEN_BREAK_SELF_AT_END_OF_TURN.matcher(effectText.trim());
+            if (eotM.matches())
+                return descOrUnread(eotM.group("head"), source) + " + BreakSelfAtEndOfTurn";
         }
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(escapedEffectText);
         if (chooseM.find()) {
@@ -4426,6 +4485,7 @@ public class ActionResolver {
         // Mirrors parse(): ahead of AllFieldEffect, which describes the sweep alone.
         if (tryParseAllFieldEffectAndDraw(effectText) != null)              return "AllFieldEffectAndDraw";
         if (tryParseAllFieldEffectAndThen(effectText, source) != null)      return "AllFieldEffectAndThen";
+        if (tryParseBreakAllThenSelfDamagePerBroken(effectText) != null)    return "BreakAllThenSelfDamagePerBroken";
         if (tryParseAllFieldEffectThenTheyGain(effectText, source) != null) return "AllFieldEffectThenTheyGain";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText, source) != null) {
@@ -4764,6 +4824,7 @@ public class ActionResolver {
         if (tryParseAddBrokenCardToHand(effectText) != null) return "AddBrokenCardToHand";
         // See the matching guard in matchedPatternName(): the anchored helper, not the find()-based
         // parser, so this cannot claim a clause sitting inside a longer ability.
+        if (tryParseCounterCountdownThenPlaySource(effectText, source) != null) return "CounterCountdownThenPlaySource";
         if (isBarePlaySourceOntoField(effectText, source))                  return "PlaySourceOntoField";
         if (tryParseSelfSkipNextActivePhase(effectText, source) != null)    return "SelfSkipNextActivePhase";
         // Mirrors parse() and matchedPatternName(), at the same position and for the same reason.
@@ -6786,6 +6847,25 @@ public class ActionResolver {
     }
 
     /**
+     * True when {@code text} is "X. When/If you do so, Y" and X does not parse on its own — the
+     * shape whose Y the find() parsers would otherwise run without paying X — or a leading
+     * "reveal any number … from your hand. When you reveal …" count gate.
+     *
+     * <p>Texts {@link AutoAbilityTriggers#inlineShapeOf} claims are exempt: that layer charges X
+     * itself and parses only Y, so at runtime the whole text never reaches {@link #parse}, and
+     * whatever reads it here is not what runs.
+     */
+    static boolean whenYouDoSoPrimaryUnread(String text, CardData source, int xValue) {
+        if (AutoAbilityTriggers.inlineShapeOf(text) != null) return false;
+        // "reveal any number of X from your hand. When you reveal N or more, Y" — the same shape
+        // with the gate counted: 12-089C Dragoon broke a Forward having revealed nothing.
+        if (LEADING_REVEAL_ANY_FROM_HAND_GATED.matcher(text.trim()).find()) return true;
+        Matcher m = WHEN_YOU_DO_SO_SEQUENCE.matcher(text.trim());
+        if (!m.matches()) return false;
+        return parse(m.group("primary").trim(), source, xValue) == null;
+    }
+
+    /**
      * Returns {@code true} when a card whose elements are {@code discarded} counts as a card "of
      * {@code elem} Element". Every element of a multi-element card qualifies it independently.
      */
@@ -7730,15 +7810,24 @@ public class ActionResolver {
         // whole ability was declined by tryParseRevealTopDeck, which requires every clause to
         // build, and tryParseAllFieldEffect took it instead: the opponent's board was dulled and
         // frozen unconditionally, off a branch that had not been chosen.
+        // An optional cost bound — "a Forward of cost 3 or less" (14-106H Golbez) — applies to the
+        // whole union. Unread, it declined the reveal and tryParsePlaySourceOntoField took "play it
+        // onto the field" as Golbez returning from the Break Zone.
         Matcher typeM = Pattern.compile(
             "(?i)^(Forward|Character|Backup|Summon|Monster)" +
-            "(?:\\s+or\\s+(?:an?\\s+)?(?<or>Forward|Character|Backup|Summon|Monster))?$"
+            "(?:\\s+or\\s+(?:an?\\s+)?(?<or>Forward|Character|Backup|Summon|Monster))?" +
+            "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<cmp>less|more))?)?$"
         ).matcher(cond);
         if (typeM.matches()) {
             String type   = typeM.group(1);
             String orType = typeM.group("or");
-            pred = card -> meetsTypeCheck(card, type)
-                    || (orType != null && meetsTypeCheck(card, orType));
+            int cost      = typeM.group("cost") != null ? Integer.parseInt(typeM.group("cost")) : -1;
+            String cmp    = typeM.group("cmp");
+            Predicate<CardData> costOk = card -> cost < 0
+                    || (cmp == null ? card.cost() == cost
+                        : cmp.equalsIgnoreCase("less") ? card.cost() <= cost : card.cost() >= cost);
+            pred = card -> (meetsTypeCheck(card, type)
+                    || (orType != null && meetsTypeCheck(card, orType))) && costOk.test(card);
             return negated ? pred.negate() : pred;
         }
 
@@ -7770,6 +7859,8 @@ public class ActionResolver {
         // not treated as simple "place revealed card" ops.
         if (lo.contains("select") || lo.contains("choose") || lo.startsWith("your opponent")) return null;
         if (lo.contains("field") && lo.contains("dull")) return "playOntoFieldDull";
+        // "you may play it onto the field" — 14-106H Golbez, 14-057H Rosa, 15-035H Setzer, 16-020L Luso
+        if (lo.contains("field") && lo.startsWith("you may")) return "mayPlayOntoField";
         if (lo.contains("field"))  return "playOntoField";
         if (lo.contains("hand"))   return "addToHand";
         if (lo.contains("break"))  return "putToBreakZone";

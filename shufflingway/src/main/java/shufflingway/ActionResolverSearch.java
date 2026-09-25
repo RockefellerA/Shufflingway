@@ -1425,6 +1425,25 @@ final class ActionResolverSearch {
         if (!SHUFFLE_DECK.matcher(text).find()) return null;
         return ctx -> ctx.shuffleDeck();
     }
+
+    /**
+     * Parses "Shuffle your deck, then &lt;effect&gt;" — 16-020L Luso's "…, then reveal the top card
+     * of your deck. If it is a Fire Character, you may play it onto the field."
+     *
+     * <p>Declines unless the tail parses, so the shuffle is never claimed alone.
+     */
+    static Consumer<GameContext> tryParseShuffleDeckThen(String text, CardData source) {
+        Matcher m = SHUFFLE_DECK_THEN.matcher(text.trim());
+        if (!m.matches()) return null;
+        String rest = m.group("rest").trim();
+        rest = Character.toUpperCase(rest.charAt(0)) + rest.substring(1);
+        Consumer<GameContext> tail = parse(rest, source);
+        if (tail == null) return null;
+        return ctx -> {
+            ctx.shuffleDeck();
+            tail.accept(ctx);
+        };
+    }
     static Consumer<GameContext> tryParseOppRfpTopDeckCastable(String text) {
         Matcher m = OPP_RFP_TOPDECK_CASTABLE.matcher(text);
         if (!m.find()) return null;

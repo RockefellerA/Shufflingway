@@ -9,7 +9,8 @@ import java.util.function.Predicate;
  * <p>Exactly one of {@link #cardOp} or {@link #effect} is non-null:
  * <ul>
  *   <li>{@code cardOp} — the revealed card is placed according to the op code
- *       ("playOntoField", "playOntoFieldDull", "addToHand", "putToBreakZone").</li>
+ *       ("playOntoField", "mayPlayOntoField", "playOntoFieldDull", "addToHand", "putToBreakZone",
+ *       "castSummonFree"). The two optional ops offer the controller a Decline.</li>
  *   <li>{@code effect} — the revealed card is returned to the top of the deck,
  *       then this standalone effect fires.</li>
  * </ul>

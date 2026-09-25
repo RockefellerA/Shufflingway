@@ -2359,7 +2359,11 @@ final class ActionResolverPatterns {
      * guard is what stops this one claiming any future printing of the shape back off it.
      */
     static final Pattern REMOVE_NAMED_FROM_GAME = Pattern.compile(
-        "(?i)Remove\\s+(?!(?:it|them)\\b)(?!the\\s+top\\b)(?!all\\b)(?<named>.+?)\\s+from\\s+(?:the\\s+)?game[.!]?"
+        // Quantities and back-references are not names: "remove any number of Forwards in your
+        // Break Zone … from the game" (12-076R), "Remove that Summon from the game after use"
+        // (16-123L) each matched nothing and made the ability report as read.
+        "(?i)Remove\\s+(?!(?:it|them|any|up\\s+to|that|this|those|these)\\b)(?!the\\s+top\\b)(?!all\\b)" +
+        "(?<named>.+?)\\s+from\\s+(?:the\\s+)?game[.!]?"
     );
     /** Matches "You may remove [CardName] from the game." — optional self-RFP. */
     static final Pattern YOU_MAY_REMOVE_NAMED_FROM_GAME = Pattern.compile(
@@ -2767,6 +2771,15 @@ final class ActionResolverPatterns {
     /** Matches "Shuffle your deck." */
     static final Pattern SHUFFLE_DECK = Pattern.compile(
         "(?i)Shuffle\\s+your\\s+deck\\.?"
+    );
+    /**
+     * "Shuffle your deck, then &lt;effect&gt;" — 16-020L Luso. Anchored end to end: {@link #SHUFFLE_DECK}
+     * alone matches with find() and would take the shuffle while dropping the rest. Group
+     * {@code rest} is the effect that follows.
+     */
+    static final Pattern SHUFFLE_DECK_THEN = Pattern.compile(
+        "(?i)^Shuffle\\s+your\\s+deck,?\\s+then,?\\s+(?<rest>.+)$",
+        Pattern.DOTALL
     );
     /** Matches "Its auto-ability will not trigger." — suppresses ETF auto-abilities for the played card. */
     static final Pattern ITS_AUTO_ABILITY_WILL_NOT_TRIGGER = Pattern.compile(
@@ -3401,10 +3414,12 @@ final class ActionResolverPatterns {
      * 1–5 words ("Good King Moggle Mog XII" is the longest there is); an unbounded name lets a
      * single "Return" swallow whole sentences up to a later "… to your hand", which is how
      * Schultz 27-100R's "Return these to the top and/or bottom … add it to your hand" used to be
-     * claimed here instead of by the look-at-deck parsers.
+     * claimed here instead of by the look-at-deck parsers. Back-references ("that Summon") are
+     * excluded as in {@link #RETURN_NAMED_TO_OWNERS_HAND}: 11-032C Black Mage's "return that Summon
+     * to your hand after use" was claimed here and the free cast ahead of it dropped.
      */
     static final Pattern RETURN_NAMED_TO_YOUR_HAND_STANDALONE = Pattern.compile(
-        "(?i)Return\\s+(?!(?:it|them)\\b)(?<named>\\S+(?:\\s+\\S+){0,4})\\s+to\\s+your\\s+hand[.!]?"
+        "(?i)Return\\s+(?!(?:it|them|that|this|those|these)\\b)(?<named>\\S+(?:\\s+\\S+){0,4})\\s+to\\s+your\\s+hand[.!]?"
     );
     /**
      * 17-137S Rydia: "[you may] search for N Summons each with a different cost. Then, your
@@ -3442,10 +3457,12 @@ final class ActionResolverPatterns {
      * specific parser, so nothing but Rydia reaches this.
      */
     static final Pattern ADD_NAMED_TO_YOUR_HAND = Pattern.compile(
-        "(?i)\\bAdd\\s+(?!(?:it|them|\\d)\\b)" +
+        "(?i)\\bAdd\\s+(?!(?:it|them|\\d|up\\s+to)\\b)" +
         "(?!the\\s+(?:other|others|rest|former|latter|first|second" +
         "|chosen|revealed|added|removed|discarded|selected)\\b)" +
-        "(?<named>.+?)\\s+to\\s+your\\s+hand[.!]?"
+        // A name crosses no sentence and picks nothing "among them": "Add up to 3 Characters of
+        // cost 5 or more among them to your hand" (11-023H) is a reveal's pick, not a card name.
+        "(?<named>(?:(?!\\bamong\\b)[^.!])+?)\\s+to\\s+your\\s+hand[.!]?"
     );
     /**
      * Matches "Play [name] onto [the] field [dull]" without requiring a "from Break Zone" qualifier.
@@ -3530,6 +3547,50 @@ final class ActionResolverPatterns {
     static final Pattern PLAY_SOURCE_ONTO_FIELD_PATTERN = Pattern.compile(
         "(?i)\\bPlay\\s+(?<name>\\S+(?:\\s+\\S+){0,2})\\s+onto\\s+(?:the\\s+)?field(?:\\s+(?<dull>dull))?" +
         "(?!\\s+at\\s+(?:the\\s+)?end\\s+of)[.!]?"
+    );
+    /**
+     * "if 1 or more X Counters are placed on [Self], remove 1 X Counter from [Self]. Then, if
+     * there are no X Counters on [Self], play [Self] onto the field" — 16-067L Aerith's Reraise
+     * countdown, used while she is removed from the game. Anchored end to end: read with find(),
+     * the trailing "play Aerith onto the field" was claimed alone and ran every Main Phase 1.
+     * Groups: {@code counter}, and {@code n1}–{@code n4} (each must name the source).
+     */
+    static final Pattern COUNTER_COUNTDOWN_THEN_PLAY_SOURCE = Pattern.compile(
+        "(?i)^if\\s+1\\s+or\\s+more\\s+(?<counter>[\\w' -]+?)\\s+Counters?\\s+(?:is|are)\\s+placed\\s+on\\s+" +
+        "(?<n1>[^,.]+?),\\s+remove\\s+1\\s+\\k<counter>\\s+Counters?\\s+from\\s+(?<n2>[^,.]+?)[.!]\\s+" +
+        "Then,\\s+if\\s+there\\s+are\\s+no\\s+\\k<counter>\\s+Counters?\\s+(?:placed\\s+)?on\\s+(?<n3>[^,.]+?),\\s+" +
+        "play\\s+(?<n4>[^,.]+?)\\s+onto\\s+the\\s+field[.!]?\\s*$"
+    );
+    /**
+     * "Break all … . You receive damage equal to the number of Forwards broken by this effect." —
+     * 3-147L Zodiark. Group {@code sweep} is the break sentence, read by the sweep parser.
+     */
+    static final Pattern BREAK_ALL_THEN_SELF_DAMAGE_PER_BROKEN = Pattern.compile(
+        "(?i)^(?<sweep>Break\\s+all\\s+[^.]+[.!])\\s+You\\s+receive\\s+damage\\s+equal\\s+to\\s+the\\s+" +
+        "number\\s+of\\s+Forwards\\s+broken\\s+by\\s+this\\s+effect[.!]?$"
+    );
+    /**
+     * "&lt;effect&gt;. At the end of the turn, break [Self]." — 17-013C Berserker. Groups {@code head}
+     * (the effect) and {@code name} (checked against the source).
+     */
+    static final Pattern THEN_BREAK_SELF_AT_END_OF_TURN = Pattern.compile(
+        "(?is)^(?<head>.+[.!])\\s+At\\s+the\\s+end\\s+of\\s+(?:the|this)\\s+turn,\\s+break\\s+" +
+        "(?<name>[^.!]+?)[.!]?$"
+    );
+    /**
+     * A leading "reveal any number of X from your hand. When you reveal …" — a payoff gated on how
+     * many cards were revealed. Read only by the trigger layer's reveal shapes; anything else
+     * reaching {@code parse()} is declined (see {@code whenYouDoSoPrimaryUnread}).
+     */
+    static final Pattern LEADING_REVEAL_ANY_FROM_HAND_GATED = Pattern.compile(
+        "(?i)^reveal\\s+any\\s+number\\s+of\\s+[^.]+?\\s+from\\s+your\\s+hand[.!]\\s+When\\s+you\\s+reveal\\b"
+    );
+    /**
+     * A search or a reveal earlier in the text, which makes a following "play it onto the field"
+     * refer to the found card rather than to the ability's source.
+     */
+    static final Pattern SEARCHED_OR_REVEALED_CARD = Pattern.compile(
+        "(?i)\\b(?:search\\s+for|reveal)\\b"
     );
     /**
      * Matches "If its power has become N or less/more, return [name] to your/its owner's hand."
@@ -4345,16 +4406,19 @@ final class ActionResolverPatterns {
 
     /**
      * Matches "If your opponent has received N points of damage or less, &lt;effect&gt;" —
-     * 29-013H Bahamut's delayed payoff, the only printing that states this ceiling.
+     * 29-013H Bahamut's delayed payoff — and its self-facing twin "If you have received N points
+     * of damage or less, &lt;effect&gt;" (16-020L Luso, 18-078R Cindy). Group {@code who} is
+     * {@code "your opponent has"} or {@code "you have"}.
      *
      * <p>The "or more" twin of this condition is read elsewhere, by
      * {@code DamageInsteadCondition}, which serves one specific family and is not a gate over an
      * arbitrary effect. This is: without it the gated tail was claimed by the effect parsers with
-     * find() and Bahamut pinged the opponent whatever their damage count.
+     * find() and Bahamut pinged the opponent whatever their damage count, Cindy dealt her
+     * controller damage however much they had already taken, and Luso's tail was misread outright.
      */
-    static final Pattern IF_OPPONENT_DAMAGE_AT_MOST_INNER = Pattern.compile(
-        "(?i)^If\\s+your\\s+opponent\\s+has\\s+received\\s+(?<count>\\d+)\\s+points?\\s+of\\s+" +
-        "damage\\s+or\\s+less,\\s+(?<inner>.+)",
+    static final Pattern IF_DAMAGE_AT_MOST_INNER = Pattern.compile(
+        "(?i)^If\\s+(?<who>your\\s+opponent\\s+has|you\\s+have)\\s+received\\s+(?<count>\\d+)\\s+" +
+        "points?\\s+of\\s+damage\\s+or\\s+less,\\s+(?<inner>.+)",
         Pattern.DOTALL
     );
 
@@ -12065,6 +12129,16 @@ final class ActionResolverPatterns {
         "(?<eff1>.+?)\\.\\s+" +
         "If\\s+the\\s+discarded\\s+card\\s+is\\s+(?<neg2>not\\s+)?an?\\s+Category\\s+(?<cat2>\\S+)\\s+card\\s*,\\s*" +
         "(?<eff2>.+?)[.!]?\\s*$");
+    /**
+     * "&lt;effect that discards&gt;. If the discarded card is Category X, [also] &lt;effect&gt;." —
+     * 20-113R Porom's "draw 1 card, then discard 1 card. If the discarded card is Category IV,
+     * also gain 《C》." Anchored end to end; the one-sided sibling of
+     * {@link #DISCARD_CONDITIONAL_CATEGORY_BRANCHES}. Groups: {@code head}, {@code cat}, {@code eff}.
+     */
+    static final Pattern DISCARD_THEN_IF_DISCARDED_CATEGORY = Pattern.compile(
+        "(?is)^(?<head>.*\\bdiscard\\s+1\\s+card\\b[^.]*[.!])\\s+" +
+        "If\\s+the\\s+discarded\\s+card\\s+is\\s+(?:an?\\s+)?Category\\s+(?<cat>\\S+?)(?:\\s+card)?\\s*,\\s*" +
+        "(?:also\\s+)?(?<eff>[^.]+?)[.!]?\\s*$");
     /**
      * Matches "[Name] breaks after the attack or the block and doesn't deal any damage."
      * (Vincent 2-078R) — the source deals no damage for the rest of the battle and is broken once

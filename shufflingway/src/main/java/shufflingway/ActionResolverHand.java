@@ -437,6 +437,33 @@ final class ActionResolverHand {
             }
         };
     }
+    /**
+     * Parses "&lt;effect that discards 1 card&gt;. If the discarded card is Category X, [also]
+     * &lt;effect&gt;." — 20-113R Porom. Both halves must parse; the payoff runs only when the card
+     * just discarded carries the Category.
+     */
+    static Consumer<GameContext> tryParseDiscardThenIfDiscardedCategory(String text, CardData source) {
+        Matcher m = DISCARD_THEN_IF_DISCARDED_CATEGORY.matcher(text.trim());
+        if (!m.matches()) return null;
+        String headText = m.group("head").trim();
+        // Two-branch texts belong to tryParseDiscardConditionalCategoryBranches.
+        if (headText.toLowerCase(Locale.ROOT).contains("discarded card")) return null;
+        String effText = m.group("eff").trim();
+        effText = Character.toUpperCase(effText.charAt(0)) + effText.substring(1) + ".";
+        Consumer<GameContext> head = parse(headText, source);
+        Consumer<GameContext> payoff = parse(effText, source);
+        if (head == null || payoff == null) return null;
+        String cat = m.group("cat").trim();
+        return ctx -> {
+            head.accept(ctx);
+            if (ctx.lastDiscardedCardIsCategory(cat)) {
+                ctx.logEntry("Discard conditional: discarded a Category " + cat + " card");
+                payoff.accept(ctx);
+            } else {
+                ctx.logEntry("Discard conditional: discarded card is not Category " + cat);
+            }
+        };
+    }
     /** Parses "Your opponent discards N card(s) [from his/her/their hand]" as a standalone effect. */
     static Consumer<GameContext> tryParseNameCardTypeOpponentDiscardDrawIfMatch(String text) {
         if (!NAME_CARD_TYPE_OPP_DISCARD_DRAW_IF_MATCH.matcher(text).find()) return null;

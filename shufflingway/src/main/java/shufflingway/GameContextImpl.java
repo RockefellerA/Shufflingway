@@ -3745,9 +3745,11 @@ final class GameContextImpl implements GameContext {
 				CardData card = deck.pollFirst();
 				logEntry(p + "Revealed from " + deckLabel + ": " + card.name() + " (" + card.type() + ")");
 
-				// P2 AI auto-accepts castSummonFree; P1 is prompted via dialog below
-				boolean castFreeApplicable = card.isSummon() &&
-						clauses.stream().anyMatch(c -> "castSummonFree".equals(c.cardOp()));
+				// P2 AI auto-accepts castSummonFree and mayPlayOntoField; P1 is prompted via dialog below
+				boolean castFreeApplicable = (card.isSummon() &&
+						clauses.stream().anyMatch(c -> "castSummonFree".equals(c.cardOp())))
+						|| clauses.stream().anyMatch(c -> "mayPlayOntoField".equals(c.cardOp())
+								&& c.condition().test(card));
 				boolean[] activated = {!isP1};
 
 				if (isP1) {
@@ -3819,7 +3821,13 @@ final class GameContextImpl implements GameContext {
 					logEntry(p + "Condition matched for " + card.name());
 					if (clause.cardOp() != null) {
 						switch (clause.cardOp()) {
-							case "playOntoField" -> {
+							case "playOntoField", "mayPlayOntoField" -> {
+								if ("mayPlayOntoField".equals(clause.cardOp()) && !activated[0]) {
+									logEntry(card.name() + " — play declined, returned to top of deck");
+									deck.addFirst(card);
+									refreshDeck.run();
+									return;
+								}
 								logEntry(p + card.name() + " played from reveal onto field");
 								if (isP1) {
 									if (card.isBackup())       mw.placeCardInFirstBackupSlot(card);
@@ -8105,6 +8113,30 @@ final class GameContextImpl implements GameContext {
 					}
 				}
 				logEntry("[Warning] playNamedFromRfpOntoField: \"" + cardName + "\" not found in RFP");
+			}
+
+			@Override public void playSourceFromRfpOntoField(CardData source) {
+				for (boolean ownerIsP1 : new boolean[] { true, false }) {
+					List<CardData> rfp = ownerIsP1
+							? mw.gameState.getP1PermanentRfp() : mw.gameState.getP2PermanentRfp();
+					if (rfp.stream().noneMatch(c -> c == source)) continue;
+					mw.gameState.removeFromPermanentRfp(source);
+					logEntry((ownerIsP1 ? "" : "[P2] ") + source.name() + " returns from RFP → field");
+					Runnable place;
+					if (source.isBackup())
+						place = ownerIsP1 ? () -> mw.placeCardInFirstBackupSlot(source)
+								: () -> mw.placeP2CardInFirstBackupSlot(source);
+					else if (source.isMonster())
+						place = ownerIsP1 ? () -> mw.placeCardInMonsterZone(source)
+								: () -> mw.placeP2CardInMonsterZone(source);
+					else
+						place = ownerIsP1 ? () -> mw.placeCardInForwardZone(source)
+								: () -> mw.placeP2CardInForwardZone(source);
+					mw.placeFromRfgWithAnim(source, ownerIsP1, place);
+					return;
+				}
+				logEntry(source.name() + " is no longer removed from the game — not played");
+				markEffectFizzled();
 			}
 
 			@Override public void playNamedFromHoldingZoneOntoField(String cardName) {
