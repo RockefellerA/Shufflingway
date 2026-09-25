@@ -11077,7 +11077,20 @@ final class GameContextImpl implements GameContext {
 				}
 				List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
 				int mi = mons.indexOf(source);
-				if (mi >= 0) breakTarget(new ForwardTarget(isP1, mi, ForwardTarget.CardZone.MONSTER));
+				if (mi >= 0) { breakTarget(new ForwardTarget(isP1, mi, ForwardTarget.CardZone.MONSTER)); return; }
+				// A Backup breaks itself too — 28-080C Gurdy's "break it and Gurdy".
+				CardData[] bkps = isP1 ? mw.p1BackupCards : mw.p2BackupCards;
+				for (int bi = 0; bi < bkps.length; bi++)
+					if (bkps[bi] == source) { breakTarget(new ForwardTarget(isP1, bi, ForwardTarget.CardZone.BACKUP)); return; }
+			}
+
+			@Override public void breakOwnFieldCardNamed(String name) {
+				List<CardData> own = new ArrayList<>(isP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
+				own.addAll(isP1 ? mw.p1MonsterCards : mw.p2MonsterCards);
+				for (CardData b : isP1 ? mw.p1BackupCards : mw.p2BackupCards) if (b != null) own.add(b);
+				for (CardData c : own)
+					if (meetsCardNameFilter(c, name)) { breakSourceCard(c); return; }
+				logEntry(name + " is no longer on the field — nothing to break");
 			}
 
 			@Override public void breakSourceAtEndOfTurn(CardData source) {

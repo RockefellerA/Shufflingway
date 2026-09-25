@@ -2354,6 +2354,49 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "Choose … . If <game-state condition>, <followup>" ---------------------------------
+        // The general form of the gate above, for every condition parseDamageInsteadCondition reads
+        // that does not depend on the chosen card: "If you control a Dark Forward" (25-108R),
+        // "a Job Sky Pirate Forward other than Raz" (10-124C), "Card Name Rikku" (1-199S), "you
+        // have received a point of damage this turn" (15-090H), "4 points of damage or more"
+        // (7-134S, 8-075C), "your opponent controls more Forwards than you" (9-100R, 16-124H).
+        // Unread, the followup handlers below found their verb inside the sentence and ran it
+        // unconditionally — about forty cards, every one stronger than printed.
+        //
+        // Left alone: the "N or more" control forms FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_* read
+        // already, and any "… instead" sentence, which is an upgrade over a base rather than a
+        // gate. Settled like the cast-count gate: the choose happens either way, and a trailing
+        // sentence (the secondary) runs whether or not the condition held.
+        Matcher stateGateM = FOLLOWUP_IF_STATE_CONDITION_CLAUSE.matcher(followup);
+        if (stateGateM.lookingAt()
+                && !followup.matches("(?is).*\\binstead\\b.*")
+                && !FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_ACTION.matcher(primaryFollowup).matches()
+                && !FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE.matcher(primaryFollowup).matches()) {
+            DamageInsteadCondition gate = parseDamageInsteadCondition(stateGateM.group("cond"));
+            // A power condition must name the card asking: "If Zell has 10000 power or more".
+            if (gate instanceof DamageInsteadCondition.NamedPowerAtLeast np
+                    && (source == null || !np.name().equalsIgnoreCase(source.name()))) gate = null;
+            if (gate != null && !(gate instanceof DamageInsteadCondition.TargetIsActive)
+                    && !(gate instanceof DamageInsteadCondition.TargetIsMultiElement)) {
+                final DamageInsteadCondition finalGate = gate;
+                String ungated = text.substring(0, m.start("followup")) + followup.substring(stateGateM.end());
+                Consumer<GameContext> gatedEffect = tryParseChooseCharacterInner(ungated, source, xValue);
+                if (gatedEffect == null) return null;
+                String condText = stateGateM.group("cond").trim();
+                return ctx -> {
+                    if (insteadConditionMet(ctx, finalGate)) {
+                        gatedEffect.accept(ctx);
+                        return;
+                    }
+                    ctx.logChooseHeader(choosePrefix + " — not met: " + condText + "; choosing anyway, no effect");
+                    selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            }
+        }
+
         // =====================================================================================
         // Quoted grants, optional payments and search payoffs
         // =====================================================================================
@@ -4783,6 +4826,24 @@ final class ActionResolverChoose {
                 // No secondary: this branch has already read both sentences. Running it would
                 // resolve the second one again as a plain break — which reinstated exactly the
                 // unconditional break this branch exists to prevent.
+            };
+        }
+
+        // --- "Break it and [Self]" followup (19-082H Lightning, 16-084R Leslie) ---
+        // Must precede the plain Break followup, which find()s "break it" and left the ability's
+        // own card standing.
+        Matcher breakAndNamedM = FOLLOWUP_BREAK_AND_NAMED_CARD.matcher(primaryFollowup.trim());
+        if (breakAndNamedM.matches()) {
+            String named = breakAndNamedM.group("name").trim();
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Break (and " + named + ")");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.breakTarget(t));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.breakTarget(t));
+                ctx.breakOwnFieldCardNamed(named);
+                if (secondary != null) secondary.accept(ctx);
             };
         }
 

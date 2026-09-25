@@ -5396,12 +5396,69 @@ public class ActionResolver {
             String excludeName = null;
             Matcher otherThanM = Pattern
                     .compile("(?i)^(?<cond>.+?)\\s+other\\s+than\\s+(?<name>.+)$").matcher(rest);
-            if (otherThanM.matches()) {
+            // "a Forward of an Element other than Earth" (16-084R) excludes an Element, which
+            // parseControlCondition reads itself; split here it read as a card named "Earth".
+            boolean elementExclusion = rest.matches("(?i).*\\bElement\\s+other\\s+than\\s+\\S+$");
+            if (!elementExclusion && otherThanM.matches()) {
                 excludeName = otherThanM.group("name").trim();
                 rest = otherThanM.group("cond").trim();
             }
             ControlCondition cc = CardData.parseControlCondition(rest);
             if (cc != null) return new DamageInsteadCondition.YouControl(cc, excludeName);
+        }
+
+        // "you have [a total of] N or more Job X and/or Card Name Y in your Break Zone"
+        Matcher bzJobNameM = Pattern.compile("(?i)^you\\s+have\\s+(?:a\\s+total\\s+of\\s+)?(\\d+)\\s+or\\s+more\\s+"
+                + "Job\\s+(.+?)\\s+and/or\\s+Card\\s+Name\\s+(.+?)\\s+in\\s+your\\s+Break\\s+Zone$").matcher(s);
+        if (bzJobNameM.matches())
+            return new DamageInsteadCondition.BreakZoneJobOrNameAtLeast(Integer.parseInt(bzJobNameM.group(1)),
+                    bzJobNameM.group(2).trim(), bzJobNameM.group(3).trim());
+
+        // Break Zone size: "there are N or more cards in your Break Zone", "you have N or more
+        // Summons in your Break Zone". A name or Job in the phrase is left unread (declined).
+        Matcher bzM = Pattern.compile("(?i)^(?:there\\s+are|you\\s+have)\\s+(\\d+)\\s+or\\s+more\\s+"
+                + "(cards|Forwards|Backups|Monsters|Summons|Characters)\\s+in\\s+your\\s+Break\\s+Zone$").matcher(s);
+        if (bzM.matches()) {
+            int n = Integer.parseInt(bzM.group(1));
+            String t = bzM.group(2).toLowerCase(Locale.ROOT);
+            boolean any = t.equals("cards"), chars = t.equals("characters");
+            return new DamageInsteadCondition.BreakZoneAtLeast(n, any || chars || t.equals("forwards"),
+                    any || chars || t.equals("backups"), any || chars || t.equals("monsters"),
+                    any || t.equals("summons"));
+        }
+
+        // Opponent's field: "your opponent controls N or more [dull|active] Forwards"
+        Matcher oppM = Pattern.compile("(?i)^your\\s+opponent\\s+controls\\s+(\\d+)\\s+or\\s+more\\s+"
+                + "(?:(dull|active)\\s+)?(Forwards|Backups|Monsters|Characters)$").matcher(s);
+        if (oppM.matches()) {
+            String t = oppM.group(3).toLowerCase(Locale.ROOT);
+            boolean chars = t.equals("characters");
+            return new DamageInsteadCondition.OpponentControlsAtLeast(Integer.parseInt(oppM.group(1)),
+                    chars || t.equals("forwards"), chars || t.equals("backups"), chars || t.equals("monsters"),
+                    oppM.group(2) != null ? oppM.group(2).toLowerCase(Locale.ROOT) : null);
+        }
+
+        // Own hand size: "you have N or more cards in your hand"
+        Matcher handM = Pattern.compile("(?i)^you\\s+have\\s+(\\d+)\\s+or\\s+more\\s+cards\\s+in\\s+your\\s+hand$")
+                .matcher(s);
+        if (handM.matches()) return new DamageInsteadCondition.YouHandAtLeast(Integer.parseInt(handM.group(1)));
+
+        // "[Name] has N power or more" — the source's own power on every printing.
+        Matcher powM = Pattern.compile("(?i)^(.+?)\\s+has\\s+(\\d+)\\s+power\\s+or\\s+more$").matcher(s);
+        if (powM.matches())
+            return new DamageInsteadCondition.NamedPowerAtLeast(powM.group(1).trim(), Integer.parseInt(powM.group(2)));
+
+        if (s.matches("(?i)you\\s+have\\s+received\\s+more\\s+points\\s+of\\s+damage\\s+than\\s+your\\s+opponent"))
+            return new DamageInsteadCondition.YouHaveMoreDamageThanOpponent();
+
+        // Own field, a ceiling: "you control N or less Backups"
+        Matcher atMostM = Pattern.compile("(?i)^you\\s+control\\s+(\\d+)\\s+or\\s+(?:less|fewer)\\s+"
+                + "(Forwards|Backups|Monsters|Characters)$").matcher(s);
+        if (atMostM.matches()) {
+            String t = atMostM.group(2).toLowerCase(Locale.ROOT);
+            boolean chars = t.equals("characters");
+            return new DamageInsteadCondition.YouControlAtMost(Integer.parseInt(atMostM.group(1)),
+                    chars || t.equals("forwards"), chars || t.equals("backups"), chars || t.equals("monsters"));
         }
         return null;
     }
@@ -5600,6 +5657,19 @@ public class ActionResolver {
                 sortedByIdxDesc(ts, true) .forEach(ctx::breakTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::breakTarget);
                 ctx.drawCards(draws);
+            };
+        }
+
+        // "break it and Leslie" — the chosen card(s) and the ability's own card, named (16-084R,
+        // 19-082H Lightning, 28-080C Gurdy). Ahead of FOLLOWUP_BREAK, which find()s "break it" and
+        // left the card that printed the ability standing.
+        Matcher breakAndNamedM = FOLLOWUP_BREAK_AND_NAMED_CARD.matcher(t);
+        if (breakAndNamedM.matches()) {
+            String named = breakAndNamedM.group("name").trim();
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ctx::breakTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::breakTarget);
+                ctx.breakOwnFieldCardNamed(named);
             };
         }
 
@@ -6076,6 +6146,23 @@ public class ActionResolver {
                 ctx.opponentForwardCount() > ctx.selfForwardCount();
             case DamageInsteadCondition.IsExBurst() ->
                 ctx.isExBurst();
+            case DamageInsteadCondition.BreakZoneAtLeast(int min, boolean f, boolean b, boolean mo, boolean su) ->
+                ctx.countSelfBreakZoneCardsByType(f, b, mo, su) >= min;
+            case DamageInsteadCondition.OpponentControlsAtLeast(int min, boolean f, boolean b, boolean mo, String state) ->
+                ctx.countOppFieldCardsWithCondition(f, b, mo, state) >= min;
+            case DamageInsteadCondition.YouHandAtLeast(int min) ->
+                ctx.yourHandSize() >= min;
+            case DamageInsteadCondition.YouControlAtMost(int max, boolean f, boolean b, boolean mo) ->
+                ctx.countSelfFieldCards(f, b, mo, null, null) <= max;
+            case DamageInsteadCondition.NamedPowerAtLeast(String name, int min) ->
+                ctx.fieldForwardPowerByName(name) >= min;
+            case DamageInsteadCondition.YouHaveMoreDamageThanOpponent() ->
+                ctx.selfDamageCount() > ctx.opponentDamageCount();
+            // The Break Zone count ANDs its two filters, so "and/or" is read by inclusion-exclusion:
+            // the name, plus the Job, less the cards that are both and were counted twice.
+            case DamageInsteadCondition.BreakZoneJobOrNameAtLeast(int min, String job, String name) ->
+                ctx.countSelfBreakZoneCards(name, null) + ctx.countSelfBreakZoneCards(null, job)
+                        - ctx.countSelfBreakZoneCards(name, job) >= min;
         };
     }
 

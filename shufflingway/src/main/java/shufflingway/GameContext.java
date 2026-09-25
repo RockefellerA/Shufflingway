@@ -5224,10 +5224,19 @@ public interface GameContext {
     void swapDamageZoneCardWithHandCard(boolean drawCardBetween);
 
     /**
-     * Immediately breaks {@code source} — searches own forwards then monsters by identity
-     * and calls {@link #breakTarget} on the first match.  No-op if already off the field.
+     * Immediately breaks {@code source} — searches own Forwards, then Monsters, then Backups by
+     * identity and calls {@link #breakTarget} on the first match. No-op if already off the field.
      */
     void breakSourceCard(CardData source);
+
+    /**
+     * Breaks the ability user's own field card named {@code name} — "break it and Leslie"
+     * (16-084R, 19-082H Lightning, 28-080C Gurdy), where the ability's own card is named after the
+     * targets. By name rather than identity because the per-target action reader has no source to
+     * hand; the two agree, as a player can never control two Characters with one name. No-op when
+     * the card has left the field.
+     */
+    void breakOwnFieldCardNamed(String name);
 
     /** Breaks the Forward currently blocking the source card's controller's attacker. */
     void breakBlockingForward();

@@ -1671,6 +1671,18 @@ final class ActionResolverPatterns {
      * <p>Must be read ahead of {@link #FOLLOWUP_BREAK}, which is unanchored: it matches the "Break
      * it" prefix of this sentence and would silently drop the draw. Group {@code draw} — the count.
      */
+    /**
+     * "Break it/them and [Name]." — the chosen card(s) and a named card of your own, which on every
+     * printing is the ability's source (16-084R Leslie, 19-082H Lightning, 28-080C Gurdy). The name
+     * must start with a capital and may not be a verb, so "break it and draw 1 card" stays with
+     * {@link #FOLLOWUP_BREAK_AND_DRAW}. Group {@code name}.
+     */
+    static final Pattern FOLLOWUP_BREAK_AND_NAMED_CARD = Pattern.compile(
+        "(?i)^break\\s+(?:it|them)\\s+and\\s+" +
+        "(?<name>(?-i:[A-Z])(?!(?i:draw|deal|dull|freeze|return|remove|put|play|gain|choose|select|discard)\\b)[^.!]*?)" +
+        "[.!]?$"
+    );
+
     static final Pattern FOLLOWUP_BREAK_AND_DRAW = Pattern.compile(
         "(?i)Break\\s+(?:it|them)\\s+and\\s+draw\\s+(?<draw>\\d+)\\s+cards?[.!]?"
     );
@@ -11359,6 +11371,16 @@ final class ActionResolverPatterns {
      * <p>The qualifier is {@linkplain #SELF_CONTROLS_QUALIFIER the shared one}; reading it is
      * {@link ActionResolver#selfControlsGate}'s job, not the pattern's.
      */
+    /**
+     * "If &lt;condition&gt;, " opening a choose followup — the clause the general state gate in
+     * {@code ActionResolverChoose} strips off. Group {@code cond} is handed to
+     * {@link ActionResolver#parseDamageInsteadCondition}, which decides whether it is a condition
+     * at all; the comma ends it, as no condition that reader accepts contains one.
+     */
+    static final Pattern FOLLOWUP_IF_STATE_CONDITION_CLAUSE = Pattern.compile(
+        "(?i)If\\s+(?<cond>[^,]+?),\\s*"
+    );
+
     static final Pattern FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_ACTION = Pattern.compile(
         "(?i)^If\\s+you\\s+control\\s+" + SELF_CONTROLS_QUALIFIER +
         ",\\s*(?<action>.+?)[.!]?$"

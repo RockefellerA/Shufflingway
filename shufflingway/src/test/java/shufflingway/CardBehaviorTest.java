@@ -65883,6 +65883,110 @@ public class CardBehaviorTest {
 		verify(ctx).selfLoseAllAbilitiesUntilEndOfTurn(jack);
 	}
 
+	// ---- "Choose … . If <game-state condition>, <followup>" — the general gate ---------------------
+
+	@Test
+	void kamlanautBreaksOnlyWithADarkForward() {
+		CardData kam = makeForward("Kam'lanaut", "Dark", 5, 9000);
+		Consumer<GameContext> fn = ActionResolver.parse("choose 1 Forward. If you control a Dark Forward, break it.", kam);
+		for (boolean met : new boolean[]{false, true}) {
+			GameContext ctx = mock(GameContext.class);
+			ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+			stubChosenForwards(ctx, List.of(t));
+			when(ctx.controlConditionMet(any())).thenReturn(met);
+			fn.accept(ctx);
+			if (met) verify(ctx).breakTarget(t); else verify(ctx, never()).breakTarget(any());
+		}
+	}
+
+	@Test
+	void aBreakZoneCountGatesTheBreak() {
+		Consumer<GameContext> fn = ActionResolver.parse("choose 1 Forward opponent controls. If there are 10 or more "
+				+ "cards in your Break Zone, break it.", makeForward("Seifer", "Fire", 5, 9000));
+		GameContext ctx = mock(GameContext.class);
+		stubChosenForwards(ctx, List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		when(ctx.countSelfBreakZoneCardsByType(true, true, true, true)).thenReturn(9);
+		fn.accept(ctx);
+		verify(ctx, never()).breakTarget(any());
+	}
+
+	@Test
+	void aTrailingSentenceRunsWhateverTheGateSays() {
+		Consumer<GameContext> fn = ActionResolver.parse("choose 1 Forward opponent controls. If you control a Category "
+				+ "SOPFFO Character other than Jed, return it to its owner's hand. Draw 1 card.",
+				makeForward("Jed", "Water", 3, 7000));
+		GameContext ctx = mock(GameContext.class);
+		stubChosenForwards(ctx, List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		fn.accept(ctx);
+		verify(ctx, never()).returnP2ForwardToHand(anyInt());
+		verify(ctx).drawCards(1);
+	}
+
+	@Test
+	void aPowerConditionMustNameTheSource() {
+		String text = "choose 1 Forward opponent controls. If Zell has 10000 power or more, deal it 8000 damage.";
+		GameContext ctx = mock(GameContext.class);
+		stubChosenForwards(ctx, List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		when(ctx.fieldForwardPowerByName("Zell")).thenReturn(9000);
+		ActionResolver.parse(text, makeForward("Zell", "Fire", 4, 8000)).accept(ctx);
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void aJobOrNameBreakZoneCountCountsEachCardOnce() {
+		Consumer<GameContext> fn = ActionResolver.parse("choose 1 Forward opponent controls. If you have a total of 7 "
+				+ "or more Job Samurai and/or Card Name Samurai in your Break Zone, deal it 9000 damage.",
+				makeForward("Ashina", "Fire", 3, 7000));
+		// 4 named Samurai, 4 with the Job, 1 of them both: 7 distinct cards.
+		for (int both : new int[]{1, 2}) {
+			GameContext ctx = mock(GameContext.class);
+			stubChosenForwards(ctx, List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+			when(ctx.countSelfBreakZoneCards("Samurai", null)).thenReturn(4);
+			when(ctx.countSelfBreakZoneCards(null, "Samurai")).thenReturn(4);
+			when(ctx.countSelfBreakZoneCards("Samurai", "Samurai")).thenReturn(both);
+			fn.accept(ctx);
+			if (both == 1) verify(ctx).damageTarget(any(), eq(9000));
+			else verify(ctx, never()).damageTarget(any(), anyInt());
+		}
+	}
+
+	@Test
+	void leslieReadsAnElementExclusionNotACardNamedEarth() {
+		DamageInsteadCondition c = ActionResolver.parseDamageInsteadCondition(
+				"you control a Forward of an Element other than Earth");
+		assertInstanceOf(DamageInsteadCondition.YouControl.class, c);
+		DamageInsteadCondition.YouControl yc = (DamageInsteadCondition.YouControl) c;
+		assertNull(yc.excludeName());
+		assertEquals("Earth", yc.cond().excludeElement());
+	}
+
+	@Test
+	void lightningBreaksHerTargetAndHerself() {
+		MainWindow mw = new MainWindow();
+		CardData lightning = makeForward("Lightning", "Lightning", 5, 9000);
+		mw.gameState.getIdentity().put(lightning, false);
+		mw.placeP2CardInForwardZone(lightning);
+		CardData foe = makeForward("Foe", "Fire", 3, 5000);
+		mw.gameState.getIdentity().put(foe, true);
+		mw.placeCardInForwardZone(foe);
+
+		ActionResolver.parse("Choose 1 Forward opponent controls. Break it and Lightning.", lightning)
+				.accept(mw.buildGameContext(false));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(foe));
+		assertTrue(mw.gameState.getP2BreakZone().contains(lightning), "she breaks herself too");
+	}
+
+	@Test
+	void aBackupCanBreakItselfByName() {
+		MainWindow mw = new MainWindow();
+		CardData gurdy = makePlainBackup("Gurdy", "Lightning", 3);
+		mw.gameState.getIdentity().put(gurdy, false);
+		mw.placeP2CardInFirstBackupSlot(gurdy);
+		mw.buildGameContext(false).breakOwnFieldCardNamed("Gurdy");
+		assertTrue(mw.gameState.getP2BreakZone().contains(gurdy));
+	}
+
 	// ---- Reveal-gated Shantottos: 28-029C, 10-072L ----------------------------------------------
 
 	private static final String SHANTOTTO_28_029C = "reveal the top card of your deck. If it is an Ice card, "

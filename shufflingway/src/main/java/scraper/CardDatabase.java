@@ -505,7 +505,14 @@ public class CardDatabase implements AutoCloseable {
      * exact wrong substring, so a source that fixes itself leaves nothing for the step to do.
      */
     private static final List<TextFix> TEXT_CORRECTIONS = List.of(
-            new TextFix("5-033R", "Card Name Gumbahand play", "Card Name Gumbah and play")  // Gumbah
+            new TextFix("5-033R", "Card Name Gumbahand play", "Card Name Gumbah and play"),  // Gumbah
+            // Odin: the only "following actions" printing whose options arrive unquoted. Without the
+            // quotes the select reads no options, and the first sentence ran alone every cast.
+            new TextFix("15-090H",
+                    "[[br]]   Choose 1 Forward of cost 2 or less. Break it.[[br]]   Choose 1 Forward of cost 4 or less."
+                            + " If you have received a point of damage this turn, break it.",
+                    "[[br]]   \"Choose 1 Forward of cost 2 or less. Break it.\"[[br]]   \"Choose 1 Forward of cost 4 or"
+                            + " less. If you have received a point of damage this turn, break it.\"")
     );
 
     /**
