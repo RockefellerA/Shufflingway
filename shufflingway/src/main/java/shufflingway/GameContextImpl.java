@@ -4574,6 +4574,15 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void castSummonFromHandDiscounted(int discount) {
+				castSummonFromHandDiscounted(discount, false, false);
+			}
+
+			@Override public void castSummonFromHandDiscountedAnyElement(int discount, boolean rfgAfterUse) {
+				castSummonFromHandDiscounted(discount, true, rfgAfterUse);
+			}
+
+			private void castSummonFromHandDiscounted(int discount, boolean anyElement, boolean rfgAfterUse) {
+				String riders = anyElement ? ", any Element" : "";
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				List<Integer> eligible = new ArrayList<>();
 				for (int i = 0; i < hand.size(); i++)
@@ -4590,7 +4599,7 @@ final class GameContextImpl implements GameContext {
 					java.util.function.ToIntFunction<CardData> costFn =
 							c -> Math.max(1, mw.effectiveCastCost(c) - discount);
 					int listIdx = mw.showCardImageChooser(candidates,
-							"Cast a Summon (cost reduced by " + discount + ", min 1)", true, costFn);
+							"Cast a Summon (cost reduced by " + discount + ", min 1" + riders + ")", true, costFn);
 					if (listIdx < 0) { markEffectFizzled(); return; }
 					handIdx = eligible.get(listIdx);
 				} else {
@@ -4601,22 +4610,39 @@ final class GameContextImpl implements GameContext {
 						discount, true, true,
 						false, false, false, true,
 						null, null, card.name().toLowerCase(), null, false);
-				mw.activeCostReductions.add(mod);
 				if (isP1) {
-					mw.showPaymentDialog(card, handIdx);
+					mw.activeCostReductions.add(mod);
+					if (anyElement)  mw.anyElementHandCasts.add(card);
+					if (rfgAfterUse) mw.rfgAfterUseHandCasts.add(card);
+					try {
+						// Modal: by the time it returns the cast was committed — executePlay has taken
+						// the discount and moved the removal rider — or the payment was cancelled.
+						// Either way nothing here may outlive this one cast.
+						mw.showPaymentDialog(card, handIdx);
+					} finally {
+						mw.activeCostReductions.remove(mod);
+						mw.anyElementHandCasts.remove(card);
+						mw.rfgAfterUseHandCasts.remove(card);
+					}
 				} else {
+					// The CPU's cast here spends no CP, so there is no Element to relax; only the
+					// removal rider has anything to do.
 					hand.remove(handIdx);
 					mw.refreshP2HandCountLabel();
 					mw.p2Turn.summonCastThisTurn = true;
 					mw.noteCardCast(card, false);
 					mw.noteDoublecastSummonCast(false, card);
-					mw.activeCostReductions.remove(mod);
-					logEntry("[P2] Cast \"" + card.name() + "\" from hand (cost -" + discount + ")");
+					if (rfgAfterUse) mw.rfgAfterUseSummons.add(card);
+					logEntry("[P2] Cast \"" + card.name() + "\" from hand (cost -" + discount + riders + ")");
 					mw.showSummonOnStack(card, false);
 				}
 			}
 
 			@Override public int searchAndCastSummonFreeFromDeck(int maxCost, String elementFilter) {
+				if (mw.turn(isP1).cannotSearchThisTurn) {
+					logEntry("Search blocked — opponent cannot search this turn");
+					return -1;
+				}
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				java.util.List<CardData> matches = new java.util.ArrayList<>();
 				for (CardData c : deck) {
@@ -4756,7 +4782,11 @@ final class GameContextImpl implements GameContext {
 				Deque<CardData> p1Deck = mw.gameState.getP1MainDeck();
 				List<CardData> p1Matches = new ArrayList<>();
 				for (CardData c : p1Deck) if (c.isForward() && c.power() >= minPower) p1Matches.add(c);
-				if (p1Matches.isEmpty()) {
+				// Each half is blocked on its own: "your opponent cannot search" binds one player, and
+				// the other still gets the search this card offers them.
+				if (mw.turn(true).cannotSearchThisTurn) {
+					logEntry("P1 search blocked — cannot search this turn");
+				} else if (p1Matches.isEmpty()) {
 					logEntry("P1 search: no Forward of " + minPower + "+ power in deck");
 					mw.shuffleDeck(true);
 				} else {
@@ -4783,7 +4813,9 @@ final class GameContextImpl implements GameContext {
 				Deque<CardData> p2Deck = mw.gameState.getP2MainDeck();
 				List<CardData> p2Matches = new ArrayList<>();
 				for (CardData c : p2Deck) if (c.isForward() && c.power() >= minPower) p2Matches.add(c);
-				if (p2Matches.isEmpty()) {
+				if (mw.turn(false).cannotSearchThisTurn) {
+					logEntry("[P2] search blocked — cannot search this turn");
+				} else if (p2Matches.isEmpty()) {
 					logEntry("[P2] search: no Forward of " + minPower + "+ power in deck");
 					mw.shuffleDeck(false);
 				} else {
@@ -7182,6 +7214,7 @@ final class GameContextImpl implements GameContext {
 			@Override public int dullForwardCostPower() { return mw.lastDullForwardCostPower; }
 			@Override public int lastDiscardedForwardPower() { return mw.lastDiscardedForwardPower; }
 			@Override public int bzCostForwardPower() { return mw.lastBzCostForwardPower; }
+			@Override public List<CardData> bzCostForwards() { return List.copyOf(mw.lastBzCostForwards); }
 			@Override public void suppressExBurstsThisAbility() { mw.suppressExBurstsThisAbility = true; }
 			@Override public void setAiPrefersOwnTargets(boolean preferOwn) { mw.aiPrefersOwnTargets = preferOwn; }
 			@Override public void setAiDamageTargetHint(int damage) { aiDamageTargetHint = Math.max(0, damage); }

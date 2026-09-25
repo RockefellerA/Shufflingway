@@ -1622,8 +1622,9 @@ class ComputerPlayer implements OpponentController {
 				// nothing when it resolves — it only pays off while their effect is already on the
 				// stack, and P2 passes priority rather than responding.
 				if (ActionResolver.isOwnForwardProtectionEffect(ability.effectText())) continue;
-				// "Opponent cannot search" (e.g. Mog (VI)) only matters if P1 actually has a
-				// search option available this turn — otherwise it's a wasted Break Zone activation.
+				// "Opponent cannot search" only matters if P1 actually has a search option available
+				// this turn — otherwise it's a wasted Break Zone activation. The field-scan twin in
+				// tryP2UseAbility is the one Mog (VI) 17-124H reaches.
 				if (ActionResolver.isOpponentCannotSearchAbility(ability.effectText()) && !p1HasSearchOption()) continue;
 
 				List<Integer>        backupDullIndices = new ArrayList<>();
@@ -1771,6 +1772,9 @@ class ComputerPlayer implements OpponentController {
 			// stack, and P2 passes priority rather than responding. Same reasoning as the
 			// self-bounce skip below.
 			if (ActionResolver.isOwnForwardProtectionEffect(ability.effectText())) continue;
+			// "Your opponent cannot search" (Mog (VI) 17-124H, paid by putting Mog into the Break
+			// Zone) buys nothing unless P1 has a search it could make this turn.
+			if (ActionResolver.isOpponentCannotSearchAbility(ability.effectText()) && !p1HasSearchOption()) continue;
 			// A "return Forward to hand" bounce paid by sacrificing your own card(s) to the Break
 			// Zone is only worth it when it removes an opponent's Forward. A self-only bounce
 			// ("Forward you control") is never a proactive gain — it's a defensive save best left for
@@ -2147,8 +2151,8 @@ class ComputerPlayer implements OpponentController {
 	/**
 	 * True if P1 currently has either a hand card they can afford to play whose text can search
 	 * the deck, or a field Forward/Backup/Monster with a search-capable ability. Used to gate
-	 * "your opponent cannot search this turn" disruption abilities (e.g. Mog (VI)'s Break Zone
-	 * ability) so the CPU doesn't spend one for no effect.
+	 * "your opponent cannot search this turn" disruption abilities (Mog (VI) 17-124H) so the CPU
+	 * doesn't spend one for no effect.
 	 */
 	private boolean p1HasSearchOption() {
 		List<CardData> hand = mw.gameState.getP1Hand();

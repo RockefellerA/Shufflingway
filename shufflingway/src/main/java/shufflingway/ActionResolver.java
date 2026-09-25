@@ -1653,10 +1653,16 @@ public class ActionResolver {
         result = tryParseCastSummonFromHandDiscounted(effectText);
         if (result != null) return result;
 
+        result = tryParseCastSummonFromHandDiscountedAnyElement(effectText);
+        if (result != null) return result;
+
         result = tryParseCastSummonFromHandFree(effectText, xValue);
         if (result != null) return result;
 
         result = tryParseSearchAndCastSummonFree(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseSearchForwardKeyedToBzCostForward(effectText, source);
         if (result != null) return result;
 
         // Must precede tryParseSearchDeck: that parser resolves the search alone and leaves the
@@ -2789,8 +2795,10 @@ public class ActionResolver {
         if (tryParseDealPlayerDamageToSelf(effectText)        != null) return "DealPlayerDamageToSelf";
         if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null) return "RandomRevealHandCastIfSummonFree";
         if (tryParseCastSummonFromHandDiscounted(effectText)     != null) return "CastSummonFromHandDiscounted";
+        if (tryParseCastSummonFromHandDiscountedAnyElement(effectText) != null) return "CastSummonFromHandDiscountedAnyElement";
         if (tryParseCastSummonFromHandFree(effectText, 0)     != null) return "CastSummonFromHandFree";
         if (tryParseSearchAndCastSummonFree(effectText, source) != null) return "SearchAndCastSummonFree";
+        if (tryParseSearchForwardKeyedToBzCostForward(effectText, source) != null) return "SearchForwardKeyedToBzCostForward";
         if (tryParseSearchSummonRfgFreeCastThisTurn(effectText) != null) return "SearchSummonRfgFreeCastThisTurn";
         if (tryParseSearchSummonRfgThenCastFree(effectText)     != null) return "SearchSummonRfgThenCastFree";
         if (tryParsePlayAnyNumberFromHand(effectText, source) != null) return "PlayAnyNumberFromHand";
@@ -4752,8 +4760,10 @@ public class ActionResolver {
         if (tryParseDealPlayerDamageToSelf(effectText) != null)             return "DealPlayerDamageToSelf";
         if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null)   return "RandomRevealHandCastIfSummonFree";
         if (tryParseCastSummonFromHandDiscounted(effectText) != null)       return "CastSummonFromHandDiscounted";
+        if (tryParseCastSummonFromHandDiscountedAnyElement(effectText) != null) return "CastSummonFromHandDiscountedAnyElement";
         if (tryParseCastSummonFromHandFree(effectText, 0) != null)          return "CastSummonFromHandFree";
         if (tryParseSearchAndCastSummonFree(effectText, source) != null)    return "SearchAndCastSummonFree";
+        if (tryParseSearchForwardKeyedToBzCostForward(effectText, source) != null) return "SearchForwardKeyedToBzCostForward";
         if (tryParseSearchSummonRfgFreeCastThisTurn(effectText) != null)    return "SearchSummonRfgFreeCastThisTurn";
         if (tryParseSearchSummonRfgThenCastFree(effectText)     != null)    return "SearchSummonRfgThenCastFree";
         if (tryParsePlayAnyNumberFromHand(effectText, source) != null)      return "PlayAnyNumberFromHand";

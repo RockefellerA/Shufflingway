@@ -778,6 +778,18 @@ final class ActionResolverHand {
             ctx.castSummonFromHandDiscounted(amount);
         };
     }
+    static Consumer<GameContext> tryParseCastSummonFromHandDiscountedAnyElement(String text) {
+        Matcher m = CAST_SUMMON_FROM_HAND_DISCOUNTED_ANY_ELEMENT.matcher(text.trim());
+        if (!m.matches()) return null;
+        final int amount = Integer.parseInt(m.group("amount"));
+        final boolean rfgAfterUse = m.group("rfg") != null;
+        return ctx -> {
+            ctx.logEntry("Effect: Cast a Summon from hand (cost reduced by " + amount
+                    + ", floor 1, payable with CP of any Element"
+                    + (rfgAfterUse ? ", removed from the game after use" : "") + ")");
+            ctx.castSummonFromHandDiscountedAnyElement(amount, rfgAfterUse);
+        };
+    }
     static Consumer<GameContext> tryParseCastSummonFromHandFree(String text, int xValue) {
         Matcher m = CAST_SUMMON_FROM_HAND_FREE.matcher(text.trim());
         if (!m.find()) return null;

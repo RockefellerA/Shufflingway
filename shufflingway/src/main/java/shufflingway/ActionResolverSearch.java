@@ -530,6 +530,38 @@ final class ActionResolverSearch {
             ctx.randomRevealHandCastIfSummonFree();
         };
     }
+    /**
+     * 11-136S Cloud's "a Forward that costs 1 CP more than the Forward put into the Break Zone" and
+     * 4-094R Magic Pot's "a Forward with the same name as the Forward you put into the Break Zone",
+     * each played onto the field. The Forward is the one paid as this ability's cost; the source
+     * is excluded so Magic Pot, put into the Break Zone alongside it, can never be taken for it.
+     */
+    static Consumer<GameContext> tryParseSearchForwardKeyedToBzCostForward(String text, CardData source) {
+        Matcher m = SEARCH_FORWARD_KEYED_TO_BZ_COST_FORWARD.matcher(text.trim());
+        if (!m.matches()) return null;
+        final int more = m.group("more") != null ? Integer.parseInt(m.group("more")) : -1;
+        return ctx -> {
+            CardData paid = ctx.bzCostForwards().stream()
+                    .filter(c -> c != source).findFirst().orElse(null);
+            if (paid == null) {
+                ctx.logEntry("No Forward was put into the Break Zone for this ability — effect fizzles");
+                ctx.markEffectFizzled();
+                return;
+            }
+            if (more >= 0) {
+                int cost = paid.cost() + more;
+                ctx.logEntry("Effect: Search for 1 Forward of cost " + cost + " (" + paid.name()
+                        + " + " + more + ") and play it onto the field");
+                ctx.searchDeckForCard(true, false, false, false, cost, null, null, null,
+                        null, null, null, null, "field", 1, false, null);
+            } else {
+                ctx.logEntry("Effect: Search for 1 Forward named " + paid.name()
+                        + " and play it onto the field");
+                ctx.searchDeckForCard(true, false, false, false, -1, null, paid.name(), null,
+                        null, null, null, null, "field", 1, false, null);
+            }
+        };
+    }
     static Consumer<GameContext> tryParseSearchAndCastSummonFree(String text, CardData source) {
         Matcher m = SEARCH_AND_CAST_SUMMON_FREE_PATTERN.matcher(text.trim());
         if (!m.find()) return null;

@@ -657,6 +657,13 @@ public interface GameContext {
     void castSummonFromHandDiscounted(int discount);
 
     /**
+     * {@link #castSummonFromHandDiscounted} with the cost payable using CP of any Element, and,
+     * when {@code rfgAfterUse}, the Summon removed from the game after it resolves instead of
+     * going to the Break Zone — 16-123L Meia. Both riders belong to this one cast only.
+     */
+    void castSummonFromHandDiscountedAnyElement(int discount, boolean rfgAfterUse);
+
+    /**
      * Searches the deck for a Summon matching the element and cost filters, then offers
      * the player a choice to cast it for free.  If the player declines to cast, the Summon
      * is put into the Break Zone.  The deck is shuffled after the search regardless.
@@ -2466,6 +2473,13 @@ public interface GameContext {
      * for the current ability. Returns {@code 0} when no Forward was put into the BZ as a cost.
      */
     int bzCostForwardPower();
+
+    /**
+     * The Forward(s) put into the Break Zone as a cost for the current ability, in payment order;
+     * empty when none was. The card itself rather than its power, for effects keyed on its cost
+     * (11-136S Cloud) or its name (4-094R Magic Pot).
+     */
+    List<CardData> bzCostForwards();
 
     /**
      * Suppresses EX Burst triggers for all cards put into any Damage Zone

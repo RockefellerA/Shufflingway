@@ -3603,11 +3603,13 @@ final class ActionResolverPatterns {
     );
     /**
      * Matches "Put [CardName] at the bottom of its owner's deck." — self-referential standalone,
-     * used when a card sends itself to the bottom of the deck as part of an ability chain.
+     * used when a card sends itself to the bottom of the deck as part of an ability chain. Also
+     * the older "Place [CardName] at the bottom of your deck." (4-054L Onion Knight), whose "If you
+     * do so" payoff is gated by tryParseWhenYouDoSoSequence on this half having found the card.
      * Group: {@code name} — the card name (must equal source.name()).
      */
     static final Pattern PUT_SOURCE_TO_BOTTOM_OF_DECK = Pattern.compile(
-        "(?i)Put\\s+(?<name>.+?)\\s+at\\s+the\\s+bottom\\s+of\\s+its\\s+owner's\\s+deck[.!]?"
+        "(?i)(?:Put|Place)\\s+(?<name>.+?)\\s+at\\s+the\\s+bottom\\s+of\\s+(?:its\\s+owner's|your)\\s+deck[.!]?"
     );
     /**
      * Matches "Put [CardName] on top of its owner's deck." — the deck-top twin of
@@ -6894,6 +6896,41 @@ final class ActionResolverPatterns {
         "The\\s+cost\\s+required\\s+to\\s+cast\\s+it\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
         "(?!\\s+and\\b)" +
         "(?:\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"
+    );
+    /**
+     * The qualified sibling {@link #CAST_SUMMON_FROM_HAND_DISCOUNTED} steps aside for — 16-123L
+     * Meia: "Cast 1 Summon from your hand. The cost required to cast it is reduced by 3 and can be
+     * paid using CP of any Element (it cannot become 0). Remove that Summon from the game after use
+     * instead of putting it in the Break Zone."
+     *
+     * <p>Anchored end to end: the any-Element permission and the removal rider both belong to the
+     * one cast, so a text carrying anything further is left unread rather than cast without it.
+     * Groups: {@code amount} — the reduction; {@code rfg} — present when the removal rider is.
+     */
+    static final Pattern CAST_SUMMON_FROM_HAND_DISCOUNTED_ANY_ELEMENT = Pattern.compile(
+        "(?i)Cast\\s+(?:a|1)\\s+Summon\\s+from\\s+your\\s+hand[.!]?\\s+" +
+        "The\\s+cost\\s+required\\s+to\\s+cast\\s+it\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)\\s+" +
+        "and\\s+can\\s+be\\s+paid\\s+using\\s+CP\\s+of\\s+any\\s+Element" +
+        "(?:\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?" +
+        "(?<rfg>\\s+Remove\\s+that\\s+Summon\\s+from\\s+the\\s+game\\s+after\\s+use\\s+" +
+        "instead\\s+of\\s+putting\\s+it\\s+(?:in|into)\\s+the\\s+Break\\s+Zone[.!]?)?"
+    );
+    /**
+     * "Search for 1 Forward that costs N CP more than the Forward put into the Break Zone and play
+     * it onto the field." (11-136S Cloud) and "Search for 1 Forward with the same name as the
+     * Forward you put into the Break Zone and play it onto the field." (4-094R Magic Pot) — a
+     * search keyed off the Forward paid as the ability's cost.
+     *
+     * <p>The trailing "You can only use this ability during your …" sentence is admitted and
+     * ignored: the activation gate enforces it before the effect is ever reached.
+     * Groups: {@code more} — the cost step (Cloud); absent means same name (Magic Pot).
+     */
+    static final Pattern SEARCH_FORWARD_KEYED_TO_BZ_COST_FORWARD = Pattern.compile(
+        "(?i)Search\\s+for\\s+1\\s+Forward\\s+" +
+        "(?:that\\s+costs\\s+(?<more>\\d+)\\s+CP\\s+more\\s+than|with\\s+the\\s+same\\s+name\\s+as)\\s+" +
+        "the\\s+Forward\\s+(?:you\\s+)?put\\s+into\\s+the\\s+Break\\s+Zone\\s+" +
+        "and\\s+play\\s+it\\s+onto\\s+the\\s+field[.!]?" +
+        "(?:\\s+You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+during\\s+your\\s+[^.]+[.!]?)?"
     );
     /**
      * "Search for 1 [Element] Summon [of cost N or less | with a cost of N or less] and cast it

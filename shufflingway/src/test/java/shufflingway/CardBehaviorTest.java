@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -40586,6 +40587,68 @@ public class CardBehaviorTest {
         assertTrue(mw.gameState.getP2BreakZone().isEmpty());
     }
 
+    // Mog (VI) 17-124H: "Put Mog (VI) into the Break Zone: During this turn, your opponent cannot
+    // search." The flag is read when the search resolves, so resolving Mog first — used ahead of
+    // time, or in response with the search already on the Stack — is what blocks it.
+    private static final String MOG_CANNOT_SEARCH = "During this turn, your opponent cannot search.";
+
+    @Test
+    void mogResolvedAheadOfAnOpposingSearchBlocksIt() {
+        MainWindow mw = new MainWindow();
+        CardData summon = makeSummon("Ifrit", "Fire", 3, "");
+        mw.gameState.getIdentity().put(summon, false);
+        mw.gameState.getP2MainDeck().add(summon);
+        CardData mog = makeForward("Mog (VI)", "Water", 3, 7000);
+
+        ActionResolver.parse(MOG_CANNOT_SEARCH, mog).accept(mw.buildGameContext(true));
+        assertTrue(mw.turn(false).cannotSearchThisTurn, "Mog binds the opponent");
+        assertFalse(mw.turn(true).cannotSearchThisTurn, "and not its own controller");
+
+        boolean moved = mw.searchDeckForCard(false, false, false, false, true, -1, null,
+                null, null, null, null, null, null, "hand", 1, false, null);
+
+        assertFalse(moved);
+        assertEquals(1, mw.gameState.getP2MainDeck().size());
+        assertTrue(mw.gameState.getP2Hand().isEmpty());
+    }
+
+    // Lenne 2-142R, 3-152S, 6-010H: a search that reads the deck itself rather than going through
+    // searchDeckForCard, so it carries its own check.
+    @Test
+    void mogBlocksTheSearchAndCastSummonFamily() {
+        MainWindow mw = new MainWindow();
+        CardData summon = makeSummon("Ifrit", "Fire", 3, "");
+        mw.gameState.getIdentity().put(summon, false);
+        mw.gameState.getP2MainDeck().add(summon);
+        mw.turn(false).cannotSearchThisTurn = true;
+
+        int castCost = mw.buildGameContext(false).searchAndCastSummonFreeFromDeck(-1, null);
+
+        assertEquals(-1, castCost, "nothing was cast");
+        assertEquals(1, mw.gameState.getP2MainDeck().size());
+        assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+    }
+
+    // 10-081R: "each player may search" — a block on one player leaves the other's search alone.
+    @Test
+    void mogBlocksOnlyTheOpponentsHalfOfAnEachPlayerSearch() {
+        MainWindow mw = new MainWindow();
+        CardData p1Big = makeForward("Gilgamesh", "Fire", 5, 9000);
+        CardData p2Big = makeForward("Exdeath", "Earth", 5, 9000);
+        mw.gameState.getIdentity().put(p1Big, true);
+        mw.gameState.getIdentity().put(p2Big, false);
+        mw.gameState.getP1MainDeck().add(p1Big);
+        mw.gameState.getP2MainDeck().add(p2Big);
+        mw.turn(true).cannotSearchThisTurn = true;
+
+        // P1's half would open a dialog if it were reached; the block has to stop it first.
+        mw.buildGameContext(false).eachPlayerMaySearchForwardMinPowerToHand(1, 8000);
+
+        assertEquals(1, mw.gameState.getP1MainDeck().size(), "the blocked player searched nothing");
+        assertTrue(mw.gameState.getP1Hand().isEmpty());
+        assertEquals(List.of(p2Big), mw.gameState.getP2Hand(), "the other player still searched");
+    }
+
     @Test
     void theCpuOffersTheDearestSummonOfEachDistinctCost() {
         List<CardData> pool = List.of(
@@ -53049,9 +53112,9 @@ public class CardBehaviorTest {
 	@Test
 	void magicPotsCostPaidVersionIsLeftAlone() {
 		// 4-094R Magic Pot spells the source out because there the Break Zone card is an action
-		// ability's cost, not a trigger's event: no trigger is resolving, so this effect would
-		// find no card and quietly fetch nothing.
-		assertNull(ActionResolver.parse(
+		// ability's cost, not a trigger's event: no trigger is resolving, so the trigger-card
+		// search would find no card and quietly fetch nothing. It has its own cost-keyed reading.
+		assertEquals("SearchForwardKeyedToBzCostForward", ActionResolver.matchedPatternName(
 				"Search for 1 Forward with the same name as the Forward you put into the Break "
 				+ "Zone and play it onto the field.", null),
 				"the cost-paid wording must not reach the trigger-card search");
@@ -64567,11 +64630,19 @@ public class CardBehaviorTest {
 
 	@Test
 	void aSearchThenPlayItIsNotReadAsTheSourceReturning() {
-		// 4-094R's wording. Unread is correct: the search it needs is not implemented, and the old
-		// reading played the source back from the Break Zone instead.
+		// 4-094R's wording. An old reading played the source back from the Break Zone; "it" is the
+		// searched card, named after the Forward paid as the cost.
 		CardData source = makeForward("Searcher", "Fire", 3, 6000);
-		assertNull(ActionResolver.parse("Search for 1 Forward with the same name as the Forward you "
-				+ "put into the Break Zone and play it onto the field.", source));
+		Consumer<GameContext> fn = ActionResolver.parse("Search for 1 Forward with the same name as the "
+				+ "Forward you put into the Break Zone and play it onto the field.", source);
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.bzCostForwards()).thenReturn(List.of(makeForward("Goblin", "Fire", 1, 2000)));
+		fn.accept(ctx);
+		verify(ctx).searchDeckForCard(eq(true), eq(false), eq(false), eq(false), eq(-1), isNull(),
+				eq("Goblin"), isNull(), isNull(), isNull(), isNull(), isNull(), eq("field"), eq(1),
+				eq(false), isNull());
+		verify(ctx, never()).playAllByNameFromOwnBreakZoneDull(anyString(), anyBoolean());
 	}
 
 	@Test
@@ -64708,9 +64779,6 @@ public class CardBehaviorTest {
 		assertNull(ActionResolver.parse("pay 《Fire》《Fire》《Fire》《2》 or 《C》《C》. When you do so, "
 				+ "choose up to 2 Forwards. Deal them 9000 damage.", makeForward("Ifrit", "Fire", 5, 9000)),
 				"25-010H: a cost with an alternative the payment layer does not read");
-		assertNull(ActionResolver.parse("Place Onion Knight at the bottom of your deck. If you do so, "
-				+ "search for 1 Card Name Onion Knight with Job Sage and play it onto the field.",
-				makeForward("Onion Knight", "Wind", 2, 5000)), "4-054L: searched without leaving");
 	}
 
 	@Test
@@ -64779,6 +64847,135 @@ public class CardBehaviorTest {
 		assertTrue(mockingDetails(ctx).getInvocations().stream()
 				.anyMatch(i -> i.getMethod().getName().equals("boostSourceForward")), "the boost still runs");
 		verify(ctx).breakSourceAtEndOfTurn(berserker);
+	}
+
+	// =========================================================================================
+	// Declined abilities wired back up. 11-136S Cloud and 4-094R Magic Pot search off the Forward
+	// paid as the ability's cost (MainWindow.lastBzCostForwards); 4-054L Onion Knight's "Place
+	// [self] at the bottom of your deck" opener now reads, so WhenYouDoSo gates the search on it;
+	// 16-123L Meia casts from hand with any-Element payment and removal after use.
+	// =========================================================================================
+
+	private static final String CLOUD_11_136S = "Search for 1 Forward that costs 1 CP more than the "
+			+ "Forward put into the Break Zone and play it onto the field. You can only use this "
+			+ "ability during your Main Phase.";
+	private static final String MAGIC_POT_4_094R = "Search for 1 Forward with the same name as the "
+			+ "Forward you put into the Break Zone and play it onto the field. You can only use this "
+			+ "ability during your turn.";
+	private static final String ONION_KNIGHT_4_054L = "Place Onion Knight at the bottom of your deck. "
+			+ "If you do so, search for 1 Card Name Onion Knight with Job Sage and play it onto the field.";
+	private static final String MEIA_16_123L = "Cast 1 Summon from your hand. The cost required to "
+			+ "cast it is reduced by 3 and can be paid using CP of any Element (it cannot become 0). "
+			+ "Remove that Summon from the game after use instead of putting it in the Break Zone.";
+
+	@Test
+	void cloudPlaysAForwardCostingOneMoreThanTheOnePaid() {
+		MainWindow mw = new MainWindow();
+		CardData three = makeForward("Tifa", "Earth", 3, 7000);
+		CardData four  = makeForward("Barret", "Earth", 4, 8000);
+		for (CardData c : List.of(three, four)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+		mw.lastBzCostForwards.add(makeForward("Aerith", "Earth", 2, 5000));
+
+		ActionResolver.parse(CLOUD_11_136S, makeForward("Cloud", "Earth", 2, 5000))
+				.accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p2ForwardCards.contains(three), "cost 2 + 1");
+		assertFalse(mw.p2ForwardCards.contains(four));
+		assertTrue(mw.gameState.getP2MainDeck().contains(four));
+	}
+
+	@Test
+	void magicPotPlaysTheForwardNamedLikeTheOnePaidNotItself() {
+		MainWindow mw = new MainWindow();
+		CardData magicPot = makeJobCard("Magic Pot", "Earth", "Monster", null);
+		CardData goblin = makeForward("Goblin", "Earth", 1, 2000);
+		CardData other  = makeForward("Bomb", "Fire", 1, 2000);
+		for (CardData c : List.of(goblin, other)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+		mw.lastBzCostForwards.add(makeForward("Goblin", "Earth", 1, 2000));
+
+		ActionResolver.parse(MAGIC_POT_4_094R, magicPot).accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(goblin), mw.p2ForwardCards.stream().filter(Objects::nonNull).toList());
+		assertTrue(mw.gameState.getP2MainDeck().contains(other));
+	}
+
+	@Test
+	void aCostKeyedSearchWithNoForwardPaidFetchesNothing() {
+		MainWindow mw = new MainWindow();
+		CardData any = makeForward("Tifa", "Earth", 3, 7000);
+		mw.gameState.getIdentity().put(any, false);
+		mw.gameState.getP2MainDeck().add(any);
+
+		ActionResolver.parse(CLOUD_11_136S, makeForward("Cloud", "Earth", 2, 5000))
+				.accept(mw.buildGameContext(false));
+
+		assertTrue(mw.gameState.getP2MainDeck().contains(any));
+		assertFalse(mw.p2ForwardCards.contains(any));
+	}
+
+	@Test
+	void onionKnightLeavesThenFetchesTheSage() {
+		MainWindow mw = new MainWindow();
+		CardData ninja = makeJobCard("Onion Knight", "Wind", "Forward", "Ninja");
+		CardData sage  = makeJobCard("Onion Knight", "Wind", "Forward", "Sage");
+		CardData knight = makeJobCard("Onion Knight", "Wind", "Forward", "Knight");
+		mw.gameState.getIdentity().put(ninja, false);
+		mw.placeP2CardInForwardZone(ninja);
+		for (CardData c : List.of(knight, sage)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+
+		ActionResolver.parse(ONION_KNIGHT_4_054L, ninja).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p2ForwardCards.contains(sage), "the Sage is played");
+		assertFalse(mw.p2ForwardCards.contains(ninja), "Onion Knight left the field");
+		assertTrue(mw.gameState.getP2MainDeck().contains(ninja));
+		assertTrue(mw.gameState.getP2MainDeck().contains(knight), "the name alone is not enough");
+	}
+
+	@Test
+	void onionKnightOffTheFieldSearchesNothing() {
+		MainWindow mw = new MainWindow();
+		CardData ninja = makeJobCard("Onion Knight", "Wind", "Forward", "Ninja");
+		CardData sage  = makeJobCard("Onion Knight", "Wind", "Forward", "Sage");
+		mw.gameState.getIdentity().put(sage, false);
+		mw.gameState.getP2MainDeck().add(sage);
+
+		ActionResolver.parse(ONION_KNIGHT_4_054L, ninja).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.gameState.getP2MainDeck().contains(sage), "\"If you do so\" was not satisfied");
+		assertFalse(mw.p2ForwardCards.contains(sage));
+	}
+
+	@Test
+	void meiaCastsWithBothRiders() {
+		Consumer<GameContext> fn = ActionResolver.parse(MEIA_16_123L, makeForward("Meia", "Water", 1, 1000));
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+		verify(ctx).castSummonFromHandDiscountedAnyElement(3, true);
+		verify(ctx, never()).castSummonFromHandDiscounted(anyInt());
+	}
+
+	@Test
+	void meiasSummonIsRemovedFromTheGameAfterUse() {
+		MainWindow mw = new MainWindow();
+		CardData summon = makeSummon("Ifrit", "Fire", 3, "");
+		mw.gameState.getIdentity().put(summon, false);
+		mw.gameState.getP2Hand().add(summon);
+
+		mw.buildGameContext(false).castSummonFromHandDiscountedAnyElement(3, true);
+
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+		assertTrue(mw.rfgAfterUseSummons.contains(summon), "removed after use, not Break Zoned");
+		assertTrue(mw.activeCostReductions.isEmpty(), "the discount does not outlive the cast");
 	}
 
 	// =========================================================================================

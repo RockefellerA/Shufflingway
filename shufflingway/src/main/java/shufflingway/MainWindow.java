@@ -697,6 +697,9 @@ public class MainWindow {
 	int      lastMassBreakForwardCount = 0;
 	// Power of the Forward put into the Break Zone as an ability cost; set during payment.
 	int      lastBzCostForwardPower   = 0;
+	// The Forwards themselves, beside their power, for effects keyed on the card: its cost (11-136S
+	// Cloud) or its name (4-094R Magic Pot). Reset and filled at the same point as the power.
+	final List<CardData> lastBzCostForwards = new ArrayList<>();
 	// Set by an EX burst suppression clause; cleared at the start of each new ability context.
 	boolean  suppressExBurstsThisAbility = false;
 
@@ -1246,6 +1249,15 @@ public class MainWindow {
 	 * Identity-keyed; consumed when the Summon's resolution would otherwise send it to the Break Zone.
 	 */
 	final Set<CardData> rfgAfterUseSummons = Collections.newSetFromMap(new IdentityHashMap<>());
+	/**
+	 * Hand Summons an ability is casting right now, with that one cast's riders — 16-123L Meia's
+	 * "can be paid using CP of any Element" and "remove that Summon from the game after use".
+	 * Identity-keyed, so another copy of the same Summon is untouched. The removal rider moves into
+	 * {@link #rfgAfterUseSummons} when {@code executePlay} commits the cast; the ability empties
+	 * both once the payment dialog closes, so a cancelled payment carries nothing forward.
+	 */
+	final Set<CardData> anyElementHandCasts  = Collections.newSetFromMap(new IdentityHashMap<>());
+	final Set<CardData> rfgAfterUseHandCasts = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
 	 * Summons that, once removed from the game after use, are owed a free recast — 19-127L Relm's
 	 * "remove it from the game instead. Then, cast it again without paying the cost."
@@ -2670,6 +2682,9 @@ public class MainWindow {
 		bzSelfCastFaP1.clear();
 		bzSelfCastFaP2.clear();
 		rfgAfterUseSummons.clear();
+		anyElementHandCasts.clear();
+		rfgAfterUseHandCasts.clear();
+		lastBzCostForwards.clear();
 		recastFreeAfterRfgSummons.clear();
 		returnToHandAfterUseSummons.clear();
 		if (opponent != null) opponent.cancel();
@@ -11446,6 +11461,7 @@ public class MainWindow {
 		// The card's own printing comes first: Tifa 11-071L carries the permission on the card being
 		// played, which the board walk below cannot see — it is still in hand, not on the field.
 		if (selfGrantsAnyElement(card)) return true;
+		if (anyElementHandCasts.contains(card)) return true;
 		for (int s = 0; s < 2; s++) {
 			boolean sIsP1 = s == 0;
 			List<CardData> fwds = sIsP1 ? p1ForwardCards : p2ForwardCards;
@@ -11719,6 +11735,7 @@ public class MainWindow {
 		if (isP1) { gameState.removeFromHand(cardHandIdx);   refreshP1HandLabel(); }
 		else      { gameState.removeP2FromHand(cardHandIdx); refreshP2HandCountLabel(); }
 		activeCostReductions.removeIf(m -> m.consumeOnUse() && m.matches(card));
+		if (rfgAfterUseHandCasts.remove(card)) rfgAfterUseSummons.add(card);
 		PlayerTurnState playerTurn = turn(isP1);
 		noteCardCast(card, isP1);
 		if (card.isSummon()) {

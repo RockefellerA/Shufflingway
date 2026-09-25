@@ -7057,12 +7057,13 @@ final class AutoAbilityTriggers {
 		List<ForwardTarget> sortedBz = new ArrayList<>(bzTargets);
 		sortedBz.sort((a, b) -> a.zone() == b.zone() ? Integer.compare(b.idx(), a.idx()) : 0);
 		mw.lastBzCostForwardPower = 0;
+		mw.lastBzCostForwards.clear();
 		for (ForwardTarget t : sortedBz) {
 			mw.pendingCostBreakDestLabel = t.isP1() ? mw.p1BreakLabel : mw.p2BreakLabel;
 			if (t.isP1()) {
 				if (t.zone() == ForwardTarget.CardZone.FORWARD) {
 					CardData bf = mw.p1ForwardCards.get(t.idx());
-					if (bf != null) mw.lastBzCostForwardPower += bf.power();
+					if (bf != null) { mw.lastBzCostForwardPower += bf.power(); mw.lastBzCostForwards.add(bf); }
 				}
 				switch (t.zone()) {
 					case FORWARD -> mw.breakP1Forward(t.idx());
@@ -7072,7 +7073,7 @@ final class AutoAbilityTriggers {
 			} else {
 				if (t.zone() == ForwardTarget.CardZone.FORWARD) {
 					CardData bf = mw.p2ForwardCards.get(t.idx());
-					if (bf != null) mw.lastBzCostForwardPower += bf.power();
+					if (bf != null) { mw.lastBzCostForwardPower += bf.power(); mw.lastBzCostForwards.add(bf); }
 				}
 				switch (t.zone()) {
 					case FORWARD -> mw.breakP2Forward(t.idx());
