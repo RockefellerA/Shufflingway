@@ -135,6 +135,74 @@ class SummonBehaviorTest {
 		assertEquals(10000, mw.effectiveP2ForwardPower(mw.p2ForwardCards.indexOf(mine)));
 	}
 
+	// =========================================================================================
+	// 29-116H Madeen: "Madeen cannot be cancelled." The sentence was skipped by the parser (a find()
+	// past it) and read by nothing: the Stack's cancel protection answered only for abilities
+	// (Yoran-Oran 29-075H) and refused every Summon outright.
+	// =========================================================================================
+
+	private static final String MADEEN_29_116H = "Madeen cannot be cancelled.[[br]]Choose 1 Forward opponent "
+			+ "controls. You may search for 1 Light Forward and remove it from the game. If you do so, remove "
+			+ "the chosen Forward from the game. If not, break the chosen Forward.";
+
+	private static final String CANCEL_A_SUMMON = "Choose 1 Summon or auto-ability. Cancel its effect.";
+
+	@Test
+	void madeenCarriesItsCancelProtectionAndResolvesWithoutTheSentence() {
+		CardData madeen = makeSummon("Madeen", "Light", 3, MADEEN_29_116H);
+		assertTrue(madeen.cannotBeCancelled());
+		assertTrue(madeen.summonEffect().startsWith("Choose 1 Forward opponent controls."),
+				"a property of the card, not part of what it does: " + madeen.summonEffect());
+		assertFalse(makeSummon("Shiva", "Ice", 2, "Draw 1 card.").cannotBeCancelled());
+		assertFalse(makeSummon("Odd", "Ice", 2, "Madeen cannot be cancelled. Draw 1 card.").cannotBeCancelled(),
+				"only a sentence naming the card itself");
+	}
+
+	@Test
+	void anOrdinarySummonOnTheStackCanBeCancelled() {
+		MainWindow mw = new MainWindow();
+		CardData shiva = makeSummon("Shiva", "Ice", 2, "Draw 1 card.");
+		mw.pushSummonOnStack(shiva, true, 0, 0, false, null, false);
+		StackEntry entry = mw.gameState.getStack().get(0);
+
+		ActionResolver.parse(CANCEL_A_SUMMON, makeSummon("Canceller", "Water", 2, CANCEL_A_SUMMON))
+				.accept(mw.buildGameContext(false));
+
+		assertTrue(mw.cancelledStackEntries.contains(entry));
+	}
+
+	@Test
+	void madeenOnTheStackCannotBeCancelled() {
+		MainWindow mw = new MainWindow();
+		CardData madeen = makeSummon("Madeen", "Light", 3, MADEEN_29_116H);
+		mw.pushSummonOnStack(madeen, true, 0, 0, false, null, false);
+		StackEntry entry = mw.gameState.getStack().get(0);
+		assertSame(madeen, entry.source());
+
+		ActionResolver.parse(CANCEL_A_SUMMON, makeSummon("Canceller", "Water", 2, CANCEL_A_SUMMON))
+				.accept(mw.buildGameContext(false));
+
+		assertFalse(mw.cancelledStackEntries.contains(entry));
+		assertFalse(mw.cancelStackEntry(entry), "and refused however the cancel arrives");
+		assertFalse(mw.cancelledStackEntries.contains(entry));
+	}
+
+	@Test
+	void neonCanStillBlankMadeensDamageBecauseThatIsNotACancel() {
+		// Madeen's protection is against cancels only. Neon's "the damage becomes 0" lets the
+		// Summon resolve, so a cannot-be-cancelled Summon stays within its reach.
+		MainWindow mw = new MainWindow();
+		CardData madeen = makeSummon("Madeen", "Light", 3, MADEEN_29_116H);
+		mw.pushSummonOnStack(madeen, true, 0, 0, false, null, false);
+		String neon = "Choose 1 Summon or auto-ability. During this turn, if it deals damage to a Forward or "
+				+ "a player, the damage becomes 0 instead.";
+
+		ActionResolver.parse(neon, makeForward("Neon", "Water", 3, 7000)).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.damageZeroedSourcesThisTurn.contains(madeen));
+		assertTrue(mw.cancelledStackEntries.isEmpty(), "and it is still not cancelled");
+	}
+
 	@Test
 	void hashmalsElementReachesOnlyTheCopyOnTheField() {
 		// CardData is a record: two copies of one printing are equal. The grant is by identity.

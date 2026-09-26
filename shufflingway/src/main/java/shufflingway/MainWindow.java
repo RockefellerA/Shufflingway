@@ -14245,11 +14245,16 @@ public class MainWindow {
 	}
 
 	/**
-	 * Whether {@code entry} is an ability its controller's field protects from being cancelled —
-	 * Yoran-Oran 29-075H, who shields the abilities of their Job Mage.
+	 * Whether {@code entry} cannot be cancelled. Two sources:
 	 *
-	 * <p>Summons and EX Bursts are never protected by this: the sentence names the three kinds of
-	 * <em>ability</em>, and an entry carrying neither an action nor an auto ability is neither.
+	 * <ul>
+	 *   <li>a Summon whose own text says so — "Madeen cannot be cancelled." (29-116H), read off the
+	 *       card by {@link CardData#cannotBeCancelled()};</li>
+	 *   <li>an ability its controller's field protects — Yoran-Oran 29-075H, who shields the
+	 *       abilities of their Job Mage. Summons and EX Bursts are never protected by this one: the
+	 *       sentence names the three kinds of <em>ability</em>, and an entry carrying neither an
+	 *       action nor an auto ability is neither.</li>
+	 * </ul>
 	 *
 	 * <p>Read off the entry's own controller's field, since "your Job Mage" is the shielding
 	 * card's controller's. The source is judged on the Job it has now rather than the one it was
@@ -14258,7 +14263,8 @@ public class MainWindow {
 	 */
 	boolean stackEntryProtectedFromCancel(StackEntry entry) {
 		if (entry == null || entry.source() == null) return false;
-		if (entry.ability() == null && entry.autoAbility() == null) return false;
+		if (entry.ability() == null && entry.autoAbility() == null)
+			return entry.source().isSummon() && entry.source().cannotBeCancelled();
 		for (CardData c : fieldCards(entry.isP1())) {
 			if (lostAbilitiesCards.contains(c)) continue;
 			for (FieldAbility fa : effectiveFieldAbilities(c)) {
@@ -14697,9 +14703,36 @@ public class MainWindow {
 		return controlConditionMetWithPools(cond, fwds, bkps, mons);
 	}
 
+	/**
+	 * The Element {@code c} has become, or {@code null}: a runtime override (12-021R Necron,
+	 * Kam'lanaut) first, else its own field text's "[Self]'s Element becomes X." while that
+	 * ability's damage gate is met — 17-079L Shadow Lord at 5 damage. Only on the field, and not
+	 * once its abilities are lost.
+	 */
+	private String elementOverride(CardData c) {
+		String override = elementOverrideMap.get(c);
+		if (override != null) return override;
+		if (c == null || lostAbilitiesCards.contains(c)) return null;
+		Boolean side = fieldSideOf(c);
+		if (side == null) return null;
+		int dmg = (side ? gameState.getP1DamageZone() : gameState.getP2DamageZone()).size();
+		for (FieldAbility fa : effectiveFieldAbilities(c)) {
+			if (fa.damageThreshold() > 0 && dmg < fa.damageThreshold()) continue;
+			Matcher m = SELF_ELEMENT_BECOMES.matcher(fa.effectText());
+			while (m.find())
+				if (m.group("name").trim().equalsIgnoreCase(c.name())) return m.group("element");
+		}
+		return null;
+	}
+
+	/** "[Self]'s Element becomes X." inside a field ability's text; {@code name} must be the carrier's. */
+	private static final Pattern SELF_ELEMENT_BECOMES = Pattern.compile(
+			"(?i)(?:^|[.!]\\s+)(?<name>[^.\"]+?)'s\\s+Element\\s+becomes\\s+"
+			+ "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)[.!]?");
+
 	/** Returns the effective element of {@code c}, applying any runtime override (e.g. Kam'lanaut). */
 	String effectiveElement(CardData c) {
-		String override = elementOverrideMap.get(c);
+		String override = elementOverride(c);
 		if (override != null) return override;
 		String[] elems = c.elements();
 		return elems.length == 0 ? null : elems[0];
@@ -14711,7 +14744,7 @@ public class MainWindow {
 	 * Used to compare against the currently-resolving Summon/ability's elements.
 	 */
 	List<String> effectiveElements(CardData c) {
-		String override = elementOverrideMap.get(c);
+		String override = elementOverride(c);
 		List<String> base = (override != null) ? List.of(override) : Arrays.asList(c.elements());
 		Set<String> gained = gainedOpponentCharacterElements(c);
 		// Shantotto Re-099L/1-107L names its six Elements outright rather than querying the board,
@@ -14872,7 +14905,9 @@ public class MainWindow {
 	 */
 	boolean effectiveContainsElement(CardData c, String elem) {
 		if (c == null || elem == null) return false;
-		if (c.containsElement(elem)) return true;
+		// The printed Elements count only while nothing has replaced them: a card whose Element
+		// "becomes" Dark (17-079L Shadow Lord, 12-021R Necron) is no longer what it was printed.
+		if (elementOverride(c) == null && c.containsElement(elem)) return true;
 		if (elem.contains("|")) {
 			for (String e : elem.split("\\|")) if (effectiveContainsElement(c, e.trim())) return true;
 			return false;

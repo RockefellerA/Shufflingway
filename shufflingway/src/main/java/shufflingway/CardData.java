@@ -1224,10 +1224,47 @@ public record CardData(
         // instead of letting its caster select an action, 19-035R Alexander ran both branches'
         // breaks, 15-082H Hecatoncheir did nothing at all, and 3-145L Ultima's removal only
         // happened when its cost-reduction condition held.
-        Matcher rule;
-        while ((rule = LEADING_CAST_RULE.matcher(t)).lookingAt() && rule.end() < t.length())
-            t = t.substring(rule.end()).trim();
+        // The same goes for "[Self] cannot be cancelled." (29-116H Madeen): a property of the Summon
+        // on the Stack, read by cannotBeCancelled(), not an effect it resolves.
+        boolean stripped = true;
+        while (stripped) {
+            stripped = false;
+            Matcher rule = LEADING_CAST_RULE.matcher(t);
+            if (rule.lookingAt() && rule.end() < t.length()) {
+                t = t.substring(rule.end()).trim();
+                stripped = true;
+            }
+            Matcher noCancel = SELF_CANNOT_BE_CANCELLED.matcher(t);
+            if (noCancel.lookingAt() && noCancel.end() < t.length()
+                    && noCancel.group("name").trim().equalsIgnoreCase(name)) {
+                t = t.substring(noCancel.end()).trim();
+                stripped = true;
+            }
+        }
         return t;
+    }
+
+    /**
+     * "[Self] cannot be cancelled." — 29-116H Madeen, the only Summon printing it. Group
+     * {@code name} must be the card's own name. Matched at the start of a text or of a
+     * {@code [[br]]}-separated line.
+     */
+    static final Pattern SELF_CANNOT_BE_CANCELLED = Pattern.compile(
+        "(?i)(?<name>[^.\\[\\]]+?)\\s+cannot\\s+be\\s+cancell?ed[.!]\\s*");
+
+    /**
+     * Whether this card's text makes it immune to being cancelled on the Stack — "Madeen cannot be
+     * cancelled." (29-116H). Only a sentence naming the card itself counts: Yoran-Oran 29-075H's
+     * "abilities of your Job Mage cannot be cancelled" protects other cards' abilities, and is read
+     * off the field by {@code MainWindow.stackEntryProtectedFromCancel}.
+     */
+    public boolean cannotBeCancelled() {
+        if (textEn == null || name == null) return false;
+        for (String line : SUMMON_BR.split(SUMMON_EX_PREFIX.matcher(textEn).replaceFirst(""))) {
+            Matcher m = SELF_CANNOT_BE_CANCELLED.matcher(SUMMON_MARKUP.matcher(line).replaceAll(" ").trim());
+            if (m.lookingAt() && m.group("name").trim().equalsIgnoreCase(name)) return true;
+        }
+        return false;
     }
 
     /**

@@ -2914,7 +2914,7 @@ final class GameContextImpl implements GameContext {
 	// The stack: cancelling abilities and Summons
 	// =========================================================================================
 			@Override public void cancelStackEntry() {
-				StackEntry chosen = chooseSummonOrAutoAbilityOnStack("cancel");
+				StackEntry chosen = chooseSummonOrAutoAbilityOnStack("cancel", true);
 				if (chosen == null) return;
 				if (mw.cancelStackEntry(chosen)) {
 					String type = chosen.isSummon() ? "Summon" : "auto-ability";
@@ -2923,7 +2923,9 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void chooseStackEntryZeroItsDamageThisTurn() {
-				StackEntry chosen = chooseSummonOrAutoAbilityOnStack("blank the damage of");
+				// Not a cancel, so cancel protection (29-116H Madeen, Yoran-Oran 29-075H) does not
+				// keep an entry out of reach: the effect still resolves, only its damage becomes 0.
+				StackEntry chosen = chooseSummonOrAutoAbilityOnStack("blank the damage of", false);
 				if (chosen == null) return;
 				// Keyed on the source card, which is how both damage paths identify whatever is
 				// dealing right now (mw.currentAbilitySource).
@@ -2941,10 +2943,14 @@ final class GameContextImpl implements GameContext {
 			 * <p>Action abilities are excluded: every printing of this choice says "Summon or
 			 * auto-ability" and means exactly those two.
 			 */
-			private StackEntry chooseSummonOrAutoAbilityOnStack(String verb) {
+			/**
+			 * @param forCancel {@code true} when the choice is for a cancel, which leaves out entries
+			 *                  that cannot be cancelled; other uses of the choice may reach them
+			 */
+			private StackEntry chooseSummonOrAutoAbilityOnStack(String verb, boolean forCancel) {
 				List<StackEntry> targets = mw.gameState.getStack().stream()
 						.filter(e -> e.isSummon() || e.isAutoAbility())
-						.filter(e -> !mw.stackEntryProtectedFromCancel(e))
+						.filter(e -> !forCancel || !mw.stackEntryProtectedFromCancel(e))
 						.collect(java.util.stream.Collectors.toList());
 				if (targets.isEmpty()) {
 					logEntry("No Summons or auto-abilities on the stack to " + verb);

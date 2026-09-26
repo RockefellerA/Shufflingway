@@ -62428,18 +62428,18 @@ public class CardBehaviorTest {
 	}
 
 	@Test
-	void anOverriddenForwardStillAnswersToItsPrintedElement() {
-		// effectiveContainsElement is printed-or-effective, not effective-instead-of-printed: it
-		// short-circuits on the printed value before consulting the override. So "becomes Fire"
-		// adds Fire rather than replacing Wind, and naming Wind still catches it. Asserted so the
-		// reader's contract is written down somewhere a change to it would trip.
+	void anOverriddenForwardNoLongerAnswersToItsPrintedElement() {
+		// "Becomes" replaces: a Wind Forward whose Element becomes Fire is Fire, not Wind and Fire,
+		// so naming Wind misses it. "Gains" is the additive wording, and it has its own record
+		// (MainWindow.tempGainedElements, 2-087R Hashmal). Asserted so the reader's contract is
+		// written down somewhere a change to it would trip.
 		MainWindow mw = new MainWindow();
 		placeP1Forward(mw, makeForward("Windling", "Wind", 3, 7000));
 		CardData onField = mw.p1ForwardCards.get(0);
 		mw.elementOverrideMap.put(onField, "Fire");
 
-		verify(resolveSweepAgainstBoard(mw, DEMON_OPTION_ELEMENT, "Wind", false, List.of(onField)))
-				.damageP1Forward(0, 7000);
+		verify(resolveSweepAgainstBoard(mw, DEMON_OPTION_ELEMENT, "Wind", false, List.of(onField)), never())
+				.damageP1Forward(anyInt(), anyInt());
 	}
 
 	@Test
@@ -65616,6 +65616,36 @@ public class CardBehaviorTest {
 		mw.gameState.getP2DamageZone().add(makeForward("Dmg2", "Fire", 1, 1000));
 		assertTrue(mw.effectiveP2HasTrait(idx, CardData.Trait.BRAVE), "3 damage: Brave");
 		assertEquals(2, mw.maxAttacksPerTurn(gilgamesh), "and a second attack");
+	}
+
+	// =========================================================================================
+	// 17-079L Shadow Lord: "Damage 5 -- Shadow Lord gains +1000 power and Brave. Shadow Lord's
+	// Element becomes Dark." Nothing read the Element sentence.
+	// =========================================================================================
+
+	@Test
+	void shadowLordBecomesDarkWithPowerAndBraveAtDamageFive() throws Exception {
+		CardData lord = CardCorpus.load().stream()
+				.filter(e -> e.serial().equals("17-079L")).map(CardCorpus.Entry::card).findFirst().orElse(null);
+		Assumptions.assumeTrue(lord != null, "needs shufflingway.db");
+		MainWindow mw = new MainWindow();
+		// His enters-the-field "name 1 Job" would put a modal naming dialog in front of P1 and
+		// hold the test JVM; it is not what this test is about, so it does not fire.
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP1Forward(mw, lord);
+		int idx = mw.p1ForwardCards.indexOf(lord);
+		int printed = lord.power();
+		for (int i = 0; i < 4; i++) mw.gameState.getP1DamageZone().add(makeForward("Dmg" + i, "Fire", 1, 1000));
+		assertEquals(printed, mw.effectiveP1ForwardPower(idx));
+		assertFalse(mw.effectiveP1HasTrait(idx, CardData.Trait.BRAVE));
+		assertEquals(List.of("Earth"), mw.effectiveElements(lord));
+
+		mw.gameState.getP1DamageZone().add(makeForward("Dmg4", "Fire", 1, 1000));
+		assertEquals(printed + 1000, mw.effectiveP1ForwardPower(idx), "+1000 at 5 damage");
+		assertTrue(mw.effectiveP1HasTrait(idx, CardData.Trait.BRAVE), "Brave at 5 damage");
+		assertEquals(List.of("Dark"), mw.effectiveElements(lord), "becomes, not gains");
+		assertTrue(mw.effectiveContainsElement(lord, "Dark"), "Dark at 5 damage");
+		assertFalse(mw.effectiveContainsElement(lord, "Earth"));
 	}
 
 	@Test

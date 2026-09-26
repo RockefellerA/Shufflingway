@@ -91,6 +91,14 @@ class FieldGrantCalculator {
                 // Damage-gated (e.g., "Damage 1 -- Desch gains First Strike.")
                 if (fa.damageThreshold() > 0 && dmg < fa.damageThreshold()) continue;
                 out.addAll(CardData.parseSelfTraitGrant(fa.effectText(), src.name()));
+                // A trait sentence sharing its line with another sentence — 17-079L Shadow Lord's
+                // "Shadow Lord gains +1000 power and Brave. Shadow Lord's Element becomes Dark."
+                // The reader is anchored to one sentence, so the whole line matched nothing and the
+                // Brave was lost while the power (read elsewhere) applied. Quoted text is left to
+                // the quoted-grant reader below; a period inside quotes is not a sentence break.
+                if (fa.effectText().indexOf('"') < 0)
+                    for (String sentence : fa.effectText().trim().split("(?<=[.!])\\s+"))
+                        out.addAll(CardData.parseSelfTraitGrant(sentence, src.name()));
                 // Gogo 4-127H: the sentence lists keywords to look for, and he gains whichever of
                 // them a Forward in his controller's Break Zone actually has. Resolved here rather
                 // than at parse time because the answer is board state and changes as the Break
