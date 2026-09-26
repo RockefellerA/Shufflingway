@@ -474,6 +474,17 @@ final class ActionResolverPatterns {
         "(?i)(Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+(Forwards?|Backups?|Monsters?|Characters?)" +
         "\\s+or\\s+(Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+\\2"
     );
+    /**
+     * The "and/or" form of {@link #ELEM_TYPE_OR_ELEM_TYPE}, only as the subject of a choose —
+     * 27-113R Firion's "choose up to 3 Fire Backups and/or Wind Backups". For which cards may be
+     * chosen it reads as "or". Anchored to the choose because a count reads "and/or" itself:
+     * 27-114R Robel-Akbel's "5 or more Fire Backups and/or Earth Backups" stopped parsing when the
+     * general rewrite took it. Replace with {@code "$1$2 or $4 $3"}.
+     */
+    static final Pattern CHOOSE_ELEM_TYPE_ANDOR_ELEM_TYPE = Pattern.compile(
+        "(?i)(\\bchoose\\s+(?:up\\s+to\\s+)?\\d+\\s+)(Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+" +
+        "(Forwards?|Backups?|Monsters?|Characters?)\\s+and/or\\s+(Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+\\3"
+    );
     /** Matches {@code [Job (name)]} bracket notation; group 1 is the job name. */
     static final Pattern JOB_BRACKET_PATTERN = Pattern.compile(
         "(?i)\\[Job\\s+\\(([^)]+)\\)\\]"
@@ -2289,6 +2300,12 @@ final class ActionResolverPatterns {
      */
     static final Pattern REMOVED_COUNT_COST_TAIL = Pattern.compile(
         "(?i)^(?:(?<when>When\\s+you\\s+do\\s+so)|Then),\\s+(?<effect>.+)$", Pattern.DOTALL);
+    /**
+     * "cost equal to or less than the number of Elements among removed cards" — 18-074L Gilgamesh.
+     * The Elements are counted once each across every card the removal took.
+     */
+    static final Pattern COST_UP_TO_NUMBER_OF_ELEMENTS_REMOVED = Pattern.compile(
+        "(?i)cost\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+the\\s+number\\s+of\\s+Elements\\s+among\\s+removed\\s+cards");
     /** "cost equal to or less than the number of cards you removed / removed cards". */
     static final Pattern COST_UP_TO_NUMBER_REMOVED = Pattern.compile(
         "(?i)cost\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+the\\s+number\\s+of\\s+(?:cards\\s+you\\s+removed|removed\\s+cards)");
@@ -2846,12 +2863,13 @@ final class ActionResolverPatterns {
         "the\\s+Break\\s+Zone[.!]?\\s*$"
     );
     /**
-     * "Shuffle your deck, then &lt;effect&gt;" — 16-020L Luso. Anchored end to end: {@link #SHUFFLE_DECK}
-     * alone matches with find() and would take the shuffle while dropping the rest. Group
-     * {@code rest} is the effect that follows.
+     * "Shuffle your deck, then &lt;effect&gt;" — 16-020L Luso — or "Shuffle your deck. Then, &lt;effect&gt;"
+     * — 23-070H Hythlodaeus. Anchored end to end: {@link #SHUFFLE_DECK} alone matches with find()
+     * and would take the shuffle while dropping the rest. Group {@code rest} is the effect that
+     * follows.
      */
     static final Pattern SHUFFLE_DECK_THEN = Pattern.compile(
-        "(?i)^Shuffle\\s+your\\s+deck,?\\s+then,?\\s+(?<rest>.+)$",
+        "(?i)^Shuffle\\s+your\\s+deck[,.]?\\s+then,?\\s+(?<rest>.+)$",
         Pattern.DOTALL
     );
     /** Matches "Its auto-ability will not trigger." — suppresses ETF auto-abilities for the played card. */
@@ -3879,7 +3897,8 @@ final class ActionResolverPatterns {
         "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
         // Captured for the same reason as its sibling above: the absent "up to" is what makes
         // 16-070L Kirin's "Play 1 Forward of cost 4" a thing she has to do.
-        "Play\\s+(?<upto>up\\s+to\\s+)?(?<max>\\d+)\\s+" +
+        // "any number of" — 23-070H Hythlodaeus, the one printing without a count.
+        "Play\\s+(?:(?<anynum>any\\s+number\\s+of)|(?<upto>up\\s+to\\s+)?(?<max>\\d+))\\s+" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?:(?<type2>Forward|Backup|Monster|Character)s?\\s+or\\s+" +
             "(?<element2>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
@@ -3887,8 +3906,9 @@ final class ActionResolverPatterns {
         // "Play 1 Forward of cost 4" and 21-121L Warrior of Light's "up to 2 Characters of cost 3".
         // Group {@code costless} is what tells them apart, and the caller must read it: without it
         // both would be taken as ceilings and could play something cheaper than the card allows.
-        "(?<type>Forward|Backup|Monster|Character)s?\\s+of\\s+cost\\s+(?<cost>\\d+|X)" +
-        "(?<costless>\\s+or\\s+less)?\\s+" +
+        // The whole cost clause is optional too: 23-070H Hythlodaeus names none.
+        "(?<type>Forward|Backup|Monster|Character)s?" +
+        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+|X)(?<costless>\\s+or\\s+less)?)?\\s+" +
         "among\\s+them\\s+onto\\s+(?:the\\s+)?field[,.]?\\s+" +
         "(?:" +
             // Split from the ordered ending below rather than sharing its branch: this one

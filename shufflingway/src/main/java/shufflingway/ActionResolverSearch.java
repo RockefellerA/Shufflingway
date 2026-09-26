@@ -465,7 +465,8 @@ final class ActionResolverSearch {
         Matcher m = REVEAL_PLAY_ELEMENT_TYPE_COST_ONTO_FIELD_REST_BOTTOM.matcher(stripped);
         if (!m.matches()) return null;
         int n           = Integer.parseInt(m.group("n"));
-        int max         = Integer.parseInt(m.group("max"));
+        boolean anyNumber = m.group("anynum") != null;
+        int max         = anyNumber ? Integer.MAX_VALUE : Integer.parseInt(m.group("max"));
         String typeRaw  = m.group("type");
         String normType = Character.toUpperCase(typeRaw.charAt(0)) + typeRaw.substring(1).toLowerCase();
         // The second alternative repeats the type ("Wind Character or Earth Character"), so a text
@@ -478,7 +479,13 @@ final class ActionResolverSearch {
         for (String raw : new String[] { m.group("element"), m.group("element2") })
             if (raw != null) elements.add(Character.toUpperCase(raw.charAt(0)) + raw.substring(1).toLowerCase());
         String costStr  = m.group("cost");
-        int costVal     = "X".equalsIgnoreCase(costStr) ? xValue : Integer.parseInt(costStr);
+        // Only the "any number of" form may omit the cost (23-070H Hythlodaeus). A counted play
+        // with no cost is its type-only sibling's, RevealPlayTypeOntoFieldRestBottom (B-016
+        // Ultimecia), which this reading would otherwise take from it.
+        if (costStr == null && !anyNumber) return null;
+        // No cost clause is no cost filter: -1, as elsewhere.
+        int costVal     = costStr == null ? -1
+                        : "X".equalsIgnoreCase(costStr) ? xValue : Integer.parseInt(costStr);
         // "of cost 4" and "of cost 4 or less" are different filters, and the printed "or less" is
         // the only thing separating them — 16-070L Kirin and 21-121L Warrior of Light name a cost
         // exactly. Reading the absent "or less" as a ceiling would let either play a cheaper card
@@ -489,7 +496,8 @@ final class ActionResolverSearch {
                         : m.group("restshuffle") != null ? RevealRest.SHUFFLED_BOTTOM
                         : RevealRest.BOTTOM;
         // As above: 16-070L Kirin says "Play 1", 21-121L Warrior of Light says "up to 2".
-        boolean mustPlay = m.group("upto") == null;
+        // "Any number of" owes nothing.
+        boolean mustPlay = !anyNumber && m.group("upto") == null;
         return ctx -> ctx.revealTopNPlayUpToElementTypeCostOntoField(n, max, elements, normType, costVal, costCmp, mustPlay, rest);
     }
     /**

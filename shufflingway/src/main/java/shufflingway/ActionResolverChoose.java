@@ -1840,6 +1840,7 @@ final class ActionResolverChoose {
     // tryParseChooseCharacterInner: the followup chain
     // =========================================================================================
     static Consumer<GameContext> tryParseChooseCharacterInner(String text, CardData source, int xValue) {
+        text = CHOOSE_ELEM_TYPE_ANDOR_ELEM_TYPE.matcher(text).replaceAll("$1$2 or $4 $3");
         text = ELEM_TYPE_OR_ELEM_TYPE.matcher(text).replaceAll("$1 or $3 $2");
         text = escapePeriodInName(text, source);
         Matcher m = CHOOSE_CHARACTER_PATTERN.matcher(text);

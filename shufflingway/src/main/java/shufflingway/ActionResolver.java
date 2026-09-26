@@ -3973,7 +3973,9 @@ public class ActionResolver {
         if (tryParseDamageToCombatBlocker(effectText)               != null) return "DamageToCombatBlocker";
         if (MAY_COST_REPLAY_ABILITY.matcher(effectText).find())               return "MayReplayAbility";
 
-        String normalizedEffectText = ELEM_TYPE_OR_ELEM_TYPE.matcher(effectText).replaceAll("$1 or $3 $2");
+        String normalizedEffectText = ELEM_TYPE_OR_ELEM_TYPE.matcher(
+                CHOOSE_ELEM_TYPE_ANDOR_ELEM_TYPE.matcher(effectText).replaceAll("$1$2 or $4 $3"))
+                .replaceAll("$1 or $3 $2");
         String escapedEffectText = escapePeriodInName(normalizedEffectText, source);
         Matcher oneEachM = CHOOSE_ONE_EACH_PATTERN.matcher(normalizedEffectText);
         if (oneEachM.find()) {
@@ -9317,7 +9319,8 @@ public class ActionResolver {
      */
     static TargetSpec targetSpec(String effectText, CardData source) {
         if (effectText == null || effectText.isBlank()) return null;
-        String text = ELEM_TYPE_OR_ELEM_TYPE.matcher(effectText).replaceAll("$1 or $3 $2");
+        String text = CHOOSE_ELEM_TYPE_ANDOR_ELEM_TYPE.matcher(effectText).replaceAll("$1$2 or $4 $3");
+        text = ELEM_TYPE_OR_ELEM_TYPE.matcher(text).replaceAll("$1 or $3 $2");
         text = escapePeriodInName(text, source);
         Matcher m = CHOOSE_CHARACTER_PATTERN.matcher(text);
         if (!m.find()) return null;

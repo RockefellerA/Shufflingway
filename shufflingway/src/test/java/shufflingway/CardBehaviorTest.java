@@ -19,6 +19,7 @@ import java.util.function.Predicate;
 import java.util.regex.Matcher;
 
 import org.json.JSONObject;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
@@ -65520,6 +65521,146 @@ public class CardBehaviorTest {
 
 		assertTrue(mw.gameState.getP2RemovedFromGame().contains(top));
 		assertNotNull(mw.bzPlayableP2.get(top));
+	}
+
+	// =========================================================================================
+	// 27-113R Firion: "choose up to 3 Fire Backups and/or Wind Backups. Activate them. Look at the
+	// top 3 cards of your deck. Add 1 card among them to your hand and return the other cards to
+	// the bottom of your deck in any order." The "and/or" defeated the Element-union rewrite, so the
+	// choose failed and the look-at-top parser took the ability alone.
+	// =========================================================================================
+
+	@Test
+	void firionActivatesFireAndWindBackupsThenLooksAtTheTopThree() {
+		MainWindow mw = new MainWindow();
+		CardData fire  = makeJobCard("Fire Aide", "Fire", "Backup", null);
+		CardData wind  = makeJobCard("Wind Aide", "Wind", "Backup", null);
+		CardData water = makeJobCard("Water Aide", "Water", "Backup", null);
+		CardData[] row = { fire, wind, water };
+		for (int i = 0; i < row.length; i++) {
+			mw.gameState.getIdentity().put(row[i], false);
+			mw.p2BackupCards[i] = row[i];
+			mw.p2BackupStates[i] = CardState.DULL;
+		}
+		mw.gameState.getP2Hand().clear();
+		for (int i = 0; i < 4; i++) {
+			CardData c = makeForward("Deck " + i, "Fire", 2, 5000);
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().addLast(c);
+		}
+		CardData bottomBefore = mw.gameState.getP2MainDeck().peekLast();
+
+		ActionResolver.parse("choose up to 3 Fire Backups and/or Wind Backups. Activate them. Look at the "
+				+ "top 3 cards of your deck. Add 1 card among them to your hand and return the other cards "
+				+ "to the bottom of your deck in any order.", makeForward("Firion", "Fire/Wind", 7, 9000))
+				.accept(mw.buildGameContext(false));
+
+		assertEquals(CardState.ACTIVE, mw.p2BackupStates[0]);
+		assertEquals(CardState.ACTIVE, mw.p2BackupStates[1]);
+		assertEquals(CardState.DULL, mw.p2BackupStates[2], "Water is neither");
+		assertEquals(1, mw.gameState.getP2Hand().size(), "one of the three to hand");
+		assertEquals(3, mw.gameState.getP2MainDeck().size());
+		assertSame(bottomBefore, mw.gameState.getP2MainDeck().peekFirst(),
+				"the untouched fourth card is now on top; the other two went under it");
+	}
+
+	// =========================================================================================
+	// 18-074L Gilgamesh: "you may remove any number of cards in your Break Zone from the game. When
+	// you do so, choose 1 Forward of cost equal to or less than the number of Elements among removed
+	// cards. Break it." The removal ran; the break was dropped. Its sibling 12-076R Exdeath sizes by
+	// how many cards were removed, which the removal reports; this one needs which.
+	// =========================================================================================
+
+	private static final String GILGAMESH_18_074L = "remove any number of cards in your Break Zone from "
+			+ "the game. When you do so, choose 1 Forward of cost equal to or less than the number of "
+			+ "Elements among removed cards. Break it.";
+
+	@Test
+	void gilgameshBreaksUpToTheNumberOfElementsRemoved() {
+		MainWindow mw = new MainWindow();
+		List<CardData> bz = List.of(makeForward("Fire One", "Fire", 2, 5000),
+				makeForward("Fire Earth", "Fire/Earth", 3, 6000),
+				makeForward("Water One", "Water", 2, 5000));
+		for (CardData c : bz) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2BreakZone().add(c);
+		}
+		CardData three = makeForward("Three", "Ice", 3, 7000);
+		CardData four  = makeForward("Four", "Ice", 4, 8000);
+		placeP1Forward(mw, three);
+		placeP1Forward(mw, four);
+
+		ActionResolver.parse(GILGAMESH_18_074L, makeForward("Gilgamesh", "Lightning", 4, 8000))
+				.accept(mw.buildGameContext(false));
+
+		assertTrue(mw.gameState.getP2RemovedFromGame().containsAll(bz), "the AI took every card");
+		// Fire, Earth, Water: three Elements, the Fire/Earth card counting for both and Fire once.
+		assertFalse(mw.p1ForwardCards.contains(three), "cost 3 is within 3 Elements");
+		assertTrue(mw.p1ForwardCards.contains(four), "cost 4 is not");
+	}
+
+	@Test
+	void gilgameshGainsBraveAndASecondAttackAtDamageThree() throws Exception {
+		// His printed record, so the field ability is read exactly as the game reads it:
+		// "Damage 3 -- Gilgamesh gains Brave and "Gilgamesh can attack twice in the same turn.""
+		CardData gilgamesh = CardCorpus.load().stream()
+				.filter(e -> e.serial().equals("18-074L")).map(CardCorpus.Entry::card).findFirst().orElse(null);
+		Assumptions.assumeTrue(gilgamesh != null, "needs shufflingway.db");
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, gilgamesh);
+		int idx = mw.p2ForwardCards.indexOf(gilgamesh);
+		for (int i = 0; i < 2; i++) mw.gameState.getP2DamageZone().add(makeForward("Dmg" + i, "Fire", 1, 1000));
+		assertFalse(mw.effectiveP2HasTrait(idx, CardData.Trait.BRAVE), "2 damage: not yet");
+		assertEquals(1, mw.maxAttacksPerTurn(gilgamesh));
+
+		mw.gameState.getP2DamageZone().add(makeForward("Dmg2", "Fire", 1, 1000));
+		assertTrue(mw.effectiveP2HasTrait(idx, CardData.Trait.BRAVE), "3 damage: Brave");
+		assertEquals(2, mw.maxAttacksPerTurn(gilgamesh), "and a second attack");
+	}
+
+	@Test
+	void gilgameshBreaksNothingWhenNothingIsRemoved() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.ownRemovedFromGame()).thenReturn(List.of());
+		ActionResolver.parse(GILGAMESH_18_074L, makeForward("Gilgamesh", "Lightning", 4, 8000)).accept(ctx);
+		verify(ctx, never()).breakTarget(any());
+	}
+
+	// =========================================================================================
+	// 23-070H Hythlodaeus: "Shuffle your deck. Then, reveal the top 4 cards of your deck. Play any
+	// number of Characters among them onto the field and put the rest of the cards into the Break
+	// Zone." After a cost of Hythlodaeus and an Emet-Selch, only the shuffle ran: the shuffle joiner
+	// wanted "deck, then", and the reveal-play pattern wanted a count and a cost.
+	// =========================================================================================
+
+	@Test
+	void hythlodaeusPlaysRevealedCharactersAndBinsTheRest() {
+		MainWindow mw = new MainWindow();
+		CardData f1 = makeForward("F1", "Earth", 3, 7000);
+		CardData f2 = makeForward("F2", "Earth", 5, 9000);
+		CardData bk = makeJobCard("Bk", "Earth", "Backup", null);
+		CardData sm = makeSummon("Sm", "Earth", 2, "Draw 1 card.");
+		List<CardData> four = List.of(f1, f2, bk, sm);   // exactly four, so the shuffle cannot hide one
+		for (CardData c : four) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().addLast(c);
+		}
+
+		ActionResolver.parse("Shuffle your deck. Then, reveal the top 4 cards of your deck. Play any number "
+				+ "of Characters among them onto the field and put the rest of the cards into the Break Zone.",
+				makeForward("Hythlodaeus", "Earth", 6, 9000)).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.gameState.getP2MainDeck().isEmpty(), "all four revealed");
+		assertTrue(mw.gameState.getP2BreakZone().contains(sm), "a Summon is not a Character");
+		boolean anyPlayed = false;
+		for (CardData c : List.of(f1, f2, bk)) {
+			boolean onField = mw.p2ForwardCards.contains(c);
+			for (CardData b : mw.p2BackupCards) onField |= b == c;
+			assertTrue(onField ^ mw.gameState.getP2BreakZone().contains(c), c.name() + ": field or Break Zone");
+			anyPlayed |= onField;
+		}
+		assertTrue(anyPlayed, "the reveal played something: " + mw.gameLogText());
 	}
 
 	@Test

@@ -1,9 +1,13 @@
 package shufflingway;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -902,6 +906,34 @@ final class ActionResolverState {
                 action.accept(ctx, ts);
                 if (after != null) after.accept(ctx);
             });
+        }
+        // "When you do so, choose 1 Forward of cost equal to or less than the number of Elements
+        // among removed cards. Break it." — 18-074L Gilgamesh. Sized like Exdeath's below, but by
+        // what was removed rather than how many: the removal reports only a count, so the
+        // controller's removed-from-game zone is compared by identity before and after it.
+        Matcher sizedByElements = REMOVED_COUNT_COST_TAIL.matcher(tail);
+        if (sizedByElements.matches()
+                && COST_UP_TO_NUMBER_OF_ELEMENTS_REMOVED.matcher(sizedByElements.group("effect")).find()) {
+            String effect = sizedByElements.group("effect").trim();
+            boolean whenDoSo = sizedByElements.group("when") != null;
+            if (parse(COST_UP_TO_NUMBER_OF_ELEMENTS_REMOVED.matcher(effect).replaceAll("cost 1 or less"), source) == null)
+                return null;
+            final Consumer<GameContext> removal = base;
+            return ctx -> {
+                Set<CardData> before = Collections.newSetFromMap(new IdentityHashMap<>());
+                before.addAll(ctx.ownRemovedFromGame());
+                removal.accept(ctx);
+                if (whenDoSo && removed[0] == 0) return;   // removing nothing is not doing so
+                Set<String> elements = new LinkedHashSet<>();
+                for (CardData c : ctx.ownRemovedFromGame())
+                    if (!before.contains(c))
+                        for (String e : c.elements())
+                            if (!e.isBlank()) elements.add(e.trim());
+                ctx.logEntry("Effect: " + elements.size() + " Element(s) among removed cards " + elements);
+                Consumer<GameContext> sizedPayoff = parse(COST_UP_TO_NUMBER_OF_ELEMENTS_REMOVED.matcher(effect)
+                        .replaceAll("cost " + elements.size() + " or less"), source);
+                if (sizedPayoff != null) sizedPayoff.accept(ctx);
+            };
         }
         // "When you do so, / Then, … of cost equal to or less than the number of cards you
         // removed …" — 12-076R Exdeath and 12-112L Selh'teus. The ceiling is written in as a plain

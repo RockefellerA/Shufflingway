@@ -8003,6 +8003,10 @@ final class GameContextImpl implements GameContext {
 				markEffectFizzled();
 			}
 
+			@Override public List<CardData> ownRemovedFromGame() {
+				return new ArrayList<>(isP1 ? mw.gameState.getP1RemovedFromGame() : mw.gameState.getP2RemovedFromGame());
+			}
+
 			@Override public int removeCardsFromBreakZoneFromGame(int maxCount, boolean upTo,
 					boolean opponentZone, boolean bothZones, String element, int costVal, String costCmp,
 					boolean forwards, boolean backups, boolean monsters, boolean summons,

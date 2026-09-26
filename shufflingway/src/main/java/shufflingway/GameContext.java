@@ -2988,6 +2988,14 @@ public interface GameContext {
      *                   "each of a different Element"; {@link PickGate#ANY} when unconstrained
      * @return how many cards this call put out of the game
      */
+    /**
+     * A copy of the ability controller's removed-from-game zone, Warp cards included. Read before
+     * and after a removal to learn which cards it took — 18-074L Gilgamesh's "the number of
+     * Elements among removed cards", where {@link #removeCardsFromBreakZoneFromGame} reports only
+     * how many.
+     */
+    List<CardData> ownRemovedFromGame();
+
     int removeCardsFromBreakZoneFromGame(int maxCount, boolean upTo, boolean opponentZone,
             boolean bothZones, String element, int costVal, String costCmp,
             boolean forwards, boolean backups, boolean monsters, boolean summons,
