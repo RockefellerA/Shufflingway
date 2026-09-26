@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -52220,6 +52221,54 @@ public class CardBehaviorTest {
 	}
 
 	@Test
+	void noctisFindsTheArrivingForwardAfterItsTriggerCrossesTheStack() {
+		// The tests above set triggeringEnteredCard by hand. In play the watcher is pushed and the
+		// dispatcher unwinds that field as the push returns, so the entry has to carry the card to
+		// resolution. On P2's side, so the AI makes the choice as the entry goes on the Stack.
+		MainWindow mw = new MainWindow();
+		CardData noctis = makeAutoAbilityForward("Noctis", "Wind", 9000,
+				"When a Wind or Earth Forward other than Noctis enters your field, "
+				+ NOCTIS_18_139S + ".");
+		placeP2Forward(mw, noctis);
+		CardData victim = makeForward("Victim", "Fire", 6, 12000);
+		placeP1Forward(mw, victim);
+		assertEquals(0, mw.gameState.getStack().size(), "Noctis does not watch himself arrive");
+
+		CardData arrival = makeForward("Arriving", "Wind", 4, 7000);
+		placeP2Forward(mw, arrival);
+
+		assertEquals(1, mw.gameState.getStack().size(), "one arrival, one trigger");
+		StackEntry entry = mw.gameState.getStack().get(0);
+		assertSame(noctis, entry.source());
+		assertSame(arrival, entry.enteredCard());
+		assertNull(mw.triggeringEnteredCard, "the dispatcher has already unwound it");
+
+		// resolveTopOfStack is private and drives the UI; re-establish what it re-establishes
+		// from the entry, and run the effect.
+		mw.triggeringEnteredCard = entry.enteredCard();
+		GameContext ctx = mw.buildGameContext(false);
+		if (entry.preSelectedTargets() != null) ctx.preloadTargets(entry.preSelectedTargets());
+		ActionResolver.parse(entry.effectText(), noctis).accept(ctx);
+
+		assertEquals(7000, mw.p1ForwardDamage.get(mw.p1ForwardCards.indexOf(victim)),
+				"the chosen Forward takes the arriving Forward's power");
+	}
+
+	@Test
+	void noctisWatchesWindAndEarthForwardsButNotOthers() {
+		// "a Wind or Earth Forward" used to split on "or" into "a Wind", which matched nothing.
+		for (String element : List.of("Wind", "Earth", "Fire")) {
+			MainWindow mw = new MainWindow();
+			placeP2Forward(mw, makeAutoAbilityForward("Noctis", "Wind", 9000,
+					"When a Wind or Earth Forward other than Noctis enters your field, "
+					+ NOCTIS_18_139S + "."));
+			placeP1Forward(mw, makeForward("Victim", "Fire", 6, 12000));
+			placeP2Forward(mw, makeForward("Arriving", element, 4, 7000));
+			assertEquals(element.equals("Fire") ? 0 : 1, mw.gameState.getStack().size(), element);
+		}
+	}
+
+	@Test
 	void aBuffOnTheArrivingForwardIsCountedInTheDamage() {
 		// Effective power, not printed: the number dealt is what the Forward is worth when the
 		// ability resolves.
@@ -64997,6 +65046,416 @@ public class CardBehaviorTest {
 
 		assertTrue(mw.p2ForwardCards.isEmpty());
 		assertTrue(mw.gameState.getP2BreakZone().contains(emperor));
+	}
+
+	// =========================================================================================
+	// 25-007R Glenn and B-036 Shinra Soldier: "search for up to 2 … and add them to your hand.
+	// Then, you may play … from your hand onto the field." The search parser took the first
+	// sentence and the play was dropped.
+	// =========================================================================================
+
+	private static final String GLENN_25_007R =
+			"search for up to 2 Job SOLDIER and add them to your hand. Then, you may play up to 2 Job "
+			+ "SOLDIER Forwards of cost 2 or less from your hand onto the field.";
+
+	private static CardData glennPlays(GameContext ctx) {
+		return ctx.playCharacterFromHand(eq(true), eq(false), eq(false), eq(2), eq("less"), anyInt(),
+				eq("SOLDIER"), isNull(), isNull(), isNull(), isNull(), eq(false), isNull(),
+				eq(false), isNull());
+	}
+
+	@Test
+	void glennSearchesThenOffersUpToTwoSoldierPlays() {
+		Consumer<GameContext> fn = ActionResolver.parse(GLENN_25_007R, makeForward("Glenn", "Fire", 8, 9000));
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		CardData soldier = makeJobCard("Grunt", "Fire", "Forward", "SOLDIER");
+		when(glennPlays(ctx)).thenReturn(soldier);
+		fn.accept(ctx);
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				anyInt(), any(), any(), any(), any(), any(), any(), any(), eq("hand"), eq(2), anyBoolean(), any());
+		glennPlays(order.verify(ctx, times(2)));
+	}
+
+	@Test
+	void glennStopsOfferingOnceAPlayIsDeclined() {
+		GameContext ctx = mock(GameContext.class);
+		when(glennPlays(ctx)).thenReturn(null);
+		ActionResolver.parse(GLENN_25_007R, makeForward("Glenn", "Fire", 8, 9000)).accept(ctx);
+		glennPlays(verify(ctx, times(1)));
+	}
+
+	private static CardData makeShinraSoldier() {
+		return new CardData(null, "Shinra Soldier", "Lightning", 3, 7000, "Forward", false, 0, false, true,
+				Set.of(), 0, List.of(), null, List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, "");
+	}
+
+	@Test
+	void shinraSoldierPlaysEveryShinraSoldierFromHand() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2Hand().clear();
+		// Multicard, as printed: two copies may share the field without the same-name rule.
+		CardData a = makeShinraSoldier();
+		CardData b = makeShinraSoldier();
+		CardData other = makeForward("Someone Else", "Lightning", 3, 7000);
+		for (CardData c : List.of(a, b, other)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2Hand().add(c);
+		}
+
+		ActionResolver.parse("search for up to 2 Card Name Shinra Soldier and add them to your hand. Then, "
+				+ "you may play any number of Card Name Shinra Soldier from your hand onto the field.",
+				makeForward("Shinra Soldier", "Lightning", 3, 7000)).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p2ForwardCards.stream().anyMatch(c -> c == a));
+		assertTrue(mw.p2ForwardCards.stream().anyMatch(c -> c == b));
+		assertEquals(List.of(other), mw.gameState.getP2Hand(), "the name filter holds");
+	}
+
+	// =========================================================================================
+	// 28-113R Leonora: "draw 1 card, then discard 1 card. If the discarded card is a Summon, your
+	// opponent selects 1 Forward they control. Put it into the Break Zone." DrawCards took "draw 1
+	// card" off the front: she drew without discarding, and the payoff never ran.
+	// =========================================================================================
+
+	private static final String LEONORA_28_113R = "draw 1 card, then discard 1 card. If the discarded "
+			+ "card is a Summon, your opponent selects 1 Forward they control. Put it into the Break Zone.";
+
+	/** Method names the payoff calls on its own, so the tests below can look for exactly those. */
+	private static Set<String> leonoraPayoffCalls() {
+		GameContext alone = mock(GameContext.class);
+		ActionResolver.parse("Your opponent selects 1 Forward they control. Put it into the Break Zone.",
+				makeForward("Leonora", "Water", 3, 7000)).accept(alone);
+		Set<String> names = new HashSet<>();
+		mockingDetails(alone).getInvocations().forEach(i -> names.add(i.getMethod().getName()));
+		names.remove("logEntry");
+		return names;
+	}
+
+	private static Set<String> leonoraCallsAfterDiscarding(CardData discarded) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.effectMadeProgress()).thenReturn(true);
+		when(ctx.lastDiscardedCard()).thenReturn(discarded);
+		ActionResolver.parse(LEONORA_28_113R, makeForward("Leonora", "Water", 3, 7000)).accept(ctx);
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).drawCards(1);
+		order.verify(ctx).selfDiscard(1);
+		Set<String> names = new HashSet<>();
+		mockingDetails(ctx).getInvocations().forEach(i -> names.add(i.getMethod().getName()));
+		return names;
+	}
+
+	@Test
+	void leonoraDiscardingASummonMakesTheOpponentBinAForward() {
+		Set<String> payoff = leonoraPayoffCalls();
+		assertFalse(payoff.isEmpty());
+		assertTrue(leonoraCallsAfterDiscarding(makeSummon("Shiva", "Ice", 3, "")).containsAll(payoff));
+	}
+
+	@Test
+	void leonoraDiscardingAnythingElseStopsAfterTheDiscard() {
+		Set<String> payoff = leonoraPayoffCalls();
+		Set<String> calls = leonoraCallsAfterDiscarding(makeForward("Fodder", "Fire", 2, 5000));
+		calls.retainAll(payoff);
+		calls.removeAll(Set.of("resetEffectProgress", "effectMadeProgress"));
+		assertEquals(Set.of(), calls);
+	}
+
+	// =========================================================================================
+	// 13-088H Elle: "draw 2 cards, then discard 2 cards from your hand. If 1 or more discarded
+	// cards were Category FFBE, until the end of the turn, Elle gains "Elle cannot be blocked."
+	// and "When Elle deals damage to your opponent, draw 1 card."" The grant was dropped.
+	// =========================================================================================
+
+	private static final String ELLE_13_088H_ATTACK = "draw 2 cards, then discard 2 cards from your hand. If 1 or "
+			+ "more discarded cards were Category FFBE, until the end of the turn, Elle gains \"Elle cannot "
+			+ "be blocked.\" and \"When Elle deals damage to your opponent, draw 1 card.\"";
+
+	private static Set<String> elleGrantCalls() {
+		GameContext alone = mock(GameContext.class);
+		ActionResolver.parse("Until the end of the turn, Elle gains \"Elle cannot be blocked.\" and \"When "
+				+ "Elle deals damage to your opponent, draw 1 card.\"", makeForward("Elle", "Water", 3, 7000))
+				.accept(alone);
+		Set<String> names = new HashSet<>();
+		mockingDetails(alone).getInvocations().forEach(i -> names.add(i.getMethod().getName()));
+		names.remove("logEntry");
+		return names;
+	}
+
+	/** Elle resolved with the running discard list reading {@code before}, then {@code after}. */
+	private static Set<String> elleCalls(List<CardData> before, List<CardData> after) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.cardsDiscardedByEffect()).thenReturn(before, after);
+		ActionResolver.parse(ELLE_13_088H_ATTACK, makeForward("Elle", "Water", 3, 7000)).accept(ctx);
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).drawCards(2);
+		order.verify(ctx).selfDiscard(2);
+		Set<String> names = new HashSet<>();
+		mockingDetails(ctx).getInvocations().forEach(i -> names.add(i.getMethod().getName()));
+		return names;
+	}
+
+	@Test
+	void elleGainsHerGrantsWhenEitherDiscardIsFfbe() {
+		Set<String> grant = elleGrantCalls();
+		assertFalse(grant.isEmpty());
+		CardData ffbe = makeCategoryForward("Rain", "Fire", "FFBE");
+		CardData other = makeForward("Other", "Fire", 2, 5000);
+		assertTrue(elleCalls(List.of(), List.of(other, ffbe)).containsAll(grant));
+	}
+
+	@Test
+	void elleGainsNothingWhenNeitherDiscardIsFfbe() {
+		Set<String> calls = elleCalls(List.of(),
+				List.of(makeForward("A", "Fire", 2, 5000), makeForward("B", "Fire", 2, 5000)));
+		calls.retainAll(elleGrantCalls());
+		assertEquals(Set.of(), calls);
+	}
+
+	@Test
+	void anFfbeCardDiscardedEarlierInTheChainDoesNotCountForElle() {
+		CardData earlier = makeCategoryForward("Rain", "Fire", "FFBE");
+		Set<String> calls = elleCalls(List.of(earlier),
+				List.of(earlier, makeForward("A", "Fire", 2, 5000), makeForward("B", "Fire", 2, 5000)));
+		calls.retainAll(elleGrantCalls());
+		assertEquals(Set.of(), calls);
+	}
+
+	@Test
+	void everyEffectDiscardIsRecordedInOrder() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2Hand().clear();
+		CardData a = makeForward("A", "Fire", 2, 5000);
+		CardData b = makeForward("B", "Fire", 2, 5000);
+		for (CardData c : List.of(a, b)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2Hand().add(c);
+		}
+		GameContext ctx = mw.buildGameContext(false);
+		ctx.selfDiscard(2);
+		assertEquals(Set.of(a, b), new HashSet<>(ctx.cardsDiscardedByEffect()));
+	}
+
+	// =========================================================================================
+	// 14-038H Lugae: "When a Forward enters your field, you may remove Lugae from the game. If you
+	// do so, that Forward gains +2000 power and Brave. (This effect does not end at the end of the
+	// turn.)" RemoveNamedFromGame read the removal and dropped the grant.
+	// =========================================================================================
+
+	private static final String LUGAE_14_038H = "When a Forward enters your field, you may remove Lugae from "
+			+ "the game. If you do so, that Forward gains +2000 power and Brave. (This effect does not end "
+			+ "at the end of the turn.)";
+
+	/** Lugae with her trigger parsed, so the watcher dispatch can find it. */
+	private static CardData makeLugae() {
+		return new CardData(null, "Lugae", "Ice", 2, 0, "Backup", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(LUGAE_14_038H),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, LUGAE_14_038H);
+	}
+
+	@Test
+	void lugaeGrantsTheEnteringForwardPowerAndBravePermanently() {
+		MainWindow mw = new MainWindow();
+		CardData lugae = makeLugae();
+		mw.gameState.getIdentity().put(lugae, false);
+		mw.p2BackupCards[0] = lugae;
+		CardData other = makeForward("Bystander", "Ice", 2, 5000);
+		CardData arrival = makeForward("Arrival", "Ice", 3, 7000);
+		placeP2Forward(mw, other);    // idx 0
+		placeP2Forward(mw, arrival);  // idx 1
+		mw.triggeringEnteredCard = arrival;
+
+		ActionResolver.parse("remove Lugae from the game. If you do so, that Forward gains +2000 power and "
+				+ "Brave. (This effect does not end at the end of the turn.)", lugae)
+				.accept(mw.buildGameContext(false));
+
+		assertTrue(mw.gameState.getP2RemovedFromGame().contains(lugae));
+		assertEquals(9000, mw.effectiveP2ForwardPower(1));
+		assertTrue(mw.effectiveP2HasTrait(1, CardData.Trait.BRAVE));
+		assertEquals(5000, mw.effectiveP2ForwardPower(0), "only that Forward");
+		mw.fireEndOfTurnEffects(false);
+		assertEquals(9000, mw.effectiveP2ForwardPower(1), "does not end at the end of the turn");
+	}
+
+	@Test
+	void lugaeGrantsNothingWhenSheCannotBeRemoved() {
+		MainWindow mw = new MainWindow();
+		CardData lugae = makeLugae();
+		CardData arrival = makeForward("Arrival", "Ice", 3, 7000);
+		placeP2Forward(mw, arrival);
+		mw.triggeringEnteredCard = arrival;   // Lugae herself is nowhere on the board
+
+		ActionResolver.parse("remove Lugae from the game. If you do so, that Forward gains +2000 power and "
+				+ "Brave. (This effect does not end at the end of the turn.)", lugae)
+				.accept(mw.buildGameContext(false));
+
+		assertEquals(7000, mw.effectiveP2ForwardPower(0));
+		assertFalse(mw.effectiveP2HasTrait(0, CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void lugaesTriggerCarriesTheEnteringForwardThroughTheStack() {
+		// Placing the Forward fires the enters-field dispatch itself. The watcher is pushed, and the
+		// dispatcher unwinds triggeringEnteredCard as soon as it returns; the entry has to carry the
+		// card, or at resolution "that Forward" is nobody and the grant is lost.
+		MainWindow mw = new MainWindow();
+		CardData lugae = makeLugae();
+		mw.gameState.getIdentity().put(lugae, false);
+		mw.p2BackupCards[0] = lugae;
+		CardData arrival = makeForward("Arrival", "Ice", 3, 7000);
+		placeP2Forward(mw, arrival);
+
+		assertEquals(1, mw.gameState.getStack().size(), "one arrival, one trigger");
+		StackEntry entry = mw.gameState.getStack().get(0);
+		assertSame(arrival, entry.enteredCard());
+		assertNull(mw.triggeringEnteredCard, "the dispatcher has already unwound it");
+
+		// resolveTopOfStack is private and drives the UI; re-establish what it re-establishes
+		// from the entry, and run the effect.
+		mw.triggeringEnteredCard = entry.enteredCard();
+		ActionResolver.parse(entry.effectText(), lugae).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.gameState.getP2RemovedFromGame().contains(lugae));
+		assertEquals(9000, mw.effectiveP2ForwardPower(0));
+		assertTrue(mw.effectiveP2HasTrait(0, CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void aRedirectedStackEntryKeepsItsTriggeringCards() {
+		CardData broken = makeForward("Broken", "Fire", 2, 5000);
+		CardData entered = makeForward("Entered", "Fire", 2, 5000);
+		StackEntry e = new StackEntry(makeForward("Src", "Fire", 2, 5000), null, null, false, 0, false,
+				null, false, false, 0, 0, broken, entered);
+		StackEntry moved = e.withPreSelectedTargets(List.of());
+		assertSame(broken, moved.triggerCard());
+		assertSame(entered, moved.enteredCard());
+	}
+
+	// =========================================================================================
+	// 1-131R Cait Sith: "Remove the top card of your deck from the game. If it's a Forward, deal
+	// 7000 damage to all the active Forwards opponent controls." The removal ran; the damage never.
+	// =========================================================================================
+
+	private static final String CAIT_SITH_1_131R = "Remove the top card of your deck from the game. If "
+			+ "it's a Forward, deal 7000 damage to all the active Forwards opponent controls.";
+
+	/** P2's deck topped with {@code top}; P1 has an active and a dull Forward. */
+	private static MainWindow boardForCaitSith(CardData top) {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getIdentity().put(top, false);
+		mw.gameState.getP2MainDeck().addFirst(top);
+		placeP1Forward(mw, makeForward("Active", "Fire", 3, 9000));   // idx 0
+		placeP1Forward(mw, makeForward("Dull", "Fire", 3, 9000));     // idx 1
+		mw.p1ForwardStates.set(1, CardState.DULL);
+		ActionResolver.parse(CAIT_SITH_1_131R, makeForward("Cait Sith", "Lightning", 3, 7000))
+				.accept(mw.buildGameContext(false));
+		assertTrue(mw.gameState.getP2RemovedFromGame().contains(top));
+		return mw;
+	}
+
+	@Test
+	void caitSithHitsTheActiveForwardsWhenAForwardIsRemoved() {
+		MainWindow mw = boardForCaitSith(makeForward("Top", "Ice", 2, 5000));
+		assertEquals(7000, mw.p1ForwardDamage.get(0));
+		assertEquals(0, mw.p1ForwardDamage.get(1), "the dull Forward is not active");
+	}
+
+	@Test
+	void caitSithDealsNothingWhenTheRemovedCardIsNotAForward() {
+		MainWindow mw = boardForCaitSith(makeJobCard("Top", "Ice", "Backup", null));
+		assertEquals(0, mw.p1ForwardDamage.get(0));
+		assertEquals(0, mw.p1ForwardDamage.get(1));
+	}
+
+	// =========================================================================================
+	// "Element or Element" subjects on triggers other than enters-field: 13-105R Lasswell ("When a
+	// Fire or Ice Forward you control attacks") and 11-101H Meia ("When a Light or Dark Character
+	// either player controls is put from the field into the Break Zone"). Checked after the
+	// enters-field matcher split 18-139S Noctis's "a Wind or Earth Forward" into nothing.
+	// =========================================================================================
+
+	@Test
+	void lasswellWatchesFireAndIceAttackersButNotOthers() {
+		for (String element : List.of("Fire", "Ice", "Wind")) {
+			MainWindow mw = new MainWindow();
+			placeP2Forward(mw, makeAutoAbilityForward("Lasswell", "Fire", 8000,
+					"When a Fire or Ice Forward you control attacks, choose 1 Forward opponent controls. "
+					+ "Deal it 3000 damage."));
+			placeP1Forward(mw, makeForward("Victim", "Water", 3, 9000));
+			CardData attacker = makeForward("Attacker", element, 3, 7000);
+			placeP2Forward(mw, attacker);
+			int before = mw.gameState.getStack().size();
+
+			mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, false);
+
+			assertEquals(element.equals("Wind") ? 0 : 3000, mw.p1ForwardDamage.get(0),
+					element + " (stack " + (mw.gameState.getStack().size() - before) + "): " + mw.gameLogText());
+		}
+	}
+
+	@Test
+	void meiaWatchesLightAndDarkCharactersButNotOthers() {
+		for (String element : List.of("Light", "Dark", "Fire")) {
+			MainWindow mw = new MainWindow();
+			placeP2Forward(mw, makeAutoAbilityForward("Meia", "Lightning", 7000,
+					"When a Light or Dark Character either player controls is put from the field into the "
+					+ "Break Zone, choose 1 Character other than Light or Dark in your Break Zone. Add it to "
+					+ "your hand."));
+			CardData salvage = makeForward("Salvage", "Fire", 2, 5000);
+			mw.gameState.getIdentity().put(salvage, false);
+			mw.gameState.getP2BreakZone().add(salvage);
+			CardData broken = makeForward("Broken", element, 3, 7000);
+			mw.gameState.getIdentity().put(broken, true);
+			mw.gameState.getP1BreakZone().add(broken);
+			int before = mw.gameState.getStack().size();
+
+			mw.autoAbilityTriggers.triggerAutoAbilitiesForBreakZone(broken, true, Set.of());
+
+			assertEquals(element.equals("Fire") ? 0 : 1, mw.gameState.getStack().size() - before,
+					element + " (stack " + (mw.gameState.getStack().size() - before) + "): " + mw.gameLogText());
+		}
+	}
+
+	// =========================================================================================
+	// 12-019R Amidatelion: "Remove the top card of your deck from the game. If that card's cost is
+	// 4 or less, you may cast it without paying the cost this turn." The removal ran alone.
+	// =========================================================================================
+
+	private static MainWindow boardForAmidatelion(CardData top) {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getIdentity().put(top, false);
+		mw.gameState.getP2MainDeck().addFirst(top);
+		ActionResolver.parse("Remove the top card of your deck from the game. If that card's cost is 4 or "
+				+ "less, you may cast it without paying the cost this turn.",
+				makeJobCard("Amidatelion", "Ice", "Backup", null)).accept(mw.buildGameContext(false));
+		assertTrue(mw.gameState.getP2RemovedFromGame().contains(top));
+		return mw;
+	}
+
+	@Test
+	void amidatelionLetsACheapRemovedCardBeCastFreeThisTurn() {
+		CardData top = makeForward("Cheap", "Ice", 4, 7000);
+		MainWindow mw = boardForAmidatelion(top);
+		PlayableEntry entry = mw.bzPlayableP2.get(top);
+		assertNotNull(entry, "castable this turn");
+		assertTrue(entry.freeCast());
+		assertTrue(entry.expiresThisTurn());
+		assertEquals(PlayableEntry.SourceZone.RFP, entry.source());
+		assertEquals(0, entry.effectiveCost(top));
+	}
+
+	@Test
+	void amidatelionOffersNothingForACardOverTheBound() {
+		CardData top = makeForward("Dear", "Ice", 5, 9000);
+		MainWindow mw = boardForAmidatelion(top);
+		assertNull(mw.bzPlayableP2.get(top));
 	}
 
 	@Test

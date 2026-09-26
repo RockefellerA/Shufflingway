@@ -1252,4 +1252,37 @@ final class ActionResolverPower {
             }
         };
     }
+
+    /**
+     * Parses "remove [Self] from the game. If you do so, that Forward gains +N power [and traits].
+     * (This effect does not end at the end of the turn.)" — 14-038H Lugae. "That Forward" is the
+     * one whose arrival fired the trigger; the grant is skipped when the removal did not happen or
+     * that Forward has left the field.
+     */
+    static Consumer<GameContext> tryParseRemoveSelfThenEnteredForwardGainsPermanently(String text, CardData source) {
+        if (source == null || source.name() == null) return null;
+        Matcher m = REMOVE_SELF_THEN_ENTERED_FORWARD_GAINS_PERMANENTLY.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        int power = Integer.parseInt(m.group("power"));
+        String traitText = m.group("traits");
+        EnumSet<CardData.Trait> traits = traitText != null
+                ? parseTraits(traitText) : EnumSet.noneOf(CardData.Trait.class);
+        // An unrecognised trait word would be dropped by parseTraits; decline rather than grant less.
+        if (traitText != null && traits.isEmpty()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Remove " + source.name() + " from the game");
+            ctx.resetEffectProgress();
+            ctx.removeSourceCardFromGame(source);
+            if (!ctx.effectMadeProgress()) return;
+            ForwardTarget entered = ctx.triggeringEnteredForwardTarget();
+            if (entered == null) {
+                ctx.logEntry("Effect: the entering Forward is no longer on the field — no grant");
+                return;
+            }
+            ctx.logEntry("Effect: that Forward gains +" + power + " power" + (traits.isEmpty() ? "" : " and " + traits)
+                    + " (does not end at the end of the turn)");
+            ctx.boostTargetPermanently(entered, power, traits);
+        };
+    }
 }

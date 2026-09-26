@@ -1492,6 +1492,55 @@ final class ActionResolverSearch {
             ctx.removeTopCardsOfDeckFromGame(count, source);
         };
     }
+    /**
+     * Parses "Remove the top card of your deck from the game. If it's a Forward, &lt;effect&gt;" —
+     * 1-131R Cait Sith. Both halves must parse; the payoff runs only when a card was removed and it
+     * is of the named type.
+     */
+    static Consumer<GameContext> tryParseRemoveTopOfDeckThenIfItsType(String text, CardData source) {
+        Matcher m = REMOVE_TOP_OF_DECK_THEN_IF_ITS_TYPE.matcher(text.trim());
+        if (!m.matches()) return null;
+        String effText = m.group("eff").trim();
+        effText = Character.toUpperCase(effText.charAt(0)) + effText.substring(1);
+        Consumer<GameContext> payoff = parse(effText, source);
+        if (payoff == null) return null;
+        String type = m.group("type");
+        return ctx -> {
+            ctx.logEntry("Effect: Remove top card of deck from game");
+            List<CardData> removed = ctx.removeTopCardsOfDeckFromGame(1, source);
+            CardData card = removed == null || removed.isEmpty() ? null : removed.get(0);
+            if (card != null && type.equalsIgnoreCase(card.type())) {
+                ctx.logEntry("Effect: " + card.name() + " is a " + type);
+                payoff.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: the removed card is not a " + type + " — no effect");
+            }
+        };
+    }
+    /**
+     * Parses "Remove the top card of your deck from the game. If that card's cost is N or less, you
+     * may cast it [without paying the cost] this turn." — 12-019R Amidatelion. The removal always
+     * happens; the permission only for a card inside the bound.
+     */
+    static Consumer<GameContext> tryParseRemoveTopOfDeckThenIfCostMayCast(String text) {
+        Matcher m = REMOVE_TOP_OF_DECK_THEN_IF_COST_MAY_CAST.matcher(text.trim());
+        if (!m.matches()) return null;
+        int bound = Integer.parseInt(m.group("cost"));
+        boolean orLess = "less".equalsIgnoreCase(m.group("cmp"));
+        boolean free = m.group("free") != null;
+        return ctx -> {
+            ctx.logEntry("Effect: Remove top card of deck from game");
+            List<CardData> removed = ctx.removeTopCardsOfDeckFromGame(1, null);
+            CardData card = removed == null || removed.isEmpty() ? null : removed.get(0);
+            if (card == null) return;
+            boolean within = orLess ? card.cost() <= bound : card.cost() >= bound;
+            if (!within) {
+                ctx.logEntry("Effect: " + card.name() + " costs " + card.cost() + " — not castable");
+                return;
+            }
+            ctx.makeRemovedCardCastableThisTurn(card, free);
+        };
+    }
     static Consumer<GameContext> tryParseShuffleDeck(String text) {
         if (!SHUFFLE_DECK.matcher(text).find()) return null;
         return ctx -> ctx.shuffleDeck();

@@ -1033,8 +1033,10 @@ public interface GameContext {
      * @param source the card whose ability is removing them, recorded so a later ability on that
      *               same card can retrieve them via {@link #addCardsRemovedBySourceToHand}; may be
      *               {@code null} when nothing refers back to them
+     * @return the cards removed, top first; fewer than {@code count} when the deck ran out. Read by
+     *         "If it's a Forward, …" (1-131R Cait Sith).
      */
-    void removeTopCardsOfDeckFromGame(int count, CardData source);
+    List<CardData> removeTopCardsOfDeckFromGame(int count, CardData source);
 
     /**
      * As above, and then registers each removed card as castable by the ability user out of the
@@ -2565,6 +2567,13 @@ public interface GameContext {
      * an empty hand this still names whatever was discarded earlier in the chain.
      */
     CardData lastDiscardedCard();
+
+    /**
+     * Every card discarded by an effect (not a cost) since the stack last emptied, oldest first.
+     * The list spans abilities, so a reader takes its size before its own discard and looks only
+     * at what follows — 13-088H Elle's "If 1 or more discarded cards were Category FFBE".
+     */
+    List<CardData> cardsDiscardedByEffect();
 
     /**
      * Returns {@code true} when the card most recently discarded by an effect (not a cost) in the
@@ -5499,6 +5508,17 @@ public interface GameContext {
             int costReduction);
 
     /**
+     * Lets the ability's controller cast {@code card}, already removed from the game, this turn —
+     * a {@link PlayableEntry} over the removed-from-game zone that expires at end of turn, as
+     * {@link #revealTopNRemoveOneFromGameCastableThisTurnRestBottom} registers. 12-019R
+     * Amidatelion: "If that card's cost is 4 or less, you may cast it without paying the cost this
+     * turn."
+     *
+     * @param freeCast {@code true} for "without paying the cost"
+     */
+    void makeRemovedCardCastableThisTurn(CardData card, boolean freeCast);
+
+    /**
      * Reveals the top {@code reveal} cards of the player's deck.  The player may add up to
      * {@code maxAdd} of them to hand, excluding any card whose name equals {@code excludeName}.
      * All remaining revealed cards go to the Break Zone.
@@ -5579,6 +5599,13 @@ public interface GameContext {
      * it is worth when the ability resolves.
      */
     int triggeringEnteredCardPower();
+
+    /**
+     * The field slot of the Forward whose arrival fired the watcher being resolved, found by
+     * identity on either side, or {@code null} when there is none or it is no longer a Forward on
+     * the field. 14-038H Lugae's "that Forward gains +2000 power and Brave".
+     */
+    ForwardTarget triggeringEnteredForwardTarget();
 
     /**
      * Asks the resolving player to reveal any number of cards from their hand, and answers how many

@@ -35,8 +35,22 @@ import java.util.List;
  *                                   restored as soon as the ability is <em>pushed</em>, which is
  *                                   long before it resolves: read off that field, the effect saw
  *                                   nothing and fizzled.
+ * @param enteredCard                for an "enters your field" watcher, the card whose arrival fired
+ *                                   it — "that Forward" (14-038H Lugae), "the Forward that entered
+ *                                   the field" (18-139S Noctis); {@code null} otherwise. Carried for
+ *                                   the same reason as {@code triggerCard}, and kept apart from it so
+ *                                   an arrival is never read back as a departure.
  */
-public record StackEntry(CardData source, ActionAbility ability, AutoAbility autoAbility, boolean isP1, int xValue, boolean isExBurst, List<ForwardTarget> preSelectedTargets, boolean isWarpResolve, boolean paidExtraCost, int extraCostRemovedCardPower, int revealedForwardPower, CardData triggerCard) {
+public record StackEntry(CardData source, ActionAbility ability, AutoAbility autoAbility, boolean isP1, int xValue, boolean isExBurst, List<ForwardTarget> preSelectedTargets, boolean isWarpResolve, boolean paidExtraCost, int extraCostRemovedCardPower, int revealedForwardPower, CardData triggerCard, CardData enteredCard) {
+
+    /** Compatibility constructor for the entries that carry no entering card. */
+    public StackEntry(CardData source, ActionAbility ability, AutoAbility autoAbility, boolean isP1,
+            int xValue, boolean isExBurst, List<ForwardTarget> preSelectedTargets,
+            boolean isWarpResolve, boolean paidExtraCost, int extraCostRemovedCardPower,
+            int revealedForwardPower, CardData triggerCard) {
+        this(source, ability, autoAbility, isP1, xValue, isExBurst, preSelectedTargets,
+                isWarpResolve, paidExtraCost, extraCostRemovedCardPower, revealedForwardPower, triggerCard, null);
+    }
 
     /** Compatibility constructor for the entries that carry no triggering card, which is most of them. */
     public StackEntry(CardData source, ActionAbility ability, AutoAbility autoAbility, boolean isP1,
@@ -95,7 +109,8 @@ public record StackEntry(CardData source, ActionAbility ability, AutoAbility aut
      */
     public StackEntry withPreSelectedTargets(List<ForwardTarget> newTargets) {
         return new StackEntry(source, ability, autoAbility, isP1, xValue, isExBurst,
-                newTargets, isWarpResolve, paidExtraCost, extraCostRemovedCardPower, revealedForwardPower);
+                newTargets, isWarpResolve, paidExtraCost, extraCostRemovedCardPower, revealedForwardPower,
+                triggerCard, enteredCard);
     }
 
     public boolean isSummon()        { return ability == null && autoAbility == null && !isExBurst && !isWarpResolve; }

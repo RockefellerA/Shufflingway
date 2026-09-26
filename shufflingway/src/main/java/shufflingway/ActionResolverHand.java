@@ -514,6 +514,63 @@ final class ActionResolverHand {
         };
     }
 
+    /**
+     * Parses "&lt;effect that discards 1 card&gt;. If the discarded card is a Summon, &lt;effect&gt;."
+     * — 28-113R Leonora. Both halves must parse; the payoff runs only when a card was discarded
+     * and it is of the named type.
+     */
+    static Consumer<GameContext> tryParseDiscardThenIfDiscardedType(String text, CardData source) {
+        Matcher m = DISCARD_THEN_IF_DISCARDED_TYPE.matcher(text.trim());
+        if (!m.matches()) return null;
+        Consumer<GameContext> head = parse(m.group("head").trim(), source);
+        String effText = m.group("eff").trim();
+        effText = Character.toUpperCase(effText.charAt(0)) + effText.substring(1) + ".";
+        Consumer<GameContext> payoff = parse(effText, source);
+        if (head == null || payoff == null) return null;
+        String type = m.group("type");
+        return ctx -> {
+            ctx.resetEffectProgress();
+            head.accept(ctx);
+            CardData discarded = ctx.lastDiscardedCard();
+            if (ctx.effectMadeProgress() && discarded != null && type.equalsIgnoreCase(discarded.type())) {
+                ctx.logEntry("Discard conditional: discarded a " + type);
+                payoff.accept(ctx);
+            } else {
+                ctx.logEntry("Discard conditional: discarded card is not a " + type);
+            }
+        };
+    }
+
+    /**
+     * Parses "&lt;effect that discards N cards&gt;. If 1 or more discarded cards were Category X,
+     * &lt;effect&gt;" — 13-088H Elle. Both halves must parse. Only the cards this head discarded
+     * count: the running list is read past the size it had before the head ran.
+     */
+    static Consumer<GameContext> tryParseDiscardThenIfAnyDiscardedCategory(String text, CardData source) {
+        Matcher m = DISCARD_THEN_IF_ANY_DISCARDED_CATEGORY.matcher(text.trim());
+        if (!m.matches()) return null;
+        Consumer<GameContext> head = parse(m.group("head").trim(), source);
+        String effText = m.group("eff").trim();
+        effText = Character.toUpperCase(effText.charAt(0)) + effText.substring(1);
+        if (!effText.matches("(?s).*[.!\"]$")) effText += ".";
+        Consumer<GameContext> payoff = parse(effText, source);
+        if (head == null || payoff == null) return null;
+        String cat = m.group("cat").trim();
+        return ctx -> {
+            int before = ctx.cardsDiscardedByEffect().size();
+            head.accept(ctx);
+            List<CardData> all = ctx.cardsDiscardedByEffect();
+            boolean any = all.subList(Math.min(before, all.size()), all.size()).stream()
+                    .anyMatch(c -> CardFilters.meetsCategoryFilter(c, cat));
+            if (any) {
+                ctx.logEntry("Discard conditional: a discarded card is Category " + cat);
+                payoff.accept(ctx);
+            } else {
+                ctx.logEntry("Discard conditional: no discarded card is Category " + cat);
+            }
+        };
+    }
+
     private static String fillSameAsDiscarded(String payoff, boolean byCost, String value) {
         return byCost
                 ? SAME_COST_AS_DISCARDED.matcher(payoff).replaceAll("of cost " + value)
@@ -913,6 +970,7 @@ final class ActionResolverHand {
         if (!m.find()) return null;
 
         String jobFilter = m.group("jobnm") != null ? m.group("jobnm").trim() : null;
+        String cardName  = m.group("cardname") != null ? m.group("cardname").trim() : null;
         String targets   = m.group("targets");
         boolean anyType  = targets == null;
         String tgtLower  = anyType ? "" : targets.toLowerCase();
@@ -922,8 +980,54 @@ final class ActionResolverHand {
 
         final String fJob = jobFilter;
         return ctx -> {
-            ctx.logEntry("Effect: Play any number of" + (fJob != null ? " Job " + fJob : "") + " from hand → field");
-            ctx.playAnyNumberFromHand(inclForwards, inclBackups, inclMonsters, fJob, null, null, null);
+            ctx.logEntry("Effect: Play any number of" + (fJob != null ? " Job " + fJob : "")
+                    + (cardName != null ? " Card Name " + cardName : "") + " from hand → field");
+            ctx.playAnyNumberFromHand(inclForwards, inclBackups, inclMonsters, fJob, cardName, null, null);
+        };
+    }
+
+    /**
+     * Parses "[Then,] you may play up to N &lt;filter&gt; from your hand onto the field" — 25-007R
+     * Glenn. Read as the single-card wording, offered up to N times; declining one (or running
+     * out of eligible cards) ends the offer.
+     */
+    static Consumer<GameContext> tryParsePlayUpToNFromHand(String text, CardData source, int xValue) {
+        Matcher m = PLAY_UP_TO_N_FROM_HAND.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n = Integer.parseInt(m.group("n"));
+        String single = "you may play 1 "
+                + m.group("rest").replaceAll("(?i)\\b(Forward|Backup|Monster|Character)s\\b", "$1");
+        CardData[] played = new CardData[1];
+        Consumer<GameContext> once = parsePlayFromHand(single, source, xValue, false,
+                (ctx, card) -> played[0] = card);
+        if (once == null) return null;
+        return ctx -> {
+            for (int i = 0; i < n; i++) {
+                played[0] = null;
+                once.accept(ctx);
+                if (played[0] == null) break;
+            }
+        };
+    }
+
+    /**
+     * Parses "search for … and add (it|them) to your hand. Then, you may play … from your hand
+     * onto the field." — 25-007R Glenn, B-036 Shinra Soldier. Both halves must parse; the play
+     * is offered whether or not the search found anything, as "Then" does not gate on it.
+     */
+    static Consumer<GameContext> tryParseSearchToHandThenMayPlayFromHand(String text, CardData source, int xValue) {
+        Matcher m = SEARCH_TO_HAND_THEN_MAY_PLAY_FROM_HAND.matcher(text.trim());
+        if (!m.matches()) return null;
+        Consumer<GameContext> search = ActionResolver.parse(m.group("search").trim() + ".", source, xValue);
+        if (search == null) return null;
+        String playText = m.group("play").trim() + ".";
+        Consumer<GameContext> play = tryParsePlayUpToNFromHand(playText, source, xValue);
+        if (play == null) play = ActionResolver.parse(playText, source, xValue);
+        if (play == null) return null;
+        Consumer<GameContext> fPlay = play;
+        return ctx -> {
+            search.accept(ctx);
+            fPlay.accept(ctx);
         };
     }
     /**

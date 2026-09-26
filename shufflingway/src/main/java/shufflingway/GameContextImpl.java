@@ -15,6 +15,7 @@ import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -3078,7 +3079,7 @@ final class GameContextImpl implements GameContext {
 				if (preTargets != null && preTargets.isEmpty()) preTargets = null;
 				mw.gameState.insertStack(mw.gameState.stackSize(),
 						new StackEntry(newSource, null, copied, isP1, 0, false, preTargets,
-								false, false, 0, 0, chosen.triggerCard()));
+								false, false, 0, 0, chosen.triggerCard(), chosen.enteredCard()));
 				logEntry(newSource.name() + " triggers " + chosen.source().name()
 						+ "'s auto-ability: " + copied.effectText());
 				mw.showStackWindowIfNeeded();
@@ -5998,17 +5999,20 @@ final class GameContextImpl implements GameContext {
 	// =========================================================================================
 	// Remove from game; deck-top manipulation
 	// =========================================================================================
-			@Override public void removeTopCardsOfDeckFromGame(int count, CardData source) {
+			@Override public List<CardData> removeTopCardsOfDeckFromGame(int count, CardData source) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				List<CardData> removed = new ArrayList<>();
 				for (int i = 0; i < count && !deck.isEmpty(); i++) {
 					CardData c = deck.pollFirst();
 					mw.gameState.addToPermanentRfp(c);
 					if (source != null)
 						mw.cardsRemovedBySource.computeIfAbsent(source, k -> new ArrayList<>()).add(c);
 					logEntry(c.name() + " → Removed From Game (top of deck)");
+					removed.add(c);
 				}
 				if (isP1) { mw.refreshP1DeckLabel(); mw.refreshP1WarpZoneUI(); }
 				else      { mw.refreshP2DeckLabel(); mw.refreshP2WarpZoneUI(); }
+				return removed;
 			}
 
 			@Override public void removeTopCardsOfDeckFromGameCastableThisTurn(int count,
@@ -6033,6 +6037,14 @@ final class GameContextImpl implements GameContext {
 				}
 				if (isP1) { mw.refreshP1DeckLabel(); mw.refreshP1WarpZoneUI(); }
 				else      { mw.refreshP2DeckLabel(); mw.refreshP2WarpZoneUI(); }
+			}
+
+			@Override public void makeRemovedCardCastableThisTurn(CardData card, boolean freeCast) {
+				if (card == null) return;
+				mw.registerBorrowedPlayable(isP1, card, new PlayableEntry(
+						PlayableEntry.SourceZone.RFP, 0, false, freeCast, false, true));
+				logEntry((isP1 ? "" : "[P2] ") + card.name() + " — castable this turn"
+						+ (freeCast ? " without paying the cost" : ""));
 			}
 
 			/** The card {@code t} currently points at, in any zone including the Break Zone; null if none. */
@@ -7292,6 +7304,7 @@ final class GameContextImpl implements GameContext {
 				return mw.lastDiscardedCard != null && mw.lastDiscardedCard.containsElement("Multi-Element");
 			}
 			@Override public CardData lastDiscardedCard() { return mw.lastDiscardedCard; }
+			@Override public List<CardData> cardsDiscardedByEffect() { return List.copyOf(mw.discardedByEffect); }
 			@Override public boolean lastDiscardedCardIsCategory(String category) {
 				return mw.lastDiscardedCard != null
 					&& meetsCategoryFilter(mw.lastDiscardedCard, category);
@@ -8475,7 +8488,7 @@ final class GameContextImpl implements GameContext {
 					for (int i = 0; i < actual; i++) {
 						int idx = MainWindow.pickWorstHandCard0(hand);
 						CardData d = mw.playerBreakFromHand(false,idx);
-						if (d != null) { logEntry("[P2] Discards " + d.name()); mw.p2Turn.discardedByEffectThisTurn = true; mw.lastDiscardedCardName = d.name(); mw.lastDiscardedCard = d; discarded++; }
+						if (d != null) { logEntry("[P2] Discards " + d.name()); mw.p2Turn.discardedByEffectThisTurn = true; mw.lastDiscardedCardName = d.name(); mw.lastDiscardedCard = d; mw.discardedByEffect.add(d); discarded++; }
 					}
 					mw.refreshP2HandCountLabel();
 					mw.refreshP2BreakLabel();
@@ -8495,6 +8508,7 @@ final class GameContextImpl implements GameContext {
 					mw.p2Turn.discardedByEffectThisTurn = true;
 					mw.lastDiscardedCardName = d.name();
 					mw.lastDiscardedCard = d;
+					mw.discardedByEffect.add(d);
 				}
 				if (take > 0) { mw.refreshP2HandCountLabel(); mw.refreshP2BreakLabel(); }
 				return take;
@@ -10402,6 +10416,16 @@ final class GameContextImpl implements GameContext {
 				return counts;
 			}
 
+			@Override public ForwardTarget triggeringEnteredForwardTarget() {
+				CardData entered = mw.triggeringEnteredCard;
+				if (entered == null) return null;
+				for (int i = 0; i < mw.p1ForwardCards.size(); i++)
+					if (mw.p1ForwardCards.get(i) == entered) return new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD);
+				for (int i = 0; i < mw.p2ForwardCards.size(); i++)
+					if (mw.p2ForwardCards.get(i) == entered) return new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD);
+				return null;
+			}
+
 			@Override public int triggeringEnteredCardPower() {
 				CardData entered = mw.triggeringEnteredCard;
 				if (entered == null) return 0;
@@ -11828,14 +11852,17 @@ final class GameContextImpl implements GameContext {
 			@Override public void grantAllControlledForwardsElementUntilEOT(String element) {
 				List<CardData> fwds   = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
 				String prefix = isP1 ? "" : "[P2] ";
-				for (CardData c : fwds) {
-					final String prev = mw.elementOverrideMap.get(c);
-					mw.elementOverrideMap.put(c, element);
+				// "Gain" adds the Element: a Fire Forward that gains Ice is Fire and Ice, not Ice alone.
+				for (CardData c : new ArrayList<>(fwds)) {
+					Set<String> gained = mw.tempGainedElements.computeIfAbsent(c, k -> new LinkedHashSet<>());
+					if (!gained.add(element)) continue;
 					mw.endOfTurnEffects.add(x -> {
-						if (prev != null) mw.elementOverrideMap.put(c, prev);
-						else              mw.elementOverrideMap.remove(c);
+						Set<String> g = mw.tempGainedElements.get(c);
+						if (g == null) return;
+						g.remove(element);
+						if (g.isEmpty()) mw.tempGainedElements.remove(c);
 					});
-					logEntry(prefix + c.name() + " → element becomes " + element + " until EOT");
+					logEntry(prefix + c.name() + " gains the Element " + element + " until EOT");
 				}
 			}
 

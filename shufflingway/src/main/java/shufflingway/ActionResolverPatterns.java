@@ -7182,12 +7182,34 @@ final class ActionResolverPatterns {
         "(?:\\s+(?<dull>dull))?" +
         "[.!]?"
     );
-    /** Matches "play any number of [Job X] [type] from your hand onto [the] field". */
+    /**
+     * Matches "play any number of [Job X] [type] from your hand onto [the] field", or "… of Card
+     * Name X from your hand …" (B-036 Shinra Soldier).
+     */
     static final Pattern PLAY_ANY_NUMBER_FROM_HAND_PATTERN = Pattern.compile(
         "(?i)(?:Then,?\\s+)?(?:you\\s+may\\s+)?[Pp]lay\\s+any\\s+number\\s+of\\s+" +
-        "(?:Job\\s+(?<jobnm>.+?)\\s+)?" +
-        "(?<targets>Forwards?|Backups?|Monsters?|Characters?)?" +
+        "(?:Card\\s+Name\\s+(?<cardname>.+?)\\s+(?=from\\b)|(?:Job\\s+(?<jobnm>.+?)\\s+)?" +
+        "(?<targets>Forwards?|Backups?|Monsters?|Characters?)?)" +
         "\\s*from\\s+your\\s+hand\\s+onto\\s+(?:the\\s+)?field[.!]?"
+    );
+    /**
+     * "[Then,] you may play up to N &lt;filter&gt; from your hand onto the field." — 25-007R
+     * Glenn. Group {@code rest} is the filter through the end, read as the single-card wording
+     * N times over. Anchored end to end.
+     */
+    static final Pattern PLAY_UP_TO_N_FROM_HAND = Pattern.compile(
+        "(?i)^(?:Then,?\\s+)?you\\s+may\\s+play\\s+up\\s+to\\s+(?<n>\\d+)\\s+" +
+        "(?<rest>.+?\\s+from\\s+your\\s+hand\\s+onto\\s+the\\s+field(?:\\s+dull)?[.!]?)\\s*$"
+    );
+    /**
+     * "search for … and add (it|them) to your hand. Then, you may play … from your hand onto the
+     * field." — 25-007R Glenn, B-036 Shinra Soldier. The search parser took the first sentence
+     * under {@code find()} and the play was dropped. Groups {@code search} and {@code play}; both
+     * must parse.
+     */
+    static final Pattern SEARCH_TO_HAND_THEN_MAY_PLAY_FROM_HAND = Pattern.compile(
+        "(?is)^(?<search>search\\s+for\\s+[^.]+?\\s+and\\s+add\\s+(?:it|them)\\s+to\\s+your\\s+hand)\\.\\s+" +
+        "Then,\\s+(?<play>you\\s+may\\s+play\\s+[^.]+?\\s+from\\s+your\\s+hand\\s+onto\\s+the\\s+field(?:\\s+dull)?)[.!]?\\s*$"
     );
 
     // =========================================================================================
@@ -12356,6 +12378,55 @@ final class ActionResolverPatterns {
         "(?is)^(?<head>.*\\bdiscard\\s+1\\s+card\\b[^.]*[.!])\\s+" +
         "If\\s+the\\s+discarded\\s+card\\s+is\\s+(?:an?\\s+)?Category\\s+(?<cat>\\S+?)(?:\\s+card)?\\s*,\\s*" +
         "(?:also\\s+)?(?<eff>[^.]+?)[.!]?\\s*$");
+    /**
+     * "&lt;effect that discards 1 card&gt;. If the discarded card is a Summon, &lt;effect&gt;." —
+     * 28-113R Leonora, whose payoff runs two sentences ("your opponent selects 1 Forward they
+     * control. Put it into the Break Zone."). The card-type sibling of
+     * {@link #DISCARD_THEN_IF_DISCARDED_CATEGORY}; anchored end to end. Groups: {@code head},
+     * {@code type}, {@code eff}.
+     */
+    static final Pattern DISCARD_THEN_IF_DISCARDED_TYPE = Pattern.compile(
+        "(?is)^(?<head>[^.]*\\bdiscard\\s+1\\s+card\\b[^.]*[.!])\\s+" +
+        "If\\s+the\\s+discarded\\s+card\\s+is\\s+an?\\s+(?<type>Forward|Backup|Summon|Monster)\\s*,\\s*" +
+        "(?<eff>.+?)[.!]?\\s*$");
+    /**
+     * "&lt;effect that discards N cards&gt;. If 1 or more discarded cards were Category X,
+     * &lt;effect&gt;" — 13-088H Elle. The plural sibling of
+     * {@link #DISCARD_THEN_IF_DISCARDED_CATEGORY}: any one of the cards qualifies. Anchored end to
+     * end; the payoff may carry quoted sentences. Groups: {@code head}, {@code cat}, {@code eff}.
+     */
+    static final Pattern DISCARD_THEN_IF_ANY_DISCARDED_CATEGORY = Pattern.compile(
+        "(?is)^(?<head>[^.]*\\bdiscard\\s+\\d+\\s+cards\\b[^.]*[.!])\\s+" +
+        "If\\s+1\\s+or\\s+more\\s+discarded\\s+cards\\s+(?:were|are)\\s+Category\\s+(?<cat>\\S+?)\\s*,\\s*" +
+        "(?<eff>.+?)\\s*$");
+    /**
+     * "remove [Self] from the game. If you do so, that Forward gains +N power [and &lt;traits&gt;].
+     * (This effect does not end at the end of the turn.)" — 14-038H Lugae, where "that Forward" is
+     * the one whose arrival fired the trigger. Anchored end to end: RemoveNamedFromGame read the
+     * removal and dropped the grant. Groups: {@code name}, {@code power}, {@code traits}.
+     */
+    static final Pattern REMOVE_SELF_THEN_ENTERED_FORWARD_GAINS_PERMANENTLY = Pattern.compile(
+        "(?i)^remove\\s+(?<name>.+?)\\s+from\\s+the\\s+game\\.\\s+If\\s+you\\s+do\\s+so,\\s+" +
+        "that\\s+Forward\\s+gains\\s+\\+(?<power>\\d+)\\s+power(?:\\s+and\\s+(?<traits>[^.]+?))?\\.\\s*" +
+        "\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.\\)\\s*$");
+    /**
+     * "Remove the top card of your deck from the game. If it's a Forward, &lt;effect&gt;" — 1-131R
+     * Cait Sith. Anchored end to end: RemoveTopOfDeckFromGame took the removal under
+     * {@code find()} and dropped the payoff. Groups: {@code type}, {@code eff}.
+     */
+    /**
+     * "Remove the top card of your deck from the game. If that card's cost is N or less, you may
+     * cast it without paying the cost this turn." — 12-019R Amidatelion. Anchored end to end:
+     * RemoveTopOfDeckFromGame took the removal and dropped the permission. Groups: {@code cost},
+     * {@code cmp}, {@code free}.
+     */
+    static final Pattern REMOVE_TOP_OF_DECK_THEN_IF_COST_MAY_CAST = Pattern.compile(
+        "(?i)^Remove\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck\\s+from\\s+the\\s+game\\.\\s+" +
+        "If\\s+that\\s+card'?s\\s+cost\\s+is\\s+(?<cost>\\d+)\\s+or\\s+(?<cmp>less|more)\\s*,\\s*" +
+        "you\\s+may\\s+cast\\s+it(?<free>\\s+without\\s+paying\\s+the\\s+cost)?\\s+this\\s+turn[.!]?\\s*$");
+    static final Pattern REMOVE_TOP_OF_DECK_THEN_IF_ITS_TYPE = Pattern.compile(
+        "(?is)^Remove\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck\\s+from\\s+the\\s+game\\.\\s+" +
+        "If\\s+it'?s\\s+an?\\s+(?<type>Forward|Backup|Summon|Monster)\\s*,\\s*(?<eff>.+?)\\s*$");
     /**
      * "discard 1 card [from your hand]. If/When you do so, &lt;payoff keyed on the discarded
      * card&gt;." — 7-017H Meeth, 8-039C Time Mage, 11-125C Alchemist, 27-067C Pictomancer (XIV).

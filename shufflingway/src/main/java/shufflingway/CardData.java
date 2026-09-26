@@ -3705,6 +3705,19 @@ public record CardData(
      * {@code fwdnoun}, {@code exclude}. This is the single definition — {@code AutoAbilityTriggers}
      * matches against it too, so the classifier and the runtime check cannot drift apart.
      */
+    /**
+     * "a Fire [or Ice] Forward [other than X] you control" — the Element form of a filtered-forward
+     * attack subject: 13-105R Lasswell, 14-122L Al-Cid, 18-008H Two-Headed Dragon, 21-118H Leila,
+     * 26-085L Vrtra, 26-103L Azdaja. Without it these classified as the attacker's own "attacks"
+     * trigger, which fires only for a card of that name, and never fired. Groups: {@code elems}
+     * (one or more Elements joined by "or"), {@code exclude}.
+     */
+    static final Pattern ELEMENT_FORWARD_SUBJECT = Pattern.compile(
+        "(?i)^a\\s+(?<elems>(?:" + String.join("|", Elements.ALL) + ")(?:\\s+or\\s+(?:"
+        + String.join("|", Elements.ALL) + "))*)\\s+Forward" +
+        "(?:\\s+other\\s+than\\s+(?<exclude>.+?))?\\s+you\\s+control$"
+    );
+
     static final Pattern FILTER_FORWARD_SUBJECT = Pattern.compile(
         "(?i)^(?:a|(?<count>\\d+)\\s+or\\s+more)\\s+" +
         "(?<type1>Job|Card\\s+Name)\\s+(?<val1>.+?)" +
@@ -4261,7 +4274,8 @@ public record CardData(
             else if (triggerRaw.contains("enter") && triggerRaw.contains("opponent") && triggerRaw.contains("field")) trigger = "enters opponent's field";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("your field"))                            trigger = "enters your field";
             else if (triggerRaw.contains("attack")
-                    && FILTER_FORWARD_SUBJECT.matcher(card).matches())                                       trigger = "filtered forward attacks";
+                    && (FILTER_FORWARD_SUBJECT.matcher(card).matches()
+                        || ELEMENT_FORWARD_SUBJECT.matcher(card).matches()))                                 trigger = "filtered forward attacks";
             else if (triggerRaw.contains("attack")
                     && OTHER_FORWARD_SUBJECT.matcher(card).matches())                                        trigger = "other forward attacks";
             else if (triggerRaw.contains("attack")

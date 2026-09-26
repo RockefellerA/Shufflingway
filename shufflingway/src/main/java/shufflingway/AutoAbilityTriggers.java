@@ -2250,8 +2250,25 @@ final class AutoAbilityTriggers {
 	 *   <li>a card-name phrase ({@code "a Card Name Warrior"}) — matched by name/aliases.</li>
 	 * </ul>
 	 */
+	/**
+	 * "a Wind or Earth Forward other than Noctis" (18-139S) — an Element alternation sharing one
+	 * type and one tail. Split on "or" as written, it came apart into "a Wind", which names no type
+	 * and matched nothing, and "Earth Forward …": a Wind Forward never fired the trigger.
+	 */
+	private static final Pattern SUBJECT_ELEMENT_ALTERNATION = Pattern.compile(
+			"(?i)^(?:an?\\s+)?(?<elems>(?:" + String.join("|", Elements.ALL) + ")"
+			+ "(?:\\s*,\\s*|\\s+or\\s+)(?:(?:" + String.join("|", Elements.ALL) + ")(?:\\s*,\\s*|\\s+or\\s+))*"
+			+ "(?:" + String.join("|", Elements.ALL) + "))\\s+(?<rest>(?:Forward|Backup|Character|Monster)s?\\b.*)$");
+
 	private boolean matchesEntersFieldSubject(String subject, CardData enteringCard, CardData self) {
 		if (subject == null || subject.isBlank()) return false;
+		Matcher alt = SUBJECT_ELEMENT_ALTERNATION.matcher(subject.trim());
+		if (alt.matches()) {
+			for (String elem : alt.group("elems").split("(?i)\\s*,\\s*(?:or\\s+)?|\\s+or\\s+"))
+				if (matchesSingleSubject("a " + elem.trim() + " " + alt.group("rest").trim(), enteringCard, self))
+					return true;
+			return false;
+		}
 		for (String part : subject.split("(?i)\\s+or\\s+")) {
 			if (matchesSingleSubject(part.trim(), enteringCard, self)) return true;
 		}
@@ -2404,6 +2421,15 @@ final class AutoAbilityTriggers {
 	 * subject — "[a | N or more] Job X [or a Card Name Y] [Forward(s)] [other than Z] you control".
 	 */
 	private boolean matchesFilteredForwardSubject(String triggerCard, CardData attacker) {
+		Matcher em = CardData.ELEMENT_FORWARD_SUBJECT.matcher(triggerCard.trim());
+		if (em.matches()) {
+			if (!attacker.isForward()) return false;
+			String exclude = em.group("exclude");
+			if (exclude != null && CardFilters.meetsCardNameFilter(attacker, exclude.trim())) return false;
+			for (String elem : em.group("elems").split("(?i)\\s+or\\s+"))
+				if (attacker.containsElement(elem.trim())) return true;
+			return false;
+		}
 		java.util.regex.Matcher m = CardData.FILTER_FORWARD_SUBJECT.matcher(triggerCard);
 		if (!m.matches()) return false;
 		// "…Forwards…" restricts the trigger to actual Forwards; without the noun any attacking
@@ -2817,7 +2843,7 @@ final class AutoAbilityTriggers {
 	 * Used to extract the controller check, leaving the filter clause(s) for separate matching.
 	 */
 	private static final Pattern BZ_SUBJECT_CTRL = Pattern.compile(
-		"(?i)\\s+(?<ctrl>you|opponent)\\s+controls?$"
+		"(?i)\\s+(?<ctrl>you|opponent|either\\s+player)\\s+controls?$"
 	);
 	/** "Chocobo forming a party" — fires when the named card itself was in a party when broken. */
 	private static final Pattern BZ_SUBJECT_SELF_PARTY = Pattern.compile(
@@ -2872,14 +2898,15 @@ final class AutoAbilityTriggers {
 		// or an OR combination thereof (e.g. "a Job Warrior or a Card Name Warrior you control")
 		Matcher ctrlM = BZ_SUBJECT_CTRL.matcher(subject);
 		if (ctrlM.find()) {
-			boolean selfCtrl      = ctrlM.group("ctrl").equalsIgnoreCase("you");
-			boolean brokenByOwner = (brokenIsP1 == abilityOwnerIsP1);
-			if (selfCtrl != brokenByOwner) return false;
-			String filters = subject.substring(0, ctrlM.start());
-			for (String part : filters.split("(?i)\\s+or\\s+")) {
-				if (matchesSingleSubject(part.trim(), broken, source)) return true;
+			// "either player controls" (11-101H Meia) names no side.
+			if (!ctrlM.group("ctrl").toLowerCase(Locale.ROOT).startsWith("either")) {
+				boolean selfCtrl      = ctrlM.group("ctrl").equalsIgnoreCase("you");
+				boolean brokenByOwner = (brokenIsP1 == abilityOwnerIsP1);
+				if (selfCtrl != brokenByOwner) return false;
 			}
-			return false;
+			// Same "or" split as before, with "a Light or Dark Character" read as one Element list
+			// over a shared type first — split as written it came apart into "a Light", nothing.
+			return matchesEntersFieldSubject(subject.substring(0, ctrlM.start()), broken, source);
 		}
 
 		// Fall back to named card match (handles "Geomancer", etc.)
@@ -3000,8 +3027,9 @@ final class AutoAbilityTriggers {
 		String subject = m.group("subject").trim();
 		Matcher ctrlM = BZ_SUBJECT_CTRL.matcher(subject);
 		if (ctrlM.find()) {
+			boolean eitherPlayer = ctrlM.group("ctrl").toLowerCase(Locale.ROOT).startsWith("either");
 			boolean selfCtrl = ctrlM.group("ctrl").equalsIgnoreCase("you");
-			if (selfCtrl != (brokenIsP1 == watcherIsP1)) return false;
+			if (!eitherPlayer && selfCtrl != (brokenIsP1 == watcherIsP1)) return false;
 			subject = subject.substring(0, ctrlM.start()).trim();
 		}
 		// These printings use the definite and indefinite article interchangeably for the same
@@ -4537,7 +4565,7 @@ final class AutoAbilityTriggers {
 		// the moment this push returns — resolution comes later, off the Stack — so an effect that
 		// names the card back ("add it to your hand") found nothing there and fizzled.
 		StackEntry entry = new StackEntry(source, null, fa, effectIsP1, entryX, false, preTargets, false,
-				paidExtraCost, 0, 0, mw.triggeringBrokenCard);
+				paidExtraCost, 0, 0, mw.triggeringBrokenCard, mw.triggeringEnteredCard);
 		mw.gameState.insertStack(depth, entry);
 		mw.cancelFirstOppForwardAuto(entry);
 	}

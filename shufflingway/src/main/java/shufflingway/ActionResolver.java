@@ -394,6 +394,10 @@ public class ActionResolver {
         //    Counters from Shadow" as the thing to remove from the game.
         result = tryParseSearchNamedRfgThenIfDoSo(effectText, source);
         if (result != null) return result;
+        // Must precede SearchDeck for the same reason: it find()s the search and drops the
+        // "Then, you may play …" sentence (25-007R Glenn, B-036 Shinra Soldier).
+        result = tryParseSearchToHandThenMayPlayFromHand(effectText, source, xValue);
+        if (result != null) return result;
         // 2-134C Horne, anchored: DrawCards find()s "Draw 1 card" off the front and drops both
         // the per-Moogle count and the put-back.
         result = tryParseDrawPerJobThenBottomAsMany(effectText);
@@ -779,6 +783,12 @@ public class ActionResolver {
         // DrawCards parsers, which find() the draw/discard and drop the gated payoff (20-113R Porom),
         // and GAIN_CRYSTAL, which would find() the payoff and run it ungated.
         result = tryParseDiscardThenIfDiscardedCategory(effectText, source);
+        if (result != null) return result;
+        // The card-type sibling, for the same reason: DrawCards find()s "draw 1 card" off the
+        // front and drops the discard with the payoff (28-113R Leonora).
+        result = tryParseDiscardThenIfDiscardedType(effectText, source);
+        if (result != null) return result;
+        result = tryParseDiscardThenIfAnyDiscardedCategory(effectText, source);
         if (result != null) return result;
 
         result = tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source);
@@ -1481,6 +1491,9 @@ public class ActionResolver {
         result = ActionResolverFieldAbility.tryParseNameCardTypeRemoveOppBzFromGame(effectText);
         if (result != null) return result;
 
+        // Must precede RemoveNamedFromGame, which reads the removal and drops the grant (14-038H).
+        result = ActionResolverPower.tryParseRemoveSelfThenEnteredForwardGainsPermanently(effectText, source);
+        if (result != null) return result;
         result = tryParseRemoveNamedFromGame(effectText, source);
         if (result != null) return result;
 
@@ -2051,6 +2064,13 @@ public class ActionResolver {
         result = tryParseSkipOpponentPhasesNextTurn(effectText, source);
         if (result != null) return result;
 
+        // Must precede RemoveTopOfDeckFromGame, which find()s the removal and drops "If it's a
+        // Forward, …" (1-131R Cait Sith).
+        result = tryParseRemoveTopOfDeckThenIfItsType(effectText, source);
+        if (result != null) return result;
+        // Same reason: the removal alone dropped 12-019R Amidatelion's cast permission.
+        result = tryParseRemoveTopOfDeckThenIfCostMayCast(effectText);
+        if (result != null) return result;
         result = tryParseRemoveTopOfDeckFromGame(effectText, source);
         if (result != null) return result;
 
@@ -2508,6 +2528,9 @@ public class ActionResolver {
         if (tryParseShuffleThenRevealTopCastSummonFreeRestBz(effectText) != null)
             return "ShuffleThenRevealTopCastSummonFreeRestBz";
         if (tryParseDiscardThenIfDiscardedCategory(effectText, source) != null) return "DiscardThenIfDiscardedCategory";
+        if (tryParseDiscardThenIfDiscardedType(effectText, source) != null) return "DiscardThenIfDiscardedType";
+        if (tryParseDiscardThenIfAnyDiscardedCategory(effectText, source) != null)
+            return "DiscardThenIfAnyDiscardedCategory";
         if (tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source) != null) return "IfPutFromFieldToBzThisTurnInstead";
         if (tryParseIfPutFromFieldToBzThisTurn(effectText, source)        != null) return "IfPutFromFieldToBzThisTurn";
         if (tryParseIfPutFromFieldToBzThisTurnMidGate(effectText, source) != null) return "IfPutFromFieldToBzThisTurnMidGate";
@@ -2758,6 +2781,8 @@ public class ActionResolver {
             return removeFromBreakZonePatternName(effectText);
         if (ActionResolverFieldAbility.tryParseRemoveAllFieldFromGame(effectText) != null) return "RemoveAllFieldFromGame";
         if (ActionResolverFieldAbility.tryParseNameCardTypeRemoveOppBzFromGame(effectText) != null) return "NameCardTypeRemoveOppBzFromGame";
+        if (ActionResolverPower.tryParseRemoveSelfThenEnteredForwardGainsPermanently(effectText, source) != null)
+            return "RemoveSelfThenEnteredForwardGainsPermanently";
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         // Must precede BreakSourceCard, mirroring parse(): the sentence opens with the plain
         // self-break that parser reads.
@@ -2904,6 +2929,8 @@ public class ActionResolver {
         // Must precede SearchDeck, mirroring parse(): that parser names the search alone and
         // leaves the "If you do so, ..." payoff out of the report.
         if (tryParseSearchNamedRfgThenIfDoSo(effectText, source) != null) return "SearchNamedRfgThenIfDoSo";
+        if (tryParseSearchToHandThenMayPlayFromHand(effectText, source, 0) != null)
+            return "SearchToHandThenMayPlayFromHand";
         if (ActionResolverSearch.tryParseReturnSourceOntoField(effectText, source) != null)
             return "ReturnSourceOntoField";
         if (ActionResolverSearch.tryParsePlaySourceFromBzOntoOppField(effectText, source) != null)
@@ -3003,6 +3030,8 @@ public class ActionResolver {
             return tail == null ? "SkipOpponentPhasesNextTurn"
                                 : "SkipOpponentPhasesNextTurn + " + tail;
         }
+        if (tryParseRemoveTopOfDeckThenIfItsType(effectText, source)        != null) return "RemoveTopOfDeckThenIfItsType";
+        if (tryParseRemoveTopOfDeckThenIfCostMayCast(effectText)            != null) return "RemoveTopOfDeckThenIfCostMayCast";
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)         != null) return "RevealPlayNamedWithMaxCostRestBottom";
         // Mirrors parse(): ahead of the single-filter sibling below, which would read
@@ -4041,6 +4070,18 @@ public class ActionResolver {
                 return descOrUnread(discM.group("head"), source) + " + IfDiscardedCategory("
                         + discM.group("cat").trim() + ": " + descOrUnread(discM.group("eff"), source) + ")";
         }
+        if (tryParseDiscardThenIfDiscardedType(effectText, source) != null) {
+            Matcher discM = DISCARD_THEN_IF_DISCARDED_TYPE.matcher(effectText.trim());
+            if (discM.matches())
+                return descOrUnread(discM.group("head"), source) + " + IfDiscardedType("
+                        + discM.group("type") + ": " + descOrUnread(discM.group("eff"), source) + ")";
+        }
+        if (tryParseDiscardThenIfAnyDiscardedCategory(effectText, source) != null) {
+            Matcher discM = DISCARD_THEN_IF_ANY_DISCARDED_CATEGORY.matcher(effectText.trim());
+            if (discM.matches())
+                return descOrUnread(discM.group("head"), source) + " + IfAnyDiscardedCategory("
+                        + discM.group("cat").trim() + ": " + descOrUnread(discM.group("eff"), source) + ")";
+        }
         if (tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source) != null) {
             Matcher insteadM = PUT_FROM_FIELD_TO_BZ_THIS_TURN_INSTEAD.matcher(effectText.trim());
             if (insteadM.find())
@@ -4726,6 +4767,8 @@ public class ActionResolver {
             return removeFromBreakZoneDescription(effectText, source);
         if (ActionResolverFieldAbility.tryParseRemoveAllFieldFromGame(effectText) != null) return "RemoveAllFieldFromGame";
         if (ActionResolverFieldAbility.tryParseNameCardTypeRemoveOppBzFromGame(effectText) != null) return "NameCardTypeRemoveOppBzFromGame";
+        if (ActionResolverPower.tryParseRemoveSelfThenEnteredForwardGainsPermanently(effectText, source) != null)
+            return "RemoveSelfThenEnteredForwardGainsPermanently";
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         // Must precede BreakSourceCard, mirroring parse() and matchedPatternName().
         if (tryParseBreakSelfAndBattlePartner(effectText, source) != null)
@@ -4891,6 +4934,8 @@ public class ActionResolver {
         // Must precede SearchDeck, mirroring parse(): that parser names the search alone and
         // leaves the "If you do so, ..." payoff out of the report.
         if (tryParseSearchNamedRfgThenIfDoSo(effectText, source) != null) return "SearchNamedRfgThenIfDoSo";
+        if (tryParseSearchToHandThenMayPlayFromHand(effectText, source, 0) != null)
+            return "SearchToHandThenMayPlayFromHand";
         if (ActionResolverSearch.tryParseReturnSourceOntoField(effectText, source) != null)
             return "ReturnSourceOntoField";
         if (ActionResolverSearch.tryParsePlaySourceFromBzOntoOppField(effectText, source) != null)
@@ -4992,6 +5037,8 @@ public class ActionResolver {
             return tail == null ? "SkipOpponentPhasesNextTurn"
                                 : "SkipOpponentPhasesNextTurn + " + tail;
         }
+        if (tryParseRemoveTopOfDeckThenIfItsType(effectText, source)        != null) return "RemoveTopOfDeckThenIfItsType";
+        if (tryParseRemoveTopOfDeckThenIfCostMayCast(effectText)            != null) return "RemoveTopOfDeckThenIfCostMayCast";
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)           != null) return "RevealPlayNamedWithMaxCostRestBottom";
         // Mirrors parse(): ahead of the single-filter sibling below, which would read

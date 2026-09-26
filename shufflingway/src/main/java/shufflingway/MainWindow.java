@@ -819,6 +819,9 @@ public class MainWindow {
 	String   lastDiscardedCardName        = null;
 	// Card most recently discarded by an effect (not a cost), for "If the discarded card is …" conditionals.
 	CardData lastDiscardedCard            = null;
+	// Every card discarded by an effect since the stack last emptied, in order; readers snapshot
+	// its size before their discard and look only past it (13-088H Elle's "1 or more discarded cards").
+	final List<CardData> discardedByEffect = new ArrayList<>();
 	// Card most recently discarded as a cost payment (for element-conditional branch effects).
 	CardData lastDiscardedCostCard        = null;
 	// Cost/power of the Forward most recently removed from the game by a "remove it from the game" effect.
@@ -1468,6 +1471,9 @@ public class MainWindow {
 
 	/** Maps a card to a permanent element override (Kam'lanaut ability); persists across turns. */
 	final Map<CardData, String> elementOverrideMap      = new HashMap<>();
+	// Elements a card gains, in addition to its own, until the end of the turn — 2-087R Hashmal's
+	// "gain … the named Element". By identity: two copies of a printing are equal records.
+	final Map<CardData, Set<String>> tempGainedElements = new IdentityHashMap<>();
 	/** Maps a card to a permanently-granted extra job (e.g. Bartz ability); persists across turns. */
 	final Map<CardData, String> permanentExtraJobMap    = new HashMap<>();
 	/** Forwards that have Breaktouch (battle damage) until end of turn. */
@@ -2621,6 +2627,7 @@ public class MainWindow {
 		abilityUsesThisTurn.clear();
 		specialAbilitiesUsedThisTurn.clear();
 		elementOverrideMap.clear();
+		tempGainedElements.clear();
 		permanentExtraJobMap.clear();
 		stolenForwards.clear();
 		tempExiledCards.clear();
@@ -7934,6 +7941,7 @@ public class MainWindow {
 				if (d != null) {
 					logEntry("Discards " + d.name() + (forcedByOpponent ? " (forced by opponent)" : ""));
 					lastDiscardedCard = d;
+					discardedByEffect.add(d);
 					lastDiscardedCardName = d.name();
 				}
 			}
@@ -7964,6 +7972,7 @@ public class MainWindow {
 						logEntry("Discards " + d.name());
 						p1Turn.discardedByEffectThisTurn = true;
 						lastDiscardedCard = d;
+						discardedByEffect.add(d);
 						lastDiscardedCardName = d.name();
 						if (d.isForward()) lastDiscardedForwardPower = d.power();
 					}
@@ -7986,6 +7995,7 @@ public class MainWindow {
 						logEntry("Discards " + d.name());
 						p1Turn.discardedByEffectThisTurn = true;
 						lastDiscardedCard = d;
+						discardedByEffect.add(d);
 						lastDiscardedCardName = d.name();
 						if (d.isForward()) lastDiscardedForwardPower = d.power();
 					}
@@ -8008,6 +8018,7 @@ public class MainWindow {
 						logEntry("Discards " + d.name());
 						p1Turn.discardedByEffectThisTurn = true;
 						lastDiscardedCard = d;
+						discardedByEffect.add(d);
 						lastDiscardedCardName = d.name();
 						if (d.isForward()) lastDiscardedForwardPower = d.power();
 					}
@@ -12639,6 +12650,9 @@ public class MainWindow {
 		// cleared; the entry carries it precisely so this can put it back.
 		CardData previousTriggeringBrokenCard = triggeringBrokenCard;
 		triggeringBrokenCard = entry.triggerCard();
+		// Likewise the card whose arrival fired an "enters your field" watcher (14-038H Lugae).
+		CardData previousTriggeringEnteredCard = triggeringEnteredCard;
+		triggeringEnteredCard = entry.enteredCard();
 		try {
 			// The entry's own EX Burst flag reaches the effect through the context. The direct
 			// damage-zone path (AutoAbilityTriggers.triggerExBurst) has always passed it; the two
@@ -12811,10 +12825,11 @@ public class MainWindow {
 		} finally {
 			isResolvingStack = false;
 			triggeringBrokenCard = previousTriggeringBrokenCard;
+			triggeringEnteredCard = previousTriggeringEnteredCard;
 		}
 
 		if (!gameState.getStack().isEmpty()) showStackWindow();
-		else { lastDiscardedForwardPower = 0; lastDiscardedCardName = null; lastDiscardedCard = null; lastDiscardedCostCard = null; }
+		else { lastDiscardedForwardPower = 0; lastDiscardedCardName = null; lastDiscardedCard = null; lastDiscardedCostCard = null; discardedByEffect.clear(); }
 	}
 
 	/** Calls {@link #showStackWindow()} only when we are not already inside a stack resolution chain. */
@@ -14703,12 +14718,14 @@ public class MainWindow {
 		// so the set is read off the card. It joins the same union as the queried form, and a card
 		// stripped of its abilities loses it exactly as it loses that one.
 		Set<String> printed = selfGrantedElements(c);
-		if (gained.isEmpty() && printed.isEmpty()) return base;
+		Set<String> temp = tempGainedElements.getOrDefault(c, Set.of());
+		if (gained.isEmpty() && printed.isEmpty() && temp.isEmpty()) return base;
 		// LinkedHashSet: the printed Elements keep their printed order and the gained ones follow
 		// in board order, so anything that renders this list reads the same way twice running.
 		Set<String> all = new LinkedHashSet<>(base);
 		all.addAll(printed);
 		all.addAll(gained);
+		all.addAll(temp);
 		return List.copyOf(all);
 	}
 
@@ -14871,7 +14888,31 @@ public class MainWindow {
 
 	boolean meetsJobFilterEffective(CardData card, String jobFilter) {
 		if (jobFilter != null && jobsStripped(card)) return false;
-		return meetsJobFilter(card, jobFilter, effectiveExtraJob(card));
+		if (meetsJobFilter(card, jobFilter, effectiveExtraJob(card))) return true;
+		return hasTempJob(card, jobFilter);
+	}
+
+	/**
+	 * The Job {@code card} gained until the end of the turn ({@code p1/p2ForwardTempJobs}), found by
+	 * identity on either side's Forward row, or {@code null}. 2-087R Hashmal's "gain … the named
+	 * Job" and the single-target {@code grantJobUntilEndOfTurn} write that row; nothing read it, so
+	 * the Job was granted and never counted.
+	 */
+	private String tempJob(CardData card) {
+		for (int i = 0; i < p1ForwardCards.size() && i < p1ForwardTempJobs.size(); i++)
+			if (p1ForwardCards.get(i) == card) return p1ForwardTempJobs.get(i);
+		for (int i = 0; i < p2ForwardCards.size() && i < p2ForwardTempJobs.size(); i++)
+			if (p2ForwardCards.get(i) == card) return p2ForwardTempJobs.get(i);
+		return null;
+	}
+
+	private boolean hasTempJob(CardData card, String jobFilter) {
+		if (jobFilter == null) return false;
+		String temp = tempJob(card);
+		if (temp == null) return false;
+		for (String j : jobFilter.split("\\|"))
+			if (temp.equalsIgnoreCase(j.trim())) return true;
+		return false;
 	}
 
 	/**
@@ -14890,6 +14931,7 @@ public class MainWindow {
 			List<CardData> controlledForwards) {
 		if (jobFilter != null && jobsStripped(card)) return false;
 		if (meetsJobFilter(card, jobFilter, controlledForwards)) return true;
+		if (hasTempJob(card, jobFilter)) return true;
 		String extra = effectiveExtraJob(card);
 		if (extra == null || jobFilter == null) return false;
 		for (String j : jobFilter.split("\\|"))
