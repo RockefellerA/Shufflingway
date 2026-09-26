@@ -80,6 +80,61 @@ class SummonBehaviorTest {
 		assertEquals(List.of("Fire"), mw.effectiveElements(a));
 	}
 
+	// =========================================================================================
+	// 7-084C Yojimbo: "Choose 1 Forward you control and 1 Forward opponent controls. The former
+	// gains +1000 power until the end of the turn. Then, each Forward deals damage equal to its
+	// power to the other. If Yojimbo results from an EX Burst, the former gains +3000 power until
+	// the end of the turn instead. Then, each Forward deals damage equal to its power to the other."
+	//
+	// The card spells the effect out once per case, so the mutual-damage sentence appears twice;
+	// there is still one boost and one fight. The mutual-damage followup find()'d that sentence
+	// and dropped the boost.
+	// =========================================================================================
+
+	private static final String YOJIMBO_7_084C = "Choose 1 Forward you control and 1 Forward opponent "
+			+ "controls. The former gains +1000 power until the end of the turn. Then, each Forward deals "
+			+ "damage equal to its power to the other. If Yojimbo results from an EX Burst, the former "
+			+ "gains +3000 power until the end of the turn instead. Then, each Forward deals damage equal "
+			+ "to its power to the other.";
+
+	/** P2 casts Yojimbo: its 7000 Forward against P1's 9000 one. */
+	private static MainWindow castYojimbo(boolean exBurst, CardData mine, CardData theirs) {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, mine);
+		placeP1Forward(mw, theirs);
+		Consumer<GameContext> fn = ActionResolver.parse(YOJIMBO_7_084C,
+				makeSummon("Yojimbo", "Earth", 4, YOJIMBO_7_084C));
+		assertNotNull(fn);
+		fn.accept(mw.buildGameContext(false, exBurst));
+		return mw;
+	}
+
+	@Test
+	void yojimboBoostsTheFormerBy1000ThenTheyFightOnce() {
+		CardData mine = makeForward("Mine", "Earth", 3, 7000);
+		CardData theirs = makeForward("Theirs", "Fire", 4, 9000);
+		MainWindow mw = castYojimbo(false, mine, theirs);
+
+		// 8000 into a 9000: it survives with 8000 damage. 9000 back into an 8000: broken.
+		assertTrue(mw.p1ForwardCards.contains(theirs));
+		assertEquals(8000, mw.p1ForwardDamage.get(mw.p1ForwardCards.indexOf(theirs)),
+				"the boost is in the damage dealt, and it is dealt once");
+		assertFalse(mw.p2ForwardCards.contains(mine));
+	}
+
+	@Test
+	void yojimboFromAnExBurstBoostsBy3000Instead() {
+		CardData mine = makeForward("Mine", "Earth", 3, 7000);
+		CardData theirs = makeForward("Theirs", "Fire", 4, 9000);
+		MainWindow mw = castYojimbo(true, mine, theirs);
+
+		// 10000 into a 9000: broken. 9000 back into a 10000: it survives.
+		assertFalse(mw.p1ForwardCards.contains(theirs));
+		assertTrue(mw.p2ForwardCards.contains(mine));
+		assertEquals(9000, mw.p2ForwardDamage.get(mw.p2ForwardCards.indexOf(mine)));
+		assertEquals(10000, mw.effectiveP2ForwardPower(mw.p2ForwardCards.indexOf(mine)));
+	}
+
 	@Test
 	void hashmalsElementReachesOnlyTheCopyOnTheField() {
 		// CardData is a record: two copies of one printing are equal. The grant is by identity.

@@ -289,6 +289,7 @@ public class AutoAbilityParsingTest {
             case "enters your field not from hand"          -> "enters your field other than from your hand";
             case "enters the field or attacks"              -> "enters the field or attacks";
             case "enters the field or put into break zone"  -> "enters the field or is put from the field into the Break Zone";
+            case "enters the field or leaves the field"     -> "enters the field or leaves the field";
             case "put into break zone"                      -> "is put from the field into the Break Zone";
             case "other forward attacks"                    -> "attacks";
             case "filtered forward attacks"                 -> "attacks";

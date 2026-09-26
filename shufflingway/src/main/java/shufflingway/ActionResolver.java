@@ -2071,6 +2071,9 @@ public class ActionResolver {
         // Same reason: the removal alone dropped 12-019R Amidatelion's cast permission.
         result = tryParseRemoveTopOfDeckThenIfCostMayCast(effectText);
         if (result != null) return result;
+        // And 27-015R Bakool Ja Ja's game-long permission.
+        result = tryParseRemoveTopOfDeckCastableThisGame(effectText);
+        if (result != null) return result;
         result = tryParseRemoveTopOfDeckFromGame(effectText, source);
         if (result != null) return result;
 
@@ -3032,6 +3035,7 @@ public class ActionResolver {
         }
         if (tryParseRemoveTopOfDeckThenIfItsType(effectText, source)        != null) return "RemoveTopOfDeckThenIfItsType";
         if (tryParseRemoveTopOfDeckThenIfCostMayCast(effectText)            != null) return "RemoveTopOfDeckThenIfCostMayCast";
+        if (tryParseRemoveTopOfDeckCastableThisGame(effectText)             != null) return "RemoveTopOfDeckCastableThisGame";
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)         != null) return "RevealPlayNamedWithMaxCostRestBottom";
         // Mirrors parse(): ahead of the single-filter sibling below, which would read
@@ -3235,6 +3239,9 @@ public class ActionResolver {
         // tryParseChooseOneEach has always executed this correctly; only the name was missing, which
         // left the description reading "ChooseCharacter / ? + ?" as though nothing resolved.
         // Must precede the plain FOLLOWUP_DAMAGE check below, which would claim it with find().
+        // 7-084C Yojimbo's boost-then-fight reads ahead of it, as in tryParseChooseOneEach.
+        if (FOLLOWUP_FORMER_BOOST_OR_EXBURST_THEN_MUTUAL_POWER_DAMAGE.matcher(followupText.trim()).matches())
+            return "FormerBoostOrExBurstThenMutualPowerDamage";
         if (FOLLOWUP_EACH_FORWARD_MUTUAL_POWER_DAMAGE.matcher(followupText).find())
             return "EachForwardMutualPowerDamage";
         // Mirrors the choose chain: ahead of DamageForEach, which reads the flat N and reports
@@ -5039,6 +5046,7 @@ public class ActionResolver {
         }
         if (tryParseRemoveTopOfDeckThenIfItsType(effectText, source)        != null) return "RemoveTopOfDeckThenIfItsType";
         if (tryParseRemoveTopOfDeckThenIfCostMayCast(effectText)            != null) return "RemoveTopOfDeckThenIfCostMayCast";
+        if (tryParseRemoveTopOfDeckCastableThisGame(effectText)             != null) return "RemoveTopOfDeckCastableThisGame";
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)           != null) return "RevealPlayNamedWithMaxCostRestBottom";
         // Mirrors parse(): ahead of the single-filter sibling below, which would read

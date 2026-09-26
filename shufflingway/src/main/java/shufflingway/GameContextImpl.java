@@ -6039,11 +6039,12 @@ final class GameContextImpl implements GameContext {
 				else      { mw.refreshP2DeckLabel(); mw.refreshP2WarpZoneUI(); }
 			}
 
-			@Override public void makeRemovedCardCastableThisTurn(CardData card, boolean freeCast) {
+			@Override public void makeRemovedCardCastable(CardData card, boolean freeCast, boolean thisTurnOnly) {
 				if (card == null) return;
 				mw.registerBorrowedPlayable(isP1, card, new PlayableEntry(
-						PlayableEntry.SourceZone.RFP, 0, false, freeCast, false, true));
-				logEntry((isP1 ? "" : "[P2] ") + card.name() + " — castable this turn"
+						PlayableEntry.SourceZone.RFP, 0, false, freeCast, false, thisTurnOnly));
+				logEntry((isP1 ? "" : "[P2] ") + card.name() + " — castable "
+						+ (thisTurnOnly ? "this turn" : "during this game")
 						+ (freeCast ? " without paying the cost" : ""));
 			}
 

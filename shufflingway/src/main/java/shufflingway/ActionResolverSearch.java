@@ -1538,7 +1538,22 @@ final class ActionResolverSearch {
                 ctx.logEntry("Effect: " + card.name() + " costs " + card.cost() + " — not castable");
                 return;
             }
-            ctx.makeRemovedCardCastableThisTurn(card, free);
+            ctx.makeRemovedCardCastable(card, free, true);
+        };
+    }
+
+    /**
+     * Parses "remove the top card of your deck from the game. During this game, you can cast it at
+     * any time you could normally cast it." — 27-015R Bakool Ja Ja. The permission lasts the game
+     * and the cost is paid as normal.
+     */
+    static Consumer<GameContext> tryParseRemoveTopOfDeckCastableThisGame(String text) {
+        if (!REMOVE_TOP_OF_DECK_CASTABLE_THIS_GAME.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Remove top card of deck from game — castable during this game");
+            List<CardData> removed = ctx.removeTopCardsOfDeckFromGame(1, null);
+            if (removed == null || removed.isEmpty()) return;
+            ctx.makeRemovedCardCastable(removed.get(0), false, false);
         };
     }
     static Consumer<GameContext> tryParseShuffleDeck(String text) {

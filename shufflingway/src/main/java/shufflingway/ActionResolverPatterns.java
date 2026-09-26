@@ -1239,6 +1239,22 @@ final class ActionResolverPatterns {
         "(?i)The\\s+Forward\\s+that\\s+entered\\s+the\\s+field\\s+deals\\s+damage\\s+" +
         "equal\\s+to\\s+its\\s+power\\s+to\\s+the\\s+chosen\\s+Forward[.!]?"
     );
+    /**
+     * 7-084C Yojimbo's followup, end to end: "The former gains +1000 power until the end of the
+     * turn. Then, each Forward deals damage equal to its power to the other. If Yojimbo results
+     * from an EX Burst, the former gains +3000 power until the end of the turn instead. Then, each
+     * Forward deals damage equal to its power to the other." The card spells out the whole effect
+     * twice, once per case — there is one boost and one exchange of damage, never two. Must be read
+     * ahead of {@link #FOLLOWUP_EACH_FORWARD_MUTUAL_POWER_DAMAGE}, which find()s a mutual-damage
+     * sentence and drops the boost. Groups: {@code boost}, {@code exboost}.
+     */
+    static final Pattern FOLLOWUP_FORMER_BOOST_OR_EXBURST_THEN_MUTUAL_POWER_DAMAGE = Pattern.compile(
+        "(?i)^The\\s+former\\s+gains\\s+\\+(?<boost>\\d+)\\s+power\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn\\.\\s+" +
+        "Then,\\s+each\\s+Forward\\s+deals\\s+damage\\s+equal\\s+to\\s+its\\s+power\\s+to\\s+the\\s+other\\.\\s+" +
+        "If\\s+.+?\\s+results\\s+from\\s+an\\s+EX\\s+Burst,\\s+the\\s+former\\s+gains\\s+\\+(?<exboost>\\d+)\\s+" +
+        "power\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn\\s+instead\\.\\s+" +
+        "Then,\\s+each\\s+Forward\\s+deals\\s+damage\\s+equal\\s+to\\s+its\\s+power\\s+to\\s+the\\s+other[.!]?\\s*$"
+    );
     /** Matches "Each Forward deals damage equal to its power to the other." (used in choose-one-each contexts). */
     static final Pattern FOLLOWUP_EACH_FORWARD_MUTUAL_POWER_DAMAGE = Pattern.compile(
         "(?i)Each\\s+Forward\\s+deals\\s+damage\\s+equal\\s+to\\s+its\\s+power\\s+to\\s+the\\s+other[.!]?"
@@ -12424,6 +12440,14 @@ final class ActionResolverPatterns {
         "(?i)^Remove\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck\\s+from\\s+the\\s+game\\.\\s+" +
         "If\\s+that\\s+card'?s\\s+cost\\s+is\\s+(?<cost>\\d+)\\s+or\\s+(?<cmp>less|more)\\s*,\\s*" +
         "you\\s+may\\s+cast\\s+it(?<free>\\s+without\\s+paying\\s+the\\s+cost)?\\s+this\\s+turn[.!]?\\s*$");
+    /**
+     * "remove the top card of your deck from the game. During this game, you can cast it at any
+     * time you could normally cast it." — 27-015R Bakool Ja Ja. Anchored end to end.
+     */
+    static final Pattern REMOVE_TOP_OF_DECK_CASTABLE_THIS_GAME = Pattern.compile(
+        "(?i)^remove\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck\\s+from\\s+the\\s+game\\.\\s+" +
+        "During\\s+this\\s+game,\\s+you\\s+can\\s+cast\\s+it\\s+at\\s+any\\s+time\\s+you\\s+could\\s+" +
+        "normally\\s+cast\\s+it[.!]?\\s*$");
     static final Pattern REMOVE_TOP_OF_DECK_THEN_IF_ITS_TYPE = Pattern.compile(
         "(?is)^Remove\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck\\s+from\\s+the\\s+game\\.\\s+" +
         "If\\s+it'?s\\s+an?\\s+(?<type>Forward|Backup|Summon|Monster)\\s*,\\s*(?<eff>.+?)\\s*$");

@@ -176,7 +176,17 @@ public class CardDatabase implements AutoCloseable {
                                 // 15-028H). A [[s]]…[[/]] is a special-ability header only when followed by a
                                 // cost 《; anywhere else it's an inline name reference whose markup otherwise
                                 // reads as the next ability's header and truncates the effect at parse time.
-                                .replaceAll("\\[\\[s\\]\\]\\s*([^\\[]+?)\\s*\\[\\[/\\]\\](?!\\s*《)", "$1");
+                                .replaceAll("\\[\\[s\\]\\]\\s*([^\\[]+?)\\s*\\[\\[/\\]\\](?!\\s*《)", "$1")
+                                .replace("Gumbahand", "Gumbah and") // Gumbah 5-033R
+                                // Odin 15-090H: the only "following actions" printing whose options
+                                // arrive unquoted. Without the quotes the select reads no options, and
+                                // the first sentence ran alone every cast.
+                                .replace("[[br]]   Choose 1 Forward of cost 2 or less. Break it.[[br]]   Choose 1"
+                                        + " Forward of cost 4 or less. If you have received a point of damage this"
+                                        + " turn, break it.",
+                                        "[[br]]   \"Choose 1 Forward of cost 2 or less. Break it.\"[[br]]   \"Choose 1"
+                                        + " Forward of cost 4 or less. If you have received a point of damage this"
+                                        + " turn, break it.\"");
             ps.setString(13, textEn);
             ps.setString(14, card.imageUrl);
             ps.setInt   (15, computeLimitBreak(textEn));
@@ -393,9 +403,8 @@ public class CardDatabase implements AutoCloseable {
         try (CardDatabase db = new CardDatabase("shufflingway.db")) {
             int upgraded  = db.applyReprintTextUpgrades();
             int corrected = db.applyMulticardCorrections();
-            int textFixed = db.applyTextCorrections();
             System.out.printf("Migration complete. Applied %d reprint text upgrade(s), "
-                    + "%d multicard correction(s), %d text correction(s).%n", upgraded, corrected, textFixed);
+                    + "%d multicard correction(s).%n", upgraded, corrected);
         }
     }
 
@@ -487,52 +496,6 @@ public class CardDatabase implements AutoCloseable {
                 ps.setInt   (1, value);
                 ps.setString(2, fix.serial());
                 ps.setInt   (3, value);
-                updated += ps.executeUpdate();
-            }
-        }
-        return updated;
-    }
-
-    // -------------------------------------------------------------------------
-    // Text corrections (final ETL step)
-    // -------------------------------------------------------------------------
-
-    /** A literal typo in a card's scraped text, and what the printed card says instead. */
-    private record TextFix(String serial, String wrong, String right) {}
-
-    /**
-     * Typos in the source data that change how the text reads — not errata. Each entry names the
-     * exact wrong substring, so a source that fixes itself leaves nothing for the step to do.
-     */
-    private static final List<TextFix> TEXT_CORRECTIONS = List.of(
-            new TextFix("5-033R", "Card Name Gumbahand play", "Card Name Gumbah and play"),  // Gumbah
-            // Odin: the only "following actions" printing whose options arrive unquoted. Without the
-            // quotes the select reads no options, and the first sentence ran alone every cast.
-            new TextFix("15-090H",
-                    "[[br]]   Choose 1 Forward of cost 2 or less. Break it.[[br]]   Choose 1 Forward of cost 4 or less."
-                            + " If you have received a point of damage this turn, break it.",
-                    "[[br]]   \"Choose 1 Forward of cost 2 or less. Break it.\"[[br]]   \"Choose 1 Forward of cost 4 or"
-                            + " less. If you have received a point of damage this turn, break it.\"")
-    );
-
-    /**
-     * Final ETL step: replaces each {@link #TEXT_CORRECTIONS} typo in its card's {@code text_en}.
-     *
-     * <p>Idempotent: a row already corrected no longer contains the wrong substring, so the guard
-     * skips it and the count reports only rows actually changed.
-     *
-     * @return number of rows whose text was changed
-     */
-    public int applyTextCorrections() throws SQLException {
-        int updated = 0;
-        try (PreparedStatement ps = conn.prepareStatement(
-                "UPDATE cards SET text_en = REPLACE(text_en, ?, ?) "
-                + "WHERE serial = ? AND INSTR(text_en, ?) > 0")) {
-            for (TextFix fix : TEXT_CORRECTIONS) {
-                ps.setString(1, fix.wrong());
-                ps.setString(2, fix.right());
-                ps.setString(3, fix.serial());
-                ps.setString(4, fix.wrong());
                 updated += ps.executeUpdate();
             }
         }

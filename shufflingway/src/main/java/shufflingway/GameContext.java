@@ -5508,15 +5508,17 @@ public interface GameContext {
             int costReduction);
 
     /**
-     * Lets the ability's controller cast {@code card}, already removed from the game, this turn —
-     * a {@link PlayableEntry} over the removed-from-game zone that expires at end of turn, as
+     * Lets the ability's controller cast {@code card}, already removed from the game — a
+     * {@link PlayableEntry} over the removed-from-game zone, as
      * {@link #revealTopNRemoveOneFromGameCastableThisTurnRestBottom} registers. 12-019R
      * Amidatelion: "If that card's cost is 4 or less, you may cast it without paying the cost this
-     * turn."
+     * turn." 27-015R Bakool Ja Ja: "During this game, you can cast it at any time you could
+     * normally cast it."
      *
-     * @param freeCast {@code true} for "without paying the cost"
+     * @param freeCast     {@code true} for "without paying the cost"
+     * @param thisTurnOnly {@code true} for "this turn"; {@code false} for "during this game"
      */
-    void makeRemovedCardCastableThisTurn(CardData card, boolean freeCast);
+    void makeRemovedCardCastable(CardData card, boolean freeCast, boolean thisTurnOnly);
 
     /**
      * Reveals the top {@code reveal} cards of the player's deck.  The player may add up to

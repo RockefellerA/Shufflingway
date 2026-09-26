@@ -296,13 +296,12 @@ public class CardScraper {
             List<ScrapedCard> total = scraper.scrapeOnePage("1");
             db.saveCards(total);
             // Final ETL steps: upgrade identified first prints to their reprint's cleaner text,
-            // then repair the multicard flags and the text typos the source gets wrong.
+            // then repair the multicard flags the source gets wrong. Text typos are fixed as each
+            // card is saved (CardDatabase.saveCard).
             int upgraded = db.applyReprintTextUpgrades();
             System.out.printf("Applied %d reprint text upgrade(s)%n", upgraded);
             int corrected = db.applyMulticardCorrections();
             System.out.printf("Applied %d multicard correction(s)%n", corrected);
-            int textFixed = db.applyTextCorrections();
-            System.out.printf("Applied %d text correction(s)%n", textFixed);
             // Cards the API does not carry — promos, starter exclusives — from
             // data/non_api_cards.json. Last, so these upsert over the API sweep.
             int nonApi = db.saveNonApiCards();

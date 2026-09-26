@@ -65458,6 +65458,70 @@ public class CardBehaviorTest {
 		assertNull(mw.bzPlayableP2.get(top));
 	}
 
+	// =========================================================================================
+	// 27-015R Bakool Ja Ja: "When Bakool Ja Ja enters the field or leaves the field, remove the top
+	// card of your deck from the game. During this game, you can cast it at any time you could
+	// normally cast it." Two faults: the compound trigger classified as its "leaves" half alone
+	// (21-022H Astos shares it), and the cast permission was dropped.
+	// =========================================================================================
+
+	private static final String BAKOOL_JA_JA_27_015R = "When Bakool Ja Ja enters the field or leaves the "
+			+ "field, remove the top card of your deck from the game. During this game, you can cast it "
+			+ "at any time you could normally cast it.";
+
+	@Test
+	void anEntersOrLeavesTriggerIsOneAbilityOnBothEvents() {
+		List<AutoAbility> bakool = CardData.parseAutoAbilities(BAKOOL_JA_JA_27_015R);
+		assertEquals(1, bakool.size());
+		assertEquals("enters the field or leaves the field", bakool.get(0).trigger());
+		List<AutoAbility> astos = CardData.parseAutoAbilities(
+				"When Astos enters the field or leaves the field, gain 《C》.");
+		assertEquals(1, astos.size());
+		assertEquals("enters the field or leaves the field", astos.get(0).trigger());
+	}
+
+	/** Runs the one entry Bakool's trigger pushed, the way resolveTopOfStack would. */
+	private static void resolveOnlyEntry(MainWindow mw, CardData source) {
+		assertEquals(1, mw.gameState.getStack().size());
+		StackEntry e = mw.gameState.getStack().get(0);
+		assertSame(source, e.source());
+		ActionResolver.parse(e.effectText(), source).accept(mw.buildGameContext(false));
+	}
+
+	@Test
+	void bakoolJaJaFiresOnEnteringAndMakesTheRemovedCardCastableAllGame() {
+		MainWindow mw = new MainWindow();
+		CardData top = makeForward("Top", "Fire", 3, 7000);
+		mw.gameState.getIdentity().put(top, false);
+		mw.gameState.getP2MainDeck().addFirst(top);
+		CardData bakool = makeAutoAbilityForward("Bakool Ja Ja", BAKOOL_JA_JA_27_015R);
+
+		placeP2Forward(mw, bakool);
+		resolveOnlyEntry(mw, bakool);
+
+		assertTrue(mw.gameState.getP2RemovedFromGame().contains(top));
+		PlayableEntry entry = mw.bzPlayableP2.get(top);
+		assertNotNull(entry);
+		assertFalse(entry.expiresThisTurn(), "during this game, not this turn");
+		assertFalse(entry.freeCast(), "the cost is paid as normal");
+		assertEquals(3, entry.effectiveCost(top));
+	}
+
+	@Test
+	void bakoolJaJaFiresOnLeavingTheFieldToo() {
+		MainWindow mw = new MainWindow();
+		CardData top = makeForward("Top", "Fire", 3, 7000);
+		mw.gameState.getIdentity().put(top, false);
+		mw.gameState.getP2MainDeck().addFirst(top);
+		CardData bakool = makeAutoAbilityForward("Bakool Ja Ja", BAKOOL_JA_JA_27_015R);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(bakool, false);
+		resolveOnlyEntry(mw, bakool);
+
+		assertTrue(mw.gameState.getP2RemovedFromGame().contains(top));
+		assertNotNull(mw.bzPlayableP2.get(top));
+	}
+
 	@Test
 	void aPayoffKeyedOnTheDiscardedCardFailsClosedWhenItDoesNotParse() {
 		// This parser declines rather than claim the discard alone. (The sentence-splitting fallback

@@ -3202,6 +3202,10 @@ public record CardData(
             "|enters?\\s+the\\s+field\\s+or\\s+is\\s+put\\s+(?:from\\s+the\\s+field\\s+)?into\\s+the\\s+Break\\s+Zone" +
             // "enters the field or attacks" must precede plain "enters the field"
             "|enters?\\s+the\\s+field\\s+or\\s+attacks?" +
+            // "enters the field or leaves the field" — 27-015R Bakool Ja Ja, 21-022H Astos. Must
+            // precede plain "enters the field": without it the sentence classified by its "leaves"
+            // half alone, and the enters half never fired.
+            "|enters?\\s+the\\s+field\\s+or\\s+leaves?\\s+the\\s+field" +
             // "enters the field from your hand" — Kain 13-073H and G'raha Tia 27-044L. Must precede
             // plain "enters the field", which would otherwise match the head of it and then fail on
             // the comma this alternation's caller requires next, leaving the whole sentence unread:
@@ -4266,6 +4270,7 @@ public record CardData(
             else if (triggerRaw.contains("attack") && (cardIsParty || triggerHasParty))                    trigger = "party attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("break zone"))                   trigger = "enters the field or put into break zone";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("attack"))                        trigger = "enters the field or attacks";
+            else if (triggerRaw.contains("enter") && triggerRaw.contains("leave"))                         trigger = "enters the field or leaves the field";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("opponent") && triggerRaw.contains("other than from")) trigger = "enters opponent's field not from hand";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("other than from your hand"))     trigger = "enters your field not from hand";
             // Must follow the branch above: "other than from your hand" contains "from your hand"

@@ -524,6 +524,34 @@ final class ActionResolverChoose {
             };
         }
 
+        // Ahead of the plain mutual-damage branch, which find()s the last sentence of this one.
+        Matcher fbxM = FOLLOWUP_FORMER_BOOST_OR_EXBURST_THEN_MUTUAL_POWER_DAMAGE.matcher(followup);
+        if (fbxM.matches()) {
+            int boost   = Integer.parseInt(fbxM.group("boost"));
+            int exBoost = Integer.parseInt(fbxM.group("exboost"));
+            EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+            return ctx -> {
+                List<ForwardTarget> selfTs = selectTargets(ctx, count1, false,
+                        false, true, null, null, null, false, false, -1, null, -1, null,
+                        fwd1, bak1, mon1, job1, name1, null, null, false, null, false);
+                List<ForwardTarget> oppTs = selectTargets(ctx, count2, false,
+                        true, false, null, null, null, false, false, -1, null, -1, null,
+                        fwd2, bak2, mon2, null, null, null, null, false, null, false);
+                if (selfTs.isEmpty() || oppTs.isEmpty()) return;
+                ForwardTarget selfT = selfTs.get(0);
+                ForwardTarget oppT  = oppTs.get(0);
+                int amount = ctx.isExBurst() ? exBoost : boost;
+                ctx.logEntry(logPrefix + " — former +" + amount + (ctx.isExBurst() ? " (EX Burst)" : "")
+                        + ", then each deals damage equal to its power to the other");
+                ctx.boostTarget(selfT, amount, noTraits);
+                // Snapshot both powers, the boost included, before either damage is applied.
+                int selfPower = Math.max(0, ctx.effectiveTargetPower(selfT));
+                int oppPower  = Math.max(0, ctx.effectiveTargetPower(oppT));
+                ctx.damageTarget(selfT, oppPower);
+                ctx.damageTarget(oppT,  selfPower);
+            };
+        }
+
         if (FOLLOWUP_EACH_FORWARD_MUTUAL_POWER_DAMAGE.matcher(followup).find()) {
             return ctx -> {
                 ctx.logEntry(logPrefix + " — Each deals damage equal to its power to the other");

@@ -3047,7 +3047,8 @@ final class AutoAbilityTriggers {
 		// is leaving — then drop everything an outlasts-the-turn effect had handed it.
 		withBatch(() -> {
 			for (AutoAbility fa : mw.effectiveAutoAbilities(departing)) {
-				if (!fa.trigger().equals("leaves the field")) continue;
+				if (!fa.trigger().equals("leaves the field")
+						&& !fa.trigger().equals("enters the field or leaves the field")) continue;
 				if (!fa.triggerCard().equalsIgnoreCase(departing.name())) continue;
 				executeAutoAbility(fa, departing, isP1);
 			}
