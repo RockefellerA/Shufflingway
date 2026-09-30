@@ -3252,7 +3252,8 @@ public interface GameContext {
 
     /**
      * Searches the field for a card matching {@code cardName} and returns it to its owner's hand.
-     * P1-zone cards go to P1's hand; P2-zone cards go to P2's hand.
+     * P1-zone cards go to P1's hand; P2-zone cards go to P2's hand. If the card is the currently
+     * resolving Summon (21-028H Shiva), it returns to its owner's hand instead of the Break Zone.
      */
     void returnNamedCardToOwnersHand(String cardName);
 

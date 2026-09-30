@@ -1631,8 +1631,13 @@ public class MainWindow {
 	 * leave the choose with nothing said about it.
 	 */
 	boolean summonEffectTextAlreadyLogged = false;
-	/** Set to {@code true} by {@code returnNamedCardToYourHand} when the Summon itself is being returned to hand. */
-	boolean pendingSummonReturnToHand = false;
+	/**
+	 * Whose hand the resolving Summon returns to instead of the Break Zone — {@code true} for P1's,
+	 * {@code false} for P2's, {@code null} when it is not returning. Set when the Summon's own
+	 * effect names it: its caster's hand for "return [name] to your hand" (5-077H Carbuncle), its
+	 * owner's for "… to its owner's hand" (21-028H Shiva). The two differ only for a borrowed cast.
+	 */
+	Boolean pendingSummonReturnToP1Hand = null;
 	/** Stack entries whose effect has been cancelled by Y'shtola or similar; checked and consumed at resolution. */
 	final Set<StackEntry> cancelledStackEntries = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
@@ -2727,7 +2732,7 @@ public class MainWindow {
 		isResolvingStack         = false;
 		turnFlowGate.reset();
 		currentResolutionIsSummon = false;
-		pendingSummonReturnToHand = false;
+		pendingSummonReturnToP1Hand = null;
 		currentSummonSource      = null;
 		currentAbilitySource     = null;
 		currentAbilityIsSpecial  = false;
@@ -13517,7 +13522,7 @@ public class MainWindow {
 					currentResolutionIsSummon   = true;
 					currentSummonSource     = entry.source();
 					currentSummonSourceIsP1 = entry.isP1();
-					pendingSummonReturnToHand   = false;
+					pendingSummonReturnToP1Hand = null;
 					// The line just printed carries the whole effect, so the choose machinery's own
 					// header would restate it. Set here rather than off currentResolutionIsSummon,
 					// which is also true on the summon paths that print no such line.
@@ -13532,8 +13537,8 @@ public class MainWindow {
 						if (lastCast != null) lastCast.restore(this);
 					}
 				} else logEntry("[ActionResolver] Summon effect not yet implemented: " + effectText);
-				if (pendingSummonReturnToHand) {
-					if (entry.isP1()) {
+				if (pendingSummonReturnToP1Hand != null) {
+					if (pendingSummonReturnToP1Hand) {
 						gameState.getP1Hand().add(entry.source());
 						refreshP1HandLabel();
 					} else {
@@ -13541,7 +13546,7 @@ public class MainWindow {
 						refreshP2HandCountLabel();
 					}
 					logEntry("\"" + entry.source().name() + "\" → Hand");
-					pendingSummonReturnToHand = false;
+					pendingSummonReturnToP1Hand = null;
 				} else if (returnToHandAfterUseSummons.remove(entry.source())) {
 					if (entry.isP1()) {
 						gameState.getP1Hand().add(entry.source());

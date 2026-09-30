@@ -8804,6 +8804,14 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void returnNamedCardToOwnersHand(String cardName) {
+				// A Summon naming itself (21-028H Shiva) is on the Stack, not the field: it goes to its
+				// owner's hand once it has resolved, instead of to the Break Zone.
+				if (mw.currentResolutionIsSummon && mw.currentSummonSource != null
+						&& mw.currentSummonSource.name().equalsIgnoreCase(cardName)) {
+					mw.pendingSummonReturnToP1Hand = mw.gameState.getIdentity()
+							.getOrDefault(mw.currentSummonSource, mw.currentSummonSourceIsP1);
+					return;
+				}
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)) { returnP1ForwardToHand(i); return; }
 				}
@@ -8893,7 +8901,7 @@ final class GameContextImpl implements GameContext {
 			@Override public void returnNamedCardToYourHand(String cardName) {
 				if (mw.currentResolutionIsSummon && mw.currentSummonSource != null
 						&& mw.currentSummonSource.name().equalsIgnoreCase(cardName)) {
-					mw.pendingSummonReturnToHand = true;
+					mw.pendingSummonReturnToP1Hand = mw.currentSummonSourceIsP1;
 					return;
 				}
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
