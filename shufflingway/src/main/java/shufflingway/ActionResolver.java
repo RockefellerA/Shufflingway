@@ -3663,6 +3663,15 @@ public class ActionResolver {
                 return "ChooseCharacter / RfpTopDeckIfForwardBreakElseDamage";
             if (FOLLOWUP_RFP_TOP_DECK_AND_DAMAGE_PER_CP.matcher(followup).find())
                 return "ChooseCharacter / RfpTopDeckDamagePerCp";
+            // Mirrors the choose chain: split, 24-074C Odin's removal read as a card name and
+            // 27-078R Kylma's as a flat 2.
+            {
+                Matcher perCostM = FOLLOWUP_THEN_REMOVE_TOP_DECK_PER_CHOSEN_COST.matcher(followup.trim());
+                if (perCostM.matches() && parseTargetAction(perCostM.group("primary").trim(), 0) != null) {
+                    String primary = matchedFollowupName(perCostM.group("primary").trim(), source);
+                    return "ChooseCharacter / " + (primary != null ? primary : "?") + " + RemoveTopOfDeckPerChosenCost";
+                }
+            }
             // Read off the whole followup beside them, and for the same reason: the ". " split
             // described 28-091R Vorpal Bunny as "? + ?", neither half standing on its own.
             Matcher millNotTypeM = FOLLOWUP_MILL_TOP_DECK_IF_NOT_TYPE_BREAK_CHOSEN.matcher(followup);

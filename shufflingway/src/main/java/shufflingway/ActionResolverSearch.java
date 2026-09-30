@@ -1620,6 +1620,15 @@ final class ActionResolverSearch {
         if (!m.find()) return null;
         String countStr = m.group("count");
         int count = (countStr != null) ? Integer.parseInt(countStr) : 1;
+        if (m.group("left") != null) {
+            int left = Integer.parseInt(m.group("left"));
+            return ctx -> {
+                int excess = Math.max(0, ctx.ownDeckSize() - left);
+                ctx.logEntry("Effect: Remove the top card of deck from game until " + left + " are left ("
+                        + excess + " removed)");
+                ctx.removeTopCardsOfDeckFromGame(excess, source);
+            };
+        }
         return ctx -> {
             ctx.logEntry("Effect: Remove top " + count + " card(s) of deck from game");
             // Recorded against the source so a later ability on the same card can call them back

@@ -1107,6 +1107,9 @@ public interface GameContext {
      */
     List<CardData> removeTopCardsOfDeckFromGame(int count, CardData source);
 
+    /** The number of cards in the acting player's deck — "until there are only 3 cards left in the deck" (24-014H Bahamut). */
+    int ownDeckSize();
+
     /**
      * As above, and then registers each removed card as castable by the ability user out of the
      * removed-from-game zone until the end of the turn — "Remove the top 2 cards of your deck from

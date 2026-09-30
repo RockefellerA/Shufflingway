@@ -2718,11 +2718,13 @@ final class ActionResolverPatterns {
         "\\s*\\([^)]*\\)\\.?\\s*$"
     );
     /**
-     * Matches "Remove the top [N cards / card] of your deck from the game."
-     * Group {@code count} — number of cards (absent means 1).
+     * Matches "Remove the top [N cards / card] of your deck from the game[ until there are only M
+     * cards left in the deck]." Group {@code count} — number of cards (absent means 1); group
+     * {@code left} — the "until" floor (24-014H Bahamut), which makes the count whatever is above it.
      */
     static final Pattern REMOVE_TOP_OF_DECK_FROM_GAME = Pattern.compile(
-        "(?i)Remove\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of\\s+your\\s+deck\\s+from\\s+(?:the\\s+)?game\\.?"
+        "(?i)Remove\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of\\s+your\\s+deck\\s+from\\s+(?:the\\s+)?game" +
+        "(?:\\s+until\\s+there\\s+(?:are|is)\\s+only\\s+(?<left>\\d+)\\s+cards?\\s+left\\s+in\\s+(?:the|your)\\s+deck)?\\.?"
     );
     /**
      * Matches "Remove the top [N cards|card] of your deck from the game. You can cast [it|them] [at
@@ -10808,6 +10810,19 @@ final class ActionResolverPatterns {
      * chosen card's own cost, so it can only be priced once the target is known.
      * Group {@code primary} — the action applied to the target before the cost is demanded.
      */
+    /**
+     * "&lt;action&gt;. Remove as many cards from the top of your deck from the game as the CP required
+     * to cast the chosen Forward." (24-074C Odin) and "… Remove the top N cards of your deck from
+     * the game for each CP required to cast the chosen Forward." (27-078R Kylma). Group
+     * {@code per}: cards per CP, absent for Odin's one. Anchored end to end: REMOVE_TOP_OF_DECK_FROM_GAME
+     * find()s Kylma's opening words and removes a flat 2.
+     */
+    static final Pattern FOLLOWUP_THEN_REMOVE_TOP_DECK_PER_CHOSEN_COST = Pattern.compile(
+        "(?i)^(?<primary>.+?[.!])\\s+Remove\\s+(?:as\\s+many\\s+cards\\s+from\\s+the\\s+top\\s+of\\s+your\\s+deck\\s+" +
+        "from\\s+the\\s+game\\s+as\\s+the|the\\s+top\\s+(?<per>\\d+)\\s+cards?\\s+of\\s+your\\s+deck\\s+from\\s+the\\s+game\\s+" +
+        "for\\s+each)\\s+CP\\s+required\\s+to\\s+cast\\s+the\\s+chosen\\s+(?:Forward|Character)[.!]?$",
+        Pattern.DOTALL
+    );
     static final Pattern FOLLOWUP_THEN_PAY_PER_TARGET_COST_OR_BREAK = Pattern.compile(
         "(?i)^(?<primary>.+?)[.!]\\s*Then[,.]?\\s+if\\s+you\\s+don'?t\\s+pay\\s+《1》\\s+for\\s+each\\s+CP\\s+" +
         "required\\s+to\\s+cast\\s+(?:the\\s+)?chosen\\s+\\w+\\s*,\\s+put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?$",
@@ -12143,8 +12158,8 @@ final class ActionResolverPatterns {
     static final Pattern CHOOSE_FOLLOWUP_BENEFITS_TARGET = Pattern.compile(
         "(?i)\\b(?:it|they)\\s+(?:gains?\\s+(?:\\+\\d+\\s+power|Haste|First\\s+Strike|Brave)"
         + "|becomes?\\s+active)\\b|\\bActivate\\s+(?:it|them)\\b"
-        // 13-100R Leviathan: a shield on the chosen card.
-        + "|\\bthe\\s+next\\s+damage\\s+dealt\\s+to\\s+(?:it|them)\\s+(?:is|are)\\s+reduced\\b"
+        // 13-100R Leviathan: a shield on the chosen card; 24-099C Siren's zeroes it.
+        + "|\\bthe\\s+next\\s+damage\\s+dealt\\s+to\\s+(?:it|them)\\s+(?:(?:is|are)\\s+reduced|becomes?\\s+0)\\b"
         // 20-081H Fenrir: "It gains "This Forward cannot be chosen by your opponent's Summons.""
         + "|\\b(?:it|they)\\s+gains?\\s+[\"']This\\s+(?:Forward|Character)\\s+cannot\\s+be\\s+chosen\\s+by\\s+"
         + "your\\s+opponent's\\b");

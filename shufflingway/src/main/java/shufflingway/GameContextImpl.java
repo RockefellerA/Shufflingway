@@ -6346,7 +6346,7 @@ final class GameContextImpl implements GameContext {
 				List<CardData> removed = new ArrayList<>();
 				for (int i = 0; i < count && !deck.isEmpty(); i++) {
 					CardData c = deck.pollFirst();
-					mw.gameState.addToPermanentRfp(c);
+					mw.gameState.addToPermanentRfp(c, isP1);
 					if (source != null)
 						mw.cardsRemovedBySource.computeIfAbsent(source, k -> new ArrayList<>()).add(c);
 					logEntry(c.name() + " → Removed From Game (top of deck)");
@@ -6355,6 +6355,10 @@ final class GameContextImpl implements GameContext {
 				if (isP1) { mw.refreshP1DeckLabel(); mw.refreshP1WarpZoneUI(); }
 				else      { mw.refreshP2DeckLabel(); mw.refreshP2WarpZoneUI(); }
 				return removed;
+			}
+
+			@Override public int ownDeckSize() {
+				return (isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).size();
 			}
 
 			@Override public void removeTopCardsOfDeckFromGameCastableThisTurn(int count,
@@ -7622,6 +7626,19 @@ final class GameContextImpl implements GameContext {
 			@Override public void reduceTarget(ForwardTarget t, int amount,
 					EnumSet<CardData.Trait> traits) {
 				if (t.zone() == ForwardTarget.CardZone.BACKUP) return;
+				// "The power of this Forward cannot be decreased by your opponent's Summons or
+				// abilities." (23-039R Asura) — the power half is refused; lost traits still apply.
+				if (amount > 0 && t.isP1() != isP1
+						&& (t.isP1() ? t.idx() < mw.p1ForwardCards.size()
+								&& mw.effectiveP1HasTrait(t.idx(), CardData.Trait.POWER_CANNOT_BE_DECREASED_BY_OPP)
+							: t.idx() < mw.p2ForwardCards.size()
+								&& mw.effectiveP2HasTrait(t.idx(), CardData.Trait.POWER_CANNOT_BE_DECREASED_BY_OPP))) {
+					logEntry((t.isP1() ? "" : "[P2] ")
+							+ (t.isP1() ? mw.p1ForwardCards : mw.p2ForwardCards).get(t.idx()).name()
+							+ " — power cannot be decreased by opponent's effects");
+					if (traits.isEmpty()) return;
+					amount = 0;
+				}
 				if (t.isP1()) {
 					int idx = t.idx();
 					if (idx >= mw.p1ForwardCards.size()) return;

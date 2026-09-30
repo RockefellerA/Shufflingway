@@ -3805,6 +3805,37 @@ final class ActionResolverChoose {
             }
         }
 
+        // --- "[action]. Remove [as many cards | the top N cards] from the top of your deck ... the CP
+        // required to cast the chosen Forward." (24-074C Odin, 27-078R Kylma) ---
+        // Read off the whole followup: the chosen card's cost has to be taken before the primary
+        // breaks it, and split, the second sentence has no chosen card left to ask.
+        {
+            Matcher perCostM = FOLLOWUP_THEN_REMOVE_TOP_DECK_PER_CHOSEN_COST.matcher(followup.trim());
+            if (perCostM.matches()) {
+                String primaryText = perCostM.group("primary").trim();
+                BiConsumer<GameContext, List<ForwardTarget>> primaryAction = parseTargetAction(primaryText, xValue);
+                int perCp = perCostM.group("per") != null ? Integer.parseInt(perCostM.group("per")) : 1;
+                if (primaryAction != null) {
+                    return ctx -> {
+                        ctx.logChooseHeader(choosePrefix + " — " + primaryText + ", then remove "
+                                + (perCp == 1 ? "" : perCp + " ") + "card(s) from the top of your deck per CP of its cost");
+                        List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                                opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
+                                costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                                jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                        if (ts.isEmpty()) return;
+                        int cost = 0;
+                        for (ForwardTarget t : ts) {
+                            CardData c = ctx.targetCard(t);
+                            if (c != null) cost += c.cost();
+                        }
+                        primaryAction.accept(ctx, ts);
+                        ctx.removeTopCardsOfDeckFromGame(cost * perCp, source);
+                    };
+                }
+            }
+        }
+
         // --- "It gains +N power ... If you control X, it gains +M power ... instead." (4-090R Biggs) ---
         // Read off the whole followup: split, the primary is a plain PowerBoost and the upgrade
         // lands in the secondary as a control gate whose inner "it" has no target to attach to.
