@@ -227,6 +227,7 @@ class RemoteOpponent implements OpponentController {
 		if (rawAlt != null) {
 			AltPayment alt = decodeAltPayment(rawAlt, false);
 			if (!altPaymentFits(alt, card)) return;
+			if (!chosenReductionTargetsFit(card, summonTargets)) return;
 			mw.executeAltPlay(false, card, handIdx, alt,
 					indices(payload, "discards"), indices(payload, "backups"), breaks,
 					summonTargets, targetsAreReplayed);
@@ -358,6 +359,23 @@ class RemoteOpponent implements OpponentController {
 	 * floors at zero, and a Crystal total that has drifted is worth reporting through the state
 	 * checksum rather than blocking a play over.
 	 */
+	/**
+	 * Whether a discount bought by what the Summon chooses (20-081H Fenrir) chose what it paid for:
+	 * a Forward within the discount's cost ceiling. The payment itself names nothing to check — the
+	 * choice is the whole price — so the targets that travelled with the play are checked instead.
+	 */
+	private boolean chosenReductionTargetsFit(CardData card, List<ForwardTarget> targets) {
+		CardData.AltChosenTargetReduction r = card.altChosenTargetReduction();
+		if (r == null) return true;
+		boolean fits = !targets.isEmpty() && targets.stream().allMatch(t ->
+				t.zone() == ForwardTarget.CardZone.FORWARD && mw.autoAbilityTriggers.fieldCardData(t) != null
+						&& mw.fieldTargetCost(t) <= r.maxTargetCost());
+		if (!fits)
+			mw.reportDesync("opponent cast \"" + card.name() + "\" at its discount, but chose "
+					+ targets + " rather than a Forward of cost " + r.maxTargetCost() + " or less");
+		return fits;
+	}
+
 	private boolean altPaymentFits(AltPayment alt, CardData card) {
 		for (int idx : alt.dullForwards()) {
 			if (idx < 0 || idx >= mw.p2ForwardCards.size()) {

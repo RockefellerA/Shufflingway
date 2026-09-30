@@ -46526,6 +46526,41 @@ public class CardBehaviorTest {
 		assertNull(queuedAutoAbility(mw), "no alternate cost crossed, so no drawback is owed");
 	}
 
+	// 20-081H Fenrir's discount is paid for by what it chooses, and an alternate payment names
+	// nothing, so the targets that travel with the play are what this client checks.
+	private static final String FENRIR_20_081H = "If Fenrir chooses a Forward of cost 2 or less, the cost "
+			+ "required to cast Fenrir is reduced by 1.[[br]]   Choose 1 Forward. It gains \"This Forward cannot "
+			+ "be chosen by your opponent's Summons.\" until the end of the turn.";
+
+	/** Their discounted Fenrir, pointed at their own Forward in {@code slot}: 0 costs 2, 1 costs 3. */
+	private static MainWindow anOpponentsDiscountedFenrirChoosing(int slot) {
+		MainWindow mw = new MainWindow();
+		mw.desyncReported = true;
+		CardData fenrir = makeSummon("Fenrir", "Earth", 1, FENRIR_20_081H);
+		mw.gameState.getIdentity().put(fenrir, false);
+		mw.gameState.getP2Hand().add(fenrir);
+		placeP2Forward(mw, makeForward("Two", "Earth", 2, 5000));
+		placeP2Forward(mw, makeForward("Three", "Earth", 3, 7000));
+		// Packed from their seat, where their own Forwards are P1's.
+		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(fenrir, 0, List.of(), List.of(),
+				Map.of(), List.of(new ForwardTarget(true, slot, ForwardTarget.CardZone.FORWARD)), Map.of(),
+				AltPayment.NOTHING_HANDED_OVER));
+		return mw;
+	}
+
+	@Test
+	void anOpponentsDiscountedFenrirOnACostTwoForwardIsCast() {
+		MainWindow mw = anOpponentsDiscountedFenrirChoosing(0);
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "the cast went ahead");
+	}
+
+	@Test
+	void anOpponentsDiscountedFenrirOnACostThreeForwardIsRefused() {
+		MainWindow mw = anOpponentsDiscountedFenrirChoosing(1);
+		assertEquals(1, mw.gameState.getP2Hand().size(), "a discount its choice did not earn");
+		assertEquals(0, mw.gameState.stackSize());
+	}
+
 
 	// =========================================================================================
 	// An extra cost across the wire.

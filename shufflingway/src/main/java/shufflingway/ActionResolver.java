@@ -2422,6 +2422,11 @@ public class ActionResolver {
         for (int i = 0; i < sentences.length; i++) {
             String s = sentences[i].trim();
             if (s.isEmpty()) return null;
+            // A break inside a quotation is no boundary at all. SENTENCE_BREAK cannot see one that
+            // falls between two sentences of the same quote, and the pieces it then leaves each
+            // carry an odd quote mark: 20-037H Mateus's two "Select 1" options, each a complete
+            // sentence pair, both ran.
+            if (s.chars().filter(c -> c == '"').count() % 2 != 0) return null;
             // The first sentence has nothing to refer back to; a later one carrying a reference
             // means the ability is a linked whole and must stay with the normal chain.
             if (i > 0 && DEPENDS_ON_PREVIOUS_SENTENCE.matcher(s).find()) return null;

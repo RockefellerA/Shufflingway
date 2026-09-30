@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -6909,6 +6910,34 @@ class SummonBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 17-027R Shiva, first option: "Select 1 of the 2 following actions. "Choose 1 dull Forward of
+	// cost 2 or less. Break it. Your opponent discards 1 card." "Choose 1 Forward. If it deals damage
+	// other than battle damage to a Forward this turn, the damage becomes 0 instead.""
+	// =========================================================================================
+
+	private static final String SHIVA_17_027R = "Select 1 of the 2 following actions.[[br]]   \"Choose 1 dull Forward "
+			+ "of cost 2 or less. Break it. Your opponent discards 1 card.\"[[br]]   \"Choose 1 Forward. If it deals "
+			+ "damage other than battle damage to a Forward this turn, the damage becomes 0 instead.\"";
+
+	@Test
+	void shivaBreaksACheapDullForwardAndTheOpponentDiscards() {
+		MainWindow mw = new MainWindow();
+		CardData cheapDull   = makeForward("Cheap Dull", "Water", 2, 5000);
+		CardData cheapActive = makeForward("Cheap Active", "Water", 2, 5000);
+		CardData dearDull    = makeForward("Dear Dull", "Water", 3, 7000);
+		placeP1Forward(mw, cheapActive);
+		placeP1Forward(mw, dearDull);
+		placeP1Forward(mw, cheapDull);
+		dullP1Forward(mw, dearDull);
+		dullP1Forward(mw, cheapDull);
+		inP1Hand(mw, 1);
+		castAsP2Selecting(mw, makeSummon("Shiva", "Ice", 2, SHIVA_17_027R), 0);
+
+		assertEquals(List.of(cheapActive, dearDull), mw.p1ForwardCards, "dull, and of cost 2 or less");
+		assertTrue(mw.gameState.getP1Hand().isEmpty());
+	}
+
+	// =========================================================================================
 	// 17-027R Shiva, second option: "Choose 1 Forward. If it deals damage other than battle damage
 	// to a Forward this turn, the damage becomes 0 instead."
 	//
@@ -6978,6 +7007,195 @@ class SummonBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 17-053R Chocobo: "EX BURST Reveal the top 3 cards of your deck. Add 1 Character among them to
+	// your hand and return the other cards to the bottom of your deck in any order."
+	// =========================================================================================
+
+	private static final String CHOCOBO_17_053R = "[[ex]]EX BURST[[/]] Reveal the top 3 cards of your deck. Add 1 "
+			+ "Character among them to your hand and return the other cards to the bottom of your deck in any order.";
+
+	@Test
+	void chocoboAddsTheCharacterAmongTheTopThreeAndBottomsTheRest() {
+		MainWindow mw = new MainWindow();
+		CardData summonA = makeSummon("Summon A", "Fire", 2, "Draw 1 card.");
+		CardData forward = makeForward("Forward", "Wind", 3, 7000);
+		CardData summonB = makeSummon("Summon B", "Ice", 2, "Draw 1 card.");
+		CardData fourth  = makeForward("Fourth", "Wind", 3, 7000);
+		for (CardData c : List.of(summonA, forward, summonB, fourth)) mw.gameState.getP2MainDeck().add(c);
+		castAsP2(mw, makeSummon("Chocobo", "Wind", 1, CHOCOBO_17_053R));
+
+		assertEquals(List.of(forward), mw.gameState.getP2Hand(), "a Character, not a Summon");
+		assertSame(fourth, mw.gameState.getP2MainDeck().peekFirst(), "the rest went to the bottom");
+		assertEquals(Set.of(summonA, summonB), Set.copyOf(List.copyOf(mw.gameState.getP2MainDeck()).subList(1, 3)));
+	}
+
+	// =========================================================================================
+	// 17-070R Titan: "Select 1 of the 2 following actions. "Choose 1 Forward of cost 5 or more. Deal it
+	// 9000 damage." "All the Forwards you control gain +5000 power until the end of the turn.""
+	// =========================================================================================
+
+	private static final String TITAN_17_070R = "Select 1 of the 2 following actions.[[br]]   \"Choose 1 Forward of "
+			+ "cost 5 or more. Deal it 9000 damage.\"[[br]]   \"All the Forwards you control gain +5000 power until the "
+			+ "end of the turn.\"";
+
+	@Test
+	void titanDeals9000ToAForwardOfCostFiveOrMore() {
+		MainWindow mw = new MainWindow();
+		CardData four = makeForward("Four", "Water", 4, 10000);
+		CardData five = makeForward("Five", "Water", 5, 10000);
+		placeP1Forward(mw, four);
+		placeP1Forward(mw, five);
+		castAsP2Selecting(mw, makeSummon("Titan", "Earth", 3, TITAN_17_070R), 0);
+		assertEquals(9000, damageOn(mw, five));
+		assertEquals(0, damageOn(mw, four), "cost 4 is under 5");
+	}
+
+	@Test
+	void titanGivesAllYourForwards5000() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Left", "Earth", 3, 7000));
+		placeP2Forward(mw, makeForward("Right", "Earth", 3, 7000));
+		placeP1Forward(mw, makeForward("Theirs", "Water", 3, 7000));
+		castAsP2Selecting(mw, makeSummon("Titan", "Earth", 3, TITAN_17_070R), 1);
+		assertEquals(12000, mw.effectiveP2ForwardPower(0));
+		assertEquals(12000, mw.effectiveP2ForwardPower(1));
+		assertEquals(7000, mw.effectiveP1ForwardPower(0), "yours only");
+	}
+
+	/**
+	 * Opus 17–18's "If you cast [Self], you may pay/remove … as an extra cost": the Stack entry
+	 * settles whether it was paid, and resolution parses the text rewritten to match — see
+	 * 18-045C Dryad below.
+	 */
+	private static void castAsP2Paying(MainWindow mw, CardData summon, boolean paid) {
+		String text = paid ? ActionResolver.applyExtraCostPaid(summon.summonEffect())
+		                   : ActionResolver.stripExtraCostClause(summon.summonEffect());
+		Consumer<GameContext> fn = ActionResolver.parse(text, summon);
+		assertNotNull(fn, summon.name() + (paid ? " (paid)" : " (unpaid)") + " parses");
+		fn.accept(mw.buildGameContext(false));
+	}
+
+	// =========================================================================================
+	// 17-090R Ixion: "If you cast Ixion, you may pay an extra 《Lightning》《2》. Break all the Forwards
+	// of cost 2 or less. If you paid the extra cost, break all the Forwards of cost 3 or less
+	// instead."
+	// =========================================================================================
+
+	private static final String IXION_17_090R = "If you cast Ixion, you may pay an extra 《Lightning》《2》.[[br]]   "
+			+ "Break all the Forwards of cost 2 or less. If you paid the extra cost, break all the Forwards of cost 3 "
+			+ "or less instead.";
+
+	@Test
+	void ixionBreaksEveryForwardOfCostTwoOrThreeWhenPaid() {
+		for (boolean paid : new boolean[] { false, true }) {
+			MainWindow mw = new MainWindow();
+			CardData theirTwo   = makeForward("Their Two", "Water", 2, 5000);
+			CardData theirThree = makeForward("Their Three", "Water", 3, 7000);
+			CardData theirFour  = makeForward("Their Four", "Water", 4, 8000);
+			CardData myTwo      = makeForward("My Two", "Lightning", 2, 5000);
+			placeP1Forward(mw, theirTwo);
+			placeP1Forward(mw, theirThree);
+			placeP1Forward(mw, theirFour);
+			placeP2Forward(mw, myTwo);
+			castAsP2Paying(mw, makeSummon("Ixion", "Lightning", 2, IXION_17_090R), paid);
+
+			assertTrue(mw.gameState.getP2BreakZone().contains(myTwo), "all the Forwards, yours too");
+			assertEquals(paid ? List.of(theirFour) : List.of(theirThree, theirFour), mw.p1ForwardCards,
+					paid ? "paid: cost 3 or less" : "unpaid: cost 2 or less");
+		}
+	}
+
+	// =========================================================================================
+	// 17-109R Cúchulainn: "EX BURST Choose 1 Forward. At the beginning of the next Main Phase 1, put it
+	// into the Break Zone."
+	// =========================================================================================
+
+	private static final String CUCHULAINN_17_109R = "[[ex]]EX BURST[[/]] Choose 1 Forward. At the beginning of the "
+			+ "next Main Phase 1, put it into the Break Zone.";
+
+	@Test
+	void cuchulainnPutsTheChosenForwardIntoTheBreakZoneAtTheNextMainPhase1() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		castAsP2(mw, makeSummon("Cúchulainn", "Water", 4, CUCHULAINN_17_109R));
+		assertEquals(List.of(theirs), mw.p1ForwardCards, "not yet");
+
+		mw.firePendingMainPhase1(true);
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs), "whichever player's Main Phase 1 comes first");
+	}
+
+	@Test
+	void cuchulainnLeavesTheSlotAloneOnceThatForwardHasGone() {
+		// By identity: a Forward that has left and another now in its slot are not "it".
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		castAsP2(mw, makeSummon("Cúchulainn", "Water", 4, CUCHULAINN_17_109R));
+		mw.buildGameContext(true).forceTargetToBreakZone(new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD));
+		CardData replacement = makeForward("Replacement", "Water", 5, 9000);
+		placeP1Forward(mw, replacement);
+
+		mw.firePendingMainPhase1(true);
+		assertEquals(List.of(replacement), mw.p1ForwardCards);
+		assertEquals(List.of(theirs), mw.gameState.getP1BreakZone(), "and nothing else went with it");
+	}
+
+	// =========================================================================================
+	// 18-005C Salamander: "If you cast Salamander, you may remove 10 Fire cards in your Break Zone from
+	// the game as an extra cost. Deal 5000 damage to all the Forwards opponent controls. If you paid
+	// the extra cost, deal 7000 damage to all the Forwards opponent controls instead."
+	// =========================================================================================
+
+	private static final String SALAMANDER_18_005C = "If you cast Salamander, you may remove 10 Fire cards in your "
+			+ "Break Zone from the game as an extra cost.[[br]]   Deal 5000 damage to all the Forwards opponent "
+			+ "controls. If you paid the extra cost, deal 7000 damage to all the Forwards opponent controls instead.";
+
+	@Test
+	void salamanderDeals5000ToAllTheirForwardsOr7000WhenPaid() {
+		for (boolean paid : new boolean[] { false, true }) {
+			MainWindow mw = new MainWindow();
+			CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+			CardData mine   = makeForward("Mine", "Fire", 5, 9000);
+			placeP1Forward(mw, theirs);
+			placeP2Forward(mw, mine);
+			castAsP2Paying(mw, makeSummon("Salamander", "Fire", 3, SALAMANDER_18_005C), paid);
+
+			assertEquals(paid ? 7000 : 5000, damageOn(mw, theirs), paid ? "paid" : "unpaid");
+			assertEquals(0, (int) mw.p2ForwardDamage.get(0), "opponent's only");
+		}
+	}
+
+	// =========================================================================================
+	// 18-024C Shiva: "If you cast Shiva, you may remove 10 Ice cards in your Break Zone from the game
+	// as an extra cost. Choose 1 Forward. Dull it and Freeze it. If you paid the extra cost, break it
+	// instead."
+	// =========================================================================================
+
+	private static final String SHIVA_18_024C = "If you cast Shiva, you may remove 10 Ice cards in your Break Zone "
+			+ "from the game as an extra cost.[[br]]   Choose 1 Forward. Dull it and Freeze it. If you paid the extra "
+			+ "cost, break it instead.";
+
+	@Test
+	void shivaDullsAndFreezesUnpaid() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		castAsP2Paying(mw, makeSummon("Shiva", "Ice", 1, SHIVA_18_024C), false);
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertTrue(mw.p1ForwardFrozen.get(0));
+	}
+
+	@Test
+	void shivaBreaksInsteadWhenPaid() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		castAsP2Paying(mw, makeSummon("Shiva", "Ice", 1, SHIVA_18_024C), true);
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs));
+	}
+
+	// =========================================================================================
 	// 18-045C Dryad: "If you cast Dryad, you may remove 10 Wind cards in your Break Zone from the
 	// game as an extra cost. … If you paid the extra cost, also draw 1 card."
 	//
@@ -7037,6 +7255,54 @@ class SummonBehaviorTest {
 		assertEquals("ChooseCharacter / DamageForEach + ?",
 				ActionResolver.fullDescription(DRYAD_SUMMON, dryad),
 				"the clause is left unread on purpose — the Stack entry settles it");
+	}
+
+	// =========================================================================================
+	// 18-063C Hashmal: "If you cast Hashmal, you may remove 10 Earth cards in your Break Zone from the
+	// game as an extra cost. Choose 1 Forward you control. It gains +7000 power until the end of the
+	// turn. If you paid the extra cost, all the Forwards you control gain +7000 power until the end
+	// of the turn instead."
+	// =========================================================================================
+
+	private static final String HASHMAL_18_063C = "If you cast Hashmal, you may remove 10 Earth cards in your Break "
+			+ "Zone from the game as an extra cost.[[br]]   Choose 1 Forward you control. It gains +7000 power until "
+			+ "the end of the turn. If you paid the extra cost, all the Forwards you control gain +7000 power until "
+			+ "the end of the turn instead.";
+
+	@Test
+	void hashmalBoostsOneOfYourForwardsOrAllOfThemWhenPaid() {
+		for (boolean paid : new boolean[] { false, true }) {
+			MainWindow mw = new MainWindow();
+			placeP2Forward(mw, makeForward("Left", "Earth", 3, 7000));
+			placeP2Forward(mw, makeForward("Right", "Earth", 3, 7000));
+			placeP1Forward(mw, makeForward("Theirs", "Water", 3, 7000));
+			castAsP2Paying(mw, makeSummon("Hashmal", "Earth", 1, HASHMAL_18_063C), paid);
+
+			int boosted = (mw.effectiveP2ForwardPower(0) == 14000 ? 1 : 0) + (mw.effectiveP2ForwardPower(1) == 14000 ? 1 : 0);
+			assertEquals(paid ? 2 : 1, boosted, paid ? "paid: all of them" : "unpaid: one");
+			assertEquals(7000, mw.effectiveP1ForwardPower(0), "yours only");
+		}
+	}
+
+	// =========================================================================================
+	// 18-084C Ramuh: "If you cast Ramuh, you may remove 10 Lightning cards in your Break Zone from the
+	// game as an extra cost. Choose 1 Forward. Deal it 7000 damage. If you paid the extra cost, deal
+	// it 15000 damage instead."
+	// =========================================================================================
+
+	private static final String RAMUH_18_084C = "If you cast Ramuh, you may remove 10 Lightning cards in your Break "
+			+ "Zone from the game as an extra cost.[[br]]   Choose 1 Forward. Deal it 7000 damage. If you paid the "
+			+ "extra cost, deal it 15000 damage instead.";
+
+	@Test
+	void ramuhDeals7000Or15000WhenPaid() {
+		for (boolean paid : new boolean[] { false, true }) {
+			MainWindow mw = new MainWindow();
+			CardData theirs = makeForward("Theirs", "Water", 8, 16000);
+			placeP1Forward(mw, theirs);
+			castAsP2Paying(mw, makeSummon("Ramuh", "Lightning", 2, RAMUH_18_084C), paid);
+			assertEquals(paid ? 15000 : 7000, damageOn(mw, theirs), paid ? "paid" : "unpaid");
+		}
 	}
 
 	// =========================================================================================
@@ -7258,6 +7524,173 @@ class SummonBehaviorTest {
 		verify(ctx, never()).extraCostRemovedCardPower();
 	}
 
+	/**
+	 * Opus 19's "If a [Element] Forward has entered your field this turn, the cost required to cast
+	 * [Self] is reduced by N." — P1's cost before any Forward entered, after one of another Element
+	 * did, and after one of {@code element} did.
+	 */
+	private static void assertEnteredElementReduces(CardData summon, String element, int reducedCost) {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP1Hand().add(summon);
+		assertEquals(summon.cost(), mw.effectiveCastCost(summon), summon.name() + ": nothing has entered");
+
+		String other = element.equals("Water") ? "Fire" : "Water";
+		placeP1Forward(mw, makeForward("Other Element", other, 3, 7000));
+		assertEquals(summon.cost(), mw.effectiveCastCost(summon), summon.name() + ": " + other + " is not " + element);
+
+		placeP1Forward(mw, makeForward("Arrival", element, 3, 7000));
+		assertEquals(reducedCost, mw.effectiveCastCost(summon), summon.name() + ": " + element + " entered");
+	}
+
+	// =========================================================================================
+	// 19-001R Ifrit: "If a Fire Forward has entered your field this turn, the cost required to cast
+	// Ifrit is reduced by 3. Choose 1 Forward. Deal it 7000 damage."
+	// =========================================================================================
+
+	private static final String IFRIT_19_001R = "If a Fire Forward has entered your field this turn, the cost required "
+			+ "to cast Ifrit is reduced by 3.[[br]]   Choose 1 Forward. Deal it 7000 damage.";
+
+	@Test
+	void ifritDeals7000() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		castAsP2(mw, makeSummonWithCostText("Ifrit", "Fire", 3, IFRIT_19_001R));
+		assertEquals(7000, damageOn(mw, theirs));
+	}
+
+	@Test
+	void ifritCostsThreeLessOnceAFireForwardHasEntered() {
+		assertEnteredElementReduces(makeSummonWithCostText("Ifrit", "Fire", 3, IFRIT_19_001R), "Fire", 0);
+	}
+
+	// =========================================================================================
+	// 19-022R Shiva: "If an Ice Forward has entered your field this turn, the cost required to cast
+	// Shiva is reduced by 4. Choose 1 Forward opponent controls. Dull it and Freeze it. Draw 1 card."
+	// =========================================================================================
+
+	private static final String SHIVA_19_022R = "If an Ice Forward has entered your field this turn, the cost required "
+			+ "to cast Shiva is reduced by 4.[[br]]   Choose 1 Forward opponent controls. Dull it and Freeze it. Draw 1 "
+			+ "card.";
+
+	@Test
+	void shivaDullsAndFreezesTheirForwardAndDraws() {
+		MainWindow mw = new MainWindow();
+		fillP2Deck(mw, 2);
+		placeP1Forward(mw, makeForward("Theirs", "Water", 5, 9000));
+		placeP2Forward(mw, makeForward("Mine", "Ice", 3, 7000));
+		castAsP2(mw, makeSummonWithCostText("Shiva", "Ice", 4, SHIVA_19_022R));
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertTrue(mw.p1ForwardFrozen.get(0));
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0), "opponent's only");
+		assertEquals(1, mw.gameState.getP2Hand().size());
+	}
+
+	@Test
+	void shivaCostsFourLessOnceAnIceForwardHasEntered() {
+		assertEnteredElementReduces(makeSummonWithCostText("Shiva", "Ice", 4, SHIVA_19_022R), "Ice", 0);
+	}
+
+	// =========================================================================================
+	// 19-035R Alexander: "If a Wind Forward has entered your field this turn, the cost required to
+	// cast Alexander is reduced by 4. Select 1 of the 2 following actions. "Choose 1 Forward of cost
+	// 5 or more. Break it." "Choose 1 Monster. Break it. Draw 1 card.""
+	// =========================================================================================
+
+	private static final String ALEXANDER_19_035R = "If a Wind Forward has entered your field this turn, the cost "
+			+ "required to cast Alexander is reduced by 4.[[br]]   Select 1 of the 2 following actions.[[br]]   "
+			+ "\"Choose 1 Forward of cost 5 or more. Break it.\"[[br]]   \"Choose 1 Monster. Break it. Draw 1 card.\"";
+
+	@Test
+	void alexanderBreaksAForwardOfCostFiveOrMore() {
+		MainWindow mw = new MainWindow();
+		CardData four = makeForward("Four", "Water", 4, 8000);
+		CardData five = makeForward("Five", "Water", 5, 9000);
+		placeP1Forward(mw, four);
+		placeP1Forward(mw, five);
+		castAsP2Selecting(mw, makeSummonWithCostText("Alexander", "Wind", 4, ALEXANDER_19_035R), 0);
+		assertEquals(List.of(four), mw.p1ForwardCards);
+	}
+
+	@Test
+	void alexanderBreaksAMonsterAndDraws() {
+		MainWindow mw = new MainWindow();
+		fillP2Deck(mw, 2);
+		CardData monster = makeMonster("Monster", "Water", 2);
+		placeP1Monster(mw, monster);
+		castAsP2Selecting(mw, makeSummonWithCostText("Alexander", "Wind", 4, ALEXANDER_19_035R), 1);
+		assertFalse(mw.p1MonsterCards.contains(monster));
+		assertEquals(1, mw.gameState.getP2Hand().size());
+	}
+
+	@Test
+	void alexanderCostsFourLessOnceAWindForwardHasEntered() {
+		assertEnteredElementReduces(makeSummonWithCostText("Alexander", "Wind", 4, ALEXANDER_19_035R), "Wind", 0);
+	}
+
+	// =========================================================================================
+	// 19-064R Fenrir: "If an Earth Forward has entered your field this turn, the cost required to cast
+	// Fenrir is reduced by 3. Select 1 of the 2 following actions. "Choose 1 Multi-Element Forward.
+	// Break it." "Choose 1 Light Forward or Dark Forward. Break it.""
+	// =========================================================================================
+
+	private static final String FENRIR_19_064R = "If an Earth Forward has entered your field this turn, the cost "
+			+ "required to cast Fenrir is reduced by 3.[[br]]   Select 1 of the 2 following actions.[[br]]   \"Choose 1 "
+			+ "Multi-Element Forward. Break it.\"[[br]]   \"Choose 1 Light Forward or Dark Forward. Break it.\"";
+
+	@Test
+	void fenrirBreaksAMultiElementForward() {
+		MainWindow mw = new MainWindow();
+		CardData single = makeForward("Single", "Water", 3, 7000);
+		CardData multi  = makeForward("Multi", "Fire/Water", 3, 7000);
+		placeP1Forward(mw, single);
+		placeP1Forward(mw, multi);
+		castAsP2Selecting(mw, makeSummonWithCostText("Fenrir", "Earth", 3, FENRIR_19_064R), 0);
+		assertEquals(List.of(single), mw.p1ForwardCards);
+	}
+
+	@Test
+	void fenrirBreaksADarkForward() {
+		MainWindow mw = new MainWindow();
+		CardData water = makeForward("Water One", "Water", 3, 7000);
+		CardData dark  = makeForward("Dark One", "Dark", 3, 7000);
+		placeP1Forward(mw, water);
+		placeP1Forward(mw, dark);
+		castAsP2Selecting(mw, makeSummonWithCostText("Fenrir", "Earth", 3, FENRIR_19_064R), 1);
+		assertEquals(List.of(water), mw.p1ForwardCards);
+	}
+
+	@Test
+	void fenrirCostsThreeLessOnceAnEarthForwardHasEntered() {
+		assertEnteredElementReduces(makeSummonWithCostText("Fenrir", "Earth", 3, FENRIR_19_064R), "Earth", 0);
+	}
+
+	// =========================================================================================
+	// 19-083R Ramuh: "If a Lightning Forward has entered your field this turn, the cost required to
+	// cast Ramuh is reduced by 3. Choose 1 Forward of cost 3 or less. Deal it 8000 damage."
+	// =========================================================================================
+
+	private static final String RAMUH_19_083R = "If a Lightning Forward has entered your field this turn, the cost "
+			+ "required to cast Ramuh is reduced by 3.[[br]]   Choose 1 Forward of cost 3 or less. Deal it 8000 damage.";
+
+	@Test
+	void ramuhDeals8000ToAForwardOfCostThreeOrLess() {
+		MainWindow mw = new MainWindow();
+		CardData three = makeForward("Three", "Water", 3, 10000);
+		CardData four  = makeForward("Four", "Water", 4, 10000);
+		placeP1Forward(mw, four);
+		placeP1Forward(mw, three);
+		castAsP2(mw, makeSummonWithCostText("Ramuh", "Lightning", 3, RAMUH_19_083R));
+		assertEquals(8000, damageOn(mw, three));
+		assertEquals(0, damageOn(mw, four));
+	}
+
+	@Test
+	void ramuhCostsThreeLessOnceALightningForwardHasEntered() {
+		assertEnteredElementReduces(makeSummonWithCostText("Ramuh", "Lightning", 3, RAMUH_19_083R), "Lightning", 0);
+	}
+
 	// =========================================================================================
 	// 19-101R Leviathan: "Choose 1 Forward opponent controls. Return it to its owner's hand. Until
 	// the end of the next turn, your opponent cannot cast any copies of it."
@@ -7333,6 +7766,422 @@ class SummonBehaviorTest {
 	void leviathansBanIsNoLongerAnUnreadTail() {
 		assertEquals("ChooseCharacter / ReturnToOwnersHandAndBanCopies",
 				ActionResolver.fullDescription(LEVIATHAN_BOUNCE_SUMMON, null));
+	}
+
+	@Test
+	void leviathanCostsThreeLessOnceAWaterForwardHasEntered() {
+		assertEnteredElementReduces(makeSummonWithCostText("Leviathan", "Water", 3,
+				"If a Water Forward has entered your field this turn, the cost required to cast Leviathan is "
+				+ "reduced by 3.[[br]]   " + LEVIATHAN_BOUNCE_SUMMON), "Water", 0);
+	}
+
+	// =========================================================================================
+	// 19-104H Madeen: "You must control a Light Forward to cast Madeen. Choose 1 Forward. Remove it
+	// from the game."
+	// =========================================================================================
+
+	private static final String MADEEN_19_104H = "You must control a Light Forward to cast Madeen.[[br]]   Choose 1 "
+			+ "Forward. Remove it from the game.";
+
+	@Test
+	void madeenRemovesTheChosenForwardFromTheGame() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		placeP2Forward(mw, makeForward("Light One", "Light", 3, 7000));
+		castAsP2(mw, makeSummonWithCostText("Madeen", "Light", 1, MADEEN_19_104H));
+		assertTrue(mw.gameState.getP1PermanentRfp().contains(theirs));
+	}
+
+	@Test
+	void madeenNeedsYouToControlALightForward() {
+		CardData madeen = makeSummonWithCostText("Madeen", "Light", 1, MADEEN_19_104H);
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Fire One", "Fire", 3, 7000));
+		placeP2Forward(mw, makeForward("Their Light", "Light", 3, 7000));
+		assertFalse(mw.castRestrictionMet(madeen, true), "the opponent's Light Forward is not yours");
+
+		placeP1Forward(mw, makeForward("Light One", "Light", 3, 7000));
+		assertTrue(mw.castRestrictionMet(madeen, true));
+	}
+
+	// =========================================================================================
+	// 19-105H Ark: "The cost required to cast Ark is reduced by 1 for each CP required to cast the
+	// highest cost Dark Forward you control. Choose 1 Forward opponent controls. Break it. Your
+	// opponent discards 2 cards."
+	// =========================================================================================
+
+	private static final String ARK_19_105H = "The cost required to cast Ark is reduced by 1 for each CP required to "
+			+ "cast the highest cost Dark Forward you control.[[br]]   Choose 1 Forward opponent controls. Break it. "
+			+ "Your opponent discards 2 cards.";
+
+	@Test
+	void arkBreaksTheirForwardAndTheyDiscardTwo() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		CardData mine   = makeForward("Mine", "Dark", 5, 9000);
+		placeP1Forward(mw, theirs);
+		placeP2Forward(mw, mine);
+		inP1Hand(mw, 2);
+		castAsP2(mw, makeSummonWithCostText("Ark", "Dark", 9, ARK_19_105H));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs));
+		assertEquals(List.of(mine), mw.p2ForwardCards, "opponent's only");
+		assertTrue(mw.gameState.getP1Hand().isEmpty());
+	}
+
+	@Test
+	void arkCostsLessByTheCostOfYourHighestCostDarkForward() {
+		MainWindow mw = new MainWindow();
+		CardData ark = makeSummonWithCostText("Ark", "Dark", 9, ARK_19_105H);
+		mw.gameState.getP1Hand().add(ark);
+		placeP1Forward(mw, makeForward("Fire Seven", "Fire", 7, 9000));
+		placeP2Forward(mw, makeForward("Their Dark", "Dark", 8, 9000));
+		assertEquals(9, mw.effectiveCastCost(ark), "neither a Fire Forward nor the opponent's Dark counts");
+
+		placeP1Forward(mw, makeForward("Dark Three", "Dark", 3, 7000));
+		placeP1Forward(mw, makeForward("Dark Five", "Dark", 5, 9000));
+		assertEquals(4, mw.effectiveCastCost(ark), "the highest, not the sum");
+	}
+
+	// =========================================================================================
+	// 19-130S Bahamut: "If you control 3 or more Category XIII Characters, the cost required to cast
+	// Bahamut is reduced by 3. Choose 1 Forward. Deal it 10000 damage. If it is put from the field
+	// into the Break Zone this turn, remove it from the game instead."
+	// =========================================================================================
+
+	private static final String BAHAMUT_19_130S = "If you control 3 or more Category XIII Characters, the cost "
+			+ "required to cast Bahamut is reduced by 3.[[br]]   Choose 1 Forward. Deal it 10000 damage. If it is put "
+			+ "from the field into the Break Zone this turn, remove it from the game instead.";
+
+	@Test
+	void bahamutRemovesFromTheGameTheForwardIts10000DamageBreaks() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		castAsP2(mw, makeSummonWithCostText("Bahamut", "Fire", 5, BAHAMUT_19_130S));
+		assertTrue(mw.gameState.getP1PermanentRfp().contains(theirs));
+	}
+
+	@Test
+	void bahamutCostsThreeLessWithThreeCategoryXiiiCharacters() {
+		MainWindow mw = new MainWindow();
+		CardData bahamut = makeSummonWithCostText("Bahamut", "Fire", 5, BAHAMUT_19_130S);
+		mw.gameState.getP1Hand().add(bahamut);
+		placeP1Forward(mw, makeCategoryForward("Lightning", "Lightning", "XIII"));
+		placeP1Forward(mw, makeCategoryForward("Snow", "Ice", "XIII"));
+		placeP1Forward(mw, makeCategoryForward("Bartz", "Wind", "V"));
+		assertEquals(5, mw.effectiveCastCost(bahamut), "two of Category XIII");
+
+		placeP1Forward(mw, makeCategoryForward("Vanille", "Earth", "XIII"));
+		assertEquals(2, mw.effectiveCastCost(bahamut));
+	}
+
+	/**
+	 * Casts {@code summon} from P2's seat taking {@code options}, and returns what its "Select N of
+	 * the following actions" offered: {@code {count, upTo ? 1 : 0}}.
+	 */
+	private static int[] castAsP2ReportingOffer(MainWindow mw, CardData summon, int... options) {
+		GameContext ctx = spy(mw.buildGameContext(false));
+		int[] offer = new int[2];
+		doAnswer(inv -> {
+			offer[0] = inv.getArgument(2);
+			offer[1] = (boolean) inv.getArgument(3) ? 1 : 0;
+			List<String> offered = inv.getArgument(1);
+			List<String> taken = new ArrayList<>();
+			for (int option : options) taken.add(offered.get(option));
+			return taken;
+		}).when(ctx).chooseActions(any(), anyList(), anyInt(), anyBoolean());
+		Consumer<GameContext> fn = ActionResolver.parse(summon.summonEffect(), summon);
+		assertNotNull(fn, summon.name() + " parses");
+		fn.accept(ctx);
+		return offer;
+	}
+
+	// =========================================================================================
+	// 20-003H Ifrit: "Select 1 of the 2 following actions. If you control 5 or more Fire Characters,
+	// select up to 2 of the 2 following actions instead. "Choose 1 Forward. Deal it 5000 damage."
+	// "Choose 1 Forward. Deal it 5000 damage.""
+	// =========================================================================================
+
+	private static final String IFRIT_20_003H = "Select 1 of the 2 following actions. If you control 5 or more Fire "
+			+ "Characters, select up to 2 of the 2 following actions instead.[[br]]   \"Choose 1 Forward. Deal it 5000 "
+			+ "damage.\"[[br]]   \"Choose 1 Forward. Deal it 5000 damage.\"";
+
+	/** P2 holds {@code fire} Fire Characters — Backups, so none of them is a target — and P1 one Forward. */
+	private static MainWindow ifritWithFireCharacters(int fire) {
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < fire; i++) placeP2Backup(mw, makeBackup("Fire " + i, "Fire", 2));
+		placeP2Backup(mw, makeBackup("Water", "Water", 2));
+		placeP1Forward(mw, makeForward("Theirs", "Water", 7, 12000));
+		return mw;
+	}
+
+	@Test
+	void ifritOffersOneActionWithFourFireCharacters() {
+		assertArrayEquals(new int[] { 1, 0 },
+				castAsP2ReportingOffer(ifritWithFireCharacters(4), makeSummon("Ifrit", "Fire", 1, IFRIT_20_003H), 0));
+	}
+
+	@Test
+	void ifritOffersBothWithFiveFireCharacters() {
+		MainWindow mw = ifritWithFireCharacters(4);
+		placeP2Forward(mw, makeForward("Fire Forward", "Fire", 3, 7000));
+		assertArrayEquals(new int[] { 2, 1 },
+				castAsP2ReportingOffer(mw, makeSummon("Ifrit", "Fire", 1, IFRIT_20_003H), 0, 1));
+		assertEquals(10000, damageOn(mw, mw.p1ForwardCards.get(0)), "5000 twice");
+	}
+
+	// =========================================================================================
+	// 20-037H Mateus (FFTA): "Select 1 of the 2 following actions. "Freeze all the Forwards opponent
+	// controls. Remove Mateus (FFTA) from the game." "Freeze all the Backups opponent controls. Remove
+	// Mateus (FFTA) from the game.""
+	//
+	// Both options used to run. Each is two complete sentences, so the sentence composer — which cut
+	// inside the quotations — found every fragment readable and resolved them all, header and all,
+	// ahead of the Select parser.
+	// =========================================================================================
+
+	private static final String MATEUS_20_037H = "Select 1 of the 2 following actions.[[br]]   \"Freeze all the "
+			+ "Forwards opponent controls. Remove Mateus (FFTA) from the game.\"[[br]]   \"Freeze all the Backups "
+			+ "opponent controls. Remove Mateus (FFTA) from the game.\"";
+
+	private static MainWindow mateusBoard() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Their Forward", "Water", 3, 7000));
+		placeP1Backup(mw, makeBackup("Their Backup", "Water", 2));
+		placeP2Forward(mw, makeForward("Mine", "Ice", 3, 7000));
+		return mw;
+	}
+
+	@Test
+	void mateusFreezesTheirForwardsOnly() {
+		MainWindow mw = mateusBoard();
+		castAsP2Selecting(mw, makeSummon("Mateus (FFTA)", "Ice", 2, MATEUS_20_037H), 0);
+		assertTrue(mw.p1ForwardFrozen.get(0));
+		assertFalse(mw.p1BackupFrozen[0], "one action, not both");
+		assertFalse(mw.p2ForwardFrozen.get(0), "opponent's only");
+	}
+
+	@Test
+	void mateusFreezesTheirBackupsOnly() {
+		MainWindow mw = mateusBoard();
+		castAsP2Selecting(mw, makeSummon("Mateus (FFTA)", "Ice", 2, MATEUS_20_037H), 1);
+		assertTrue(mw.p1BackupFrozen[0]);
+		assertFalse(mw.p1ForwardFrozen.get(0), "one action, not both");
+	}
+
+	@Test
+	void mateusIsReadAsTheChoiceItIs() {
+		assertTrue(ActionResolver.fullDescription(MATEUS_20_037H, null).startsWith("SelectFollowingActions(1 of 2"));
+	}
+
+	// =========================================================================================
+	// 20-051H Fat Chocobo: "The cost required to cast Fat Chocobo is reduced by 1 for every 3 Wind
+	// Characters you control. Deal 8000 damage to all the Forwards opponent controls."
+	// =========================================================================================
+
+	private static final String FAT_CHOCOBO_20_051H = "The cost required to cast Fat Chocobo is reduced by 1 for "
+			+ "every 3 Wind Characters you control.[[br]]   Deal 8000 damage to all the Forwards opponent controls.";
+
+	@Test
+	void fatChocoboDeals8000ToAllTheirForwards() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		CardData mine   = makeForward("Mine", "Wind", 5, 9000);
+		placeP1Forward(mw, theirs);
+		placeP2Forward(mw, mine);
+		castAsP2(mw, makeSummonWithCostText("Fat Chocobo", "Wind", 8, FAT_CHOCOBO_20_051H));
+		assertEquals(8000, damageOn(mw, theirs));
+		assertEquals(0, (int) mw.p2ForwardDamage.get(0), "opponent's only");
+	}
+
+	@Test
+	void fatChocoboCostsOneLessForEveryThreeWindCharacters() {
+		MainWindow mw = new MainWindow();
+		CardData fat = makeSummonWithCostText("Fat Chocobo", "Wind", 8, FAT_CHOCOBO_20_051H);
+		mw.gameState.getP1Hand().add(fat);
+		for (int i = 0; i < 2; i++) placeP1Forward(mw, makeForward("Wind " + i, "Wind", 3, 7000));
+		for (int i = 0; i < 3; i++) placeP1Backup(mw, makeBackup("Wind Backup " + i, "Wind", 2));
+		placeP1Backup(mw, makeBackup("Fire Backup", "Fire", 2));
+		assertEquals(7, mw.effectiveCastCost(fat), "five Wind Characters make one group of three");
+
+		placeP1Forward(mw, makeForward("Wind 2", "Wind", 3, 7000));
+		assertEquals(6, mw.effectiveCastCost(fat));
+	}
+
+	// =========================================================================================
+	// 20-081H Fenrir: "If Fenrir chooses a Forward of cost 2 or less, the cost required to cast Fenrir
+	// is reduced by 1. Choose 1 Forward. It gains "This Forward cannot be chosen by your opponent's
+	// Summons." until the end of the turn."
+	// =========================================================================================
+
+	private static final String FENRIR_20_081H = "If Fenrir chooses a Forward of cost 2 or less, the cost required to "
+			+ "cast Fenrir is reduced by 1.[[br]]   Choose 1 Forward. It gains \"This Forward cannot be chosen by your "
+			+ "opponent's Summons.\" until the end of the turn.";
+
+	@Test
+	void fenrirShieldsYourForwardFromTheirSummons() {
+		MainWindow mw = new MainWindow();
+		CardData mine   = makeForward("Mine", "Earth", 3, 7000);
+		CardData theirs = makeForward("Theirs", "Water", 3, 7000);
+		placeP2Forward(mw, mine);
+		placeP1Forward(mw, theirs);
+		castAsP2(mw, makeSummonWithCostText("Fenrir", "Earth", 1, FENRIR_20_081H));
+
+		assertTrue(mw.cannotBeChosenBySummons.contains(mine), "the CPU protects its own");
+		assertFalse(mw.cannotBeChosenByAbilities.contains(mine), "Summons only");
+		assertFalse(mw.cannotBeChosenBySummons.contains(theirs));
+	}
+
+	// The discount is an alternate cost: the cast is paid at the reduced price and its choice is then
+	// held to a Forward of cost 2 or less, both as it goes on the Stack and as it resolves. The cast
+	// pays before it chooses, so a discount read as a plain condition would have nothing to test.
+
+	@Test
+	void fenrirsDiscountIsReadAsAChoiceItCommitsTo() {
+		CardData fenrir = makeSummonWithCostText("Fenrir", "Earth", 1, FENRIR_20_081H);
+		assertEquals(new CardData.AltChosenTargetReduction(2, 1), fenrir.altChosenTargetReduction());
+		assertEquals(List.of(), fenrir.altCpElements(), "cost 1, less 1");
+		assertTrue(fenrir.selfCostModifiers().isEmpty(), "an option taken at cast, not a standing reduction");
+		assertTrue(fenrir.narrowedToChosenReduction(fenrir.summonEffect())
+				.startsWith("Choose 1 Forward of cost 2 or less. It gains"));
+	}
+
+	@Test
+	void aChosenTargetDiscountNamingAnotherCardIsNotThisCardsOwn() {
+		CardData fenrir = makeSummonWithCostText("Fenrir", "Earth", 1,
+				FENRIR_20_081H.replace("If Fenrir chooses", "If Odin chooses"));
+		assertNull(fenrir.altChosenTargetReduction());
+		assertEquals(fenrir.summonEffect(), fenrir.narrowedToChosenReduction(fenrir.summonEffect()));
+	}
+
+	@Test
+	void fenrirsDiscountIsOfferedOnlyWithAForwardItCouldChoose() {
+		MainWindow mw = new MainWindow();
+		CardData fenrir = makeSummonWithCostText("Fenrir", "Earth", 1, FENRIR_20_081H);
+		placeP1Forward(mw, makeForward("Three", "Earth", 3, 7000));
+		placeP2Forward(mw, makeForward("Their Three", "Water", 3, 7000));
+		assertFalse(mw.chosenReductionHasTarget(fenrir, true), "nothing of cost 2 or less to commit to");
+
+		placeP2Forward(mw, makeForward("Their Two", "Water", 2, 5000));
+		assertTrue(mw.chosenReductionHasTarget(fenrir, true), "Fenrir chooses any Forward, the opponent's too");
+	}
+
+	/** P2 holds Fenrir in hand and controls a cost-3 and a cost-2 Forward. */
+	private static MainWindow fenrirInP2Hand(CardData fenrir, CardData three, CardData two) {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getIdentity().put(fenrir, false);
+		mw.gameState.getP2Hand().add(fenrir);
+		placeP2Forward(mw, three);
+		placeP2Forward(mw, two);
+		return mw;
+	}
+
+	@Test
+	void aDiscountedFenrirChoosesOnlyAForwardOfCostTwoOrLess() {
+		// The CPU picks at random between its own two Forwards, so an unrestricted choice would pass
+		// once in two; repeated, it cannot pass by luck.
+		for (int attempt = 0; attempt < 10; attempt++) {
+			CardData fenrir = makeSummonWithCostText("Fenrir", "Earth", 1, FENRIR_20_081H);
+			CardData three = makeForward("Three", "Earth", 3, 7000);
+			CardData two   = makeForward("Two", "Earth", 2, 5000);
+			MainWindow mw = fenrirInP2Hand(fenrir, three, two);
+
+			mw.executeAltPlay(false, fenrir, 0, AltPayment.NOTHING_HANDED_OVER, List.of(), List.of(), Map.of(),
+					null, false);
+			assertTrue(mw.summonsCastWithChosenReduction.contains(fenrir));
+			assertEquals(List.of(new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD)),
+					mw.gameState.peekStack().preSelectedTargets(), "the cost-2 Forward");
+			if (mw.gameState.stackSize() > 0) mw.passStackPriority();
+
+			assertTrue(mw.cannotBeChosenBySummons.contains(two));
+			assertFalse(mw.cannotBeChosenBySummons.contains(three));
+			assertFalse(mw.summonsCastWithChosenReduction.contains(fenrir), "forgotten once it has resolved");
+		}
+	}
+
+	@Test
+	void aFullPriceFenrirChoosesAnyForward() {
+		CardData fenrir = makeSummonWithCostText("Fenrir", "Earth", 1, FENRIR_20_081H);
+		CardData three = makeForward("Three", "Earth", 3, 7000);
+		MainWindow mw = new MainWindow();
+		mw.gameState.getIdentity().put(fenrir, false);
+		placeP2Forward(mw, three);
+
+		mw.pushSummonOnStack(fenrir, false, 0, 0, false, null, false);
+		assertFalse(mw.summonsCastWithChosenReduction.contains(fenrir));
+		if (mw.gameState.stackSize() > 0) mw.passStackPriority();
+		assertTrue(mw.cannotBeChosenBySummons.contains(three), "cost 3 is fine at full price");
+	}
+
+	// =========================================================================================
+	// 20-103H Ramuh: "Select up to 2 of the 3 following actions. "Choose 1 Forward. Dull it." "Choose
+	// 1 Forward. Deal it 5000 damage." "Choose 1 Forward. It gains Haste until the end of the turn.""
+	// =========================================================================================
+
+	private static final String RAMUH_20_103H = "Select up to 2 of the 3 following actions.[[br]]   \"Choose 1 "
+			+ "Forward. Dull it.\"[[br]]   \"Choose 1 Forward. Deal it 5000 damage.\"[[br]]   \"Choose 1 Forward. It "
+			+ "gains Haste until the end of the turn.\"";
+
+	@Test
+	void ramuhDullsAndDamagesTheirForward() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		castAsP2Selecting(mw, makeSummon("Ramuh", "Lightning", 2, RAMUH_20_103H), 0, 1);
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertEquals(5000, damageOn(mw, theirs));
+	}
+
+	@Test
+	void ramuhGivesYourForwardHaste() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Mine", "Lightning", 3, 7000));
+		placeP1Forward(mw, makeForward("Theirs", "Water", 3, 7000));
+		castAsP2Selecting(mw, makeSummon("Ramuh", "Lightning", 2, RAMUH_20_103H), 2);
+		assertTrue(mw.effectiveP2HasTrait(0, CardData.Trait.HASTE));
+		assertFalse(mw.effectiveP1HasTrait(0, CardData.Trait.HASTE), "the CPU keeps a buff for itself");
+	}
+
+	// =========================================================================================
+	// 20-118H Unicorn: "Select 1 of the 2 following actions. If you control a Category VI Forward,
+	// select up to 2 of the 2 following actions instead. "Choose 1 Forward. Activate it. Draw 1
+	// card." "Choose 1 Forward of cost 4 or less opponent controls. Return it to its owner's hand.""
+	// =========================================================================================
+
+	private static final String UNICORN_20_118H = "Select 1 of the 2 following actions. If you control a Category VI "
+			+ "Forward, select up to 2 of the 2 following actions instead.[[br]]   \"Choose 1 Forward. Activate it. "
+			+ "Draw 1 card.\"[[br]]   \"Choose 1 Forward of cost 4 or less opponent controls. Return it to its "
+			+ "owner's hand.\"";
+
+	@Test
+	void unicornOffersOneActionWithoutACategoryViForward() {
+		MainWindow mw = new MainWindow();
+		fillP2Deck(mw, 2);
+		placeP2Forward(mw, makeCategoryForward("Bartz", "Wind", "V"));
+		placeP1Forward(mw, makeForward("Theirs", "Water", 4, 8000));
+		assertArrayEquals(new int[] { 1, 0 },
+				castAsP2ReportingOffer(mw, makeSummon("Unicorn", "Water", 2, UNICORN_20_118H), 1));
+	}
+
+	@Test
+	void unicornOffersBothWithACategoryViForwardAndResolvesThem() {
+		MainWindow mw = new MainWindow();
+		fillP2Deck(mw, 2);
+		placeP2Forward(mw, makeCategoryForward("Terra", "Fire", "VI"));
+		mw.p2ForwardStates.set(0, CardState.DULL);
+		CardData cheap = makeForward("Cheap", "Water", 4, 8000);
+		CardData dear  = makeForward("Dear", "Water", 5, 9000);
+		placeP1Forward(mw, dear);
+		placeP1Forward(mw, cheap);
+		assertArrayEquals(new int[] { 2, 1 },
+				castAsP2ReportingOffer(mw, makeSummon("Unicorn", "Water", 2, UNICORN_20_118H), 0, 1));
+
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0), "the CPU activates its own");
+		assertEquals(1, mw.gameState.getP2Hand().size());
+		assertEquals(List.of(dear), mw.p1ForwardCards, "cost 5 is over 4");
+		assertTrue(mw.gameState.getP1Hand().contains(cheap));
 	}
 
 	// =========================================================================================

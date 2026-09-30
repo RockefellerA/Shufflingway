@@ -12144,7 +12144,10 @@ final class ActionResolverPatterns {
         "(?i)\\b(?:it|they)\\s+(?:gains?\\s+(?:\\+\\d+\\s+power|Haste|First\\s+Strike|Brave)"
         + "|becomes?\\s+active)\\b|\\bActivate\\s+(?:it|them)\\b"
         // 13-100R Leviathan: a shield on the chosen card.
-        + "|\\bthe\\s+next\\s+damage\\s+dealt\\s+to\\s+(?:it|them)\\s+(?:is|are)\\s+reduced\\b");
+        + "|\\bthe\\s+next\\s+damage\\s+dealt\\s+to\\s+(?:it|them)\\s+(?:is|are)\\s+reduced\\b"
+        // 20-081H Fenrir: "It gains "This Forward cannot be chosen by your opponent's Summons.""
+        + "|\\b(?:it|they)\\s+gains?\\s+[\"']This\\s+(?:Forward|Character)\\s+cannot\\s+be\\s+chosen\\s+by\\s+"
+        + "your\\s+opponent's\\b");
     /**
      * Followup wordings that harm the chosen target.  Checked first so a mixed effect
      * ("Deal it 5000 damage … it gains …") is never treated as a pure buff.

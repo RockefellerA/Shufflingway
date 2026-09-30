@@ -295,6 +295,53 @@ public record CardData(
     );
 
     /**
+     * A reduction a Summon earns by what it chooses: "If Fenrir chooses a Forward of cost 2 or less,
+     * the cost required to cast Fenrir is reduced by 1." — 20-081H Fenrir, the only printing.
+     *
+     * <p>A Summon's targets are chosen as it is cast, before its cost is settled, so the discount is
+     * the player's to take by committing to such a target. It is offered as an alternate cost: the
+     * cast is paid at the reduced price and the choice is then held to the qualifier, by
+     * {@link #narrowedToChosenReduction}. The name has to be the card's own.
+     */
+    private static final Pattern ALT_COST_CHOSEN_TARGET_REDUCE = Pattern.compile(
+        "(?i)If\\s+(?<name>.+?)\\s+chooses\\s+an?\\s+Forward\\s+of\\s+cost\\s+(?<max>\\d+)\\s+or\\s+less,\\s+"
+            + "the\\s+cost\\s+required\\s+to\\s+cast\\s+\\k<name>\\s+is\\s+reduced\\s+by\\s+(?<reduction>\\d+)[.!]?"
+    );
+
+    /** The unqualified choice {@link #ALT_COST_CHOSEN_TARGET_REDUCE}'s discount narrows. */
+    private static final Pattern CHOOSE_ONE_FORWARD_UNQUALIFIED = Pattern.compile(
+        "(?i)\\bChoose\\s+1\\s+Forward\\b(?!\\s+of\\s+cost)"
+    );
+
+    /** How much {@link #altChosenTargetReduction} takes off, and the cost its target must not exceed. */
+    public record AltChosenTargetReduction(int maxTargetCost, int reduction) {}
+
+    /**
+     * The discount this Summon earns by choosing a cheap enough Forward, or {@code null} when it
+     * prints none — or when its effect has no plain "Choose 1 Forward" for the discount to narrow,
+     * since a discount whose condition could not be held to would be a cheaper card than printed.
+     */
+    public AltChosenTargetReduction altChosenTargetReduction() {
+        Matcher m = ALT_COST_CHOSEN_TARGET_REDUCE.matcher(textEn);
+        if (!m.find() || !m.group("name").trim().equalsIgnoreCase(name)) return null;
+        if (!CHOOSE_ONE_FORWARD_UNQUALIFIED.matcher(summonEffect()).find()) return null;
+        return new AltChosenTargetReduction(Integer.parseInt(m.group("max")),
+                Integer.parseInt(m.group("reduction")));
+    }
+
+    /**
+     * {@code effectText} with its choice held to what {@link #altChosenTargetReduction} paid for:
+     * "Choose 1 Forward" becomes "Choose 1 Forward of cost 2 or less". Unchanged for a card that
+     * prints no such discount.
+     */
+    public String narrowedToChosenReduction(String effectText) {
+        AltChosenTargetReduction r = altChosenTargetReduction();
+        if (r == null || effectText == null) return effectText;
+        return CHOOSE_ONE_FORWARD_UNQUALIFIED.matcher(effectText)
+                .replaceFirst("Choose 1 Forward of cost " + r.maxTargetCost() + " or less");
+    }
+
+    /**
      * The alternate-cost patterns that can carry an "If you do so, …" clause, in the order
      * {@link #parseAutoAbilities} strips them.
      *
@@ -487,6 +534,8 @@ public record CardData(
         if (m.find()) return reducedCastCpElements(Integer.parseInt(m.group("reduction")));
         m = ALT_COST_SELF_REDUCE.matcher(textEn);
         if (m.find()) return reducedCastCpElements(Integer.parseInt(m.group("reduction")));
+        AltChosenTargetReduction chosenReduce = altChosenTargetReduction();
+        if (chosenReduce != null) return reducedCastCpElements(chosenReduce.reduction());
         AltBzRemovalReduction bzReduce = altBzRemovalReduction();
         if (bzReduce != null) return reducedCastCpElements(bzReduce.reduction());
         m = ALT_COST_NONSUMMON.matcher(textEn);
@@ -1179,6 +1228,15 @@ public record CardData(
     );
 
     /**
+     * "You must control a [Element] Forward to cast [name]." — 19-104H Madeen.
+     * Group {@code elem} — the Element the controlled Forward must have.
+     */
+    private static final Pattern CAST_MUST_CONTROL_ELEMENT_FWD = Pattern.compile(
+        "(?i)You\\s+must\\s+control\\s+an?\\s+(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Forward\\s+"
+            + "to\\s+cast\\s+\\S[^.]*?[.!]?"
+    );
+
+    /**
      * "You can only play [name] if you control a Category X Forward."
      * Group {@code cat} — the category token (e.g. "VII").
      */
@@ -1333,6 +1391,16 @@ public record CardData(
                 mustControl = new ControlCondition(
                         java.util.List.of(), 1, false, "Forward", null, null,
                         catM.group("cat").trim(), 0, java.util.List.of());
+            }
+        }
+        if (mustControl == null) {
+            Matcher elemM = CAST_MUST_CONTROL_ELEMENT_FWD.matcher(textEn);
+            if (elemM.find()) {
+                String elem = elemM.group("elem");
+                mustControl = new ControlCondition(
+                        java.util.List.of(), 1, false, "Forward",
+                        Character.toUpperCase(elem.charAt(0)) + elem.substring(1).toLowerCase(Locale.ROOT),
+                        null, null, 0, java.util.List.of());
             }
         }
         if (mustControl == null) {

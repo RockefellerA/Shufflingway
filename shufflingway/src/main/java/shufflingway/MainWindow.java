@@ -2792,6 +2792,7 @@ public class MainWindow {
 		scheduledForP1EndTurn.clear();
 		scheduledForP2EndTurn.clear();
 		pendingMainPhase1Effects.clear();
+		summonsCastWithChosenReduction.clear();
 		activeCostReductions.clear();
 		lostAbilitiesCards.clear();
 		abilitiesStrippedWhileWardenOnField.clear();
@@ -3607,7 +3608,7 @@ public class MainWindow {
 		return card.altCrystalCost() > 0 || card.altCpCost() > 0 || !card.altFieldRemovals().isEmpty()
 				|| !card.altDullCosts().isEmpty() || card.altPutToBzCost() != null
 				|| card.altPutToBzReduction() != null || card.altFieldRemovalPerCard() != null
-				|| card.altBzRemovalReduction() != null;
+				|| card.altBzRemovalReduction() != null || card.altChosenTargetReduction() != null;
 	}
 
 	/** "Play (Alt: …)": the card's alternative cost can be paid now. */
@@ -3615,7 +3616,18 @@ public class MainWindow {
 		return castTimingWindowOpen(card) && !characterCastConflict(card)
 				&& canAffordAltCost(card, handIdx)
 				&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card)
-				&& !summonCastBlocked(card, true) && !p1CastLimitReached();
+				&& !summonCastBlocked(card, true) && !p1CastLimitReached()
+				&& chosenReductionHasTarget(card, true);
+	}
+
+	/**
+	 * Whether a discount bought by what the Summon chooses (20-081H Fenrir) has something to choose:
+	 * without a Forward the narrowed choice can take, the cast would pay less and choose nothing.
+	 * {@code true} for a card with no such discount.
+	 */
+	boolean chosenReductionHasTarget(CardData card, boolean isP1) {
+		if (card.altChosenTargetReduction() == null) return true;
+		return summonHasCastTarget(card, card.narrowedToChosenReduction(card.summonEffect()), isP1);
 	}
 
 	/** "Play (Discard N Job X)": a field grant lets {@code card} be cast by discarding, and it can be now. */
@@ -9331,8 +9343,13 @@ public class MainWindow {
 			// rather than being summarised into something the player has to take on trust.
 			String drawbackStr = altSelfReduce == null ? ""
 					: " [" + altSelfReduce.followupText().replaceAll("[.!]$", "") + "]";
+			// 20-081H Fenrir: the price is the choice, so the label says what the choice is held to.
+			CardData.AltChosenTargetReduction chosenReduce = card.altChosenTargetReduction();
+			String chosenStr = chosenReduce == null ? ""
+					: (ac > 0 || !altElems.isEmpty() ? " + " : "") + "choose a Forward of cost "
+					  + chosenReduce.maxTargetCost() + " or less" + (altElems.isEmpty() && ac == 0 ? ", 0 CP" : "");
 			String altLabel = "Play (Alt: " + bzReduceStr + bzStr + dullStr + removalStr + crystalStr
-					+ cpStr + condStr + ")" + drawbackStr;
+					+ cpStr + chosenStr + condStr + ")" + drawbackStr;
 			JMenuItem altItem = new JMenuItem(altLabel);
 			altItem.setEnabled(canPayAltCostFromHand(card, handIdx));
 			altItem.addActionListener(ae -> {
@@ -10083,8 +10100,15 @@ public class MainWindow {
 	 * from the AI's planning, both of them outside any resolution.
 	 */
 	boolean summonHasCastTarget(CardData card, boolean isP1) {
+		return card == null || summonHasCastTarget(card, card.summonEffect(), isP1);
+	}
+
+	/**
+	 * {@link #summonHasCastTarget} for {@code effect} in place of the card's printed effect — the
+	 * text a discounted cast will choose by (20-081H Fenrir, {@link CardData#narrowedToChosenReduction}).
+	 */
+	boolean summonHasCastTarget(CardData card, String effect, boolean isP1) {
 		if (card == null || !card.isSummon()) return true;
-		String effect = card.summonEffect();
 
 		Predicate<StackEntry> onStack = ActionResolver.mandatoryCastStackChoice(effect, isP1);
 		if (onStack != null) return gameState.getStack().stream().anyMatch(onStack);
@@ -10847,6 +10871,14 @@ public class MainWindow {
 						|| !removalSlots.isEmpty() || !bzReductionIdxs.isEmpty())) {
 			executeAltPlayAndSend(card, handIdx,
 					altPayment(0, dullIdxs, removalSlots, bzPayment, bzReducePayment, bzRemovals, bzReductionIdxs),
+					Collections.emptyList(), Collections.emptyList(), Map.of());
+			return;
+		}
+
+		// 20-081H Fenrir's discount takes it to nothing at all: its price is the choice it commits to,
+		// which it makes on the way to the Stack, so that choice is the confirmation.
+		if (altElemsList.isEmpty() && altC == 0 && card.altChosenTargetReduction() != null) {
+			executeAltPlayAndSend(card, handIdx, AltPayment.NOTHING_HANDED_OVER,
 					Collections.emptyList(), Collections.emptyList(), Map.of());
 			return;
 		}
@@ -13011,6 +13043,19 @@ public class MainWindow {
 	List<ForwardTarget> lastSummonPreTargets;
 
 	/**
+	 * Summons cast under a discount bought by what they choose (20-081H Fenrir), by identity. Their
+	 * choice is held to what the discount paid for twice over — as the targets are chosen, and again
+	 * as the Summon resolves — so a choice that was never made up front cannot be made wide later.
+	 * Set as each Summon goes on the Stack, and cleared for one that did not take the discount.
+	 */
+	final Set<CardData> summonsCastWithChosenReduction = Collections.newSetFromMap(new IdentityHashMap<>());
+
+	/** {@code text} as {@code card}'s own cast paid for it — see {@link #summonsCastWithChosenReduction}. */
+	private String narrowedAsCast(CardData card, String text) {
+		return summonsCastWithChosenReduction.contains(card) ? card.narrowedToChosenReduction(text) : text;
+	}
+
+	/**
 	 * The Summon effect text that will actually resolve, after the extra-cost transforms
 	 * {@link #resolveTopOfStack} applies.  Targets are chosen when the Summon goes on the Stack,
 	 * so the pre-selection has to read the same text the resolution will — otherwise a
@@ -13031,7 +13076,8 @@ public class MainWindow {
 	private List<ForwardTarget> chooseSummonTargets(CardData card, boolean isP1,
 			boolean paidExtraCost, int xValue) {
 		List<ForwardTarget> chosen = ActionResolver.preSelectTargets(
-				resolvedSummonEffectText(card, paidExtraCost, xValue), card, xValue, buildGameContext(isP1));
+				narrowedAsCast(card, resolvedSummonEffectText(card, paidExtraCost, xValue)), card, xValue,
+				buildGameContext(isP1));
 		// Normalise "chose nothing" to "nothing to choose": both mean the resolution selects as
 		// it always did, and keeping them distinct would make an empty selection preload an empty
 		// list and silently fizzle the effect.
@@ -13089,6 +13135,12 @@ public class MainWindow {
 	void pushSummonOnStack(CardData card, boolean isP1, int extraCostRemovedCardPower,
 			int xValue, boolean paidExtraCost, List<ForwardTarget> preTargets, boolean targetsKnown) {
 		int depth = gameState.stackSize();
+		// Before the choice, which reads it. An alternate cast raises lastCardCastViaAltCost around
+		// the play that lands here, on the caster's client and on the one replaying it alike.
+		if (lastCardCastViaAltCost && card.altChosenTargetReduction() != null)
+			summonsCastWithChosenReduction.add(card);
+		else
+			summonsCastWithChosenReduction.remove(card);
 		List<ForwardTarget> targets = targetsKnown
 				? (preTargets == null || preTargets.isEmpty() ? null : preTargets)
 				: chooseSummonTargets(card, isP1, paidExtraCost, xValue);
@@ -13179,6 +13231,7 @@ public class MainWindow {
 				effectText = ActionResolver.stripExtraCostClause(effectText);
 			}
 			if (!entry.isExBurstEntry()) effectText = ActionResolver.stripExBurstPrefix(effectText);
+			if (entry.isSummon() && !entry.isExBurstEntry()) effectText = narrowedAsCast(entry.source(), effectText);
 		}
 		return ActionResolver.resolveExBurstInstead(effectText, entry.source(), entry.isExBurstEntry());
 	}
@@ -13441,6 +13494,9 @@ public class MainWindow {
 				} else {
 					effectText = ActionResolver.stripExtraCostClause(effectText);
 				}
+				// Held to what a discounted cast committed to, as its targets were (20-081H Fenrir).
+				// An EX Burst was never cast, so it took no discount.
+				if (!entry.isExBurstEntry()) effectText = narrowedAsCast(entry.source(), effectText);
 
 				// What the line reports is the resolution, not the printing: the "EX BURST" marker
 				// and the "If [name] results from an EX Burst, … instead." alternative both belong
@@ -13452,6 +13508,7 @@ public class MainWindow {
 				// This Summon's own payment, which a cast made in response has since overwritten on
 				// the lastCastPayment* fields. An EX Burst was never cast, so it paid nothing.
 				CastPaymentRecord ownPayment = summonCastPayments.remove(entry.source());
+				summonsCastWithChosenReduction.remove(entry.source());
 				if (entry.isExBurstEntry()) ownPayment = CastPaymentRecord.unpaid(entry.source());
 				if (effect != null) {
 					// Targets were chosen when the Summon went on the Stack, so the opponent could
