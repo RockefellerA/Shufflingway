@@ -154,6 +154,26 @@ final class ActionResolverRestriction {
         };
     }
     /**
+     * "[Draw N card(s), ]all the Forwards/Characters you control [also] gain "This … cannot be chosen
+     * by your opponent's …" until the end of the turn." — see
+     * {@link ActionResolverPatterns#ALL_OWN_GAIN_CANNOT_BE_CHOSEN_EOT}. "Characters" takes in the
+     * Backups and Monsters too.
+     */
+    static Consumer<GameContext> tryParseAllOwnGainCannotBeChosen(String text) {
+        Matcher m = ALL_OWN_GAIN_CANNOT_BE_CHOSEN_EOT.matcher(text.trim());
+        if (!m.matches()) return null;
+        int draw = m.group("draw") != null ? Integer.parseInt(m.group("draw")) : 0;
+        boolean characters = m.group("type").toLowerCase(java.util.Locale.ROOT).startsWith("character");
+        String scope = m.group("scope").toLowerCase(java.util.Locale.ROOT);
+        boolean bs = scope.contains("summon"), ba = scope.contains("abilit");
+        return ctx -> {
+            if (draw > 0) ctx.drawCards(draw);
+            if (characters) ctx.shieldAllOwnCharactersCannotBeChosen(bs, ba);
+            else            ctx.shieldAllOwnForwardsCannotBeChosen(bs, ba);
+        };
+    }
+
+    /**
      * Parses standalone "cannot be chosen" protection effects:
      * <ul>
      *   <li>"Activate all the Forwards you control. They cannot be chosen by your opponent's Summons."</li>
@@ -189,9 +209,10 @@ final class ActionResolverRestriction {
             };
         }
 
-        // 3. Self-referential: "This Forward/Character cannot be chosen"
+        // 3. Self-referential: "This Forward/Character cannot be chosen" — but not quoted in a grant
+        //    to all your Forwards or Characters, which is theirs rather than the source's.
         Matcher selfM = STANDALONE_SELF_CANNOT_BE_CHOSEN.matcher(text);
-        if (selfM.find() && source != null) {
+        if (selfM.find() && source != null && !ALL_OWN_GAIN_QUOTED_OPENING.matcher(text).find()) {
             boolean bs = selfM.group("scope").toLowerCase(java.util.Locale.ROOT).contains("summon");
             boolean ba = selfM.group("scope").toLowerCase(java.util.Locale.ROOT).contains("abilit");
             String  nm = source.name();

@@ -953,6 +953,9 @@ public class ActionResolver {
         result = tryParseSelfCannotBeChosenByAnyAndGainsTraits(effectText, source);
         if (result != null) return claim("SelfCannotBeChosenByAnyAndGainsTraits", result);
 
+        result = tryParseAllOwnGainCannotBeChosen(effectText);
+        if (result != null) return claim("AllOwnGainCannotBeChosen", result);
+
         result = tryParseCannotBeChosenStandalone(effectText, source);
         if (result != null) return claim("CannotBeChosenStandalone", result);
 
@@ -2360,6 +2363,10 @@ public class ActionResolver {
         result = tryParseLightDarkDiscardCpGrant(effectText);
         if (result != null) return claim("LightDarkDiscardCpGrant", result);
 
+        // Last on purpose: a gate over any effect, so it takes only what nothing above reads.
+        result = tryParseIfDamageAtLeast(effectText, source);
+        if (result != null) return claim("IfDamageAtLeast", result);
+
         return null;
     }
 
@@ -3414,6 +3421,13 @@ public class ActionResolver {
             Matcher selfM = IF_DAMAGE_AT_MOST_INNER.matcher(effectText.trim());
             if (selfM.find())
                 return "IfSelfDamageAtMost / " + descOrUnread(selfM.group("inner"), source);
+        }
+        if (site.equals("IfDamageAtLeast")) {
+            Matcher atLeastM = IF_DAMAGE_AT_LEAST_INNER.matcher(effectText.trim());
+            if (atLeastM.matches())
+                return "IfDamageAtLeast(" + (atLeastM.group("who").toLowerCase(Locale.ROOT).startsWith("your")
+                        ? "opponent " : "") + atLeastM.group("count") + "+) / "
+                        + descOrUnread(atLeastM.group("inner"), source);
         }
         if (site.equals("ShuffleDeckThen")) {
             Matcher shuffleM = SHUFFLE_DECK_THEN.matcher(effectText.trim());

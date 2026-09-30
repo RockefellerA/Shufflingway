@@ -528,6 +528,29 @@ final class ActionResolverBreak {
         return tryParseIfDamageAtMost(text, source, false);
     }
 
+    /**
+     * "If [you have | your opponent has] received N points of damage or more, &lt;effect&gt;." — see
+     * {@link ActionResolverPatterns#IF_DAMAGE_AT_LEAST_INNER}. Declines an "instead" tail, and
+     * any inner effect the chain cannot read: the gate is only worth claiming with what it guards.
+     */
+    static Consumer<GameContext> tryParseIfDamageAtLeast(String text, CardData source) {
+        Matcher m = IF_DAMAGE_AT_LEAST_INNER.matcher(text.trim());
+        if (!m.matches()) return null;
+        String inner = m.group("inner").trim();
+        if (inner.matches("(?is).*\\binstead[.!]?$")) return null;
+        boolean opponent = m.group("who").toLowerCase(Locale.ROOT).startsWith("your");
+        int min = Integer.parseInt(m.group("count"));
+        Consumer<GameContext> innerEffect = parse(inner, source);
+        if (innerEffect == null) return null;
+        String whoLabel = opponent ? "opponent has" : "you have";
+        return ctx -> {
+            int received = opponent ? ctx.opponentDamageCount() : ctx.ownDamageCount();
+            if (received >= min) innerEffect.accept(ctx);
+            else ctx.logEntry("Condition not met: " + whoLabel + " received " + received
+                    + " points of damage, needs " + min + " or more");
+        };
+    }
+
     private static Consumer<GameContext> tryParseIfDamageAtMost(String text, CardData source,
             boolean opponent) {
         Matcher m = IF_DAMAGE_AT_MOST_INNER.matcher(text.trim());

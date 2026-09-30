@@ -1827,6 +1827,13 @@ public interface GameContext {
     void shieldAllOwnForwardsCannotBeChosen(boolean bySummons, boolean byAbilities);
 
     /**
+     * {@link #shieldAllOwnForwardsCannotBeChosen} over every Character the resolving player
+     * controls — Forwards, Backups and Monsters. 13-045R Dryad: "all the Characters you control
+     * gain "This Character cannot be chosen by your opponent's abilities.""
+     */
+    void shieldAllOwnCharactersCannotBeChosen(boolean bySummons, boolean byAbilities);
+
+    /**
      * "All Forwards cannot be chosen by Summons' EX Bursts or Characters' EX Bursts this turn"
      * — 5-075L Wol's fourth option. No Forward on either field may be chosen by any EX Burst for
      * the rest of the turn, whoever controls it and whoever the EX Burst belongs to.

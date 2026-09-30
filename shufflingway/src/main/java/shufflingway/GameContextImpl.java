@@ -977,6 +977,18 @@ final class GameContextImpl implements GameContext {
 						(bySummons && byAbilities ? " Summons or abilities" : bySummons ? " Summons" : " abilities"));
 			}
 
+			@Override public void shieldAllOwnCharactersCannotBeChosen(boolean bySummons, boolean byAbilities) {
+				List<CardData> chars = new ArrayList<>(isP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
+				for (CardData c : isP1 ? mw.p1BackupCards : mw.p2BackupCards) if (c != null) chars.add(c);
+				chars.addAll(isP1 ? mw.p1MonsterCards : mw.p2MonsterCards);
+				for (CardData c : chars) {
+					if (bySummons)   mw.cannotBeChosenBySummons.add(c);
+					if (byAbilities) mw.cannotBeChosenByAbilities.add(c);
+				}
+				logEntry("Effect: all own Characters cannot be chosen by opponent's" +
+						(bySummons && byAbilities ? " Summons or abilities" : bySummons ? " Summons" : " abilities"));
+			}
+
 			@Override public void shieldAllForwardsCannotBeChosenByExBurst() {
 				mw.forwardsCannotBeChosenByExBurstThisTurn = true;
 				logEntry("Effect: no Forward can be chosen by an EX Burst this turn");

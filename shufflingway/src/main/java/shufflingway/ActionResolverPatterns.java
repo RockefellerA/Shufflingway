@@ -4604,6 +4604,17 @@ final class ActionResolverPatterns {
         "points?\\s+of\\s+damage\\s+or\\s+less,\\s+(?<inner>.+)",
         Pattern.DOTALL
     );
+    /**
+     * The "or more" twin of {@link #IF_DAMAGE_AT_MOST_INNER} as a gate over an arbitrary effect —
+     * 13-100R Leviathan's "If you have received 5 points of damage or more, all the Forwards you
+     * control also gain …". Dispatched last, so it reads only what no other parser claims; an
+     * "… instead" upgrade is {@code DamageInsteadCondition}'s and is declined by the parser.
+     */
+    static final Pattern IF_DAMAGE_AT_LEAST_INNER = Pattern.compile(
+        "(?i)^If\\s+(?<who>your\\s+opponent\\s+has|you\\s+have)\\s+received\\s+(?<count>\\d+)\\s+" +
+        "points?\\s+of\\s+damage\\s+or\\s+more,\\s+(?<inner>.+)",
+        Pattern.DOTALL
+    );
 
     /**
      * Matches the replacement form of the same gate — a plain effect, then the gate, then what
@@ -6129,6 +6140,25 @@ final class ActionResolverPatterns {
     static final Pattern STANDALONE_SELF_CANNOT_BE_CHOSEN = Pattern.compile(
         "(?i)This\\s+(?:Forward|Character)\\s+cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+" +
         "(?<scope>Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
+    );
+    /**
+     * "[Draw N card(s), ]all the Forwards/Characters you control [also] gain "This Forward/Character
+     * cannot be chosen by your opponent's Summons/abilities." until the end of the turn." — 13-100R
+     * Leviathan's gated sentence and 13-045R Dryad's upgrade, whose draw leads the same clause.
+     * Anchored end to end: a find() inside it is how the quoted half was read as a self-shield.
+     */
+    static final Pattern ALL_OWN_GAIN_CANNOT_BE_CHOSEN_EOT = Pattern.compile(
+        "(?i)^(?:Draw\\s+(?<draw>\\d+)\\s+cards?,\\s+)?all\\s+the\\s+(?<type>Forwards|Characters)\\s+you\\s+"
+            + "control\\s+(?:also\\s+)?gain\\s+[\"']This\\s+(?:Forward|Character)\\s+cannot\\s+be\\s+chosen\\s+by\\s+"
+            + "your\\s+opponent's\\s+(?<scope>Summons\\s+or\\s+abilities|Summons|abilities)\\.?[\"']\\s+until\\s+"
+            + "the\\s+end\\s+of\\s+the\\s+turn[.!]?$"
+    );
+    /**
+     * The opening of that grant anywhere in a text — where {@link #STANDALONE_SELF_CANNOT_BE_CHOSEN}
+     * finds the quoted "This Forward cannot be chosen" and must not read it as the source's own.
+     */
+    static final Pattern ALL_OWN_GAIN_QUOTED_OPENING = Pattern.compile(
+        "(?i)\\ball\\s+the\\s+(?:Forwards|Characters)\\s+you\\s+control\\s+(?:also\\s+)?gain\\s+[\"']This\\b"
     );
     /**
      * "[CardName] cannot be chosen by your opponent's Summons/abilities."
@@ -8776,10 +8806,11 @@ final class ActionResolverPatterns {
      * base — 17-069C Warrior's "If you have received a point of damage this turn, it gains +10000
      * power until the end of the turn instead." Read by {@code stateGatedInsteadUpgrade}, which
      * validates both groups by parsing them; no period inside either, so a second sentence after
-     * the upgrade declines rather than being read into it.
+     * the upgrade declines rather than being read into it — except inside a quotation, which ends
+     * its own sentence: 13-045R Dryad's alt grants "This Character cannot be chosen … abilities."
      */
     static final Pattern SECONDARY_STATE_GATED_INSTEAD = Pattern.compile(
-        "(?i)^If\\s+(?<cond>[^.,]+?),\\s+(?<alt>[^.]+?)\\s+instead[.!]?$"
+        "(?i)^If\\s+(?<cond>[^.,]+?),\\s+(?<alt>(?:[^.\"]|\"[^\"]*\")+?)\\s+instead[.!]?$"
     );
 
     /**
@@ -12111,13 +12142,19 @@ final class ActionResolverPatterns {
      */
     static final Pattern CHOOSE_FOLLOWUP_BENEFITS_TARGET = Pattern.compile(
         "(?i)\\b(?:it|they)\\s+(?:gains?\\s+(?:\\+\\d+\\s+power|Haste|First\\s+Strike|Brave)"
-        + "|becomes?\\s+active)\\b|\\bActivate\\s+(?:it|them)\\b");
+        + "|becomes?\\s+active)\\b|\\bActivate\\s+(?:it|them)\\b"
+        // 13-100R Leviathan: a shield on the chosen card.
+        + "|\\bthe\\s+next\\s+damage\\s+dealt\\s+to\\s+(?:it|them)\\s+(?:is|are)\\s+reduced\\b");
     /**
      * Followup wordings that harm the chosen target.  Checked first so a mixed effect
      * ("Deal it 5000 damage … it gains …") is never treated as a pure buff.
+     *
+     * <p>Not "Break Zone" (14-029R Shivalry's granted trigger names it) and not "cannot be chosen
+     * by your opponent's …", which only ever protects.
      */
     static final Pattern CHOOSE_FOLLOWUP_HARMS_TARGET = Pattern.compile(
-        "(?i)\\b(?:deal|break|dull|freeze|discard|loses?|cannot|removes?\\s+it|return\\s+it"
+        "(?i)\\b(?:deal|break(?!\\s+Zone)|dull|freeze|discard|loses?"
+        + "|cannot(?!\\s+be\\s+chosen\\s+by\\s+your\\s+opponent)|removes?\\s+it|return\\s+it"
         + "|power\\s+becomes?|put\\s+it\\s+into)\\b");
     /**
      * Matches the boilerplate "(Units must be 1000.)" / "(damage must be in increments of 1000)"
