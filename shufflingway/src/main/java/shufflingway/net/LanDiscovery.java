@@ -24,12 +24,8 @@ import java.util.function.Consumer;
 
 /**
  * Lets a host announce itself on the local network so a joiner can pick it from a list instead of
- * typing an address. The host sends a small UDP broadcast every {@link #FAST_INTERVAL_MS} for the
- * first {@link #FAST_PHASE_MS}, so it shows up quickly, then every {@link #SLOW_INTERVAL_MS}.
- *
- * <p>Each announcement says how long until the next one, and a joiner drops a host that has been
- * silent for {@link #EXPIRY_MISSES} of those intervals. The expiry therefore follows the backoff
- * without the joiner needing to know the schedule.
+ * typing an address. The host sends a small UDP broadcast every {@link #ANNOUNCE_INTERVAL_MS};
+ * a joiner listens for them and drops a host that has been silent for {@link #EXPIRY_MS}.
  *
  * <p>The datagram carries only the host's game port and display name — the address is taken from
  * the packet's source, so it is always one the joiner can actually reach.
@@ -38,22 +34,8 @@ public final class LanDiscovery {
 
     /** UDP port announcements are sent to and listened on. */
     static final int DISCOVERY_PORT = 7778;
-    static final long FAST_INTERVAL_MS = 2000;
-    static final long FAST_PHASE_MS = 30_000;
-    static final long SLOW_INTERVAL_MS = 4000;
-    /** How many announcements in a row may be missed before a host is dropped. */
-    static final double EXPIRY_MISSES = 2.5;
-    /** Bounds on an advertised interval, so a bad packet cannot pin a host in the list forever. */
-    private static final long MIN_INTERVAL_MS = 500;
-    private static final long MAX_INTERVAL_MS = 60_000;
-
-    /** The interval a host waits after announcing at {@code elapsedMs} into its lobby. */
-    static long intervalAfter(long elapsedMs) {
-        return elapsedMs < FAST_PHASE_MS ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS;
-    }
-
-    /** A decoded announcement: the host, and how long until it announces again. */
-    record Announcement(Host host, long intervalMs) {}
+    static final long ANNOUNCE_INTERVAL_MS = 1000;
+    static final long EXPIRY_MS = 4000;
 
     private static final String MAGIC = "shufflingway";
 
@@ -68,23 +50,19 @@ public final class LanDiscovery {
 
     // ── Wire format ──────────────────────────────────────────────────────
 
-    static byte[] encode(int port, String name, long intervalMs) {
-        return new JSONObject().put("app", MAGIC).put("port", port).put("interval", intervalMs)
+    static byte[] encode(int port, String name) {
+        return new JSONObject().put("app", MAGIC).put("port", port)
                 .put("name", name == null ? "" : name).toString().getBytes(StandardCharsets.UTF_8);
     }
 
     /** Decodes an announcement from {@code address}, or returns {@code null} if it is not one. */
-    static Announcement decode(byte[] data, int length, String address) {
+    static Host decode(byte[] data, int length, String address) {
         try {
             JSONObject o = new JSONObject(new String(data, 0, length, StandardCharsets.UTF_8));
             if (!MAGIC.equals(o.optString("app"))) return null;
             int port = o.getInt("port");
             if (port < 1 || port > 65535) return null;
-            long interval = Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS,
-                    o.optLong("interval", SLOW_INTERVAL_MS)));
-            return new Announcement(
-                    new Host(address, port, shufflingway.AppSettings.clampUsername(o.optString("name", ""))),
-                    interval);
+            return new Host(address, port, shufflingway.AppSettings.clampUsername(o.optString("name", "")));
         } catch (JSONException e) {
             return null;
         }
@@ -98,18 +76,16 @@ public final class LanDiscovery {
         private volatile boolean stopped;
 
         private Broadcaster(int gamePort, String name) {
-            thread = new Thread(() -> run(gamePort, name), "LanDiscovery-broadcast");
+            byte[] payload = encode(gamePort, name);
+            thread = new Thread(() -> run(payload), "LanDiscovery-broadcast");
             thread.setDaemon(true);
             thread.start();
         }
 
-        private void run(int gamePort, String name) {
+        private void run(byte[] payload) {
             try (DatagramSocket socket = new DatagramSocket()) {
                 socket.setBroadcast(true);
-                long start = System.nanoTime();
                 while (!stopped) {
-                    long interval = intervalAfter((System.nanoTime() - start) / 1_000_000);
-                    byte[] payload = encode(gamePort, name, interval);
                     for (InetAddress target : broadcastTargets()) {
                         try {
                             socket.send(new DatagramPacket(payload, payload.length, target, DISCOVERY_PORT));
@@ -117,7 +93,7 @@ public final class LanDiscovery {
                             // One unreachable interface must not silence the others.
                         }
                     }
-                    try { Thread.sleep(interval); }
+                    try { Thread.sleep(ANNOUNCE_INTERVAL_MS); }
                     catch (InterruptedException e) { return; }
                 }
             } catch (IOException ignored) {
@@ -183,17 +159,15 @@ public final class LanDiscovery {
                     try {
                         s.receive(p);
                         if (p.getAddress() instanceof Inet4Address) {
-                            Announcement a = decode(p.getData(), p.getLength(),
-                                    p.getAddress().getHostAddress());
-                            if (a != null) seen.put(a.host().address() + ":" + a.host().port(),
-                                    new Seen(a.host(), System.currentTimeMillis()
-                                            + (long) (a.intervalMs() * EXPIRY_MISSES)));
+                            Host h = decode(p.getData(), p.getLength(), p.getAddress().getHostAddress());
+                            if (h != null) seen.put(h.address() + ":" + h.port(),
+                                    new Seen(h, System.currentTimeMillis()));
                         }
                     } catch (SocketTimeoutException ignored) {
                         // Fall through to expire stale hosts.
                     }
                     long now = System.currentTimeMillis();
-                    seen.values().removeIf(x -> now > x.expiresAt);
+                    seen.values().removeIf(x -> now - x.at > EXPIRY_MS);
                     List<Host> current = new ArrayList<>();
                     for (Seen x : seen.values()) current.add(x.host);
                     current.sort(Comparator.comparing(Host::label, String.CASE_INSENSITIVE_ORDER)
@@ -214,7 +188,7 @@ public final class LanDiscovery {
             if (s != null) s.close();
         }
 
-        private record Seen(Host host, long expiresAt) {}
+        private record Seen(Host host, long at) {}
     }
 
     /**
