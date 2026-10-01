@@ -5535,7 +5535,7 @@ class SummonBehaviorTest {
 			+ "each, each with a different cost, and add them to your hand.";
 
 	private static void inP2Deck(MainWindow mw, CardData... cards) {
-		for (CardData c : cards) mw.gameState.getP2MainDeck().add(c);
+		Collections.addAll(mw.gameState.getP2MainDeck(), cards);
 	}
 
 	@Test
@@ -9703,6 +9703,149 @@ class SummonBehaviorTest {
 				"only Fire Backups can pay this cost");
 	}
 
+	// Every Opus 25 Summon opens with the same Backup removal, so each of the sections below casts
+	// from its full printed text: the cost sentence has to come off before the effect resolves.
+	@Test
+	void everyOpus25SummonReadsItsBackupRemovalAndCastsWithoutIt() {
+		record Printing(CardData summon, String element) {}
+		List<Printing> printings = List.of(
+				new Printing(makeSummon("Ifrit", "Fire", 4, IFRIT_TEXT), "Fire"),
+				new Printing(makeSummon("Mateus, the Corrupt", "Ice", 4, MATEUS_25_030H), "Ice"),
+				new Printing(makeSummon("Chocobo Chick (VII)", "Wind", 3, CHOCOBO_CHICK_25_040H), "Wind"),
+				new Printing(makeSummon("Atomos", "Earth", 3, ATOMOS_25_053H), "Earth"),
+				new Printing(makeSummon("Adrammelech, the Wroth", "Lightning", 5, ADRAMMELECH_25_083H), "Lightning"),
+				new Printing(makeSummon("Famfrit, the Darkening Cloud", "Water", 4,
+						OPUS_25_BACKUP_REMOVAL.formatted("Water", "Famfrit, the Darkening Cloud") + FAMFRIT_25_088H),
+						"Water"));
+		for (Printing p : printings) {
+			CardData summon = p.summon();
+			CardData.AltFieldRemoval removal = summon.altFieldRemoval();
+			assertNotNull(removal, summon.name());
+			assertEquals(1, removal.count(), summon.name());
+			assertEquals(p.element(), removal.element(), summon.name());
+			assertEquals("Backup", removal.type(), summon.name());
+			assertEquals(summon.cost() - 2, summon.altCpElements().size(), summon.name() + " is reduced by 2");
+			assertFalse(summon.summonEffect().contains("Before paying"), summon.name());
+		}
+	}
+
+	/** The Opus 25 cost sentence, for an element and a card name. */
+	private static final String OPUS_25_BACKUP_REMOVAL =
+			"Before paying the cost to cast %2$s, you can remove 1 %1$s Backup you control from the game "
+			+ "to reduce the cost required to cast %2$s by 2.[[br]]";
+
+	// =========================================================================================
+	// 25-030H Mateus, the Corrupt: "Choose 1 dull Forward and up to 1 other Forward. Break the
+	// former, dull and Freeze the latter."
+	// =========================================================================================
+
+	private static final String MATEUS_25_030H = OPUS_25_BACKUP_REMOVAL.formatted("Ice", "Mateus, the Corrupt")
+			+ "Choose 1 dull Forward and up to 1 other Forward. Break the former, dull and Freeze the latter.";
+
+	@Test
+	void mateusBreaksTheDullForwardAndFreezesTheOther() {
+		MainWindow mw = new MainWindow();
+		CardData dull   = makeForward("Dull One", "Water", 5, 9000);
+		CardData active = makeForward("Active One", "Water", 5, 9000);
+		placeP1Forward(mw, dull);
+		placeP1Forward(mw, active);
+		dullP1Forward(mw, dull);
+		castAsP2(mw, makeSummon("Mateus, the Corrupt", "Ice", 4, MATEUS_25_030H));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(dull), "the former must be dull");
+		assertEquals(List.of(active), mw.p1ForwardCards);
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertTrue(mw.p1ForwardFrozen.get(0));
+	}
+
+	@Test
+	void mateusNeverBreaksAnActiveForward() {
+		MainWindow mw = new MainWindow();
+		CardData active = makeForward("Active One", "Water", 5, 9000);
+		placeP1Forward(mw, active);
+		castAsP2(mw, makeSummon("Mateus, the Corrupt", "Ice", 4, MATEUS_25_030H));
+
+		assertEquals(List.of(active), mw.p1ForwardCards, "the former must be dull");
+	}
+
+	// =========================================================================================
+	// 25-040H Chocobo Chick (VII): "Deal 2000 damage to all the Forwards opponent controls. Then,
+	// you may play 1 Forward of cost 2 or less from your hand onto the field."
+	// =========================================================================================
+
+	private static final String CHOCOBO_CHICK_25_040H = OPUS_25_BACKUP_REMOVAL.formatted("Wind", "Chocobo Chick (VII)")
+			+ "Deal 2000 damage to all the Forwards opponent controls. "
+			+ "Then, you may play 1 Forward of cost 2 or less from your hand onto the field.";
+
+	@Test
+	void chocoboChickSweepsTheirForwardsAndPlaysACheapForward() {
+		MainWindow mw = new MainWindow();
+		CardData small = makeForward("Small", "Water", 1, 2000);
+		CardData big   = makeForward("Big", "Water", 4, 8000);
+		CardData mine  = makeForward("Mine", "Wind", 3, 5000);
+		placeP1Forward(mw, small);
+		placeP1Forward(mw, big);
+		placeP2Forward(mw, mine);
+		CardData cheap  = makeForward("Cheap", "Wind", 2, 5000);
+		CardData costly = makeForward("Costly", "Wind", 3, 7000);
+		mw.gameState.getP2Hand().add(costly);
+		mw.gameState.getP2Hand().add(cheap);
+		castAsP2(mw, makeSummon("Chocobo Chick (VII)", "Wind", 3, CHOCOBO_CHICK_25_040H));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(small));
+		assertEquals(2000, damageOn(mw, big));
+		assertEquals(0, (int) mw.p2ForwardDamage.get(mw.p2ForwardCards.indexOf(mine)), "opponent controls");
+		assertTrue(mw.p2ForwardCards.contains(cheap), "cost 2 or less");
+		assertEquals(List.of(costly), mw.gameState.getP2Hand());
+	}
+
+	// =========================================================================================
+	// 25-053H Atomos: "Choose 1 Forward. Deal it 1000 damage for each card in your Break Zone."
+	// =========================================================================================
+
+	private static final String ATOMOS_25_053H = OPUS_25_BACKUP_REMOVAL.formatted("Earth", "Atomos")
+			+ "Choose 1 Forward. Deal it 1000 damage for each card in your Break Zone.";
+
+	@Test
+	void atomosDealsAThousandPerCardInTheCastersBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 6, 10000);
+		placeP1Forward(mw, theirs);
+		for (int i = 0; i < 4; i++) mw.gameState.getP2BreakZone().add(makeForward("Gone " + i, "Earth", 2, 5000));
+		for (int i = 0; i < 3; i++) mw.gameState.getP1BreakZone().add(makeForward("Theirs Gone " + i, "Water", 2, 5000));
+		castAsP2(mw, makeSummon("Atomos", "Earth", 3, ATOMOS_25_053H));
+
+		assertEquals(4000, damageOn(mw, theirs), "your Break Zone, not theirs");
+	}
+
+	// =========================================================================================
+	// 25-083H Adrammelech, the Wroth: "Deal 7000 damage to all the Forwards opponent controls.
+	// Adrammelech, the Wroth deals you 1 point of damage."
+	// =========================================================================================
+
+	private static final String ADRAMMELECH_25_083H = OPUS_25_BACKUP_REMOVAL.formatted("Lightning", "Adrammelech, the Wroth")
+			+ "Deal 7000 damage to all the Forwards opponent controls. "
+			+ "Adrammelech, the Wroth deals you 1 point of damage.";
+
+	@Test
+	void adrammelechSweepsTheirForwardsAndDamagesItsCaster() {
+		MainWindow mw = new MainWindow();
+		CardData weak   = makeForward("Weak", "Water", 3, 7000);
+		CardData strong = makeForward("Strong", "Water", 5, 9000);
+		CardData mine   = makeForward("Mine", "Lightning", 3, 7000);
+		placeP1Forward(mw, weak);
+		placeP1Forward(mw, strong);
+		placeP2Forward(mw, mine);
+		fillP2Deck(mw, 3);
+		castAsP2(mw, makeSummon("Adrammelech, the Wroth", "Lightning", 5, ADRAMMELECH_25_083H));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(weak));
+		assertEquals(7000, damageOn(mw, strong));
+		assertEquals(List.of(mine), mw.p2ForwardCards, "opponent controls");
+		assertEquals(1, mw.gameState.getP2DamageZone().size(), "1 point to the caster");
+		assertTrue(mw.gameState.getP1DamageZone().isEmpty());
+	}
+
 	// =========================================================================================
 	// 25-088H Famfrit, the Darkening Cloud: "Choose 1 auto-ability triggered from a Forward. Put
 	// that Forward into the Break Zone. Draw 1 card." The ability is chosen, not cancelled — it
@@ -9778,6 +9921,168 @@ class SummonBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Opus 26: "During your turn, you can dull 2 active [Element] Forwards you control (instead of
+	// paying the CP cost) to cast [Self]." Each Summon below is cast from its full printed text,
+	// so the cost sentence has to come off before the effect resolves.
+	// =========================================================================================
+
+	/** The Opus 26 cost sentence, for an element and a card name. */
+	private static final String OPUS_26_DULL_COST = "During your turn, you can dull 2 active %s Forwards you control "
+			+ "(instead of paying the CP cost) to cast %s.[[br]]";
+
+	@Test
+	void everyOpus26SummonReadsItsDullCostAndCastsWithoutIt() {
+		List<CardData> printings = List.of(
+				makeSummon("Phoenix", "Fire", 3, PHOENIX_26_017R),
+				makeSummon("Kujata", "Ice", 3, KUJATA_26_027R),
+				makeSummon("Alexander", "Wind", 3, ALEXANDER_26_042R),
+				makeSummon("Titan", "Earth", 4, TITAN_26_072R),
+				makeSummon("Odin", "Lightning", 3, ODIN_26_087R),
+				makeSummon("Leviathan", "Water", 3, LEVIATHAN_26_119R));
+		for (CardData summon : printings) {
+			List<DullForwardCost> costs = summon.altDullCosts();
+			assertEquals(1, costs.size(), summon.name());
+			assertEquals(2, costs.get(0).count(), summon.name());
+			assertEquals(summon.element(), costs.get(0).element(), summon.name());
+			assertTrue(summon.altDullYourTurnOnly(), summon.name());
+			assertFalse(summon.summonEffect().contains("instead of paying"), summon.name());
+		}
+	}
+
+	@Test
+	void theDullCostNeedsTwoActiveForwardsOfItsElementOnYourTurn() {
+		CardData kujata = makeSummon("Kujata", "Ice", 3, KUJATA_26_027R);
+
+		MainWindow paid = new MainWindow();
+		placeP1Forward(paid, makeForward("Ice A", "Ice", 2, 5000));
+		placeP1Forward(paid, makeForward("Ice B", "Ice", 2, 5000));
+		assertTrue(paid.canPayAltDullCost(kujata));
+
+		MainWindow offElement = new MainWindow();
+		placeP1Forward(offElement, makeForward("Ice A", "Ice", 2, 5000));
+		placeP1Forward(offElement, makeForward("Fire B", "Fire", 2, 5000));
+		assertFalse(offElement.canPayAltDullCost(kujata), "both must be Ice");
+
+		MainWindow oneDull = new MainWindow();
+		placeP1Forward(oneDull, makeForward("Ice A", "Ice", 2, 5000));
+		placeP1Forward(oneDull, makeForward("Ice B", "Ice", 2, 5000));
+		oneDull.p1ForwardStates.set(1, CardState.DULL);
+		assertFalse(oneDull.canPayAltDullCost(kujata), "both must be active");
+
+		MainWindow theirTurn = new MainWindow();
+		placeP1Forward(theirTurn, makeForward("Ice A", "Ice", 2, 5000));
+		placeP1Forward(theirTurn, makeForward("Ice B", "Ice", 2, 5000));
+		theirTurn.gameState.startFirstTurn(GameState.Player.P2);
+		assertFalse(theirTurn.canPayAltDullCost(kujata), "during your turn only");
+	}
+
+	// =========================================================================================
+	// 26-017R Phoenix: "Choose 1 Fire Forward of cost 2 or less in your Break Zone. Play it onto
+	// the field dull."
+	// =========================================================================================
+
+	private static final String PHOENIX_26_017R = OPUS_26_DULL_COST.formatted("Fire", "Phoenix")
+			+ "Choose 1 Fire Forward of cost 2 or less in your Break Zone. Play it onto the field dull.";
+
+	@Test
+	void phoenixReturnsACheapFireForwardFromYourBreakZoneDull() {
+		MainWindow mw = new MainWindow();
+		CardData target = makeForward("Cheap Fire", "Fire", 2, 5000);
+		mw.gameState.getP2BreakZone().add(makeForward("Costly Fire", "Fire", 3, 7000));
+		mw.gameState.getP2BreakZone().add(makeForward("Cheap Ice", "Ice", 2, 5000));
+		mw.gameState.getP2BreakZone().add(makeBackup("Fire Backup", "Fire", 2));
+		mw.gameState.getP2BreakZone().add(target);
+		mw.gameState.getP1BreakZone().add(makeForward("Their Fire", "Fire", 1, 3000));
+		castAsP2(mw, makeSummon("Phoenix", "Fire", 3, PHOENIX_26_017R));
+
+		assertEquals(List.of(target), mw.p2ForwardCards);
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0));
+		assertFalse(mw.gameState.getP2BreakZone().contains(target));
+		assertEquals(3, mw.gameState.getP2BreakZone().size());
+		assertEquals(1, mw.gameState.getP1BreakZone().size(), "your Break Zone");
+	}
+
+	// =========================================================================================
+	// 26-027R Kujata: "Choose 1 dull Forward. Break it."
+	// =========================================================================================
+
+	private static final String KUJATA_26_027R = OPUS_26_DULL_COST.formatted("Ice", "Kujata")
+			+ "Choose 1 dull Forward. Break it.";
+
+	@Test
+	void kujataBreaksTheDullForward() {
+		MainWindow mw = new MainWindow();
+		CardData dull   = makeForward("Dull One", "Water", 5, 9000);
+		CardData active = makeForward("Active One", "Water", 5, 9000);
+		placeP1Forward(mw, active);
+		placeP1Forward(mw, dull);
+		dullP1Forward(mw, dull);
+		castAsP2(mw, makeSummon("Kujata", "Ice", 3, KUJATA_26_027R));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(dull));
+		assertEquals(List.of(active), mw.p1ForwardCards);
+	}
+
+	// =========================================================================================
+	// 26-042R Alexander: "Choose 1 Character of cost 5 or more. Break it."
+	// =========================================================================================
+
+	private static final String ALEXANDER_26_042R = OPUS_26_DULL_COST.formatted("Wind", "Alexander")
+			+ "Choose 1 Character of cost 5 or more. Break it.";
+
+	// The same shape as 8-046R above with the threshold raised a step, so a cost-4 Character that
+	// one would take is out of reach here.
+	@Test
+	void alexander26BreaksACostFiveBackupButNotACostFourForward() {
+		MainWindow mw = new MainWindow();
+		CardData costly = makeBackup("Costly Backup", "Water", 5);
+		CardData cheap  = makeForward("Cheap Forward", "Water", 4, 9000);
+		placeP1Backup(mw, costly);
+		placeP1Forward(mw, cheap);
+		castAsP2(mw, makeSummon("Alexander", "Wind", 3, ALEXANDER_26_042R));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(costly), "a Character, not only a Forward");
+		assertFalse(p1BackupOnField(mw, costly));
+		assertEquals(List.of(cheap), mw.p1ForwardCards, "cost 5 or more");
+	}
+
+	// =========================================================================================
+	// 26-072R Titan: "Choose 1 Forward you control and 1 Forward opponent controls. The former gains
+	// +2000 power until the end of the turn. Then, the former deals damage equal to its power to
+	// the latter."
+	// =========================================================================================
+
+	private static final String TITAN_26_072R = OPUS_26_DULL_COST.formatted("Earth", "Titan")
+			+ "Choose 1 Forward you control and 1 Forward opponent controls. "
+			+ "The former gains +2000 power until the end of the turn. "
+			+ "Then, the former deals damage equal to its power to the latter.";
+
+	@Test
+	void titanBoostsYourForwardBeforeItDealsItsPower() {
+		MainWindow mw = new MainWindow();
+		CardData mine   = makeForward("Mine", "Earth", 4, 7000);
+		CardData theirs = makeForward("Theirs", "Water", 6, 10000);
+		placeP2Forward(mw, mine);
+		placeP1Forward(mw, theirs);
+		castAsP2(mw, makeSummon("Titan", "Earth", 4, TITAN_26_072R));
+
+		assertEquals(9000, mw.effectiveP2ForwardPower(0), "+2000 until the end of the turn");
+		assertEquals(9000, damageOn(mw, theirs), "the boosted power, not the printed 7000");
+		assertEquals(0, (int) mw.p2ForwardDamage.get(0), "the latter deals nothing back");
+	}
+
+	@Test
+	void titanBreaksTheirForwardWhenTheBoostIsEnough() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Mine", "Earth", 4, 7000));
+		CardData theirs = makeForward("Theirs", "Water", 5, 8000);
+		placeP1Forward(mw, theirs);
+		castAsP2(mw, makeSummon("Titan", "Earth", 4, TITAN_26_072R));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs), "9000 dealt to an 8000-power Forward");
+	}
+
+	// =========================================================================================
 	// 26-087R Odin: "Choose 1 Forward with 《LB》 of cost 6 or less. Break it."
 	//
 	// The only printing that filters by 《LB》. Without an arm for it the choose phrase left
@@ -9833,7 +10138,72 @@ class SummonBehaviorTest {
 				"Choose 1 Forward with 《Something Else》 of cost 6 or less. Break it.", odin));
 	}
 
+	private static final String ODIN_26_087R = OPUS_26_DULL_COST.formatted("Lightning", "Odin")
+			+ "Select 1 of the 2 following actions.[[br]]"
+			+ "\"Choose 1 Forward of cost 4 or less. Break it.\"[[br]]"
+			+ "\"" + ODIN_LB_ACTION + "\"";
+
+	@Test
+	void odinsFirstActionBreaksAForwardOfCostFourOrLess() {
+		MainWindow mw = new MainWindow();
+		CardData cheap  = makeForward("Cheap", "Water", 4, 9000);
+		CardData costly = makeLbForward("Costly", "Water", 5, 9000);
+		placeP1Forward(mw, costly);
+		placeP1Forward(mw, cheap);
+		castAsP2Selecting(mw, makeSummon("Odin", "Lightning", 3, ODIN_26_087R), 0);
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(cheap));
+		assertEquals(List.of(costly), mw.p1ForwardCards, "cost 4 or less, 《LB》 or not");
+	}
+
+	@Test
+	void odinsSecondActionBreaksALimitBreakForwardOfCostSix() {
+		MainWindow mw = new MainWindow();
+		CardData lb    = makeLbForward("Limit Broken", "Water", 6, 9000);
+		CardData plain = makeForward("Ordinary", "Water", 3, 9000);
+		placeP1Forward(mw, plain);
+		placeP1Forward(mw, lb);
+		castAsP2Selecting(mw, makeSummon("Odin", "Lightning", 3, ODIN_26_087R), 1);
+
+		// A broken LB card goes back to the LB deck, so the Break Zone stays empty.
+		assertEquals(List.of(plain), mw.p1ForwardCards, "a cheap Forward without 《LB》 does not qualify");
+		assertTrue(mw.gameState.getP1BreakZone().isEmpty());
+	}
+
 	// =========================================================================================
+	// 26-119R Leviathan: "Choose 1 Forward or Monster opponent controls. Return it to its owner's
+	// hand."
+	// =========================================================================================
+
+	private static final String LEVIATHAN_26_119R = OPUS_26_DULL_COST.formatted("Water", "Leviathan")
+			+ "Choose 1 Forward or Monster opponent controls. Return it to its owner's hand.";
+
+	@Test
+	void leviathanReturnsTheirForwardToItsOwnersHand() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Fire", 5, 9000);
+		CardData mine   = makeForward("Mine", "Water", 3, 7000);
+		placeP1Forward(mw, theirs);
+		placeP2Forward(mw, mine);
+		castAsP2(mw, makeSummon("Leviathan", "Water", 3, LEVIATHAN_26_119R));
+
+		assertEquals(List.of(theirs), mw.gameState.getP1Hand());
+		assertTrue(mw.p1ForwardCards.isEmpty());
+		assertEquals(List.of(mine), mw.p2ForwardCards, "opponent controls");
+	}
+
+	@Test
+	void leviathanReturnsAMonsterJustAsWell() {
+		MainWindow mw = new MainWindow();
+		CardData monster = makeMonster("Their Monster", "Fire", 2);
+		placeP1Monster(mw, monster);
+		placeP1Backup(mw, makeBackup("Their Backup", "Fire", 2));
+		castAsP2(mw, makeSummon("Leviathan", "Water", 3, LEVIATHAN_26_119R));
+
+		assertEquals(List.of(monster), mw.gameState.getP1Hand());
+		assertTrue(mw.p1MonsterCards.isEmpty());
+		assertNotNull(mw.p1BackupCards[0], "a Backup is neither");
+	}
 
 	// =========================================================================================
 	// 28-064H Cactuar, second option: "Choose 1 Forward. It gains 'This Forward cannot attack or
@@ -9909,7 +10279,7 @@ class SummonBehaviorTest {
 	/** P2's deck, top card first — P2 so the reveal resolves through the AI seat, dialog-free. */
 	private static MainWindow syldraDeck(CardData... topFirst) {
 		MainWindow mw = new MainWindow();
-		for (CardData c : topFirst) mw.gameState.getP2MainDeck().add(c);
+		Collections.addAll(mw.gameState.getP2MainDeck(), topFirst);
 		return mw;
 	}
 

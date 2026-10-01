@@ -1174,8 +1174,23 @@ final class ActionResolverChoose {
                 if (excludeByIdentity) ctx.clearSelectionExclusions();
             }
 
+            // The latter is held by identity: breaking or removing the former shifts the slots
+            // behind it on the same side, leaving the latter's index pointing at the wrong card
+            // (25-030H Mateus, the Corrupt: "Break the former, dull and Freeze the latter.").
+            List<CardData> latterCards = new ArrayList<>();
+            for (ForwardTarget t : ts2)
+                latterCards.add(t.zone() == ForwardTarget.CardZone.BREAK_ZONE ? null : ctx.targetCard(t));
+
             fFormerAction.accept(ctx, ts1);
-            fLatterAction.accept(ctx, ts2);
+
+            List<ForwardTarget> latterNow = new ArrayList<>();
+            for (int i = 0; i < ts2.size(); i++) {
+                CardData card = latterCards.get(i);
+                if (card == null) { latterNow.add(ts2.get(i)); continue; }
+                ForwardTarget at = ctx.fieldSlotOf(card);
+                if (at != null) latterNow.add(at);
+            }
+            fLatterAction.accept(ctx, latterNow);
         };
     }
 
