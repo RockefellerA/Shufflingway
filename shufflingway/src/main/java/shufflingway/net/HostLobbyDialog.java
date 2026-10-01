@@ -21,8 +21,8 @@ import java.util.Random;
 
 /**
  * Modal dialog that opens a {@link ServerSocket} on the default port and waits
- * for an opponent to connect. Share your IP address and port with the opponent
- * out-of-band (chat, voice, etc.).
+ * for an opponent to connect. The host is announced on the local network
+ * (see {@link LanDiscovery}); across the internet, share your IP address and port out-of-band.
  *
  * <p>"Start Game" unlocks once an opponent has connected and confirmed a deck, <em>and</em> the
  * host has picked one. Pressing it runs {@link LobbyExchange} — decks are swapped, the host picks
@@ -40,6 +40,9 @@ public class HostLobbyDialog extends JDialog {
     private GameConnection connection;
     private ServerSocket serverSocket;
     private MatchSetup    setup;
+
+    /** Announces this host to the local network while it waits for an opponent. */
+    private volatile LanDiscovery.Broadcaster broadcaster;
 
     private final JLabel statusLabel;
     private final JButton cancelBtn;
@@ -80,7 +83,7 @@ public class HostLobbyDialog extends JDialog {
 
         // Show all local IPv4 addresses so the host can tell the opponent which to use
         JPanel ipPanel = new JPanel(new GridLayout(0, 1, 0, 4));
-        ipPanel.setBorder(BorderFactory.createTitledBorder("Share one of these with your opponent"));
+        ipPanel.setBorder(BorderFactory.createTitledBorder("Your IP Address:"));
         for (String ip : getLocalAddresses()) {
             JLabel lbl = new JLabel(ip + "  :  " + DEFAULT_PORT, SwingConstants.CENTER);
             lbl.setFont(new Font("Monospaced", Font.BOLD, 13));
@@ -269,6 +272,7 @@ public class HostLobbyDialog extends JDialog {
         new Thread(() -> {
             try {
                 serverSocket = new ServerSocket(DEFAULT_PORT);
+                broadcaster = LanDiscovery.startBroadcast(DEFAULT_PORT, AppSettings.getUsername());
                 while (true) {
                     Socket client = serverSocket.accept();
                     GameConnection conn = new GameConnection(client);
@@ -285,6 +289,7 @@ public class HostLobbyDialog extends JDialog {
                     SwingUtilities.invokeLater(() -> {
                         // Assigned and first sent on the EDT, where the checkbox is read, so a
                         // toggle cannot fall between the two and leave the joiner a stale value.
+                        stopBroadcast();
                         connection = conn;
                         opponentReady = false;
                         sendLobbySettings();
@@ -300,6 +305,7 @@ public class HostLobbyDialog extends JDialog {
                     SwingUtilities.invokeLater(() -> statusLabel.setText("Error: " + e.getMessage()));
                 }
             } finally {
+                stopBroadcast();
                 try { if (serverSocket != null) serverSocket.close(); }
                 catch (IOException ignored) {}
             }
@@ -344,8 +350,14 @@ public class HostLobbyDialog extends JDialog {
         }
     }
 
+    private void stopBroadcast() {
+        LanDiscovery.Broadcaster b = broadcaster;
+        if (b != null) b.stop();
+    }
+
     private void cancel() {
         cancelled = true;
+        stopBroadcast();
         try { if (serverSocket != null) serverSocket.close(); }
         catch (IOException ignored) {}
         if (connection != null) { connection.close(); connection = null; }

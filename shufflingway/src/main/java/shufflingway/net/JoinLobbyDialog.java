@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.net.Socket;
 import java.sql.SQLException;
+import java.util.List;
 
 /**
  * Modal dialog that connects to a host's IP:port.
@@ -31,6 +32,9 @@ public class JoinLobbyDialog extends JDialog {
     private volatile GameConnection connection;
     private volatile MatchSetup     setup;
 
+    private final DefaultListModel<LanDiscovery.Host> hostModel = new DefaultListModel<>();
+    private final JList<LanDiscovery.Host> hostList = new JList<>(hostModel);
+    private LanDiscovery.Listener discovery;
     private final JTextField hostField;
     private final JTextField portField;
     private final JLabel statusLabel;
@@ -60,13 +64,27 @@ public class JoinLobbyDialog extends JDialog {
         JPanel content = new JPanel(new BorderLayout(10, 10));
         content.setBorder(BorderFactory.createEmptyBorder(16, 20, 12, 20));
 
+        hostList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        hostList.setVisibleRowCount(4);
+        hostList.setCellRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> l, Object v, int i,
+                                                                    boolean sel, boolean focus) {
+                JLabel c = (JLabel) super.getListCellRendererComponent(l, v, i, sel, focus);
+                if (v instanceof LanDiscovery.Host h) c.setToolTipText(h.address() + ":" + h.port());
+                return c;
+            }
+        });
+        JScrollPane hostScroll = new JScrollPane(hostList);
+        hostScroll.setBorder(BorderFactory.createTitledBorder("Hosts on your network"));
+        hostScroll.setPreferredSize(new Dimension(280, 110));
+
         JPanel fields = new JPanel(new GridBagLayout());
         GridBagConstraints gc = new GridBagConstraints();
         gc.insets = new Insets(4, 4, 4, 4);
         gc.anchor = GridBagConstraints.WEST;
 
         gc.gridx = 0; gc.gridy = 0; gc.fill = GridBagConstraints.NONE; gc.weightx = 0;
-        fields.add(new JLabel("Host IP:"), gc);
+        fields.add(new JLabel("Host IP (manual):"), gc);
         gc.gridx = 1; gc.fill = GridBagConstraints.HORIZONTAL; gc.weightx = 1;
         hostField = new JTextField(16);
         fields.add(hostField, gc);
@@ -77,7 +95,17 @@ public class JoinLobbyDialog extends JDialog {
         portField = new JTextField(String.valueOf(HostLobbyDialog.DEFAULT_PORT), 6);
         fields.add(portField, gc);
 
-        content.add(fields, BorderLayout.NORTH);
+        JPanel top = new JPanel(new BorderLayout(0, 6));
+        top.add(hostScroll, BorderLayout.CENTER);
+        top.add(fields, BorderLayout.SOUTH);
+        content.add(top, BorderLayout.NORTH);
+
+        hostList.addListSelectionListener(e -> {
+            LanDiscovery.Host h = hostList.getSelectedValue();
+            if (e.getValueIsAdjusting() || h == null || connection != null) return;
+            hostField.setText(h.address());
+            portField.setText(String.valueOf(h.port()));
+        });
 
         statusLabel = new JLabel(" ", SwingConstants.CENTER);
         statusLabel.setFont(new Font("Dialog", Font.PLAIN, 12));
@@ -107,7 +135,7 @@ public class JoinLobbyDialog extends JDialog {
         centre.add(south, BorderLayout.SOUTH);
         content.add(centre, BorderLayout.CENTER);
 
-        connectBtn = new JButton("Connect");
+        connectBtn = new JButton("Join");
         connectBtn.setEnabled(false);
         connectBtn.addActionListener(e -> {
             if (connection == null) attemptConnect();
@@ -119,6 +147,7 @@ public class JoinLobbyDialog extends JDialog {
         // Leaving without a match hangs up, so the host sees the opponent go.
         addWindowListener(new WindowAdapter() {
             @Override public void windowClosed(WindowEvent e) {
+                discovery.stop();
                 GameConnection conn = connection;
                 if (setup == null && conn != null) conn.close();
             }
@@ -131,10 +160,21 @@ public class JoinLobbyDialog extends JDialog {
 
         setContentPane(content);
         pack();
-        setMinimumSize(new Dimension(320, 360));
+        setMinimumSize(new Dimension(320, 460));
         setLocationRelativeTo(owner);
 
+        discovery = LanDiscovery.startListening(hosts -> SwingUtilities.invokeLater(() -> showHosts(hosts)));
+
         getRootPane().setDefaultButton(connectBtn);
+    }
+
+    /** Refreshes the list, keeping the selected host selected if it is still announcing. */
+    private void showHosts(List<LanDiscovery.Host> hosts) {
+        if (connection != null) return;
+        LanDiscovery.Host selected = hostList.getSelectedValue();
+        hostModel.clear();
+        hosts.forEach(hostModel::addElement);
+        if (selected != null && hosts.contains(selected)) hostList.setSelectedValue(selected, true);
     }
 
     private void showDebugMode(boolean enabled) {
@@ -152,7 +192,7 @@ public class JoinLobbyDialog extends JDialog {
     private void refreshConnectButton() {
         boolean picked = deckChooser.getSelectedDeckId() >= 0;
         if (connection == null) {
-            connectBtn.setText("Connect");
+            connectBtn.setText("Join");
             connectBtn.setEnabled(picked);
         } else {
             connectBtn.setText("Confirm Deck");
