@@ -10,7 +10,8 @@ import javax.swing.*;
 import java.util.function.Consumer;
 
 /**
- * Multiplayer menu — lets P1 host or join a game over a direct TCP connection.
+ * Multiplayer menu — Local ▸ Host / Join start a game over a direct TCP connection; hosts on
+ * the same network are discovered automatically (see {@link shufflingway.net.LanDiscovery}).
  * Once the lobby has agreed on decks, shuffle seed and first player, the active
  * {@link GameConnection} is stored and the resulting {@link MatchSetup} is handed to the
  * main window, which starts the game from it.
@@ -57,8 +58,10 @@ public class MultiplayerMenu extends JMenu {
 
         disconnectItem.addActionListener(e -> disconnect(owner, onDisconnected));
 
-        add(hostItem);
-        add(joinItem);
+        JMenu localMenu = new JMenu("Local");
+        localMenu.add(hostItem);
+        localMenu.add(joinItem);
+        add(localMenu);
         addSeparator();
         add(disconnectItem);
     }
