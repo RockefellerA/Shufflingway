@@ -83,7 +83,7 @@ public class HostLobbyDialog extends JDialog {
 
         // Show all local IPv4 addresses so the host can tell the opponent which to use
         JPanel ipPanel = new JPanel(new GridLayout(0, 1, 0, 4));
-        ipPanel.setBorder(BorderFactory.createTitledBorder("Share one of these with your opponent"));
+        ipPanel.setBorder(BorderFactory.createTitledBorder("Your IP Address:"));
         for (String ip : getLocalAddresses()) {
             JLabel lbl = new JLabel(ip + "  :  " + DEFAULT_PORT, SwingConstants.CENTER);
             lbl.setFont(new Font("Monospaced", Font.BOLD, 13));
