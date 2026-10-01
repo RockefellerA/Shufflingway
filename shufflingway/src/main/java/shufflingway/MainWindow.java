@@ -1988,8 +1988,8 @@ public class MainWindow {
 		{
 			GridBagConstraints bbc = new GridBagConstraints();
 			bbc.fill = GridBagConstraints.BOTH; bbc.weighty = 1.0; bbc.gridy = 0;
-			bbc.gridx = 0; bbc.weightx = 2.0 / 3.0; p2BottomBar.add(p2LimitButton, bbc);
-			bbc.gridx = 1; bbc.weightx = 1.0 / 3.0; p2BottomBar.add(p2RemoveButton, bbc);
+			bbc.gridx = 0; bbc.weightx = 1.0 / 3.0; p2BottomBar.add(p2RemoveButton, bbc);
+			bbc.gridx = 1; bbc.weightx = 2.0 / 3.0; p2BottomBar.add(p2LimitButton, bbc);
 		}
 
 		p2DeckLabel.setPreferredSize(cardSize);
