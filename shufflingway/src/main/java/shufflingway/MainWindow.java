@@ -114,6 +114,7 @@ import shufflingway.dialog.ExtraCostBzSelectDialog;
 import shufflingway.dialog.HandPickDialog;
 import shufflingway.dialog.LbDialog;
 import shufflingway.dialog.LbPaymentDialog;
+import shufflingway.dialog.OverflowDamageDialog;
 import shufflingway.dialog.RemovedFromPlayDialog;
 import shufflingway.dialog.StandardPaymentDialog;
 import shufflingway.dialog.WarpPaymentDialog;
@@ -633,6 +634,13 @@ public class MainWindow {
 	private JPanel[]   p1DamageSlots = new JPanel[7];
 	ShieldIcon         p1ShieldIcon;
 	ShieldIcon         p2ShieldIcon;
+	/**
+	 * The "+" over the right of each side's last damage slot, shown once that player has taken an
+	 * eighth point — possible only while they can't lose the game (PR-143 Garnet). Opens
+	 * {@link OverflowDamageDialog}.
+	 */
+	JButton            p1OverflowDamageButton;
+	JButton            p2OverflowDamageButton;
 	/**
 	 * Spinning glow over the damage slot whose EX Burst is resolving.  P1 only: an EX Burst never
 	 * reaches the stack, so the opponent has no window to respond in and nothing to read off it.
@@ -2553,9 +2561,6 @@ public class MainWindow {
 		// the real ones are known.
 		setSidePanelWidth(clampSidePanelW(
 				AppSettings.getSidePanelWidth(sessionResolution, defaultSidePanelW())));
-		// Open at the width the player left it at, rather than waiting for the first card preview
-		// to apply it. Clamped against the estimated bounds above; sizePreviewPanel re-clamps once
-		// the real ones are known.
 
 		// When the chosen resolution is taller than the scaled 16:9 board, split the leftover
 		// height into equal letterbox bars in the free NORTH and SOUTH regions, centring the play
@@ -3955,10 +3960,7 @@ public class MainWindow {
 				refreshP1DeckLabel();
 				logEntry("Draw Phase — Drew " + drawn.size()
 						+ " card" + (drawn.size() != 1 ? "s" : ""));
-				if (drawn.size() < drawCount) {
-					triggerGameOver("Milled Out - You Lose!");
-					return;
-				}
+				if (drawn.size() < drawCount && playerLoses(true, "Milled Out - You Lose!")) return;
 				// No choices to make during Draw phase — advance automatically
 				onNextPhase();
 			}
@@ -4164,7 +4166,7 @@ public class MainWindow {
 					advanceLocalPhaseExtraTurn(); // END → ACTIVE, same player
 					refreshPhaseTracker();
 					nextPhaseButton.setEnabled(true);
-					endOfTurnEffects.add(ctx -> triggerGameOver("Extra Turn ended — You Lose!"));
+					endOfTurnEffects.add(ctx -> playerLoses(true, "Extra Turn ended — You Lose!"));
 					onNextPhase(); // begin ACTIVE → DRAW automatically
 				} else {
 					// END → ACTIVE: increments turn number and switches to P2
@@ -4361,6 +4363,8 @@ public class MainWindow {
 
 		// Reset P2 damage zone display
 		p2DamageCount = 0;
+		p1CannotLose = false;
+		p2CannotLose = false;
 		for (JPanel slot : p2DamageSlots) {
 			if (slot != null) {
 				slot.putClientProperty("cardImg", null);
@@ -4699,6 +4703,86 @@ public class MainWindow {
 		if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
 	}
 
+	static final String P1_DAMAGE_LOSS = "7 Damage Taken - You Lose!";
+	static final String P2_DAMAGE_LOSS = "Player 2 Defeated - You Win!";
+
+	/**
+	 * {@code loserIsP1} loses the game, unless something says they can't (PR-143 Garnet), in which
+	 * case the loss does not happen and the caller carries on. Every way a player loses goes
+	 * through here — 7 damage, an empty deck, a card that says so — and a win is the other
+	 * player's loss. Returns whether the game is now over.
+	 */
+	boolean playerLoses(boolean loserIsP1, String reason) {
+		if (gameState.isP1GameOver()) return true;
+		CardData protector = cannotLoseSource(loserIsP1);
+		if (protector != null) {
+			logEntry((loserIsP1 ? "" : "[P2] ") + protector.name() + " — can't lose the game");
+			// Recorded here as well as by refreshCannotLoseTheGame: protection that has actually
+			// held off a loss must be seen to end, however it began.
+			if (loserIsP1) p1CannotLose = true; else p2CannotLose = true;
+			return false;
+		}
+		triggerGameOver(reason);
+		return true;
+	}
+
+	/** Whether {@code isP1} can't lose the game right now. */
+	boolean cannotLoseTheGame(boolean isP1) {
+		return cannotLoseSource(isP1) != null;
+	}
+
+	/**
+	 * The card on {@code isP1}'s field whose "you can't lose the game" is in force, or {@code null}.
+	 * Read live every time it is asked: the protection is a field ability with a condition, so it
+	 * ends the moment the card leaves, loses its abilities, or the condition stops holding.
+	 */
+	CardData cannotLoseSource(boolean isP1) {
+		List<CardData> onField = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
+		for (CardData c : isP1 ? p1BackupCards : p2BackupCards) if (c != null) onField.add(c);
+		onField.addAll(isP1 ? p1MonsterCards : p2MonsterCards);
+		for (CardData c : onField) {
+			if (lostAbilitiesCards.contains(c)) continue;
+			for (FieldAbility fa : effectiveFieldAbilities(c)) {
+				Matcher m = AutoAbilityTriggers.FA_CANNOT_LOSE_THE_GAME.matcher(fa.effectText().trim());
+				if (!m.matches()) continue;
+				String cond = m.group("cond");
+				if (cond == null) return c;
+				ControlCondition cc = CardData.parseControlCondition(cond);
+				if (cc != null && controlConditionMet(cc, isP1)) return c;
+			}
+		}
+		return null;
+	}
+
+	/** Whether each player could not lose the game when {@link #refreshCannotLoseTheGame} last looked. */
+	private boolean p1CannotLose, p2CannotLose;
+
+	/**
+	 * Re-reads whether each player can't lose the game (PR-143 Garnet) and, for a player whose
+	 * protection has just ended, applies the loss it was holding off: 7 or more damage loses at
+	 * once. An empty deck does not — that loses at the next draw that needs a card.
+	 *
+	 * <p>Acts on the flip, not on the cause, so it does not matter what ended the protection —
+	 * Garnet leaving, one of her eight Forwards leaving, an effect taking her abilities. It runs
+	 * wherever the answer can change: a Forward leaving the field, a card entering it, a Stack
+	 * entry finishing, and each turn boundary.
+	 */
+	void refreshCannotLoseTheGame() {
+		if (gameState.isP1GameOver()) return;
+		boolean wasP1 = p1CannotLose, wasP2 = p2CannotLose;
+		p1CannotLose = cannotLoseTheGame(true);
+		p2CannotLose = cannotLoseTheGame(false);
+		if (wasP1 && !p1CannotLose) protectionEnded(true);
+		if (wasP2 && !p2CannotLose) protectionEnded(false);
+	}
+
+	private void protectionEnded(boolean isP1) {
+		if (gameState.isP1GameOver()) return;
+		logEntry((isP1 ? "P1" : "[P2]") + " can lose the game again");
+		if ((isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone()).size() >= 7)
+			playerLoses(isP1, isP1 ? P1_DAMAGE_LOSS : P2_DAMAGE_LOSS);
+	}
+
 	/**
 	 * Scans the player's backup and forward zones for a card whose field ability reads
 	 * "If you receive damage while [cardName] is active, dull [cardName]. The damage becomes 0 instead."
@@ -4916,23 +5000,34 @@ public class MainWindow {
 			if (onDone != null) onDone.run();
 			return;
 		}
-		p1Turn.receivedDamageThisTurn = true;
 		CardData drawn = gameState.drawToDamageZone();
 		if (drawn == null) {
-			triggerGameOver("P1 milled out — You Lose!");
+			// No card to flip loses the game. A player who can't lose takes no damage for the point.
+			if (!playerLoses(true, "P1 milled out — You Lose!")) {
+				logEntry("P1's deck is empty — no damage for this point");
+				if (onDone != null) onDone.run();
+			}
 			return;
 		}
+		p1Turn.receivedDamageThisTurn = true;
 		int idx = gameState.getP1DamageZone().size() - 1;
 		boolean isEx = drawn.exBurst();
 
 		refreshP1DeckLabel();
-		logEntry("P1 takes 1 damage — " + drawn.name() + (isEx ? " [EX BURST!]" : ""));
-		autoAbilityTriggers.triggerAutoAbilitiesForDamageZone(true);
-		autoAbilityTriggers.triggerAutoAbilitiesForEitherPlayerReceivesDamage();
-		autoAbilityTriggers.triggerAutoAbilitiesForYouReceiveDamage(true);
-		if (gameState.getP1DamageZone().size() == 5) autoAbilityTriggers.triggerAutoAbilitiesForFifthDamage(true);
-		fireFieldSelfDamagePointsAbilities(true);
-		animateCardToDamage(true, idx);
+		logEntry("P1 takes 1 damage (" + (idx + 1) + ") — " + drawn.name() + (isEx ? " [EX BURST!]" : ""));
+		// Decided as the card lands rather than when it is revealed: the points of one effect are
+		// dealt back to back, so a reveal-time check let all 7 of PR-196 Balthier & Fran's points
+		// flip on a player who had already lost at the fourth.
+		boolean lost = idx + 1 >= 7 && playerLoses(true, P1_DAMAGE_LOSS);
+		if (!lost) {
+			autoAbilityTriggers.triggerAutoAbilitiesForDamageZone(true);
+			autoAbilityTriggers.triggerAutoAbilitiesForEitherPlayerReceivesDamage();
+			autoAbilityTriggers.triggerAutoAbilitiesForYouReceiveDamage(true);
+			if (gameState.getP1DamageZone().size() == 5) autoAbilityTriggers.triggerAutoAbilitiesForFifthDamage(true);
+			fireFieldSelfDamagePointsAbilities(true);
+		}
+		// Past the seventh slot the card goes under the "P1" slot's overflow button.
+		animateCardToDamage(true, Math.min(idx, p1DamageSlots.length - 1));
 
 		int animDelay = CardSlideAnimator.TOTAL_FRAMES * CardSlideAnimator.FRAME_MS;
 		// An EX Burst on the drawn card does not reach the stack until this reveal fires, so without
@@ -4962,10 +5057,9 @@ public class MainWindow {
 						}
 					}.execute();
 				}
-				if (gameState.getP1DamageZone().size() >= 7) {
-					triggerGameOver("7 Damage Taken - You Lose!");
-					return;
-				}
+				refreshOverflowDamageButton(true);
+				// The loss itself was settled when the card landed; a game already over owes nothing.
+				if (gameState.isP1GameOver()) return;
 				if (isEx && !abilitySuppress && !exBurstSuppressedBy(dmgSource, drawn))
 					autoAbilityTriggers.triggerExBurst(drawn, true);
 				if (onDone != null) onDone.run();
@@ -4982,6 +5076,7 @@ public class MainWindow {
 	void p2TakeDamage(Runnable onDone) {
 		final CardData dmgSource       = consumePlayerDamageSource();
 		final boolean  abilitySuppress = suppressExBurstsThisAbility;
+		if (gameState.isP1GameOver()) { if (onDone != null) onDone.run(); return; }
 		if (p2Turn.nextDamageZero) {
 			p2Turn.nextDamageZero = false;
 			logEntry("[P2] damage negated (shield active).");
@@ -5009,25 +5104,34 @@ public class MainWindow {
 			if (onDone != null) onDone.run();
 			return;
 		}
-		p2Turn.receivedDamageThisTurn = true;
 		CardData drawn = gameState.drawToP2DamageZone();
 		if (drawn == null) {
-			// Deck is empty — P2 cannot flip a card into their Damage Zone, so they lose immediately
-			triggerGameOver("Player 2 milled out - You Win!");
+			// See p1TakeDamage: an empty deck loses, unless P2 can't lose — then the point is not dealt.
+			if (!playerLoses(false, "Player 2 milled out - You Win!")) {
+				logEntry("[P2] deck is empty — no damage for this point");
+				if (onDone != null) onDone.run();
+			}
 			return;
 		}
+		p2Turn.receivedDamageThisTurn = true;
 		p2DamageCount++;
-		boolean isEx = drawn != null && drawn.exBurst();
-		String cardInfo = drawn != null ? " — " + drawn.name() + (isEx ? " [EX BURST!]" : "") : "";
-		logEntry("P2 takes 1 damage (" + p2DamageCount + "/7)" + cardInfo);
-		autoAbilityTriggers.triggerAutoAbilitiesForDamageZone(false);
-		autoAbilityTriggers.triggerAutoAbilitiesForEitherPlayerReceivesDamage();
-		autoAbilityTriggers.triggerAutoAbilitiesForYouReceiveDamage(false);
-		if (gameState.getP2DamageZone().size() == 5) autoAbilityTriggers.triggerAutoAbilitiesForFifthDamage(false);
-		fireFieldSelfDamagePointsAbilities(false);
+		// The zone, not the counter, is what is lost on: cards can leave a Damage Zone, and the
+		// counter only ever counts up.
+		int points = gameState.getP2DamageZone().size();
+		boolean isEx = drawn.exBurst();
+		logEntry("P2 takes 1 damage (" + points + "/7) — " + drawn.name() + (isEx ? " [EX BURST!]" : ""));
+		// Decided as the card lands — see p1TakeDamage.
+		boolean lost = points >= 7 && playerLoses(false, P2_DAMAGE_LOSS);
+		if (!lost) {
+			autoAbilityTriggers.triggerAutoAbilitiesForDamageZone(false);
+			autoAbilityTriggers.triggerAutoAbilitiesForEitherPlayerReceivesDamage();
+			autoAbilityTriggers.triggerAutoAbilitiesForYouReceiveDamage(false);
+			if (points == 5) autoAbilityTriggers.triggerAutoAbilitiesForFifthDamage(false);
+			fireFieldSelfDamagePointsAbilities(false);
+		}
 
-		int slotIdx = p2DamageCount - 1;
-		if (drawn != null) animateCardToDamage(false, slotIdx);
+		int slotIdx = points - 1;
+		animateCardToDamage(false, Math.min(slotIdx, p2DamageSlots.length - 1));
 
 		refreshP2DeckLabel();
 
@@ -5055,11 +5159,9 @@ public class MainWindow {
 						}.execute();
 					}
 				}
-				if (p2DamageCount >= 7) {
-					triggerGameOver("Player 2 Defeated - You Win!");
-					return;
-				}
-				if (isEx && drawn != null && !abilitySuppress && !exBurstSuppressedBy(dmgSource, drawn))
+				refreshOverflowDamageButton(false);
+				if (gameState.isP1GameOver()) return;
+				if (isEx && !abilitySuppress && !exBurstSuppressedBy(dmgSource, drawn))
 					autoAbilityTriggers.triggerExBurst(drawn, false);
 				if (onDone != null) onDone.run();
 			} finally {
@@ -5105,6 +5207,9 @@ public class MainWindow {
 		p1ForwardLabels.remove(idx);
 		// Every combat restriction, attacker- and defender-side, is keyed by card instance and so
 		// needs no renumbering here; clearCombatRestrictionsFor drops them when the card departs.
+		// A Forward leaving can end a can't-lose condition (PR-143 Garnet, or one of the Forwards
+		// she counts), and a player on 7 damage loses the moment it does.
+		refreshCannotLoseTheGame();
 	}
 
 	/** P2's counterpart to {@link #removeP1ForwardSlotState(int)}; the same contract applies. */
@@ -5122,7 +5227,9 @@ public class MainWindow {
 		p2ForwardPrimedTop.remove(idx);
 		p2ForwardFrozen.remove(idx);
 		p2ForwardLabels.remove(idx);
-		// See removeP1ForwardSlotState: the combat-restriction sets are keyed by instance.
+		// See removeP1ForwardSlotState: the combat-restriction sets are keyed by instance, and a
+		// departure can end a can't-lose condition.
+		refreshCannotLoseTheGame();
 	}
 
 	void breakP1Forward(int idx) { p1ForwardToBreakZone(idx, true); }
@@ -8330,6 +8437,7 @@ public class MainWindow {
 				slot.repaint();
 			}
 		}
+		refreshOverflowDamageButton(isP1);
 	}
 
 	// -------------------------------------------------------------------------
@@ -9569,13 +9677,13 @@ public class MainWindow {
 			animateCardDraw(true, drew);
 			refreshP1HandLabel();
 			refreshP1DeckLabel();
-			if (drew < count) triggerGameOver("Milled Out - You Lose!");
+			if (drew < count) playerLoses(true, "Milled Out - You Lose!");
 		} else {
 			int drew = drawP2Cards(count).size();
 			animateCardDraw(false, drew);
 			refreshP2DeckLabel();
 			refreshP2HandCountLabel();
-			if (drew < count) triggerGameOver("P2 milled out — You Win!");
+			if (drew < count) playerLoses(false, "P2 milled out — You Win!");
 		}
 	}
 
@@ -13690,6 +13798,9 @@ public class MainWindow {
 			triggeringBrokenCard = previousTriggeringBrokenCard;
 			triggeringEnteredCard = previousTriggeringEnteredCard;
 		}
+		// Whatever the entry did may have ended a can't-lose condition — taken abilities away,
+		// changed control — so the flag is re-read once the resolution is complete.
+		refreshCannotLoseTheGame();
 
 		if (!gameState.getStack().isEmpty()) showStackWindow();
 		else { lastDiscardedForwardPower = 0; lastDiscardedCardName = null; lastDiscardedCard = null; lastDiscardedCostCard = null; discardedByEffect.clear(); }
@@ -21751,6 +21862,8 @@ public class MainWindow {
 
 		ShieldIcon shieldIcon = isP1 ? p1ShieldIcon : p2ShieldIcon;
 		JPanel[] damageSlots = isP1 ? p1DamageSlots : p2DamageSlots;
+		JButton overflowButton = makeOverflowDamageButton(isP1);
+		if (isP1) p1OverflowDamageButton = overflowButton; else p2OverflowDamageButton = overflowButton;
 		JLayeredPane layered = new JLayeredPane() {
 			@Override public void doLayout() {
 				int w = getWidth(), h = getHeight();
@@ -21764,6 +21877,22 @@ public class MainWindow {
 				} else {
 					shieldIcon.setBounds(0, 0, 0, 0);
 				}
+				// A square in the last ("P1"/"P2") slot, once there is an 8th point: centred in the gap
+				// between the slot's centred label and the panel's outer edge — the right for P1, the
+				// left for P2, whose card art fills the right half of the slot.
+				JPanel last = damageSlots[damageSlots.length - 1];
+				boolean overflow = dmg >= OverflowDamageDialog.FIRST_OVERFLOW_POINT
+						&& last != null && last.getHeight() > 0;
+				if (overflow) {
+					int labelW = last.getFontMetrics(FontLoader.loadPixelFont(14)).stringWidth(playerLabel);
+					int gap = Math.max(0, (w - labelW) / 2);
+					int s = Math.min(Math.min(last.getHeight(), w / 2) / 2, gap);
+					int cx = isP1 ? w - gap / 2 : gap / 2;
+					overflowButton.setBounds(cx - s / 2, last.getY() + (last.getHeight() - s) / 2, s, s);
+				} else {
+					overflowButton.setBounds(0, 0, 0, 0);
+				}
+				overflowButton.setVisible(overflow);
 				if (isP1) {
 					int gi = p1ExBurstGlow.slotIndex();
 					if (gi >= 0 && gi < 7 && damageSlots[gi] != null && damageSlots[gi].getHeight() > 0) {
@@ -21778,11 +21907,69 @@ public class MainWindow {
 		layered.add(slotsPanel, JLayeredPane.DEFAULT_LAYER);
 		layered.add(shieldIcon, JLayeredPane.PALETTE_LAYER);
 		if (isP1) layered.add(p1ExBurstGlow, JLayeredPane.PALETTE_LAYER);
+		layered.add(overflowButton, JLayeredPane.MODAL_LAYER);
 
 		JPanel panel = new JPanel(new BorderLayout(0, 4));
 		panel.setPreferredSize(new Dimension(CARD_W, CARD_H * 2));
 		panel.add(layered, BorderLayout.CENTER);
 		return panel;
+	}
+
+	/** The "+" that opens {@link OverflowDamageDialog}; hidden until {@code doLayout} places it. */
+	private JButton makeOverflowDamageButton(boolean isP1) {
+		JButton b = new JButton() {
+			@Override protected void paintComponent(Graphics g) {
+				Graphics2D g2 = (Graphics2D) g.create();
+				g2.setColor(getModel().isRollover() ? new Color(150, 20, 20) : new Color(110, 0, 0));
+				g2.fillRect(0, 0, getWidth(), getHeight());
+				g2.setColor(Color.YELLOW);
+				g2.drawRect(0, 0, getWidth() - 1, getHeight() - 1);
+				// Drawn as two bars rather than a glyph, which the pixel font sets low and left. The
+				// parities are matched to the button's so both bars sit exactly on its centre.
+				int s = Math.min(getWidth(), getHeight());
+				int t = Math.max(2, s / 6);
+				int len = s - 2 * Math.max(3, s / 5);
+				if ((s - t) % 2 != 0) t++;
+				if ((s - len) % 2 != 0) len--;
+				int ox = (getWidth() - s) / 2, oy = (getHeight() - s) / 2;
+				int barX = ox + (s - len) / 2, barY = oy + (s - t) / 2;
+				int stemX = ox + (s - t) / 2,  stemY = oy + (s - len) / 2;
+				g2.setColor(Color.BLACK);
+				g2.fillRect(barX + 1, barY + 1, len, t);
+				g2.fillRect(stemX + 1, stemY + 1, t, len);
+				g2.setColor(Color.WHITE);
+				g2.fillRect(barX, barY, len, t);
+				g2.fillRect(stemX, stemY, t, len);
+				g2.dispose();
+			}
+		};
+		b.setFocusable(false);
+		b.setBorderPainted(false);
+		b.setContentAreaFilled(false);
+		b.setRolloverEnabled(true);
+		b.setVisible(false);
+		b.addActionListener(e -> showOverflowDamageDialog(isP1));
+		return b;
+	}
+
+	/**
+	 * Shows or hides {@code isP1}'s overflow "+" to match their Damage Zone, and keeps its tooltip
+	 * counting the points past 7.
+	 */
+	void refreshOverflowDamageButton(boolean isP1) {
+		JButton b = isP1 ? p1OverflowDamageButton : p2OverflowDamageButton;
+		if (b == null) return;
+		int over = (isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone()).size()
+				- (OverflowDamageDialog.FIRST_OVERFLOW_POINT - 1);
+		b.setToolTipText(over > 0 ? over + " damage past 7 — click to see" : null);
+		Container parent = b.getParent();
+		if (parent != null) { parent.revalidate(); parent.repaint(); }
+	}
+
+	private void showOverflowDamageDialog(boolean isP1) {
+		OverflowDamageDialog.show(frame,
+				isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone(),
+				isP1 ? "P1" : "P2", this::showZoomAt, this::hideZoom);
 	}
 
 	/**

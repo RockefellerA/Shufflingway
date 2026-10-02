@@ -233,6 +233,8 @@ public class FieldAbilityParsingTest {
         // checks it, so a cross-card printing cannot be claimed as this one.
         if (namesItself(AutoAbilityTriggers.FA_DOUBLE_ABILITY_DAMAGE, fa, source)) return true;
         if (AutoAbilityTriggers.FA_RECV_PLAYER_DAMAGE_ACTIVE_DULL_ZERO.matcher(fa.effectText()).find()) return true;
+        // PR-143 Garnet. Read by MainWindow.cannotLoseSource on every loss.
+        if (AutoAbilityTriggers.FA_CANNOT_LOSE_THE_GAME.matcher(fa.effectText().trim()).matches()) return true;
         if (AutoAbilityTriggers.FA_DISCARD_JOB_TO_CAST.matcher(fa.effectText()).find()) return true;
         // No row for the S-cost substitutions (Braska 16-133S, Rydia 2-094H, Duncan 8-014L,
         // Tifa 26-076H): parseFieldAbilities skips those segments as static card properties, so
@@ -905,6 +907,8 @@ public class FieldAbilityParsingTest {
             return "DoubleAbilityDmgToForward";
         m = AutoAbilityTriggers.FA_RECV_PLAYER_DAMAGE_ACTIVE_DULL_ZERO.matcher(fa.effectText());
         if (m.find()) return "RecvPlayerDmgActiveDullZero[" + m.group("card") + "]";
+        m = AutoAbilityTriggers.FA_CANNOT_LOSE_THE_GAME.matcher(fa.effectText().trim());
+        if (m.matches()) return "CannotLoseTheGame" + (m.group("cond") != null ? "[if you control " + m.group("cond") + "]" : "");
         m = AutoAbilityTriggers.FA_OPPONENT_MUST_BLOCK.matcher(fa.effectText());
         if (m.find()) return "OpponentMustBlock[" + m.group("cardname") + "]";
         m = AutoAbilityTriggers.FA_OPPONENT_MUST_CHOOSE.matcher(fa.effectText());

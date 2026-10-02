@@ -8022,13 +8022,13 @@ final class GameContextImpl implements GameContext {
 					mw.refreshP2DeckLabel();
 					mw.refreshP2HandCountLabel();
 					// Forcing the opponent to draw more than their deck holds loses the game for them.
-					if (drew < count) mw.triggerGameOver("P2 milled out — You Win!");
+					if (drew < count) mw.playerLoses(false, "P2 milled out — You Win!");
 				} else {
 					int drew = mw.drawP1Cards(count).size();
 					mw.animateCardDraw(true, drew);
 					mw.refreshP1HandLabel();
 					mw.refreshP1DeckLabel();
-					if (drew < count) mw.triggerGameOver("Milled Out - You Lose!");
+					if (drew < count) mw.playerLoses(true, "Milled Out - You Lose!");
 				}
 			}
 
@@ -8987,7 +8987,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void causeOpponentToLose() {
-				mw.triggerGameOver(isP1 ? "Opponent Loses — You Win!" : "Opponent Loses — You Lose!");
+				mw.playerLoses(!isP1, isP1 ? "Opponent Loses — You Win!" : "Opponent Loses — You Lose!");
 			}
 
 			@Override public void scheduleAtEndOfControllerNextTurn(Consumer<GameContext> effect) {

@@ -10671,6 +10671,7 @@ class SummonBehaviorTest {
 		MainWindow mw = new MainWindow();
 		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
 		mw.gameState.getIdentity().put(theirs, true);
+		mw.gameState.getIdentity().put(theirs, true);
 		mw.gameState.getP1Hand().add(theirs);
 		mw.gameState.getP1Hand().remove(theirs);
 		mw.addToBreakZone(theirs);

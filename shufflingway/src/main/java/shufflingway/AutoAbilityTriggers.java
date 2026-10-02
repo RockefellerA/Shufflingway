@@ -1697,6 +1697,14 @@ final class AutoAbilityTriggers {
 	 * "If you receive damage while [cardName] is active, dull [cardName]. The damage becomes 0 instead."
 	 * Groups: {@code card} (the self-dulling card name that must be active).
 	 */
+	/**
+	 * "[If you control &lt;cond&gt;, ]you can't lose the game." — PR-143 Garnet. Groups: {@code cond}
+	 * (a {@link ControlCondition} phrase, or {@code null} when the protection is unconditional).
+	 */
+	static final Pattern FA_CANNOT_LOSE_THE_GAME = Pattern.compile(
+		"(?i)^(?:If\\s+you\\s+control\\s+(?<cond>.+?),\\s+)?you\\s+(?:can't|cannot)\\s+lose\\s+the\\s+game[.!]?$"
+	);
+
 	static final Pattern FA_RECV_PLAYER_DAMAGE_ACTIVE_DULL_ZERO = Pattern.compile(
 		"(?i)^If\\s+you\\s+receive\\s+damage\\s+while\\s+(?<card>.+?)\\s+is\\s+active,\\s+" +
 		"dull\\s+(?<dullcard>.+?)[.,]?\\s+The\\s+damage\\s+becomes\\s+0\\s+instead[.!]?$"
@@ -1946,6 +1954,9 @@ final class AutoAbilityTriggers {
 		boolean fromHand = mw.leftHandAwaitingArrival.remove(card) && origin == null && !mw.lastCardWarpedIn;
 		if (fromHand) mw.enteredOtherThanFromHandThisTurn.remove(card);
 		else          mw.enteredOtherThanFromHandThisTurn.add(card);
+		// An arrival can start a can't-lose condition (PR-143 Garnet's eighth Forward) or end one
+		// (a card whose field ability takes hers away).
+		mw.refreshCannotLoseTheGame();
 		if (mw.suppressAutoAbilityForNextCards > 0) {
 			mw.suppressAutoAbilityForNextCards--;
 			// Re-evaluate field boosts even when ETF auto-abilities are suppressed
@@ -8737,11 +8748,11 @@ final class AutoAbilityTriggers {
 				String msg = isP1 ? "P1 milled out — You Lose!" : "P2 milled out — Opponent Loses!";
 				if (available > 0) {
 					int animMs = ((available - 1) * 5 + CardSlideAnimator.TOTAL_FRAMES) * CardSlideAnimator.FRAME_MS;
-					Timer t = new Timer(animMs, e -> mw.triggerGameOver(msg));
+					Timer t = new Timer(animMs, e -> mw.playerLoses(isP1, msg));
 					t.setRepeats(false);
 					t.start();
 				} else {
-					mw.triggerGameOver(msg);
+					mw.playerLoses(isP1, msg);
 				}
 				return false;
 			}

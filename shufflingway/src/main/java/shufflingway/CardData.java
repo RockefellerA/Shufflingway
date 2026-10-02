@@ -2698,7 +2698,9 @@ public record CardData(
         // The Job branch takes its own exclusion group, ahead of the item-end lookahead: that
         // lookahead is what forces the greedy card-name capture to keep growing, and it grew right
         // through "other than Penelo" (17-057H) into a name no card has.
-        "|Job\\s+(?<job>[A-Za-z][A-Za-z''\\s\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|(?<jobchar>Characters?)))?(?:\\s+(?:and/)?or\\s+Card\\s+Name\\s+(?<joborcardname>.+?))?(?:\\s+other\\s+than\\s+(?<jobexcept>[^:,]+?))?" + DULL_ITEM_END +
+        // A Category may follow the Job ("Job Sky Pirate Category XII Forwards", PR-196 Balthier &
+        // Fran); without its own arm the lazy Job grew through it into a Job no card has.
+        "|Job\\s+(?<job>[A-Za-z][A-Za-z''\\s\\-]*?)(?:\\s+Category\\s+(?<jobcat>[A-Za-z0-9]+))?(?:\\s+(?:Forwards?|Backups?|Monsters?|(?<jobchar>Characters?)))?(?:\\s+(?:and/)?or\\s+Card\\s+Name\\s+(?<joborcardname>.+?))?(?:\\s+other\\s+than\\s+(?<jobexcept>[^:,]+?))?" + DULL_ITEM_END +
         "|(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*" +
         "(?:Forwards?(?<orbackup>\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*Backups?)?" + // Forwards [or Backups]
         // Backups, optionally constrained to one shared Element, optionally offering the source as
@@ -10107,7 +10109,8 @@ public record CardData(
                         String cardName  = contM.group("cardname");
                         String elem      = contM.group("elem");
                         String job       = contM.group("job");
-                        String category  = contM.group("category");
+                        String category  = contM.group("category") != null
+                                         ? contM.group("category") : contM.group("jobcat");
                         String jobOrName = contM.group("joborcardname") != null
                                          ? contM.group("joborcardname") : contM.group("cardorname");
                         // Same split as the main loop below: "Forwards or Backups" is every
@@ -10139,7 +10142,7 @@ public record CardData(
             String cardName    = m.group("cardname");
             String elem        = m.group("elem");
             String job         = m.group("job");
-            String category    = m.group("category");
+            String category    = m.group("category") != null ? m.group("category") : m.group("jobcat");
             String jobOrName   = m.group("joborcardname") != null
                                ? m.group("joborcardname") : m.group("cardorname");
             // "Forwards or Backups" widens to every Character; "Backups [of the same Element]"

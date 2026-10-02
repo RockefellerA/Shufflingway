@@ -469,6 +469,22 @@
     },
     {
       "_note": "Promo printing; the API returns only PR-001 through PR-003.",
+      "serial": "PR-143",
+      "name": "Garnet",
+      "type": "Forward",
+      "element": "Water",
+      "cost": 3,
+      "power": 7000,
+      "rarity": "PR",
+      "job": "Princess/Summoner",
+      "category1": "IX",
+      "exBurst": false,
+      "multicard": false,
+      "text": "If you control 8 or more Category IX Forwards, you can't lose the game.",
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-143_FA.jpg"
+    },
+    {
+      "_note": "Promo printing; the API returns only PR-001 through PR-003.",
       "serial": "PR-150",
       "name": "The Scions of the Seventh Dawn",
       "type": "Forward",
@@ -614,6 +630,26 @@
       "multicard": false,
       "text": "If you don't have any 《C》, Warrior of Light loses 20000 power.",
       "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-171_EN_NF_FA.jpg"
+    },
+    {
+      "_note": "Promo printing; the API returns only PR-001 through PR-003.",
+      "serial": "PR-196",
+      "name": "Balthier & Fran",
+      "type": "Forward",
+      "element": "Wind",
+      "cost": 8,
+      "power": 12000,
+      "rarity": "PR",
+      "job": "Sky Pirate",
+      "category1": "XII",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "Balthier & Fran is also Card Name Balthier and Card Name Fran in all situations.",
+        "[[br]]",
+        "Dull 8 active Job Sky Pirate Category XII Forwards: Balthier & Fran deals your opponent 7 points of damage."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-196_OP_NF.jpg"
     }
   ]
 }

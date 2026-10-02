@@ -937,7 +937,7 @@ class RemoteOpponent implements OpponentController {
 				int drawCount = mw.gameState.getTurnNumber() == 1 ? 1 : 2;
 				List<CardData> drawn = mw.turnPhases().runP2DrawPhase(drawCount);
 				mw.logEntry("[P2] Draw Phase — Drew " + drawn.size() + " card(s)");
-				if (drawn.size() < drawCount) mw.triggerGameOver("P2 milled out — You Win!");
+				if (drawn.size() < drawCount) mw.playerLoses(false, "P2 milled out — You Win!");
 			}
 
 			case MAIN_1 -> {

@@ -52,6 +52,8 @@ class TurnPhases {
 		mw.dealtDamageToForwardThisTurn.clear();
 		mw.enteredOtherThanFromHandThisTurn.clear();
 		mw.leftHandAwaitingArrival.clear();
+		// An "until the end of the turn" grant that was holding a can't-lose condition up ends here.
+		mw.refreshCannotLoseTheGame();
 		mw.p2Turn.castRemovedUsedThisTurn.clear();
 		mw.p2Turn.elementForwardsEnteredThisTurn.clear();
 		mw.p2Turn.charactersEnteredThisTurn.clear();
@@ -145,6 +147,7 @@ class TurnPhases {
 		mw.dealtDamageToForwardThisTurn.clear();
 		mw.enteredOtherThanFromHandThisTurn.clear();
 		mw.leftHandAwaitingArrival.clear();
+		mw.refreshCannotLoseTheGame();   // as at the other turn boundary above
 		mw.p1Turn.castRemovedUsedThisTurn.clear();
 		mw.p1Turn.elementForwardsEnteredThisTurn.clear();
 		mw.p1Turn.charactersEnteredThisTurn.clear();
@@ -208,10 +211,7 @@ class TurnPhases {
 		mw.animateCardDraw(true, drawn.size());
 		mw.refreshP1HandLabel();
 		mw.refreshP1DeckLabel();
-		if (drawn.size() < 2) {
-			mw.triggerGameOver("Milled Out - You Lose!");
-			return;
-		}
+		if (drawn.size() < 2 && mw.playerLoses(true, "Milled Out - You Lose!")) return;
 		mw.logEntry("Draw Phase — Drew " + drawn.size() + " card(s)");
 		mw.advanceLocalPhase(); // DRAW → MAIN_1
 		mw.refreshPhaseTracker();

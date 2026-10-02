@@ -121,10 +121,7 @@ class ComputerPlayer implements OpponentController {
 	private void doDrawPhase() {
 		int drawCount = mw.gameState.getTurnNumber() == 1 ? 1 : 2;
 		List<CardData> drawn = mw.turnPhases().runP2DrawPhase(drawCount);
-		if (drawn.size() < drawCount) {
-			mw.triggerGameOver("P2 milled out — You Win!");
-			return;
-		}
+		if (drawn.size() < drawCount && mw.playerLoses(false, "P2 milled out — You Win!")) return;
 		mw.logEntry("[P2] Draw Phase — Drew " + drawn.size() + " card(s) (hand: " + mw.gameState.getP2Hand().size() + ")");
 		mw.gameState.advancePhase(); // DRAW → MAIN_1
 		mw.refreshPhaseTracker();
