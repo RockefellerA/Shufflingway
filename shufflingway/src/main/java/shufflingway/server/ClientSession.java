@@ -53,6 +53,14 @@ final class ClientSession implements Runnable {
     /** Guards {@link #out}; held across a whole match start by {@link #sendToBoth}. */
     private final Object sendLock = new Object();
     private final ByteArrayOutputStream lineBuf = new ByteArrayOutputStream(256);
+    /** Size in bytes of the line {@link #readLine} last returned, without its terminator. */
+    private int lastLineBytes;
+
+    // Abuse limits (RelayServer.Limits); read on this session's own thread only.
+    private final TokenBucket messageBudget;
+    private final TokenBucket byteBudget;
+    private final long lobbyListIntervalNanos;
+    private long lastLobbyListNanos;
 
     // Set by the handshake, before the session is visible to the registry.
     private String username = "";
@@ -70,6 +78,14 @@ final class ClientSession implements Runnable {
         this.registry = server.registry();
         this.in = new BufferedInputStream(socket.getInputStream());
         this.out = new BufferedOutputStream(socket.getOutputStream());
+
+        RelayServer.Limits limits = server.limits();
+        long now = System.nanoTime();
+        this.messageBudget = new TokenBucket(limits.messageBurst(), limits.messagesPerSecond(), now);
+        this.byteBudget = new TokenBucket(limits.byteBurst(), limits.bytesPerSecond(), now);
+        this.lobbyListIntervalNanos = limits.lobbyListIntervalMs() * 1_000_000L;
+        // Backdated by one interval, so the first request is answered at once.
+        this.lastLobbyListNanos = now - lobbyListIntervalNanos;
     }
 
     String username()     { return username; }
@@ -113,6 +129,14 @@ final class ClientSession implements Runnable {
 
             String line;
             while ((line = readLine()) != null) {
+                // Over budget is hung up, not dropped: a dropped move would desync the match, and
+                // the opponent is told their game is over either way.
+                long now = System.nanoTime();
+                if (!messageBudget.tryTake(1, now) || !byteBudget.tryTake(lastLineBytes, now)) {
+                    why = "sent messages too fast";
+                    hangUp("Sending too fast");
+                    break;
+                }
                 ClientSession p = peer;
                 GameAction action = GameAction.deserialize(line);
                 if (p != null) {
@@ -165,6 +189,7 @@ final class ClientSession implements Runnable {
                 byte[] bytes = lineBuf.toByteArray();
                 // Clients on Windows end lines with CRLF (PrintWriter.println).
                 if (n > 0 && bytes[n - 1] == '\r') n--;
+                lastLineBytes = n;
                 return new String(bytes, 0, n, StandardCharsets.UTF_8);
             }
             if (lineBuf.size() >= MAX_LINE_BYTES) throw new IOException("sent a message over the size limit");
@@ -198,6 +223,12 @@ final class ClientSession implements Runnable {
         JSONObject p = action.payload();
         switch (action.type()) {
             case LOBBY_LIST -> {
+                // At most one list per interval. A request in between is ignored rather than
+                // refused: the client polls well inside the limit, so only a flood ever hits it, and
+                // answering a flood is exactly the outbound traffic it is after.
+                long now = System.nanoTime();
+                if (now - lastLobbyListNanos < lobbyListIntervalNanos) return true;
+                lastLobbyListNanos = now;
                 // A poll sent just before joining arrives after; the lobby screen is gone by then.
                 if (!registry.inLobby(this)) send(registry.listFor(this));
             }

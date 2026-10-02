@@ -37,29 +37,62 @@ public final class RelayServer implements Closeable {
 
     public static final int DEFAULT_PORT = 7777;
     static final int MAX_CONNECTIONS = 512;
-    /** Per remote address by default; generous enough for a household behind one router. */
-    static final int DEFAULT_MAX_PER_ADDRESS = 8;
     /** How long a hung-up client has to close its end before the server closes it. */
     static final long HANG_UP_GRACE_SECONDS = 5;
+
+    /**
+     * What one client may ask of the server. Set well above anything a real client does, since
+     * tripping a message limit disconnects the player: dropping a move instead would desync the game.
+     *
+     * @param maxPerAddress       connections from one remote address at once; generous enough for
+     *                            a household behind one router
+     * @param lobbyListIntervalMs least time between two lobby lists sent to one connection; the
+     *                            client polls every 4 s, and requests in between are ignored
+     * @param messageBurst        messages one connection may send back to back
+     * @param messagesPerSecond   messages one connection may sustain; real games send a few a second
+     * @param byteBurst           bytes one connection may send back to back
+     * @param bytesPerSecond      bytes one connection may sustain; a whole deck list is under 2 KB
+     */
+    public record Limits(int maxPerAddress, long lobbyListIntervalMs, int messageBurst,
+                         int messagesPerSecond, int byteBurst, int bytesPerSecond) {
+
+        public static final Limits DEFAULT = new Limits(8, 1_000, 200, 30, 1024 * 1024, 64 * 1024);
+
+        public Limits withMaxPerAddress(int n) {
+            return new Limits(n, lobbyListIntervalMs, messageBurst, messagesPerSecond, byteBurst, bytesPerSecond);
+        }
+
+        public Limits withLobbyListIntervalMs(long ms) {
+            return new Limits(maxPerAddress, ms, messageBurst, messagesPerSecond, byteBurst, bytesPerSecond);
+        }
+
+        public Limits withMessageRate(int burst, int perSecond) {
+            return new Limits(maxPerAddress, lobbyListIntervalMs, burst, perSecond, byteBurst, bytesPerSecond);
+        }
+
+        public Limits withByteRate(int burst, int perSecond) {
+            return new Limits(maxPerAddress, lobbyListIntervalMs, messageBurst, messagesPerSecond, burst, perSecond);
+        }
+    }
 
     private final ServerSocket serverSocket;
     private final LobbyRegistry registry;
     private final Consumer<String> log;
     private final ScheduledExecutorService reaper;
     private final Map<InetAddress, Integer> perAddress = new HashMap<>();
-    private final int maxPerAddress;
+    private final Limits limits;
     private int connections;
 
     /**
      * Binds the port; {@link #serve()} or {@link #start()} then accepts connections.
      *
-     * @param port          0 for any free port (see {@link #port()})
-     * @param maxPerAddress connections allowed from one remote address at once
-     * @param log           where server events go, one line each
+     * @param port   0 for any free port (see {@link #port()})
+     * @param limits what one client may ask of the server; usually {@link Limits#DEFAULT}
+     * @param log    where server events go, one line each
      */
-    public RelayServer(int port, int maxPerAddress, Consumer<String> log) throws IOException {
+    public RelayServer(int port, Limits limits, Consumer<String> log) throws IOException {
         this.serverSocket = new ServerSocket(port);
-        this.maxPerAddress = maxPerAddress;
+        this.limits = limits;
         this.log = log;
         this.registry = new LobbyRegistry(log);
         this.reaper = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -75,6 +108,10 @@ public final class RelayServer implements Closeable {
 
     LobbyRegistry registry() {
         return registry;
+    }
+
+    Limits limits() {
+        return limits;
     }
 
     void log(String message) {
@@ -112,7 +149,7 @@ public final class RelayServer implements Closeable {
         String refusal = null;
         synchronized (this) {
             if (connections >= MAX_CONNECTIONS) refusal = "The server is full; try again later";
-            else if (perAddress.getOrDefault(address, 0) >= maxPerAddress)
+            else if (perAddress.getOrDefault(address, 0) >= limits.maxPerAddress())
                 refusal = "Too many connections from your address";
             else {
                 connections++;
@@ -180,16 +217,16 @@ public final class RelayServer implements Closeable {
 
     public static void main(String[] args) throws IOException {
         int port = DEFAULT_PORT;
-        int maxPerAddress = DEFAULT_MAX_PER_ADDRESS;
+        Limits limits = Limits.DEFAULT;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--port" -> port = intArg(args, ++i, "--port");
-                case "--max-per-address" -> maxPerAddress = intArg(args, ++i, "--max-per-address");
+                case "--max-per-address" -> limits = limits.withMaxPerAddress(intArg(args, ++i, "--max-per-address"));
                 case "--help", "-h" -> usage(null);
                 default -> usage("unknown option: " + args[i]);
             }
         }
-        RelayServer server = new RelayServer(port, maxPerAddress,
+        RelayServer server = new RelayServer(port, limits,
                 msg -> System.out.println(LocalDateTime.now().format(STAMP) + "  " + msg));
         Runtime.getRuntime().addShutdownHook(new Thread(server::close, "relay-shutdown"));
         server.serve();
@@ -210,7 +247,7 @@ public final class RelayServer implements Closeable {
         System.err.println("usage: java -jar shufflingway-server.jar [--port N] [--max-per-address N]");
         System.err.println("  --port             port to listen on (default " + DEFAULT_PORT + ")");
         System.err.println("  --max-per-address  connections allowed from one address (default "
-                + DEFAULT_MAX_PER_ADDRESS + ")");
+                + Limits.DEFAULT.maxPerAddress() + ")");
         System.exit(problem == null ? 0 : 2);
     }
 }

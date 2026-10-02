@@ -35,10 +35,23 @@ class RelayServerTest {
     private final List<String> log = Collections.synchronizedList(new ArrayList<>());
     private final List<GameConnection> clients = new ArrayList<>();
 
+    /**
+     * The defaults, loosened where a test client is not a real one: every test client shares the
+     * loopback address, and polling helpers ask for the lobby list far faster than the app does.
+     */
+    private static final RelayServer.Limits TEST_LIMITS =
+            RelayServer.Limits.DEFAULT.withMaxPerAddress(64).withLobbyListIntervalMs(0);
+
     @BeforeEach
     void startServer() throws IOException {
-        // Every test client shares the loopback address.
-        server = new RelayServer(0, 64, log::add);
+        server = new RelayServer(0, TEST_LIMITS, log::add);
+        server.start();
+    }
+
+    /** Replaces the running server with one under {@code limits}, for a test about the limits. */
+    private void restartWith(RelayServer.Limits limits) throws IOException {
+        server.close();
+        server = new RelayServer(0, limits, log::add);
         server.start();
     }
 
@@ -282,7 +295,7 @@ class RelayServerTest {
 
     @Test
     void connectionsPastThePerAddressCapAreRefused() throws IOException {
-        try (RelayServer capped = new RelayServer(0, 2, log::add)) {
+        try (RelayServer capped = new RelayServer(0, RelayServer.Limits.DEFAULT.withMaxPerAddress(2), log::add)) {
             capped.start();
             List<Socket> open = new ArrayList<>();
             try {
@@ -345,6 +358,66 @@ class RelayServerTest {
 
         p.host().send(chat("still fine"));
         assertEquals("still fine", p.joiner().receiveSync().payload().getString("message"));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+
+    // ---------------------------------------------------------------------------------------------
+    // Rate limits
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    void aLobbyListFloodIsAnsweredOncePerInterval() throws IOException {
+        restartWith(TEST_LIMITS.withLobbyListIntervalMs(60_000));
+        GameConnection c = connect("Flood");
+        for (int i = 0; i < 5; i++) c.send(RemoteLobbyExchange.listAction());
+        c.send(RemoteLobbyExchange.createAction("Den", "", false, false));
+
+        assertEquals(ActionType.LOBBY_LIST, c.receiveSync().type(), "the first is answered");
+        assertEquals(ActionType.LOBBY_SETTINGS, c.receiveSync().type(),
+                "the other four are ignored, and the connection carries on");
+    }
+
+    @Test
+    void aBurstWithinTheDefaultsIsRelayedInFull() throws IOException {
+        restartWith(RelayServer.Limits.DEFAULT.withMaxPerAddress(64));
+        Pair p = pair("Den");
+        for (int i = 0; i < 150; i++) p.host().send(chat("move " + i));
+        for (int i = 0; i < 150; i++)
+            assertEquals("move " + i, p.joiner().receiveSync().payload().getString("message"));
+    }
+
+    @Test
+    void aMessageFloodIsHungUpAndTheOpponentTold() throws IOException {
+        restartWith(TEST_LIMITS.withMessageRate(20, 5));
+        Pair p = pair("Den");
+        for (int i = 0; i < 60; i++) p.host().send(chat("spam " + i));
+
+        GameAction toFlooder = p.host().receiveSync();
+        assertEquals(ActionType.DISCONNECT, toFlooder.type());
+        assertEquals("Sending too fast", toFlooder.payload().getString("reason"));
+
+        int relayed = 0;
+        GameAction next;
+        while ((next = p.joiner().receiveSync()).type() == ActionType.CHAT) relayed++;
+        assertEquals(ActionType.DISCONNECT, next.type());
+        assertEquals("Opponent disconnected", next.payload().getString("reason"));
+        assertTrue(relayed < 60, "relaying stopped at the limit, not after the flood: " + relayed);
+        assertEventually(() -> log.stream().anyMatch(l -> l.contains("sent messages too fast")));
+    }
+
+    @Test
+    void aByteFloodIsHungUp() throws IOException {
+        restartWith(TEST_LIMITS.withByteRate(4096, 1024));
+        GameConnection c = connect("Bulk");
+        String padding = "x".repeat(3000);
+        c.send(GameAction.of(ActionType.LOBBY_LIST, new JSONObject().put("pad", padding)));
+        assertEquals(ActionType.LOBBY_LIST, c.receiveSync().type(), "3 KB fits the 4 KB burst");
+
+        c.send(GameAction.of(ActionType.LOBBY_LIST, new JSONObject().put("pad", padding)));
+        GameAction bye = c.receiveSync();
+        assertEquals(ActionType.DISCONNECT, bye.type(), "another 3 KB does not, at 1 KB/s");
+        assertEquals("Sending too fast", bye.payload().getString("reason"));
     }
 
     // ---------------------------------------------------------------------------------------------
