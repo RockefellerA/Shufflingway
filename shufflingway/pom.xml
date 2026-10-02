@@ -62,6 +62,34 @@
         <artifactId>maven-shade-plugin</artifactId>
         <version>3.6.2</version>
         <executions>
+          <!-- The relay server for remote play: `java -jar target/shufflingway-server.jar`.
+               Listed first so it shades the plain project jar, before the client execution
+               below replaces that with its own shaded one. It needs only org.json; the
+               client's native libraries stay out. -->
+          <execution>
+            <id>relay-server</id>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <outputFile>${project.build.directory}/shufflingway-server.jar</outputFile>
+              <artifactSet>
+                <includes>
+                  <include>org.json:json</include>
+                </includes>
+              </artifactSet>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>shufflingway.server.RelayServer</mainClass>
+                  <manifestEntries>
+                    <Implementation-Version>${project.version}</Implementation-Version>
+                  </manifestEntries>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
           <execution>
             <phase>package</phase>
             <goals>

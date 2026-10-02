@@ -15,6 +15,8 @@ public enum ActionType {
                     //   Host-authored. The seed drives both decks' shuffles on both clients;
                     //   "debug" is whether the Debug menu is usable during the match; "banlist"
                     //   whether the Standard banlist was enforced, kept for the next new game.
+                    //   From a relay server it also carries "seat": "host" | "joiner", which
+                    //   client plays the host's part, and "matchId", the server's name for the game.
     DEBUG,          // payload: { "op": "spawn" | "hand" | "clearHand" | "zone" | "clearZone"
                     //                   | "counter" | "state" | "break" | "damage", ... }
                     //   A Debug-menu change, in a game whose host enabled debugging. Sides are
@@ -43,6 +45,20 @@ public enum ActionType {
                     //   Joiner → host: whether the joiner has a deck confirmed, as of the
                     //   LOBBY_SETTINGS "resets" it last saw — the host ignores a stale one.
                     //   "ready": false also answers a host DECK_LIST (Start) with no deck.
+    LOBBY_LIST,     // client → server: {}
+                    // server → client: { "lobbies": [{ "name": "...", "creator": "...",
+                    //                    "password": <bool>, "banlist": <bool>, "debug": <bool> }] }
+                    //   Relay server only. The open lobbies this client could join: those still
+                    //   waiting for a second player, on the same version and card database.
+    LOBBY_CREATE,   // payload: { "name": "...", "password": "...", "banlist": <bool>, "debug": <bool> }
+                    //   Relay server only: open a lobby and wait in it. Answered with
+                    //   LOBBY_SETTINGS on success, LOBBY_ERROR otherwise. "password" may be "".
+    LOBBY_JOIN,     // payload: { "name": "...", "password": "..." }
+                    //   Relay server only: take the second seat in a listed lobby. Answered as
+                    //   LOBBY_CREATE is.
+    LOBBY_ERROR,    // payload: { "reason": "..." }
+                    //   Relay server only: a LOBBY_CREATE, LOBBY_JOIN or DECK_LIST was refused.
+                    //   Unlike DISCONNECT the connection stays open, so the player can try again.
     STATE_CHECKSUM, // payload: { "label": "...", "checksum": "..." }
                     //   Desync detection: a hash of state both clients must agree on.
 

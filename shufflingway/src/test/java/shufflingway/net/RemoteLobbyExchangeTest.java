@@ -23,10 +23,19 @@ class RemoteLobbyExchangeTest {
     private GameConnection client;
     private GameConnection server;
 
+    /** Records what the lobby loop hands over, in order. */
+    private static final class Recorder implements RemoteLobbyExchange.LobbyListener {
+        final List<Object> events = new ArrayList<>();
+        @Override public void onLobbies(List<RemoteLobbyExchange.LobbyInfo> lobbies) { events.add(lobbies); }
+        @Override public void onError(String reason) { events.add(reason); }
+        @Override public void onSettings(LobbyExchange.LobbySettings settings) { events.add(settings); }
+    }
+
     @BeforeEach
     void connect() throws IOException {
         listener = new ServerSocket(0, 1, InetAddress.getLoopbackAddress());
         Socket c = new Socket(InetAddress.getLoopbackAddress(), listener.getLocalPort());
+        c.setSoTimeout(5_000);
         client = new GameConnection(c);
         server = new GameConnection(listener.accept());
     }
@@ -50,7 +59,8 @@ class RemoteLobbyExchangeTest {
                 .put("seed", 42L)
                 .put("hostGoesFirst", true)
                 .put("debug", false)
-                .put("banlist", true);
+                .put("banlist", true)
+                .put("matchId", "m-1");
         if (seat != null) p.put("seat", seat);
         return GameAction.of(ActionType.GAME_SETUP, p);
     }
@@ -66,19 +76,25 @@ class RemoteLobbyExchangeTest {
     }
 
     @Test
-    void matchCarriesOpponentDeckAndTheSeatTheServerAssigned() throws IOException {
-        List<LobbyExchange.LobbySettings> seen = new ArrayList<>();
-        server.send(LobbyExchange.lobbySettingsAction(new LobbyExchange.LobbySettings(false, false, 0)));
+    void browsingThenJoiningEndsInTheMatchTheServerStarted() throws IOException {
+        Recorder rec = new Recorder();
+        server.send(GameAction.of(ActionType.LOBBY_LIST, new JSONObject().put("lobbies", new JSONArray()
+                .put(new JSONObject().put("name", "Den").put("creator", "Zidane")
+                        .put("password", true).put("banlist", true).put("debug", false)))));
+        server.send(GameAction.of(ActionType.LOBBY_ERROR, new JSONObject().put("reason", "Wrong password")));
         server.send(GameAction.of(ActionType.PING));
-        server.send(LobbyExchange.lobbySettingsAction(new LobbyExchange.LobbySettings(false, true, 1)));
+        server.send(LobbyExchange.lobbySettingsAction(new LobbyExchange.LobbySettings(false, true, 0)));
         server.send(opponentDeck());
         server.send(gameSetup("joiner"));
 
-        RemoteLobbyExchange.RemoteMatch match = RemoteLobbyExchange.awaitMatch(client, seen::add);
-        assertEquals(List.of(new LobbyExchange.LobbySettings(false, false, 0),
-                new LobbyExchange.LobbySettings(false, true, 1)), seen);
+        RemoteLobbyExchange.RemoteMatch match = RemoteLobbyExchange.awaitMatch(client, rec);
+        assertEquals(List.of(
+                List.of(new RemoteLobbyExchange.LobbyInfo("Den", "Zidane", true, true, false)),
+                "Wrong password",
+                new LobbyExchange.LobbySettings(false, true, 0)), rec.events);
 
         MatchSetup setup = match.toSetup(7);
+        assertEquals("m-1", match.matchId());
         assertEquals(7, setup.localDeckId());
         assertEquals(List.of("1-001H", "1-001H", "2-002R"), setup.remoteSerials());
         assertEquals("Wind Haste", setup.remoteDeckName());
@@ -93,24 +109,25 @@ class RemoteLobbyExchangeTest {
     @Test
     void hostSeatIsOnlyEverGrantedExplicitly() throws IOException {
         server.send(opponentDeck());
-        server.send(gameSetup("host"));
-        assertTrue(RemoteLobbyExchange.awaitMatch(client, s -> {}).toSetup(1).localIsHost());
+        server.send(gameSetup(RemoteLobbyExchange.SEAT_HOST));
+        assertTrue(RemoteLobbyExchange.awaitMatch(client, new Recorder()).toSetup(1).localIsHost());
 
         server.send(opponentDeck());
         server.send(gameSetup(null));
-        assertFalse(RemoteLobbyExchange.awaitMatch(client, s -> {}).toSetup(1).localIsHost());
+        assertFalse(RemoteLobbyExchange.awaitMatch(client, new Recorder()).toSetup(1).localIsHost());
     }
 
     @Test
     void setupWithoutAnOpponentsDeckIsRefused() {
-        server.send(gameSetup("host"));
-        assertThrows(IOException.class, () -> RemoteLobbyExchange.awaitMatch(client, s -> {}));
+        server.send(gameSetup(RemoteLobbyExchange.SEAT_HOST));
+        assertThrows(IOException.class, () -> RemoteLobbyExchange.awaitMatch(client, new Recorder()));
     }
 
     @Test
     void serverClosingTheLobbyEndsTheWaitWithItsReason() {
         server.send(GameAction.of(ActionType.DISCONNECT, new JSONObject().put("reason", "Lobby expired")));
-        IOException ex = assertThrows(IOException.class, () -> RemoteLobbyExchange.awaitMatch(client, s -> {}));
+        IOException ex = assertThrows(IOException.class,
+                () -> RemoteLobbyExchange.awaitMatch(client, new Recorder()));
         assertEquals("Lobby expired", ex.getMessage());
     }
 }
