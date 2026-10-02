@@ -212,12 +212,12 @@ public final class AppSettings {
         return v.length() > USERNAME_MAX_LENGTH ? v.substring(0, USERNAME_MAX_LENGTH) : v;
     }
 
-    /**
-     * The relay server last connected to for remote play, or {@code ""} if none. Kept here rather
-     * than in the source because the address is the player's own, and changes when the server moves.
-     */
+    /** The public relay server, offered until the player connects to one of their own choosing. */
+    static final String DEFAULT_REMOTE_SERVER = "143.47.117.238";
+
+    /** The relay server last connected to for remote play, or {@link #DEFAULT_REMOTE_SERVER} if none. */
     public static String getRemoteServer() {
-        return props.getProperty("multiplayer.remote.server", "").trim();
+        return props.getProperty("multiplayer.remote.server", DEFAULT_REMOTE_SERVER).trim();
     }
 
     /** The relay server's port as last used, or {@code defaultPort} if none has been. */
