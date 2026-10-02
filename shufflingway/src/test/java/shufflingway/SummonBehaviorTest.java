@@ -10206,6 +10206,251 @@ class SummonBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 27-002H Ifrit: "If you cast Ifrit, you may remove 1 Card Name Ifrit in your Break Zone from the
+	// game as an extra cost. EX BURST Choose 1 Forward. Deal it 5000 damage. If you paid the extra
+	// cost, deal it 8000 damage instead."
+	// =========================================================================================
+
+	private static final String IFRIT_27_002H = "If you cast Ifrit, you may remove 1 Card Name Ifrit in your Break "
+			+ "Zone from the game as an extra cost.[[br]][[ex]]EX BURST[[/]] Choose 1 Forward. Deal it 5000 damage. "
+			+ "If you paid the extra cost, deal it 8000 damage instead.";
+
+	@Test
+	void ifrit27sExtraCostIsOneIfritFromTheBreakZone() {
+		assertEquals(ExtraCost.bzRemoveCardName(1, "Ifrit"),
+				makeSummon("Ifrit", "Fire", 1, IFRIT_27_002H).extraCost());
+	}
+
+	@Test
+	void ifrit27Deals5000OrBreaksAnEightThousandForwardWhenPaid() {
+		for (boolean paid : new boolean[] { false, true }) {
+			MainWindow mw = new MainWindow();
+			CardData theirs = makeForward("Theirs", "Water", 4, 8000);
+			placeP1Forward(mw, theirs);
+			castAsP2Paying(mw, makeSummon("Ifrit", "Fire", 1, IFRIT_27_002H), paid);
+
+			if (paid) assertTrue(mw.gameState.getP1BreakZone().contains(theirs), "paid: 8000 instead");
+			else      assertEquals(5000, damageOn(mw, theirs), "unpaid: 5000");
+		}
+	}
+
+	// =========================================================================================
+	// 27-031H Moomba: "You can dull 2 active Category VIII Forwards you control (instead of paying
+	// the CP cost) to cast Moomba. Choose 1 Forward. If it is dull or has received damage, break
+	// it."
+	// =========================================================================================
+
+	private static final String MOOMBA_27_031H = "You can dull 2 active Category VIII Forwards you control "
+			+ "(instead of paying the CP cost) to cast Moomba.[[br]]"
+			+ "Choose 1 Forward. If it is dull or has received damage, break it.";
+
+	@Test
+	void moombasDullCostNamesTwoCategoryEightForwardsOnAnyTurn() {
+		CardData moomba = makeSummon("Moomba", "Ice", 3, MOOMBA_27_031H);
+		List<DullForwardCost> costs = moomba.altDullCosts();
+		assertEquals(1, costs.size());
+		assertEquals(2, costs.get(0).count());
+		assertEquals("VIII", costs.get(0).category());
+		assertNull(costs.get(0).element(), "any element");
+		assertFalse(moomba.altDullYourTurnOnly(), "no timing clause on this printing");
+		assertFalse(moomba.summonEffect().contains("instead of paying"));
+
+		MainWindow paid = new MainWindow();
+		placeP1Forward(paid, makeCategoryForward("Squall", "Ice", "VIII"));
+		placeP1Forward(paid, makeCategoryForward("Zell", "Earth", "VIII"));
+		assertTrue(paid.canPayAltDullCost(moomba));
+
+		MainWindow offCategory = new MainWindow();
+		placeP1Forward(offCategory, makeCategoryForward("Squall", "Ice", "VIII"));
+		placeP1Forward(offCategory, makeCategoryForward("Cloud", "Wind", "VII"));
+		assertFalse(offCategory.canPayAltDullCost(moomba), "both must be Category VIII");
+	}
+
+	@Test
+	void moombaBreaksADullForward() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		dullP1Forward(mw, theirs);
+		castAsP2(mw, makeSummon("Moomba", "Ice", 3, MOOMBA_27_031H));
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs));
+	}
+
+	@Test
+	void moombaBreaksADamagedForward() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		mw.p1ForwardDamage.set(0, 1000);
+		castAsP2(mw, makeSummon("Moomba", "Ice", 3, MOOMBA_27_031H));
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs));
+	}
+
+	@Test
+	void moombaLeavesAnActiveUndamagedForward() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		castAsP2(mw, makeSummon("Moomba", "Ice", 3, MOOMBA_27_031H));
+		assertEquals(List.of(theirs), mw.p1ForwardCards, "neither dull nor damaged");
+	}
+
+	// =========================================================================================
+	// 27-052H Chaos, Walker of the Wheel: "Choose 1 Character without 《Multicard》 you control.
+	// Remove it from the game. Search for 1 Character with the same name and add it to your hand."
+	// =========================================================================================
+
+	private static final String CHAOS_27_052H = "Choose 1 Character without 《Multicard》 you control. "
+			+ "Remove it from the game. Search for 1 Character with the same name and add it to your hand.";
+
+	/** A Forward printed with 《Multicard》. */
+	private static CardData makeMulticardForward(String name, String element, int cost, int power) {
+		return new CardData(null, name, element, cost, power, "Forward", false, 0, false, true,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, "");
+	}
+
+	@Test
+	void chaosTradesYourCharacterForAnotherCopyFromYourDeck() {
+		MainWindow mw = new MainWindow();
+		CardData plain = makeForward("Plain", "Wind", 3, 7000);
+		CardData multi = makeMulticardForward("Multi", "Wind", 3, 7000);
+		placeP2Forward(mw, plain);
+		placeP2Forward(mw, multi);
+		placeP1Forward(mw, makeForward("Theirs", "Water", 3, 7000));
+		CardData copy = makeForward("Plain", "Wind", 3, 7000);
+		mw.gameState.getP2MainDeck().add(makeForward("Other", "Wind", 2, 5000));
+		mw.gameState.getP2MainDeck().add(makeMulticardForward("Multi", "Wind", 3, 7000));
+		mw.gameState.getP2MainDeck().add(copy);
+		castAsP2(mw, makeSummon("Chaos, Walker of the Wheel", "Wind", 1, CHAOS_27_052H));
+
+		assertTrue(mw.gameState.getP2RemovedFromGame().contains(plain));
+		assertEquals(List.of(multi), mw.p2ForwardCards, "without 《Multicard》");
+		assertEquals(1, mw.p1ForwardCards.size(), "you control");
+		assertEquals(List.of(copy), mw.gameState.getP2Hand(), "the same name");
+		assertEquals(2, mw.gameState.getP2MainDeck().size());
+	}
+
+	// =========================================================================================
+	// 27-065H Hashmal, Bringer of Order: "Name 1 Job or Category. Reveal the top 3 cards of your
+	// deck. Add up to 2 Characters of the named Job or Category among them to your hand and return
+	// the other cards to the bottom of your deck in any order."
+	// =========================================================================================
+
+	private static final String HASHMAL_27_065H = "Name 1 Job or Category. Reveal the top 3 cards of your deck. "
+			+ "Add up to 2 Characters of the named Job or Category among them to your hand and return the other "
+			+ "cards to the bottom of your deck in any order.";
+
+	/** Casts Hashmal from P2's seat with {@code named} ({@code {"job"|"category", value}}) as the answer. */
+	private static void castHashmalNaming(MainWindow mw, String... named) {
+		GameContext ctx = spy(mw.buildGameContext(false));
+		doReturn(named).when(ctx).selectJobOrCategory(any());
+		Consumer<GameContext> fn = ActionResolver.parse(HASHMAL_27_065H, null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+	}
+
+	@Test
+	void hashmalAddsUpToTwoOfTheNamedJobFromTheTopThree() {
+		MainWindow mw = new MainWindow();
+		CardData warriorA = makeJobCard("Warrior A", "Earth", "Forward", "Warrior");
+		CardData mage     = makeJobCard("Mage", "Earth", "Forward", "Mage");
+		CardData warriorB = makeJobCard("Warrior B", "Earth", "Backup", "Warrior");
+		CardData deep     = makeJobCard("Warrior Deep", "Earth", "Forward", "Warrior");
+		Collections.addAll(mw.gameState.getP2MainDeck(), warriorA, mage, warriorB, deep);
+		castHashmalNaming(mw, "job", "Warrior");
+
+		assertEquals(Set.of(warriorA, warriorB), Set.copyOf(mw.gameState.getP2Hand()), "Forward or Backup");
+		assertEquals(List.of(deep, mage), List.copyOf(mw.gameState.getP2MainDeck()),
+				"only the top 3; the rest to the bottom");
+	}
+
+	@Test
+	void hashmalReadsANamedCategoryToo() {
+		MainWindow mw = new MainWindow();
+		CardData seven = makeCategoryForward("Seven", "Earth", "VII");
+		CardData eight = makeCategoryForward("Eight", "Earth", "VIII");
+		Collections.addAll(mw.gameState.getP2MainDeck(), eight, seven);
+		castHashmalNaming(mw, "category", "VII");
+
+		assertEquals(List.of(seven), mw.gameState.getP2Hand());
+		assertEquals(List.of(eight), List.copyOf(mw.gameState.getP2MainDeck()));
+	}
+
+	// =========================================================================================
+	// 27-089H Ramuh: "EX BURST Choose 1 Forward. Deal it 6000 damage. Reveal the top 3 cards of your
+	// deck. Add 1 Card Name Ramuh among them to your hand and return the other cards to the bottom of
+	// your deck in any order."
+	// =========================================================================================
+
+	private static final String RAMUH_27_089H = "[[ex]]EX BURST[[/]] Choose 1 Forward. Deal it 6000 damage. Reveal the "
+			+ "top 3 cards of your deck. Add 1 Card Name Ramuh among them to your hand and return the other cards to "
+			+ "the bottom of your deck in any order.";
+
+	@Test
+	void ramuhDeals6000AndFindsAnotherRamuhInTheTopThree() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		CardData other = makeForward("Other", "Lightning", 2, 5000);
+		CardData ramuh = makeSummon("Ramuh", "Lightning", 2, RAMUH_27_089H);
+		CardData third = makeForward("Third", "Lightning", 2, 5000);
+		CardData deep  = makeForward("Deep", "Lightning", 2, 5000);
+		Collections.addAll(mw.gameState.getP2MainDeck(), other, ramuh, third, deep);
+		castAsP2(mw, makeSummon("Ramuh", "Lightning", 2, RAMUH_27_089H));
+
+		assertEquals(6000, damageOn(mw, theirs));
+		assertEquals(List.of(ramuh), mw.gameState.getP2Hand());
+		assertEquals(deep, mw.gameState.getP2MainDeck().peekFirst(), "the other two went to the bottom");
+		assertEquals(3, mw.gameState.getP2MainDeck().size());
+	}
+
+	@Test
+	void ramuhLooksNoDeeperThanThree() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Theirs", "Water", 5, 9000));
+		CardData deepRamuh = makeSummon("Ramuh", "Lightning", 2, RAMUH_27_089H);
+		Collections.addAll(mw.gameState.getP2MainDeck(),
+				makeForward("A", "Lightning", 2, 5000), makeForward("B", "Lightning", 2, 5000),
+				makeForward("C", "Lightning", 2, 5000), deepRamuh);
+		castAsP2(mw, makeSummon("Ramuh", "Lightning", 2, RAMUH_27_089H));
+
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+		assertEquals(deepRamuh, mw.gameState.getP2MainDeck().peekFirst());
+	}
+
+	// =========================================================================================
+	// 27-108H Leviathan: "Choose 1 Forward of cost 4 or less opponent controls. Return it to its
+	// owner's hand. You may play 1 Forward of cost 3 or less from your hand onto the field dull."
+	// =========================================================================================
+
+	private static final String LEVIATHAN_27_108H = "Choose 1 Forward of cost 4 or less opponent controls. Return it "
+			+ "to its owner's hand. You may play 1 Forward of cost 3 or less from your hand onto the field dull.";
+
+	@Test
+	void leviathan27BouncesACheapForwardAndPlaysOneOfYoursDull() {
+		MainWindow mw = new MainWindow();
+		CardData cheap  = makeForward("Cheap", "Fire", 4, 8000);
+		CardData costly = makeForward("Costly", "Fire", 5, 9000);
+		placeP1Forward(mw, costly);
+		placeP1Forward(mw, cheap);
+		CardData three = makeForward("Three", "Water", 3, 7000);
+		CardData four  = makeForward("Four", "Water", 4, 8000);
+		mw.gameState.getP2Hand().add(four);
+		mw.gameState.getP2Hand().add(three);
+		castAsP2(mw, makeSummon("Leviathan", "Water", 5, LEVIATHAN_27_108H));
+
+		assertEquals(List.of(cheap), mw.gameState.getP1Hand(), "cost 4 or less, to its owner's hand");
+		assertEquals(List.of(costly), mw.p1ForwardCards);
+		assertEquals(List.of(three), mw.p2ForwardCards, "cost 3 or less");
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0));
+		assertEquals(List.of(four), mw.gameState.getP2Hand());
+	}
+
+	// =========================================================================================
 	// 28-064H Cactuar, second option: "Choose 1 Forward. It gains 'This Forward cannot attack or
 	// block.' until the end of the turn. Draw 1 card."
 	//

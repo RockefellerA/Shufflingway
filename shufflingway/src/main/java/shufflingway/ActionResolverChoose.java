@@ -6009,6 +6009,29 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "If it is dull or has received damage, break it." (27-031H Moomba) ---
+        // Ahead of the plain break below for the reason the Diabolos branch above is. As there, the
+        // choose happens either way and only the break is conditional.
+        if (FOLLOWUP_BREAK_IF_DULL_OR_DAMAGED.matcher(primaryFollowup.trim()).matches()) {
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Break if it is dull or has received damage");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                List<ForwardTarget> hit = new ArrayList<>();
+                for (ForwardTarget t : ts) {
+                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                    boolean dull = (t.isP1() ? ctx.p1ForwardState(t.idx()) : ctx.p2ForwardState(t.idx())) == CardState.DULL;
+                    int damage   = t.isP1() ? ctx.p1ForwardCurrentDamage(t.idx()) : ctx.p2ForwardCurrentDamage(t.idx());
+                    if (dull || damage > 0) hit.add(t);
+                    else ctx.logEntry("Effect: it is active and undamaged — not broken");
+                }
+                sortedByIdxDesc(hit, true) .forEach(ctx::breakTarget);
+                sortedByIdxDesc(hit, false).forEach(ctx::breakTarget);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Break gated on power, with a control condition that lifts the gate (3-102R Odin) ---
         // Read off the whole followup and ahead of the plain break below, which finds "break it"
         // in the first sentence and breaks whatever was chosen — dropping both conditions.

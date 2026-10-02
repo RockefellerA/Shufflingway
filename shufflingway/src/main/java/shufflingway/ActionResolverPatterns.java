@@ -9001,6 +9001,16 @@ final class ActionResolverPatterns {
         "|decreased\\s+or\\s+increased),\\s+break\\s+(?:it|them)[.!]?$"
     );
     /**
+     * "If it is dull or has received damage, break it." — 27-031H Moomba, the choose followup that
+     * breaks a chosen Forward only when it is dull or carries damage.
+     *
+     * <p>Anchored end to end and read ahead of the plain break followup, for the reason
+     * {@link #FOLLOWUP_BREAK_IF_POWER_CHANGED} is.
+     */
+    static final Pattern FOLLOWUP_BREAK_IF_DULL_OR_DAMAGED = Pattern.compile(
+        "(?i)^If\\s+it\\s+is\\s+dull\\s+or\\s+has\\s+received\\s+damage,\\s+break\\s+it[.!]?$"
+    );
+    /**
      * "If it has N power or less, break it. If you control &lt;condition&gt;, break it regardless
      * of its power instead." — 3-102R Odin, the corpus's only printing of a power-gated break with
      * a control condition that lifts the gate.
