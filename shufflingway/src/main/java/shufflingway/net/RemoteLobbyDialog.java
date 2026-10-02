@@ -81,8 +81,9 @@ public class RemoteLobbyDialog extends JDialog {
         content.setBorder(BorderFactory.createEmptyBorder(16, 20, 12, 20));
 
         // ── Server ───────────────────────────────────────────────────────────
-        serverField = new JTextField(14);
-        portField   = new JTextField(String.valueOf(HostLobbyDialog.DEFAULT_PORT), 5);
+        // The last server that accepted this client, so it only has to be typed once.
+        serverField = new JTextField(AppSettings.getRemoteServer(), 14);
+        portField   = new JTextField(String.valueOf(AppSettings.getRemotePort(HostLobbyDialog.DEFAULT_PORT)), 5);
         connectBtn  = new JButton("Connect");
         connectBtn.addActionListener(e -> attemptConnect());
         JPanel serverRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
@@ -422,6 +423,9 @@ public class RemoteLobbyDialog extends JDialog {
 
                 SwingUtilities.invokeLater(() -> {
                     welcomed = true;
+                    // Saved only once the server has accepted us, so a mistyped address is not kept.
+                    AppSettings.setRemoteServer(server, port);
+                    AppSettings.save();
                     statusLabel.setText("Connected. Fetching lobbies…");
                     pollTimer.start();
                     refreshControls();

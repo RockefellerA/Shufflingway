@@ -5,8 +5,7 @@ import shufflingway.net.GameConnection;
 import shufflingway.net.HostLobbyDialog;
 import shufflingway.net.JoinLobbyDialog;
 import shufflingway.net.MatchSetup;
-// REMOTE:
-// import shufflingway.net.RemoteLobbyDialog;
+import shufflingway.net.RemoteLobbyDialog;
 
 import javax.swing.*;
 import java.util.function.Consumer;
@@ -14,6 +13,7 @@ import java.util.function.Consumer;
 /**
  * Multiplayer menu — Local ▸ Host / Join start a game over a direct TCP connection; hosts on
  * the same network are discovered automatically (see {@link shufflingway.net.LanDiscovery}).
+ * Remote… plays through the relay server instead ({@link RemoteLobbyDialog}).
  * Once the lobby has agreed on decks, shuffle seed and first player, the active
  * {@link GameConnection} is stored and the resulting {@link MatchSetup} is handed to the
  * main window, which starts the game from it.
@@ -23,9 +23,7 @@ public class MultiplayerMenu extends JMenu {
     private GameConnection activeConnection;
     private final JMenuItem hostItem;
     private final JMenuItem joinItem;
-    // REMOTE: uncomment every REMOTE block in this file (four, counting the import) to offer
-    // Remote play.
-    // private final JMenuItem remoteItem = new JMenuItem("Remote…");
+    private final JMenuItem remoteItem = new JMenuItem("Remote…");
     private final JMenuItem disconnectItem;
 
     /**
@@ -68,15 +66,15 @@ public class MultiplayerMenu extends JMenu {
         localMenu.add(joinItem);
         add(localMenu);
 
-        // REMOTE: a dedicated server hosts the lobby, so there is no Host/Join choice to make.
-        // remoteItem.addActionListener(e -> {
-        //     RemoteLobbyDialog dlg = new RemoteLobbyDialog(owner);
-        //     dlg.setVisible(true);
-        //     if (dlg.getConnection() != null && dlg.getSetup() != null)
-        //         activate(dlg.getConnection(), dlg.getSetup(), owner,
-        //                 onConnected, onDisconnected, onActionReceived);
-        // });
-        // add(remoteItem);
+        // The relay server hosts every remote lobby, so there is no Host/Join choice to make.
+        remoteItem.addActionListener(e -> {
+            RemoteLobbyDialog dlg = new RemoteLobbyDialog(owner);
+            dlg.setVisible(true);
+            if (dlg.getConnection() != null && dlg.getSetup() != null)
+                activate(dlg.getConnection(), dlg.getSetup(), owner,
+                        onConnected, onDisconnected, onActionReceived);
+        });
+        add(remoteItem);
 
         addSeparator();
         add(disconnectItem);
@@ -136,8 +134,7 @@ public class MultiplayerMenu extends JMenu {
         boolean connected = activeConnection != null;
         hostItem.setEnabled(!connected);
         joinItem.setEnabled(!connected);
-        // REMOTE:
-        // remoteItem.setEnabled(!connected);
+        remoteItem.setEnabled(!connected);
         disconnectItem.setEnabled(connected);
     }
 

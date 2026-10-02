@@ -213,6 +213,27 @@ public final class AppSettings {
     }
 
     /**
+     * The relay server last connected to for remote play, or {@code ""} if none. Kept here rather
+     * than in the source because the address is the player's own, and changes when the server moves.
+     */
+    public static String getRemoteServer() {
+        return props.getProperty("multiplayer.remote.server", "").trim();
+    }
+
+    /** The relay server's port as last used, or {@code defaultPort} if none has been. */
+    public static int getRemotePort(int defaultPort) {
+        String v = props.getProperty("multiplayer.remote.port");
+        if (v == null) return defaultPort;
+        try { return Integer.parseInt(v.trim()); } catch (NumberFormatException e) { return defaultPort; }
+    }
+
+    /** Records the relay server that just accepted a connection (call {@link #save()} to persist). */
+    public static void setRemoteServer(String server, int port) {
+        props.setProperty("multiplayer.remote.server", server.trim());
+        props.setProperty("multiplayer.remote.port", String.valueOf(port));
+    }
+
+    /**
      * Whether P1's Main Phases advance by themselves when there is nothing left to do in them, and
      * the opponent's Main Phase priority windows pass likewise. Defaults to {@code true}.
      */
