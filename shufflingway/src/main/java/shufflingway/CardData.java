@@ -5769,6 +5769,33 @@ public record CardData(
     );
 
     /**
+     * "If you have at least 1 Card Name A, 1 Card Name B, … among N different cards in your Damage
+     * Zone, [target] gains [effects]." — PR-085 Clan Gully. Anchored end to end and its effects
+     * limited to power and keywords, so a wording this does not fully read is left unclaimed.
+     * Groups: {@code names} (the "1 Card Name …" list), {@code count} (word or digit),
+     * {@code target}, {@code effects}.
+     */
+    private static final Pattern IF_DAMAGE_ZONE_NAMES_BOOST = Pattern.compile(
+        "(?i)^If\\s+you\\s+have\\s+at\\s+least\\s+(?<names>1\\s+Card\\s+Name\\s+.+?)\\s+among\\s+" +
+        "(?<count>\\w+)\\s+different\\s+cards\\s+in\\s+your\\s+Damage\\s+Zone,\\s+(?<target>.+?)\\s+gains\\s+" +
+        "(?<effects>\\+\\d+\\s+power(?:(?:,\\s*|\\s+)(?:and\\s+)?(?:Haste|Brave|First\\s+Strike|Back\\s+Attack))*)" +
+        "\\.?\\s*$"
+    );
+
+    /** Splits {@link #IF_DAMAGE_ZONE_NAMES_BOOST}'s {@code names} group between its "1 Card Name X" items. */
+    private static final Pattern DAMAGE_ZONE_NAME_SEPARATOR = Pattern.compile(
+        "(?i)(?:\\s*,\\s*(?:and\\s+)?|\\s+and\\s+)(?=1\\s+Card\\s+Name\\s+)");
+
+    private static final List<String> NUMBER_WORDS = List.of(
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten");
+
+    /** "four" or "4" as 4; -1 for anything else. */
+    private static int countOf(String word) {
+        if (word.length() <= 2 && word.chars().allMatch(Character::isDigit)) return Integer.parseInt(word);
+        return NUMBER_WORDS.indexOf(word.toLowerCase(Locale.ROOT));
+    }
+
+    /**
      * "If [CardName] is [dull|active|attacking], [target] gains [effects]." — Knight 17-100C's
      * +3000 power, and Queen 21-089R's pair of quoted abilities.
      * Groups: {@code condcard} (the card whose state is the gate), {@code state}, {@code target},
@@ -6423,6 +6450,26 @@ public record CardData(
                 result.add(new IfControlBoost(List.of(ControlCondition.forNoCrystal()), "", targetName,
                         parseIcbTargetFilter(targetName), -Integer.parseInt(noCrystalM.group("power")),
                         EnumSet.noneOf(Trait.class), "", false, false, false, null));
+                continue;
+            }
+
+            // "If you have at least 1 Card Name A, … among N different cards in your Damage Zone,
+            // [target] gains [effects]." Claimed only when N agrees with the names listed: a count
+            // this cannot reconcile is a wording it does not understand.
+            Matcher dzNamesM = IF_DAMAGE_ZONE_NAMES_BOOST.matcher(seg);
+            if (dzNamesM.matches()) {
+                List<String> names = new ArrayList<>();
+                for (String item : DAMAGE_ZONE_NAME_SEPARATOR.split(dzNamesM.group("names")))
+                    names.add(item.replaceFirst("(?i)^1\\s+Card\\s+Name\\s+", "").trim());
+                if (names.size() == countOf(dzNamesM.group("count"))) {
+                    String targetName = dzNamesM.group("target").trim();
+                    String effectsStr = dzNamesM.group("effects");
+                    Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
+                    int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
+                    result.add(new IfControlBoost(List.of(ControlCondition.forDamageZoneCardNames(names)), "",
+                            targetName, parseIcbTargetFilter(targetName), powerBonus,
+                            traitsNamedIn(effectsStr), "", false, false, false, null));
+                }
                 continue;
             }
 
@@ -10770,7 +10817,9 @@ public record CardData(
             if (!m.matches()) continue;
             if (result == null) result = new java.util.LinkedHashSet<>();
             String raw = m.group("names");
-            for (String part : raw.split("(?i)\\s+and\\s+Card\\s+Name\\s+")) {
+            // Two names are joined by "and"; a longer list by commas, with "and" before the last
+            // (PR-085 Clan Gully: "Card Name Luso, Card Name Adelle, … and Card Name Hurdy").
+            for (String part : raw.split("(?i)(?:\\s*,\\s*(?:and\\s+)?|\\s+and\\s+)Card\\s+Name\\s+")) {
                 String n = part.replaceFirst("(?i)^Card\\s+Name\\s+", "").trim();
                 if (!n.isEmpty()) result.add(n);
             }

@@ -27666,6 +27666,147 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// PR-085 Clan Gully: "Clan Gully is also Card Name Luso, Card Name Adelle, Card Name Cid of
+	// Clan Gully and Card Name Hurdy in all situations. If you have at least 1 Card Name Luso,
+	// 1 Card Name Adelle, 1 Card Name Cid of Clan Gully, and 1 Card Name Hurdy among four different
+	// cards in your Damage Zone, Clan Gully gains +20000 power and Brave."
+	//
+	// "Four different cards" makes this more than four name lookups: each name needs a card of its
+	// own. A Clan Gully in the Damage Zone is all four names at once, yet covers only one of them.
+	// =========================================================================================
+
+	private static final String CLAN_GULLY_TEXT = "Clan Gully is also Card Name Luso, Card Name Adelle, "
+			+ "Card Name Cid of Clan Gully and Card Name Hurdy in all situations. [[br]] If you have at least "
+			+ "1 Card Name Luso, 1 Card Name Adelle, 1 Card Name Cid of Clan Gully, and 1 Card Name Hurdy "
+			+ "among four different cards in your Damage Zone, Clan Gully gains +20000 power and Brave.";
+
+	/** A Forward whose aliases and conditional boosts are parsed from {@code text}. */
+	private static CardData makeAliasForward(String name, int power, String job, String category, String text) {
+		return new CardData(null, name, "Light", 3, power, "Forward", false, 0, false, false,
+				CardData.parseTraits(text, name), 0, List.of(), null, List.of(),
+				List.of(), List.of(), CardData.parseFieldAbilities(text, "Forward"),
+				CardData.parseIfControlBoosts(text, "Forward"),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				job, category, null, text);
+	}
+
+	private static CardData makeClanGully() {
+		return makeAliasForward("Clan Gully", 8000, "Clan", "FFTA2", CLAN_GULLY_TEXT);
+	}
+
+	/** Clan Gully on P1's field, with one card per name in P1's Damage Zone. */
+	private static MainWindow gullyWithP1Damage(String... names) {
+		MainWindow mw = new MainWindow();
+		for (String name : names)
+			mw.gameState.getP1DamageZone().add(
+					name.equals("Clan Gully") ? makeClanGully() : makeForward(name, "Light", 3, 7000));
+		placeP1Forward(mw, makeClanGully());
+		return mw;
+	}
+
+	@Test
+	void clanGullyIsAllFourOfItsNames() {
+		CardData gully = makeClanGully();
+		assertEquals(List.of("Luso", "Adelle", "Cid of Clan Gully", "Hurdy"), List.copyOf(gully.alsoCardNames()));
+		assertTrue(CardFilters.cardNamesOverlap(gully, makeForward("Cid of Clan Gully", "Fire", 3, 7000)),
+				"a name from the middle of the comma list counts for the uniqueness rule");
+		assertTrue(CardFilters.cardNamesOverlap(gully, makeForward("Hurdy", "Wind", 2, 5000)));
+		assertFalse(CardFilters.cardNamesOverlap(gully, makeForward("Vaan", "Wind", 2, 5000)));
+	}
+
+	@Test
+	void aTwoNameAliasStillSplitsOnAnd() {
+		CardData yunaTidus = makeAliasForward("Yuna & Tidus", 8000, "Summoner/Guardian", "Anniversary",
+				"Yuna & Tidus is also Card Name Yuna and Card Name Tidus in all situations.");
+		assertEquals(List.of("Yuna", "Tidus"), List.copyOf(yunaTidus.alsoCardNames()));
+	}
+
+	@Test
+	void clanGullyParsesAsADamageZoneGatedBoost() {
+		List<IfControlBoost> boosts = CardData.parseIfControlBoosts(CLAN_GULLY_TEXT, "Forward");
+		assertEquals(1, boosts.size());
+		IfControlBoost icb = boosts.get(0);
+		assertEquals("Clan Gully", icb.targetCardName());
+		assertEquals(20000, icb.powerBonus());
+		assertEquals(EnumSet.of(CardData.Trait.BRAVE), icb.grantedTraits());
+		assertEquals("damageZone(Luso & Adelle & Cid of Clan Gully & Hurdy)", icb.conditions().get(0).toString());
+		assertTrue(makeClanGully().traits().isEmpty(), "Brave comes with the boost; it is not printed");
+	}
+
+	@Test
+	void aCountThatDisagreesWithTheNamesListedIsLeftUnread() {
+		String miscounted = CLAN_GULLY_TEXT.replace("among four different", "among three different");
+		assertTrue(CardData.parseIfControlBoosts(miscounted, "Forward").isEmpty(),
+				"claiming it would read a condition the card does not print");
+	}
+
+	@Test
+	void allFourNamesInTheDamageZoneGiveClanGully28000PowerAndBrave() {
+		MainWindow mw = gullyWithP1Damage("Luso", "Adelle", "Cid of Clan Gully", "Hurdy");
+		assertEquals(28000, mw.effectiveP1ForwardPower(0));
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void threeOfTheFourIsNotEnough() {
+		MainWindow mw = gullyWithP1Damage("Luso", "Adelle", "Cid of Clan Gully", "Vaan");
+		assertEquals(8000, mw.effectiveP1ForwardPower(0));
+		assertFalse(mw.effectiveP1HasTrait(0, CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void theBoostArrivesWithTheDamageThatCompletesTheSet() {
+		MainWindow mw = gullyWithP1Damage("Luso", "Adelle", "Cid of Clan Gully");
+		assertEquals(8000, mw.effectiveP1ForwardPower(0));
+
+		mw.gameState.getP1DamageZone().add(makeForward("Hurdy", "Light", 2, 5000));
+
+		assertEquals(28000, mw.effectiveP1ForwardPower(0));
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void aClanGullyInTheDamageZoneStandsInForTheOneNameMissing() {
+		MainWindow mw = gullyWithP1Damage("Luso", "Adelle", "Cid of Clan Gully", "Clan Gully");
+		assertEquals(28000, mw.effectiveP1ForwardPower(0));
+	}
+
+	@Test
+	void oneClanGullyCannotBeTwoOfTheFourCards() {
+		// It could be Adelle or Hurdy, but not both: three cards cannot cover four names.
+		MainWindow mw = gullyWithP1Damage("Luso", "Cid of Clan Gully", "Clan Gully");
+		assertEquals(8000, mw.effectiveP1ForwardPower(0));
+	}
+
+	@Test
+	void fourCopiesOfOneNameAreNotFourDifferentNames() {
+		MainWindow mw = gullyWithP1Damage("Luso", "Luso", "Luso", "Luso");
+		assertEquals(8000, mw.effectiveP1ForwardPower(0));
+	}
+
+	@Test
+	void twoClanGullysAreSavedForTheNamesNothingElseCovers() {
+		// Taken in order, the two Gullys would be spent on Luso and Adelle, leaving nothing for Cid of
+		// Clan Gully or Hurdy. The real Luso and Adelle are later in the zone, so the match has to
+		// back out of that first choice to find the assignment that works.
+		MainWindow mw = gullyWithP1Damage("Clan Gully", "Clan Gully", "Luso", "Adelle");
+		assertEquals(28000, mw.effectiveP1ForwardPower(0));
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void theOpponentsDamageZoneDoesNotCount() {
+		MainWindow mw = new MainWindow();
+		for (String name : List.of("Luso", "Adelle", "Cid of Clan Gully", "Hurdy")) {
+			mw.gameState.getP2DamageZone().add(makeForward(name, "Light", 3, 7000));
+			mw.p2DamageCount++;
+		}
+		placeP1Forward(mw, makeClanGully());
+		assertEquals(8000, mw.effectiveP1ForwardPower(0));
+	}
+
+	// =========================================================================================
 	// Ramza 7-104H prints three self-power gates at rising thresholds — Haste at 4000, Brave at
 	// 6000, First Strike at 8000 — off a printed power of 2000, which clears none of them. The
 	// card is built to unlock its own gates: its 《Lightning》 ability is +2000 power.

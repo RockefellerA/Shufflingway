@@ -23,6 +23,9 @@ import java.util.stream.Collectors;
  *   <li><b>Named-state mode</b>: {@link #stateCardName} is non-null — condition is met when the
  *       named card is on the controlling player's field in the state {@link #namedState} gives
  *       (dull, active, or attacking).</li>
+ *   <li><b>Damage-zone mode</b> ({@link #isDamageZoneMode()}): every name in
+ *       {@link #damageZoneCardNames} is matched by a different card in the controlling player's
+ *       Damage Zone ({@link #forDamageZoneCardNames}).</li>
  * </ul>
  */
 public record ControlCondition(
@@ -46,16 +49,18 @@ public record ControlCondition(
         boolean      bothFields,        // true: count across BOTH players' fields ("neither player controls…")
         int          maxCost,           // 0 = no cost ceiling; > 0 = card cost must be <= this
         NamedCardState namedState,      // which state stateCardName must be in; DULL when unset
-        List<ControlCondition> andConditions // whole-condition AND: every one must hold, each on its own card
+        List<ControlCondition> andConditions, // whole-condition AND: every one must hold, each on its own card
+        List<String> damageZoneCardNames // damage-zone mode: each name on a different card in the Damage Zone
 ) {
     /** The state a named card has to be in for a named-state condition to hold. */
     public enum NamedCardState { DULL, ACTIVE, ATTACKING }
 
     public ControlCondition {
-        requiredCardNames = List.copyOf(requiredCardNames);
-        orCardNames       = List.copyOf(orCardNames);
-        orAlternatives    = List.copyOf(orAlternatives);
-        andConditions     = List.copyOf(andConditions);
+        requiredCardNames   = List.copyOf(requiredCardNames);
+        orCardNames         = List.copyOf(orCardNames);
+        orAlternatives      = List.copyOf(orAlternatives);
+        andConditions       = List.copyOf(andConditions);
+        damageZoneCardNames = List.copyOf(damageZoneCardNames);
         // Dull was the only named-state wording the parser read before the other two were added,
         // so it is the default the older constructors keep getting without spelling it out.
         if (namedState == null) namedState = NamedCardState.DULL;
@@ -88,6 +93,31 @@ public record ControlCondition(
         return new ControlCondition(List.of(), 0, false, null, null, null, null, 0,
                 List.of(), false, null, null, false, false, false, 0, List.of(), false, 0, null,
                 List.copyOf(parts));
+    }
+
+    /**
+     * "If you have at least 1 Card Name A, 1 Card Name B, … among N different cards in your Damage
+     * Zone" (PR-085 Clan Gully). Met when the Damage Zone can supply a different card for each
+     * name. A card counts under its printed name or any "is also Card Name" alias, but only once:
+     * a Clan Gully in the zone, which is all four names, still covers just one of them.
+     */
+    public static ControlCondition forDamageZoneCardNames(List<String> names) {
+        return new ControlCondition(List.of(), 0, false, null, null, null, null, 0,
+                List.of(), false, null, null, false, false, false, 0, List.of(), false, 0, null,
+                List.of(), names);
+    }
+
+    /** Compatibility constructor preserving the prior 21-arg signature; defaults {@code damageZoneCardNames} to empty. */
+    public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
+            String cardType, String element, String job, String category, int minPower,
+            List<String> orCardNames, boolean anyOf, String excludeElement, String stateCardName,
+            boolean requiresCrystal, boolean allHave, boolean opponentControls, int minCost,
+            List<ControlCondition> orAlternatives, boolean bothFields, int maxCost,
+            NamedCardState namedState, List<ControlCondition> andConditions) {
+        this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
+                orCardNames, anyOf, excludeElement, stateCardName, requiresCrystal, allHave,
+                opponentControls, minCost, orAlternatives, bothFields, maxCost, namedState,
+                andConditions, List.of());
     }
 
     /** Compatibility constructor preserving the prior 20-arg signature; defaults {@code andConditions} to empty. */
@@ -243,8 +273,12 @@ public record ControlCondition(
     /** Returns {@code true} when this condition checks for specific named cards rather than a count. */
     public boolean isNamedMode() { return !requiredCardNames.isEmpty(); }
 
+    /** Returns {@code true} when this condition reads the Damage Zone rather than the field. */
+    public boolean isDamageZoneMode() { return !damageZoneCardNames.isEmpty(); }
+
     @Override
     public String toString() {
+        if (isDamageZoneMode()) return "damageZone(" + String.join(" & ", damageZoneCardNames) + ")";
         if (!andConditions.isEmpty())
             return andConditions.stream().map(ControlCondition::toString)
                     .collect(Collectors.joining(" & "));

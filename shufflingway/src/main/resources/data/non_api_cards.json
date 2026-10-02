@@ -650,6 +650,26 @@
         "Dull 8 active Job Sky Pirate Category XII Forwards: Balthier & Fran deals your opponent 7 points of damage."
       ],
       "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-196_OP_NF.jpg"
+    },
+    {
+      "_note": "Promo printing; the API returns only PR-001 through PR-003.",
+      "serial": "PR-085",
+      "name": "Clan Gully",
+      "type": "Forward",
+      "element": "Light",
+      "cost": 3,
+      "power": 8000,
+      "rarity": "PR",
+      "job": "Clan",
+      "category1": "FFTA2",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "Clan Gully is also Card Name Luso, Card Name Adelle, Card Name Cid of Clan Gully and Card Name Hurdy in all situations.",
+        "[[br]]",
+        "If you have at least 1 Card Name Luso, 1 Card Name Adelle, 1 Card Name Cid of Clan Gully, and 1 Card Name Hurdy among four different cards in your Damage Zone, Clan Gully gains +20000 power and Brave."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-085.jpg"
     }
   ]
 }

@@ -15772,6 +15772,9 @@ public class MainWindow {
 		// and it swept the opponent's board on turns Dancer stood active.
 		if (cond.stateCardName() != null)
 			return isNamedCardInState(cond.stateCardName(), cond.namedState(), isP1);
+		// Diverted for the same reason: it reads no field pool, and the walk below would pass it.
+		if (cond.isDamageZoneMode())
+			return damageZoneHoldsDistinctNames(cond.damageZoneCardNames(), isP1);
 		// "Neither player controls X" is one condition over the combined board, not two conditions
 		// over two boards, so the pools are merged rather than the sides being checked separately.
 		if (cond.bothFields()) {
@@ -15789,6 +15792,28 @@ public class MainWindow {
 				checkP1 ? p1ForwardCards : p2ForwardCards,
 				checkP1 ? p1BackupCards  : p2BackupCards,
 				checkP1 ? p1MonsterCards : p2MonsterCards);
+	}
+
+	/**
+	 * Whether {@code isP1}'s Damage Zone can give each of {@code names} a card of its own (PR-085
+	 * Clan Gully). A card matches a name by its printed name or an "is also Card Name" alias, but
+	 * serves only one name, so the search backtracks: a Clan Gully that could be any of the four is
+	 * kept for whichever name no other card covers.
+	 */
+	boolean damageZoneHoldsDistinctNames(List<String> names, boolean isP1) {
+		List<CardData> zone = isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone();
+		return assignDistinctCards(names, 0, zone, new boolean[zone.size()]);
+	}
+
+	private static boolean assignDistinctCards(List<String> names, int next, List<CardData> zone, boolean[] used) {
+		if (next == names.size()) return true;
+		for (int i = 0; i < zone.size(); i++) {
+			if (used[i] || !CardFilters.meetsCardNameFilter(zone.get(i), names.get(next))) continue;
+			used[i] = true;
+			if (assignDistinctCards(names, next + 1, zone, used)) return true;
+			used[i] = false;
+		}
+		return false;
 	}
 
 	private boolean controlConditionMetWithPools(ControlCondition cond,
@@ -16357,6 +16382,8 @@ public class MainWindow {
 				if (cond.exactCount() ? crystals != cond.minCount() : crystals < 1) return false;
 			} else if (cond.stateCardName() != null) {
 				if (!isNamedCardInState(cond.stateCardName(), cond.namedState(), isP1)) return false;
+			} else if (cond.isDamageZoneMode()) {
+				if (!damageZoneHoldsDistinctNames(cond.damageZoneCardNames(), isP1)) return false;
 			} else if (departed != null && !cond.opponentControls() && !cond.bothFields()) {
 				String except = icb.exceptCardName();
 				List<CardData> fwds = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
