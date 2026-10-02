@@ -32,7 +32,7 @@ Once the application has been installed, you can update to any new releases from
 
 * Open the Card Browser to initiate fetching card data from the official API.  
 * After this completes, create a deck in the Deck Manager. Various preconstructed decks can be loaded via the button at the top.
-* Once a 50-card deck has been created, you can jump into match over LAN or against the CPU!
+* Once a 50-card deck has been created, you can jump into match against a friend or the CPU!
 
 # Notes:
 
@@ -40,5 +40,4 @@ Once the application has been installed, you can update to any new releases from
 * Next features (aside from parsing additions and bugfixes):
   1. Additional animations for better gameplay context
   2. Title format support
-  3. More trait icons for various card states (Shielded, must attack, cannot block, etc.)
-  4. Remote multiplayer...?
+  3. More trait icons for various card states (Shielded, etc.)
