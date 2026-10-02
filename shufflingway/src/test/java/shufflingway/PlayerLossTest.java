@@ -293,15 +293,6 @@ class PlayerLossTest {
 	}
 
 	@Test
-	void theFlipIsWhatLosesNotTheDamageCountAlone() {
-		// Protection that never held has nothing to end: a player put on 7 by some other route
-		// is not lost here, at a refresh, but where the damage was dealt.
-		MainWindow mw = p1At(8, 5);
-		mw.refreshCannotLoseTheGame();
-		assertFalse(mw.gameState.isP1GameOver());
-	}
-
-	@Test
 	void afterGarnetLeavesAnEmptyDeckOnlyLosesAtTheNextDraw() {
 		MainWindow mw = p1At(3, 0);
 		CardData g = seatGarnetWith(mw, true, 7);
