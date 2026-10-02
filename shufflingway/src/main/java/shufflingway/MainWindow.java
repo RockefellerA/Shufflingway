@@ -2748,6 +2748,23 @@ public class MainWindow {
 		else phaseTracker.setPlayerNames(AppSettings.getUsername(), matchSetup.remoteUsername());
 	}
 
+	/**
+	 * The color the counters on {@code isP1}'s Characters are drawn in. P1 is the local player, in
+	 * the color they chose. P2's counters take the opponent's own choice in a networked match, and
+	 * the inverse of the local color against the CPU, or when the opponent's choice is missing or too
+	 * like the local one to tell apart on the board (see {@link CounterColors#forOpponent}).
+	 */
+	String counterColorFor(boolean isP1) {
+		return counterColorFor(isP1, AppSettings.getCounterColor(), matchSetup);
+	}
+
+	/** {@link #counterColorFor(boolean)} for a given local setting and match; {@code null} is the CPU. */
+	static String counterColorFor(boolean isP1, String localSetting, MatchSetup match) {
+		String local = CounterColors.validOrDefault(localSetting);
+		if (isP1) return local;
+		return CounterColors.forOpponent(local, match == null ? null : match.remoteCounterColor());
+	}
+
 	/** Tears down any in-progress game and clears every piece of per-game state. */
 	void resetForNewGame() {
 		// --- Tear down any in-progress game before resetting state ---
@@ -14510,7 +14527,7 @@ public class MainWindow {
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
 				if (!countersMap.isEmpty())
-					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, AppSettings.getCounterColor());
+					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, counterColorFor(true));
 				return new ImageIcon(canvas);
 			}
 			@Override protected void done() {
@@ -18897,7 +18914,7 @@ public class MainWindow {
 				else if (power > basePower)
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
 				if (!countersMap.isEmpty())
-					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, AppSettings.getCounterColor());
+					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, counterColorFor(true));
 				return new ImageIcon(canvas);
 			}
 			@Override protected void done() {
@@ -18999,7 +19016,7 @@ public class MainWindow {
 				else if (power > basePower)
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
 				if (!countersMap.isEmpty())
-					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, AppSettings.getCounterColor());
+					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, counterColorFor(false));
 				return new ImageIcon(canvas);
 			}
 			@Override protected void done() {
@@ -19091,7 +19108,7 @@ public class MainWindow {
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(230, 200, 60), state);
 				}
 				if (!countersMap.isEmpty())
-					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, AppSettings.getCounterColor());
+					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, counterColorFor(true));
 				return new ImageIcon(canvas);
 			}
 			@Override protected void done() {
@@ -22434,7 +22451,7 @@ public class MainWindow {
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
 				if (!countersMap.isEmpty())
-					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, AppSettings.getCounterColor());
+					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, counterColorFor(false));
 				return new ImageIcon(canvas);
 			}
 			@Override protected void done() {
@@ -22482,7 +22499,7 @@ public class MainWindow {
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(230, 200, 60), state);
 				}
 				if (!countersMap.isEmpty())
-					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, AppSettings.getCounterColor());
+					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, counterColorFor(false));
 				return new ImageIcon(canvas);
 			}
 			@Override protected void done() {

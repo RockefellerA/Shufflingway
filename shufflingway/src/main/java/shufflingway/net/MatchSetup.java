@@ -21,13 +21,25 @@ import java.util.Random;
  *                       is unusable on both clients for the whole game
  * @param banlistEnabled whether the host enforced the Standard banlist on both decks; a new game
  *                       on the same connection starts from this setting
+ * @param remoteCounterColor the opponent's counter color as "#rrggbb", or {@code null} when they
+ *                       sent none; the counters on the opponent's Characters are drawn in it (see
+ *                       {@code MainWindow.counterColorFor})
  */
 public record MatchSetup(int localDeckId, List<String> remoteSerials, String remoteDeckName,
                          String remoteUsername, long seed, boolean localIsHost,
-                         boolean hostGoesFirst, boolean debugEnabled, boolean banlistEnabled) {
+                         boolean hostGoesFirst, boolean debugEnabled, boolean banlistEnabled,
+                         String remoteCounterColor) {
 
 	public MatchSetup {
 		remoteSerials = List.copyOf(remoteSerials);
+	}
+
+	/** A match whose opponent sent no counter color. */
+	public MatchSetup(int localDeckId, List<String> remoteSerials, String remoteDeckName,
+	                  String remoteUsername, long seed, boolean localIsHost, boolean hostGoesFirst,
+	                  boolean debugEnabled, boolean banlistEnabled) {
+		this(localDeckId, remoteSerials, remoteDeckName, remoteUsername, seed, localIsHost,
+				hostGoesFirst, debugEnabled, banlistEnabled, null);
 	}
 
 	/** A match with the banlist off, the lobby's default. */

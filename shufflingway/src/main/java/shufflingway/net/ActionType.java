@@ -7,9 +7,13 @@ public enum ActionType {
     READY,          // payload: {} — both sides ready, game can begin
 
     // ── Lobby / match setup ───────────────────────────────────────────────────
-    DECK_LIST,      // payload: { "deckName": "...", "serials": ["1-001H", ...] }
+    DECK_LIST,      // payload: { "deckName": "...", "username": "...", "counterColor": "#rrggbb",
+                    //            "serials": ["1-001H", ...] }
                     //   The sender's own deck, expanded one entry per copy and ordered by
                     //   serial — the same order getDeckCardsDetailed produces locally.
+                    //   "counterColor" is the sender's chosen counter color, for the counters on
+                    //   their Characters; a receiver that gets none draws them in the inverse of
+                    //   its own.
     GAME_SETUP,     // payload: { "seed": <long>, "hostGoesFirst": <bool>, "debug": <bool>,
                     //            "banlist": <bool> }
                     //   Host-authored. The seed drives both decks' shuffles on both clients;

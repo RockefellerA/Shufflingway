@@ -195,7 +195,7 @@ public class NewGameDialog extends JDialog {
 				finish(new MatchSetup(localDeckId, remoteDeck.serials(), remoteDeck.name(),
 						remoteDeck.username(), p.getLong("seed"), false,
 						p.getBoolean("hostGoesFirst"), p.optBoolean("debug", false),
-						p.optBoolean("banlist", false)));
+						p.optBoolean("banlist", false), remoteDeck.counterColor()));
 			}
 			default -> { return false; }
 		}
@@ -246,7 +246,7 @@ public class NewGameDialog extends JDialog {
 				.put("debug", debug)
 				.put("banlist", banlist)));
 		finish(new MatchSetup(localDeckId, remoteDeck.serials(), remoteDeck.name(),
-				remoteDeck.username(), seed, true, hostGoesFirst, debug, banlist));
+				remoteDeck.username(), seed, true, hostGoesFirst, debug, banlist, remoteDeck.counterColor()));
 	}
 
 	/** Host: the checkbox changed. Tells the joiner, then applies it here the same way. */

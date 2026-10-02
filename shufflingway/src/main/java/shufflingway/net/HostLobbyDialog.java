@@ -240,7 +240,7 @@ public class HostLobbyDialog extends JDialog {
                 boolean banlist       = matchBanlist;
                 long    seed          = LobbyExchange.sendGameSetup(conn, hostGoesFirst, debug, banlist);
                 setup = new MatchSetup(matchDeckId, remote.serials(), remote.name(), remote.username(),
-                        seed, true, hostGoesFirst, debug, banlist);
+                        seed, true, hostGoesFirst, debug, banlist, remote.counterColor());
                 SwingUtilities.invokeLater(this::dispose);
             } catch (IOException ex) {
                 if (cancelled) return;

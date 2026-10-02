@@ -236,6 +236,26 @@ class RelayServerTest {
     }
 
     @Test
+    void eachPlayersCounterColorReachesTheOtherUnchanged() throws IOException {
+        GameConnection a = connect("A");
+        a.send(RemoteLobbyExchange.createAction("Den", "", false, false));
+        a.receiveSync();
+        GameConnection b = connect("B");
+        b.send(RemoteLobbyExchange.joinAction("Den", ""));
+        b.receiveSync();
+
+        GameAction aDeck = deck("deck-a", "1-001H");
+        aDeck.payload().put("counterColor", "#3060e0");
+        GameAction bDeck = deck("deck-b", "2-002R");
+        bDeck.payload().put("counterColor", "#e04030");
+        a.send(aDeck);
+        b.send(bDeck);
+
+        assertEquals("#e04030", RemoteLobbyExchange.awaitMatch(a, IGNORE).toSetup(1).remoteCounterColor());
+        assertEquals("#3060e0", RemoteLobbyExchange.awaitMatch(b, IGNORE).toSetup(2).remoteCounterColor());
+    }
+
+    @Test
     void inGameMessagesPassUnchangedInBothDirections() throws IOException {
         Pair p = pair("Den");
         GameAction keep = GameAction.of(ActionType.KEEP_HAND, new JSONObject().put("order", new JSONArray(List.of(2, 0, 1))));

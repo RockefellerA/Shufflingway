@@ -172,7 +172,7 @@ public final class AppSettings {
 
     /** Returns the counter tint color as a hex string (e.g. {@code "#36b06a"}). Defaults to green. */
     public static String getCounterColor() {
-        return props.getProperty("counter.color", "#36b06a");
+        return props.getProperty("counter.color", CounterColors.DEFAULT);
     }
 
     /** Sets the counter tint color (call {@link #save()} to persist). */

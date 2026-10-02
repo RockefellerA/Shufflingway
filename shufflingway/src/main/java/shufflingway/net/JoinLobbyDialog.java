@@ -352,7 +352,8 @@ public class JoinLobbyDialog extends JDialog {
                         false,
                         setupAction.payload().getBoolean("hostGoesFirst"),
                         setupAction.payload().optBoolean("debug", false),
-                        setupAction.payload().optBoolean("banlist", false));
+                        setupAction.payload().optBoolean("banlist", false),
+                        remote.counterColor());
                 SwingUtilities.invokeLater(this::dispose);
             } catch (IOException | SQLException | RuntimeException ex) {
                 GameConnection conn = connection;

@@ -2,6 +2,7 @@ package shufflingway;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -127,5 +128,44 @@ class LobbyExchangeTest {
     void aMatchSetupWithoutTheFlagRunsWithDebuggingOff() {
         MatchSetup setup = new MatchSetup(1, List.of("h1"), "Deck", "Host", 7L, true, true);
         assertFalse(setup.debugEnabled(), "unchecked is the lobby's default");
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Counter colors travel with the deck list, beside the username
+    // ---------------------------------------------------------------------------------------------
+
+    private static GameAction deckListWithColor(Object counterColor) {
+        GameAction deck = deckList("Host deck", "1-001H");
+        deck.payload().put("counterColor", counterColor);
+        return deck;
+    }
+
+    @Test
+    void theDeckListCarriesTheSendersCounterColor() throws IOException {
+        LobbyExchange.RemoteDeck deck = LobbyExchange.remoteDeckOf(deckListWithColor("#3060E0"));
+        assertEquals("#3060e0", deck.counterColor());
+    }
+
+    @Test
+    void aDeckListFromAnOlderClientCarriesNoCounterColor() throws IOException {
+        assertNull(LobbyExchange.remoteDeckOf(deckList("Host deck", "1-001H")).counterColor());
+    }
+
+    @Test
+    void aMalformedCounterColorIsDroppedRatherThanDrawn() throws IOException {
+        assertNull(LobbyExchange.remoteDeckOf(deckListWithColor("url(evil)")).counterColor());
+        assertNull(LobbyExchange.remoteDeckOf(deckListWithColor(42)).counterColor());
+    }
+
+    @Test
+    void theCounterColorSurvivesTheDeckSwapIntoTheMatch() throws IOException {
+        host.send(settings(false, false, 0));
+        host.send(deckListWithColor("#3060e0"));
+        LobbyExchange.RemoteDeck hostDeck = LobbyExchange.joinerAwaitStart(joiner, s -> {},
+                () -> deckList("Joiner deck", "2-002H"));
+
+        MatchSetup setup = new MatchSetup(2, hostDeck.serials(), hostDeck.name(), hostDeck.username(),
+                7L, false, true, false, false, hostDeck.counterColor());
+        assertEquals("#3060e0", setup.remoteCounterColor());
     }
 }

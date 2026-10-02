@@ -136,7 +136,8 @@ public final class RemoteLobbyExchange {
 					SEAT_HOST.equals(p.optString("seat")),
 					p.getBoolean("hostGoesFirst"),
 					p.optBoolean("debug", false),
-					p.optBoolean("banlist", false));
+					p.optBoolean("banlist", false),
+					opponent.counterColor());
 		}
 
 		/** The server's id for this game, for its logs; {@code ""} if it sent none. */
