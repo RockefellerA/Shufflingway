@@ -5,6 +5,8 @@ import shufflingway.net.GameConnection;
 import shufflingway.net.HostLobbyDialog;
 import shufflingway.net.JoinLobbyDialog;
 import shufflingway.net.MatchSetup;
+// REMOTE:
+// import shufflingway.net.RemoteLobbyDialog;
 
 import javax.swing.*;
 import java.util.function.Consumer;
@@ -21,6 +23,9 @@ public class MultiplayerMenu extends JMenu {
     private GameConnection activeConnection;
     private final JMenuItem hostItem;
     private final JMenuItem joinItem;
+    // REMOTE: uncomment every REMOTE block in this file (four, counting the import) to offer
+    // Remote play.
+    // private final JMenuItem remoteItem = new JMenuItem("Remote…");
     private final JMenuItem disconnectItem;
 
     /**
@@ -62,6 +67,17 @@ public class MultiplayerMenu extends JMenu {
         localMenu.add(hostItem);
         localMenu.add(joinItem);
         add(localMenu);
+
+        // REMOTE: a dedicated server hosts the lobby, so there is no Host/Join choice to make.
+        // remoteItem.addActionListener(e -> {
+        //     RemoteLobbyDialog dlg = new RemoteLobbyDialog(owner);
+        //     dlg.setVisible(true);
+        //     if (dlg.getConnection() != null && dlg.getSetup() != null)
+        //         activate(dlg.getConnection(), dlg.getSetup(), owner,
+        //                 onConnected, onDisconnected, onActionReceived);
+        // });
+        // add(remoteItem);
+
         addSeparator();
         add(disconnectItem);
     }
@@ -120,6 +136,8 @@ public class MultiplayerMenu extends JMenu {
         boolean connected = activeConnection != null;
         hostItem.setEnabled(!connected);
         joinItem.setEnabled(!connected);
+        // REMOTE:
+        // remoteItem.setEnabled(!connected);
         disconnectItem.setEnabled(connected);
     }
 
