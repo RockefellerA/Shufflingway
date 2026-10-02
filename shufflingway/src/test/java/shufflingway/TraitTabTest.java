@@ -10,8 +10,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.awt.Rectangle;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.swing.ImageIcon;
 import javax.swing.JLabel;
@@ -33,6 +36,10 @@ class TraitTabTest {
 			CardData.Trait.HASTE, CardData.Trait.BRAVE,
 			CardData.Trait.FIRST_STRIKE, CardData.Trait.CANNOT_BE_BROKEN,
 			CardData.Trait.PRIMING);
+
+	private static final List<CardData.Trait> COMBAT_STATUSES = List.of(
+			CardData.Trait.MUST_ATTACK, CardData.Trait.MUST_BLOCK,
+			CardData.Trait.CANNOT_ATTACK, CardData.Trait.CANNOT_BLOCK);
 
 	/** The centre of the on-screen half of {@code tab} — where a player would actually point. */
 	private static int[] visibleCentre(TraitTab.Tab tab, CardState state) {
@@ -190,8 +197,10 @@ class TraitTabTest {
 	// The other glyphs carry their own colour and must not answer to the priming flag at all.
 	@Test
 	void theOtherGlyphsRenderTheSameWhicheverWayPrimedReads() {
-		for (CardData.Trait t : List.of(CardData.Trait.HASTE, CardData.Trait.BRAVE,
-				CardData.Trait.FIRST_STRIKE, CardData.Trait.CANNOT_BE_BROKEN)) {
+		List<CardData.Trait> others = new ArrayList<>(List.of(CardData.Trait.HASTE, CardData.Trait.BRAVE,
+				CardData.Trait.FIRST_STRIKE, CardData.Trait.CANNOT_BE_BROKEN));
+		others.addAll(COMBAT_STATUSES);
+		for (CardData.Trait t : others) {
 			BufferedImage a = new BufferedImage(
 					CardAnimation.CARD_H, CardAnimation.CARD_H, BufferedImage.TYPE_INT_ARGB);
 			BufferedImage b = new BufferedImage(
@@ -214,6 +223,115 @@ class TraitTabTest {
 				assertEquals(0, canvas.getRGB(x, y) >>> 24, "WARP has no glyph — nothing to draw");
 	}
 
+	// ---- the attack/block status faces ----------------------------------------------------
+
+	// The four faces carry two independent bits — attack or block in the fill, must or cannot in the
+	// expression — so no two of them may render alike.
+	@Test
+	void theFourCombatStatusFacesAreAllDistinct() {
+		List<int[]> renders = new ArrayList<>();
+		for (CardData.Trait t : COMBAT_STATUSES) {
+			assertTrue(TraitTab.hasGlyph(t), t + " should have a tab");
+			BufferedImage canvas = new BufferedImage(
+					CardAnimation.CARD_H, CardAnimation.CARD_H, BufferedImage.TYPE_INT_ARGB);
+			TraitTab.renderTraitTabs(canvas, CardState.ACTIVE, List.of(t), false);
+			assertTrue(maxChroma(canvas) > 60, t + " should draw its coloured face");
+			renders.add(canvas.getRGB(0, 0, canvas.getWidth(), canvas.getHeight(), null, 0, canvas.getWidth()));
+		}
+		for (int i = 0; i < renders.size(); i++)
+			for (int j = i + 1; j < renders.size(); j++)
+				assertFalse(Arrays.equals(renders.get(i), renders.get(j)),
+						COMBAT_STATUSES.get(i) + " and " + COMBAT_STATUSES.get(j) + " render identically");
+	}
+
+	/** A plain 5000-power Forward with the given printed block restriction and field abilities. */
+	private static CardData restrictedForward(String name, boolean cannotBlockHigherPower,
+			List<FieldAbility> fieldAbilities) {
+		return new CardData(null, name, "Fire", 3, 5000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), fieldAbilities,
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, cannotBlockHigherPower, false, false, 1,
+				null, null, null, "");
+	}
+
+	@Test
+	void combatStatusFollowsTheEngineRestrictions() {
+		MainWindow mw = new MainWindow();
+		CardData f = TestCards.makeForward("Status Tester", "Fire", 3, 5000);
+		TestCards.placeP1Forward(mw, f);
+		assertTrue(mw.combatStatusDetails(true, f).isEmpty(), "a plain Forward is under no status");
+
+		mw.p1MustAttack.add(f);
+		mw.p1MustBlock.add(f);
+		assertEquals(Map.of(
+				CardData.Trait.MUST_ATTACK, List.of("Must attack this turn if able."),
+				CardData.Trait.MUST_BLOCK,  List.of("Must block this turn if able.")),
+				mw.combatStatusDetails(true, f));
+
+		// "If possible" — a Forward that cannot attack is no longer compelled to, so only the
+		// restriction shows.
+		mw.p1CannotAttack.add(f);
+		mw.p1CannotBlockPersistent.add(f);
+		assertEquals(Map.of(
+				CardData.Trait.CANNOT_ATTACK, List.of("Cannot attack this turn."),
+				CardData.Trait.CANNOT_BLOCK,  List.of("Cannot block until the end of its controller's turn.")),
+				mw.combatStatusDetails(true, f));
+
+		// The sets are per side: the same card read as P2's is under none of P1's restrictions.
+		assertTrue(mw.combatStatusDetails(false, f).isEmpty());
+		assertTrue(mw.combatStatusDetails(true, null).isEmpty());
+	}
+
+	// A variant only bars some blocks, so it shares the Cannot Block tab with its own line — and
+	// leaves a must-block standing, since against other attackers the block is still possible.
+	@Test
+	void attackerDependentBlockRestrictionsShareTheCannotBlockTab() {
+		MainWindow mw = new MainWindow();
+		CardData f = restrictedForward("Picky Blocker", true, List.of());
+		TestCards.placeP1Forward(mw, f);
+		mw.p1Turn.forwardCannotBlockInferiorPower = true;
+		mw.p1MustBlock.add(f);
+
+		Map<CardData.Trait, List<String>> details = mw.combatStatusDetails(true, f);
+		assertEquals(List.of("Cannot block a Forward with higher power than its own.",
+				"Cannot block a Forward with lower power than its own this turn."),
+				details.get(CardData.Trait.CANNOT_BLOCK));
+		assertEquals(List.of("Must block this turn if able."), details.get(CardData.Trait.MUST_BLOCK));
+
+		// An outright ban covers every variant, and lifts the must-block with it.
+		mw.p1CannotBlock.add(f);
+		details = mw.combatStatusDetails(true, f);
+		assertEquals(List.of("Cannot block this turn."), details.get(CardData.Trait.CANNOT_BLOCK));
+		assertFalse(details.containsKey(CardData.Trait.MUST_BLOCK));
+	}
+
+	@Test
+	void namedMustBlockSaysWhichAttacker() {
+		MainWindow mw = new MainWindow();
+		CardData f = restrictedForward("Dio Stand-in", false,
+				List.of(new FieldAbility("This Forward must block Garland if possible.", 0)));
+		TestCards.placeP1Forward(mw, f);
+		assertEquals(Map.of(CardData.Trait.MUST_BLOCK, List.of("Must block Garland if able.")),
+				mw.combatStatusDetails(true, f));
+	}
+
+	// The tooltip lists the card's own lines in place of the generic text, escaped for HTML.
+	@Test
+	void statusTooltipListsTheCardsOwnRules() {
+		MainWindow mw = new MainWindow();
+		List<CardData.Trait> tabs = List.of(CardData.Trait.CANNOT_BLOCK);
+		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, tabs, false,
+				Map.of(CardData.Trait.CANNOT_BLOCK, List.of("Cannot block Forwards forming a party.",
+						"Forwards of cost 5 or more cannot block (Edea & Co).")), Map.of());
+		int[] p = visibleCentre(TraitTab.layout(CardState.ACTIVE, tabs).get(0), CardState.ACTIVE);
+
+		String tip = mw.fieldSlotTooltipAt(slot, p[0], p[1]);
+		assertEquals("<html><b>Cannot Block</b><br>Cannot block Forwards forming a party.<br>"
+				+ "Forwards of cost 5 or more cannot block (Edea &amp; Co).</html>", tip);
+	}
+
 	// ---- the slot tooltip that sits on top of the geometry above --------------------------
 
 	/** A field slot the size the board gives it, carrying a card-canvas icon like the real ones. */
@@ -229,7 +347,7 @@ class TraitTabTest {
 	void slotTooltipNamesAndExplainsTheTraitUnderThePointer() {
 		MainWindow mw = new MainWindow();
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of(), Map.of());
 
 		for (TraitTab.Tab tab : TraitTab.layout(CardState.ACTIVE, ALL_GLYPHS)) {
 			int[] p = visibleCentre(tab, CardState.ACTIVE);
@@ -248,7 +366,7 @@ class TraitTabTest {
 		MainWindow mw = new MainWindow();
 		int pad = 40;
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H + pad, CardAnimation.CARD_H + pad);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of(), Map.of());
 
 		TraitTab.Tab tab = TraitTab.layout(CardState.ACTIVE, ALL_GLYPHS).get(0);
 		int[] canvasPt = visibleCentre(tab, CardState.ACTIVE);
@@ -265,7 +383,7 @@ class TraitTabTest {
 	void slotTooltipFallsBackToCountersAwayFromTabs() {
 		MainWindow mw = new MainWindow();
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of("Warp", 2));
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of(), Map.of("Warp", 2));
 
 		int offTabX = CardAnimation.CARD_H - 5;   // deep in the card art, past every tab
 		int offTabY = CardAnimation.CARD_H / 2;
@@ -279,7 +397,7 @@ class TraitTabTest {
 	void slotTooltipIsAbsentWithNoTraitsAndNoCounters() {
 		MainWindow mw = new MainWindow();
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, List.of(), false, Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, List.of(), false, Map.of(), Map.of());
 		assertNull(mw.fieldSlotTooltipAt(slot, CardAnimation.CARD_H / 2, CardAnimation.CARD_H / 2));
 		assertNull(slot.getToolTipText(), "a plain card should show no tooltip at all");
 	}
@@ -293,12 +411,12 @@ class TraitTabTest {
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
 		int[] p = visibleCentre(TraitTab.layout(CardState.ACTIVE, priming).get(0), CardState.ACTIVE);
 
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, priming, false, Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, priming, false, Map.of(), Map.of());
 		String capable = mw.fieldSlotTooltipAt(slot, p[0], p[1]);
 		assertTrue(capable.contains("Priming"), "unprimed, the tab is named for the trait");
 		assertTrue(capable.contains(TraitTab.description(CardData.Trait.PRIMING, false)));
 
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, priming, true, Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, priming, true, Map.of(), Map.of());
 		String primed = mw.fieldSlotTooltipAt(slot, p[0], p[1]);
 		assertTrue(primed.contains("Primed"), "once primed, the tab is named for the state");
 		assertTrue(primed.contains(TraitTab.description(CardData.Trait.PRIMING, true)));
@@ -311,10 +429,10 @@ class TraitTabTest {
 	void slotTooltipFollowsRerendersOfTheSameLabel() {
 		MainWindow mw = new MainWindow();
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of(), Map.of());
 
 		List<CardData.Trait> justHaste = List.of(CardData.Trait.HASTE);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, justHaste, false, Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, justHaste, false, Map.of(), Map.of());
 
 		TraitTab.Tab tab = TraitTab.layout(CardState.ACTIVE, justHaste).get(0);
 		int[] p = visibleCentre(tab, CardState.ACTIVE);

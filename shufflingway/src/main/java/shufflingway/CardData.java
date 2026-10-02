@@ -72,7 +72,13 @@ public record CardData(
         CANNOT_BE_DULLED_BY_OPP,
         CANNOT_BE_RETURNED_TO_HAND_BY_OPP,
         CANNOT_LEAVE_FIELD_BY_OPP,
-        POWER_CANNOT_BE_DECREASED_BY_OPP;
+        POWER_CANNOT_BE_DECREASED_BY_OPP,
+        // Board statuses rather than printed keywords: no card's trait set ever holds these. They
+        // exist so a TraitTab can show them, and MainWindow.combatStatusDetails decides when one applies.
+        MUST_ATTACK,
+        MUST_BLOCK,
+        CANNOT_ATTACK,
+        CANNOT_BLOCK;
 
         /**
          * Human-readable name for the game log — {@code FIRST_STRIKE} becomes {@code "First Strike"}.

@@ -34,6 +34,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -7377,13 +7378,32 @@ public class MainWindow {
 	 * Returns the traits the forward at {@code idx} should show a {@link TraitTab} for, in a
 	 * stable display order. Only traits {@link TraitTab#hasGlyph} can draw are considered, and
 	 * each is resolved through {@code effectiveHasTrait} so granted, temporary and suppressed
-	 * traits all show correctly.
+	 * traits all show correctly. The attack/block statuses are the keys of {@code statusDetails},
+	 * from {@link #forwardStatusDetails}.
 	 */
-	private List<CardData.Trait> visibleTraitTabs(boolean isP1, int idx) {
+	private List<CardData.Trait> visibleTraitTabs(boolean isP1, int idx,
+			Map<CardData.Trait, List<String>> statusDetails) {
 		List<CardData.Trait> out = new ArrayList<>();
 		for (CardData.Trait t : CardData.Trait.values())
-			if (TraitTab.hasGlyph(t) && effectiveHasTrait(isP1, idx, t)) out.add(t);
+			if (TraitTab.hasGlyph(t) && (effectiveHasTrait(isP1, idx, t) || statusDetails.containsKey(t)))
+				out.add(t);
 		return out;
+	}
+
+	/** {@link #combatStatusDetails} for the Forward at {@code idx}; empty for an empty slot. */
+	private Map<CardData.Trait, List<String>> forwardStatusDetails(boolean isP1, int idx) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		return combatStatusDetails(isP1, idx >= 0 && idx < fwds.size() ? fwds.get(idx) : null);
+	}
+
+	/**
+	 * {@link #combatStatusDetails} for the Monster at {@code idx} — empty unless it is acting as a
+	 * Forward, since that is the only time it can attack or block at all.
+	 */
+	private Map<CardData.Trait, List<String>> monsterStatusDetails(boolean isP1, int idx) {
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		boolean asForward = isP1 ? isP1MonsterTemporarilyForward(idx) : isP2MonsterTemporarilyForward(idx);
+		return combatStatusDetails(isP1, asForward ? mons.get(idx) : null);
 	}
 
 	/**
@@ -7399,11 +7419,16 @@ public class MainWindow {
 		return idx >= 0 && idx < tops.size() && tops.get(idx) != null;
 	}
 
-	/** Monster equivalent of {@link #visibleTraitTabs}, resolved through {@code effectiveMonsterHasTrait}. */
-	private List<CardData.Trait> visibleMonsterTraitTabs(boolean isP1, int idx) {
+	/**
+	 * Monster equivalent of {@link #visibleTraitTabs}, resolved through {@code effectiveMonsterHasTrait},
+	 * with its statuses from {@link #monsterStatusDetails}.
+	 */
+	private List<CardData.Trait> visibleMonsterTraitTabs(boolean isP1, int idx,
+			Map<CardData.Trait, List<String>> statusDetails) {
 		List<CardData.Trait> out = new ArrayList<>();
 		for (CardData.Trait t : CardData.Trait.values())
-			if (TraitTab.hasGlyph(t) && effectiveMonsterHasTrait(isP1, idx, t)) out.add(t);
+			if (TraitTab.hasGlyph(t) && (effectiveMonsterHasTrait(isP1, idx, t) || statusDetails.containsKey(t)))
+				out.add(t);
 		return out;
 	}
 
@@ -7704,7 +7729,7 @@ public class MainWindow {
 	 * so the same sentence binds a different player depending on who controls it.
 	 */
 	boolean forwardsMustBlock(boolean defenderIsP1) {
-		return fieldWideCompulsionBinds(AutoAbilityTriggers.FA_FIELD_FORWARDS_MUST_BLOCK, defenderIsP1);
+		return !fieldWideCompulsionSources(AutoAbilityTriggers.FA_FIELD_FORWARDS_MUST_BLOCK, defenderIsP1).isEmpty();
 	}
 
 	/**
@@ -7713,19 +7738,20 @@ public class MainWindow {
 	 * ("All Forwards") and Jack Garland 24-079L ("The Forwards opponent controls").
 	 */
 	boolean forwardsMustAttack(boolean attackerIsP1) {
-		return fieldWideCompulsionBinds(AutoAbilityTriggers.FA_FIELD_FORWARDS_MUST_ATTACK, attackerIsP1);
+		return !fieldWideCompulsionSources(AutoAbilityTriggers.FA_FIELD_FORWARDS_MUST_ATTACK, attackerIsP1).isEmpty();
 	}
 
 	/**
-	 * True when any card on either field carries {@code compulsion} — a field ability naming a whole
-	 * side of Forwards — in a way that binds {@code boundIsP1}.
+	 * The cards on either field that carry {@code compulsion} — a field ability naming a whole side
+	 * of Forwards — in a way that binds {@code boundIsP1}. Empty when nothing binds.
 	 *
 	 * <p>"you control" and "opponent controls" are read relative to the side the printing card sits
 	 * on, so the same sentence binds a different player depending on who controls it; a form naming
 	 * no controller ("All Forwards") binds both. The pattern must expose a {@code scope} group,
 	 * absent for that uncontrolled form.
 	 */
-	private boolean fieldWideCompulsionBinds(Pattern compulsion, boolean boundIsP1) {
+	private List<CardData> fieldWideCompulsionSources(Pattern compulsion, boolean boundIsP1) {
+		List<CardData> sources = new ArrayList<>();
 		for (boolean srcIsP1 : new boolean[] { true, false }) {
 			List<CardData> zone = new ArrayList<>(srcIsP1 ? p1ForwardCards : p2ForwardCards);
 			for (CardData b : srcIsP1 ? p1BackupCards : p2BackupCards) if (b != null) zone.add(b);
@@ -7739,11 +7765,11 @@ public class MainWindow {
 					boolean binds = scope == null                                   // "All Forwards"
 							|| (scope.toLowerCase().startsWith("you") ? srcIsP1 == boundIsP1
 							                                          : srcIsP1 != boundIsP1);
-					if (binds) return true;
+					if (binds) { sources.add(src); break; }
 				}
 			}
 		}
-		return false;
+		return sources;
 	}
 
 	/**
@@ -7796,6 +7822,111 @@ public class MainWindow {
 			if (s.find() && s.group("card").trim().equalsIgnoreCase(blocker.name())) return true;
 		}
 		return false;
+	}
+
+	/**
+	 * The combat statuses {@code card}, a character on {@code isP1}'s side, is under — the
+	 * {@link CardData.Trait#MUST_ATTACK}, {@code MUST_BLOCK}, {@code CANNOT_ATTACK} and
+	 * {@code CANNOT_BLOCK} tabs — each mapped to the lines its tooltip lists, one per rule that
+	 * imposes it. A status that does not apply is absent; a null card is under none.
+	 *
+	 * <p>Each line reads the same source the attack and block legality checks do, so a tab
+	 * appears exactly when the engine enforces something. Variants that only bite against some
+	 * attackers ("cannot block a Forward of higher power", "must block Garland") share the tab of
+	 * the plain form and say which attackers in their line; they are dropped when an outright
+	 * "cannot block" already covers them. A "must" never shows alongside an outright "cannot",
+	 * which lifts it — "if possible" — but does alongside a variant, which only lifts it sometimes.
+	 */
+	Map<CardData.Trait, List<String>> combatStatusDetails(boolean isP1, CardData card) {
+		Map<CardData.Trait, List<String>> out = new EnumMap<>(CardData.Trait.class);
+		if (card == null) return out;
+		Set<String> cannotAttack = cannotAttackReasons(isP1, card);
+		Set<String> cannotBlock  = cannotBlockReasons(isP1, card);
+		putReasons(out, CardData.Trait.CANNOT_ATTACK, cannotAttack);
+		putReasons(out, CardData.Trait.CANNOT_BLOCK, cannotBlock.isEmpty() ? cannotBlockVariants(isP1, card) : cannotBlock);
+		if (cannotAttack.isEmpty()) putReasons(out, CardData.Trait.MUST_ATTACK, mustAttackReasons(isP1, card));
+		if (cannotBlock.isEmpty())  putReasons(out, CardData.Trait.MUST_BLOCK, mustBlockReasons(isP1, card));
+		return out;
+	}
+
+	private static void putReasons(Map<CardData.Trait, List<String>> out, CardData.Trait status, Set<String> reasons) {
+		if (!reasons.isEmpty()) out.put(status, List.copyOf(reasons));
+	}
+
+	private Set<String> cannotAttackReasons(boolean isP1, CardData card) {
+		Set<String> r = new LinkedHashSet<>();
+		if ((isP1 ? p1CannotAttack : p2CannotAttack).contains(card)) r.add("Cannot attack this turn.");
+		if ((isP1 ? p1CannotAttackPersistent : p2CannotAttackPersistent).contains(card))
+			r.add("Cannot attack until the end of its controller's turn.");
+		if (card.cannotAttackOrBlock()) r.add("Cannot attack or block.");
+		String both = fieldAbilityCannotAttackOrBlockReason(card, isP1);
+		if (both != null) r.add(both);
+		String attack = fieldAbilityCannotAttackReason(card, isP1);
+		if (attack != null) r.add(attack);
+		return r;
+	}
+
+	/** The rules that bar {@code card} from blocking anything at all. */
+	private Set<String> cannotBlockReasons(boolean isP1, CardData card) {
+		Set<String> r = new LinkedHashSet<>();
+		if ((isP1 ? p1CannotBlock : p2CannotBlock).contains(card)) r.add("Cannot block this turn.");
+		if ((isP1 ? p1CannotBlockPersistent : p2CannotBlockPersistent).contains(card))
+			r.add("Cannot block until the end of its controller's turn.");
+		if (card.cannotBlockAtAll()) r.add("Cannot block.");
+		if (card.cannotAttackOrBlock()) r.add("Cannot attack or block.");
+		CardData lockSrc = fieldCostLockSource(card);
+		if (lockSrc != null) {
+			int[] lock = lockSrc.costForwardsCannotBlock();
+			r.add("Forwards of cost " + lock[0] + (lock[1] > 0 ? " or more" : " or less")
+					+ " cannot block (" + lockSrc.name() + ").");
+		}
+		String both = fieldAbilityCannotAttackOrBlockReason(card, isP1);
+		if (both != null) r.add(both);
+		return r;
+	}
+
+	/** The block restrictions that depend on the attacker, and so bar only some blocks. */
+	private Set<String> cannotBlockVariants(boolean isP1, CardData card) {
+		Set<String> r = new LinkedHashSet<>();
+		if (card.cannotBlockHigherPower()) r.add("Cannot block a Forward with higher power than its own.");
+		if (card.cannotBlockParty()) r.add("Cannot block Forwards forming a party.");
+		if (turn(isP1).forwardCannotBlockInferiorPower)
+			r.add("Cannot block a Forward with lower power than its own this turn.");
+		return r;
+	}
+
+	private Set<String> mustAttackReasons(boolean isP1, CardData card) {
+		Set<String> r = new LinkedHashSet<>();
+		if ((isP1 ? p1MustAttack : p2MustAttack).contains(card)) r.add("Must attack this turn if able.");
+		if (permanentMustAttackOncePerTurn.contains(card) || selfMustAttackOncePerTurn(card))
+			r.add("Must attack once per turn if able.");
+		for (CardData src : fieldWideCompulsionSources(AutoAbilityTriggers.FA_FIELD_FORWARDS_MUST_ATTACK, isP1))
+			r.add("Must attack once per turn if able (" + src.name() + ").");
+		return r;
+	}
+
+	/**
+	 * The blocker-side compulsions, including the attacker-specific ones: Dio 26-075C's granted
+	 * "This Forward must block [name]", and an opposing attacker's "Opponent must block [it]".
+	 */
+	private Set<String> mustBlockReasons(boolean isP1, CardData card) {
+		Set<String> r = new LinkedHashSet<>();
+		if ((isP1 ? p1MustBlock : p2MustBlock).contains(card)) r.add("Must block this turn if able.");
+		for (CardData src : fieldWideCompulsionSources(AutoAbilityTriggers.FA_FIELD_FORWARDS_MUST_BLOCK, isP1))
+			r.add("Must block if able (" + src.name() + ").");
+		if (!lostAbilitiesCards.contains(card)) {
+			for (FieldAbility fa : effectiveFieldAbilities(card)) {
+				Matcher named = AutoAbilityTriggers.FA_THIS_FORWARD_MUST_BLOCK_NAMED.matcher(fa.effectText());
+				if (named.find()) r.add("Must block " + named.group("cardname").trim() + " if able.");
+				Matcher self = AutoAbilityTriggers.FA_SELF_MUST_BLOCK.matcher(fa.effectText());
+				if (self.find() && self.group("card").trim().equalsIgnoreCase(card.name())) r.add("Must block if able.");
+			}
+		}
+		List<CardData> attackers = new ArrayList<>(isP1 ? p2ForwardCards : p1ForwardCards);
+		attackers.addAll(isP1 ? p2MonsterCards : p1MonsterCards);
+		for (CardData att : attackers)
+			if (attackerMustBeBlocked(att)) r.add("When " + att.name() + " attacks, it must be blocked if possible.");
+		return r;
 	}
 
 	/**
@@ -14267,6 +14398,7 @@ public class MainWindow {
 	private static final String SLOT_TIP_TRAITS  = "shufflingway.slotTipTraits";   // List<CardData.Trait>
 	private static final String SLOT_TIP_BASE    = "shufflingway.slotTipBase";     // counter tooltip, or null
 	private static final String SLOT_TIP_PRIMED  = "shufflingway.slotTipPrimed";   // Boolean
+	private static final String SLOT_TIP_DETAILS = "shufflingway.slotTipDetails";  // Map<CardData.Trait, List<String>>
 	private static final String SLOT_TIP_WIRED   = "shufflingway.slotTipWired";    // listener installed?
 
 	/**
@@ -14279,14 +14411,19 @@ public class MainWindow {
 	 * {@link ToolTipManager}, which appends its own listeners; installing ours first is what keeps
 	 * it ahead of the manager's in the dispatch order, so a tooltip that is already showing sees
 	 * the text for the tab the pointer just moved onto rather than the one it left.
+	 *
+	 * @param statusDetails per-card lines for the attack/block status tabs, from
+	 *                      {@link #combatStatusDetails}; a tab with lines here lists them in place
+	 *                      of its generic {@link TraitTab#description}
 	 */
-	void applyFieldSlotTooltip(JLabel slot, CardState state,
-			List<CardData.Trait> traitTabs, boolean primed, Map<String, Integer> countersMap) {
+	void applyFieldSlotTooltip(JLabel slot, CardState state, List<CardData.Trait> traitTabs,
+			boolean primed, Map<CardData.Trait, List<String>> statusDetails, Map<String, Integer> countersMap) {
 		String base = buildCounterTooltip(countersMap);
-		slot.putClientProperty(SLOT_TIP_STATE,  state);
-		slot.putClientProperty(SLOT_TIP_TRAITS, List.copyOf(traitTabs));
-		slot.putClientProperty(SLOT_TIP_BASE,   base);
-		slot.putClientProperty(SLOT_TIP_PRIMED, primed);
+		slot.putClientProperty(SLOT_TIP_STATE,   state);
+		slot.putClientProperty(SLOT_TIP_TRAITS,  List.copyOf(traitTabs));
+		slot.putClientProperty(SLOT_TIP_BASE,    base);
+		slot.putClientProperty(SLOT_TIP_PRIMED,  primed);
+		slot.putClientProperty(SLOT_TIP_DETAILS, Map.copyOf(statusDetails));
 
 		if (!Boolean.TRUE.equals(slot.getClientProperty(SLOT_TIP_WIRED))) {
 			slot.putClientProperty(SLOT_TIP_WIRED, Boolean.TRUE);
@@ -14329,8 +14466,19 @@ public class MainWindow {
 		CardData.Trait hit = TraitTab.traitAt(state, traits, cx, cy);
 		if (hit == null) return base;
 		boolean primed = Boolean.TRUE.equals(slot.getClientProperty(SLOT_TIP_PRIMED));
-		return "<html><b>" + TraitTab.displayName(hit, primed) + "</b><br>"
-				+ TraitTab.description(hit, primed) + "</html>";
+		@SuppressWarnings("unchecked")
+		Map<CardData.Trait, List<String>> details =
+				(Map<CardData.Trait, List<String>>) slot.getClientProperty(SLOT_TIP_DETAILS);
+		List<String> lines = details != null ? details.get(hit) : null;
+		String body = lines != null && !lines.isEmpty()
+				? String.join("<br>", lines.stream().map(MainWindow::escapeTooltipHtml).toList())
+				: TraitTab.description(hit, primed);
+		return "<html><b>" + TraitTab.displayName(hit, primed) + "</b><br>" + body + "</html>";
+	}
+
+	/** Escapes card-derived text for an HTML tooltip; card names may carry {@code &}. */
+	private static String escapeTooltipHtml(String s) {
+		return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
 	}
 
 	/** Reloads and re-renders a single P1 backup slot using its stored URL and state. */
@@ -18704,7 +18852,8 @@ public class MainWindow {
 		int fwdPow = p1MonsterForwardPower(idx);
 		Map<String, Integer> countersMap = gameState.getCountersMap(card);
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
-		List<CardData.Trait> traitTabs = visibleMonsterTraitTabs(true, idx);
+		Map<CardData.Trait, List<String>> statusDetails = monsterStatusDetails(true, idx);
+		List<CardData.Trait> traitTabs = visibleMonsterTraitTabs(true, idx, statusDetails);
 		final boolean primed = false;   // Priming tops a Forward slot; the Monster row has no tops
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		new SwingWorker<ImageIcon, Void>() {
@@ -18728,7 +18877,7 @@ public class MainWindow {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
-					applyFieldSlotTooltip(slot, state, traitTabs, primed, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, countersMap);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -18805,7 +18954,8 @@ public class MainWindow {
 		int fwdPow = p2MonsterForwardPower(idx);
 		Map<String, Integer> countersMap = gameState.getCountersMap(card);
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
-		List<CardData.Trait> traitTabs = visibleMonsterTraitTabs(false, idx);
+		Map<CardData.Trait, List<String>> statusDetails = monsterStatusDetails(false, idx);
+		List<CardData.Trait> traitTabs = visibleMonsterTraitTabs(false, idx, statusDetails);
 		final boolean primed = false;   // Priming tops a Forward slot; the Monster row has no tops
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		new SwingWorker<ImageIcon, Void>() {
@@ -18829,7 +18979,7 @@ public class MainWindow {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
-					applyFieldSlotTooltip(slot, state, traitTabs, primed, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, countersMap);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -18895,7 +19045,8 @@ public class MainWindow {
 		Color   glow     = combatGlowFor(effectiveP1Forward(idx), true);
 		Map<String, Integer> countersMap = gameState.getCountersMap(fwdCard);
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
-		List<CardData.Trait> traitTabs = visibleTraitTabs(true, idx);
+		Map<CardData.Trait, List<String>> statusDetails = forwardStatusDetails(true, idx);
+		List<CardData.Trait> traitTabs = visibleTraitTabs(true, idx, statusDetails);
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		final Object renderToken = markSlotRender(slot);
 		new SwingWorker<ImageIcon, Void>() {
@@ -18921,7 +19072,7 @@ public class MainWindow {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
-					applyFieldSlotTooltip(slot, state, traitTabs, primed, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, countersMap);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -19091,18 +19242,24 @@ public class MainWindow {
 	 * since a Forward is what the restriction speaks about however it got to be one.
 	 */
 	boolean blockBarredByFieldCostLock(CardData blocker) {
-		if (blocker == null) return false;
-		return costBlockLockExcludes(blocker, true) || costBlockLockExcludes(blocker, false);
+		return fieldCostLockSource(blocker) != null;
 	}
 
-	private boolean costBlockLockExcludes(CardData blocker, boolean side) {
+	/** The card whose cost-gated block lock bars {@code blocker}, or {@code null} when none does. */
+	CardData fieldCostLockSource(CardData blocker) {
+		if (blocker == null) return null;
+		CardData src = costBlockLockSource(blocker, true);
+		return src != null ? src : costBlockLockSource(blocker, false);
+	}
+
+	private CardData costBlockLockSource(CardData blocker, boolean side) {
 		List<CardData> fwds = side ? p1ForwardCards : p2ForwardCards;
 		CardData[]     bkps = side ? p1BackupCards  : p2BackupCards;
 		List<CardData> mons = side ? p1MonsterCards : p2MonsterCards;
-		for (CardData c : fwds)                if (costLockBars(c, blocker)) return true;
-		for (CardData c : bkps) if (c != null)  if (costLockBars(c, blocker)) return true;
-		for (CardData c : mons)                if (costLockBars(c, blocker)) return true;
-		return false;
+		for (CardData c : fwds)                if (costLockBars(c, blocker)) return c;
+		for (CardData c : bkps) if (c != null)  if (costLockBars(c, blocker)) return c;
+		for (CardData c : mons)                if (costLockBars(c, blocker)) return c;
+		return null;
 	}
 
 	private boolean costLockBars(CardData src, CardData blocker) {
@@ -19118,24 +19275,36 @@ public class MainWindow {
 	 * {@link CardData#cannotAttackOrBlock()}).
 	 */
 	boolean isFieldAbilityCannotAttackOrBlock(CardData card, boolean isP1) {
+		return fieldAbilityCannotAttackOrBlockReason(card, isP1) != null;
+	}
+
+	/**
+	 * Why {@link #isFieldAbilityCannotAttackOrBlock} holds, as tooltip text naming the condition
+	 * that is currently met, or {@code null} when it does not hold.
+	 */
+	String fieldAbilityCannotAttackOrBlockReason(CardData card, boolean isP1) {
 		// Medusa's granted "If a Petrification Counter is placed on this Forward, this Forward cannot
 		// attack or block." — driven off the counter itself (Medusa is the only source of them).
-		if (gameState.getCounters(card, "Petrification") > 0) return true;
+		if (gameState.getCounters(card, "Petrification") > 0)
+			return "Cannot attack or block while it has a Petrification Counter.";
 		for (FieldAbility fa : card.fieldAbilities()) {
 			Matcher m2 = ActionResolverPatterns.IF_DONT_CONTROL_CARD_NAME_FWD_CANNOT_ATTACK_OR_BLOCK.matcher(fa.effectText());
 			if (m2.find() && m2.group("subject").trim().equalsIgnoreCase(card.name())) {
 				String required = m2.group("required").trim();
 				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				if (fwds.stream().noneMatch(f -> f.name().equalsIgnoreCase(required))) return true;
+				if (fwds.stream().noneMatch(f -> f.name().equalsIgnoreCase(required)))
+					return "Cannot attack or block while its controller doesn't control " + required + ".";
 			}
 			Matcher m3 = ActionResolverPatterns.IF_COUNTER_LIMIT_CANNOT_ATTACK_OR_BLOCK.matcher(fa.effectText());
 			if (m3.find() && m3.group("subject").trim().equalsIgnoreCase(card.name())) {
 				int    limit       = Integer.parseInt(m3.group("count"));
 				String counterName = m3.group("countername").trim();
-				if (gameState.getCounters(card, counterName) <= limit) return true;
+				if (gameState.getCounters(card, counterName) <= limit)
+					return "Cannot attack or block while it has " + limit + " or fewer "
+							+ counterName + " Counters.";
 			}
 		}
-		return false;
+		return null;
 	}
 
 	/**
@@ -19143,24 +19312,35 @@ public class MainWindow {
 	 * attacking (attack-only restriction — does not affect blocking).
 	 */
 	boolean isFieldAbilityCannotAttack(CardData card, boolean isP1) {
+		return fieldAbilityCannotAttackReason(card, isP1) != null;
+	}
+
+	/**
+	 * Why {@link #isFieldAbilityCannotAttack} holds, as tooltip text naming the condition that is
+	 * currently met, or {@code null} when it does not hold.
+	 */
+	String fieldAbilityCannotAttackReason(CardData card, boolean isP1) {
 		for (FieldAbility fa : card.fieldAbilities()) {
 			// Unconditional: "[CardName] cannot attack."
 			Matcher mStandalone = ActionResolverPatterns.STANDALONE_CANNOT_ATTACK.matcher(fa.effectText());
 			if (mStandalone.find() && mStandalone.group("cardname").trim().equalsIgnoreCase(card.name()))
-				return true;
+				return "Cannot attack.";
 			// Conditional: "If your opponent doesn't control any Forwards, [CardName] cannot attack."
 			Matcher mOppNoFwds = ActionResolverPatterns.IF_OPP_NO_FORWARDS_CANNOT_ATTACK.matcher(fa.effectText());
 			if (mOppNoFwds.find() && mOppNoFwds.group("subject").trim().equalsIgnoreCase(card.name())) {
 				List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
-				if (oppFwds.isEmpty()) return true;
+				if (oppFwds.isEmpty()) return "Cannot attack while the opponent controls no Forwards.";
 			}
 			// Permission rather than prohibition ("can only attack if …"), so it bars the attack
 			// whenever neither arm holds — Elena 11-088R.
 			Matcher mOnlyIf = AutoAbilityTriggers.FA_SELF_ATTACK_REQUIRES_CONTROL.matcher(fa.effectText());
 			if (mOnlyIf.find() && mOnlyIf.group("card").trim().equalsIgnoreCase(card.name())
-					&& !attackPermissionMet(mOnlyIf, isP1)) return true;
+					&& !attackPermissionMet(mOnlyIf, isP1))
+				return "Can only attack while its controller controls " + mOnlyIf.group("count")
+						+ " or more Forwards, or a Job " + mOnlyIf.group("job").trim()
+						+ " Forward other than " + mOnlyIf.group("except").trim() + ".";
 		}
-		return false;
+		return null;
 	}
 
 	/**
@@ -22255,7 +22435,8 @@ public class MainWindow {
 		int basePower = (topCard != null ? topCard : fwdCard).power();
 		Map<String, Integer> countersMap = gameState.getCountersMap(fwdCard);
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
-		List<CardData.Trait> traitTabs = visibleTraitTabs(false, idx);
+		Map<CardData.Trait, List<String>> statusDetails = forwardStatusDetails(false, idx);
+		List<CardData.Trait> traitTabs = visibleTraitTabs(false, idx, statusDetails);
 		final boolean primed = isPrimedForward(false, idx);
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		final Object renderToken = markSlotRender(slot);
@@ -22282,7 +22463,7 @@ public class MainWindow {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
-					applyFieldSlotTooltip(slot, state, traitTabs, primed, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, countersMap);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();

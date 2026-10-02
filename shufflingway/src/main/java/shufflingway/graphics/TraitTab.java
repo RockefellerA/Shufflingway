@@ -9,6 +9,7 @@ import java.awt.geom.Arc2D;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
+import java.awt.geom.QuadCurve2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
@@ -23,7 +24,7 @@ import static shufflingway.graphics.CardAnimation.CARD_W;
 /**
  * Small rectangular tabs that peek out from behind a field card, one per trait the card
  * currently has, each carrying a vector-drawn glyph (Haste, Brave, First Strike, Cannot Be
- * Broken).
+ * Broken, Priming), plus the Must/Cannot Attack/Block statuses the card is under.
  *
  * <p>Tabs are composited onto the square {@code CARD_H x CARD_H} field-card canvas built by
  * {@link CardAnimation#renderBackupCard}, the same way the damage, power and counter overlays
@@ -66,6 +67,9 @@ public final class TraitTab {
     private static final Color PRIMED_FILL  = new Color(0x3d, 0xd9, 0x4a);
     private static final Color PRIMED_LINE  = new Color(0x0d, 0x3f, 0x14);
     private static final Color PRIMED_GLOW  = new Color(0xff, 0x8c, 0x1a);
+    private static final Color ATTACK_FILL  = new Color(0xe2, 0x3b, 0x3b);
+    private static final Color BLOCK_FILL   = new Color(0x3b, 0x7f, 0xe2);
+    private static final Color FACE_INK     = Color.BLACK;
 
     /** Card width the tab geometry below was authored against; everything scales off it. */
     private static final int DESIGN_CARD_W = 140;
@@ -90,7 +94,11 @@ public final class TraitTab {
             || trait == CardData.Trait.BRAVE
             || trait == CardData.Trait.FIRST_STRIKE
             || trait == CardData.Trait.CANNOT_BE_BROKEN
-            || trait == CardData.Trait.PRIMING;
+            || trait == CardData.Trait.PRIMING
+            || trait == CardData.Trait.MUST_ATTACK
+            || trait == CardData.Trait.MUST_BLOCK
+            || trait == CardData.Trait.CANNOT_ATTACK
+            || trait == CardData.Trait.CANNOT_BLOCK;
     }
 
     /**
@@ -100,6 +108,10 @@ public final class TraitTab {
      * <p>These describe Shufflingway's behaviour, not the comprehensive rules verbatim: First
      * Strike here resolves inside one atomic combat step, with no priority window between the
      * first blow and the return strike, so the text promises only what the engine delivers.
+     *
+     * <p>The four attack/block statuses get only a generic line here. On the board each tab's
+     * tooltip lists the specific rules binding that card instead ("Cannot block a Forward with
+     * higher power than its own.", "Must block Garland if able."), which MainWindow supplies.
      *
      * @param primed whether the card has actually been primed, which {@link CardData.Trait#PRIMING}
      *               reads two ways — the others ignore it
@@ -119,6 +131,10 @@ public final class TraitTab {
                                    + "this Forward answers to both card names."
                                    : "Can be primed: pay the Priming cost to pull its named card "
                                    + "out of the deck and stack it on top.";
+            case MUST_ATTACK      -> "Must attack if it is able to.";
+            case MUST_BLOCK       -> "Must block if it is able to.";
+            case CANNOT_ATTACK    -> "Cannot attack.";
+            case CANNOT_BLOCK     -> "Cannot block.";
             default               -> null;
         };
     }
@@ -264,6 +280,10 @@ public final class TraitTab {
             case FIRST_STRIKE     -> drawFirstStrikeIcon(g, x, y, size);
             case CANNOT_BE_BROKEN -> drawCannotBeBrokenIcon(g, x, y, size);
             case PRIMING          -> drawPrimingIcon(g, x, y, size, primed);
+            case MUST_ATTACK      -> drawMustAttackIcon(g, x, y, size);
+            case MUST_BLOCK       -> drawMustBlockIcon(g, x, y, size);
+            case CANNOT_ATTACK    -> drawCannotAttackIcon(g, x, y, size);
+            case CANNOT_BLOCK     -> drawCannotBlockIcon(g, x, y, size);
             default               -> { }
         }
     }
@@ -537,5 +557,91 @@ public final class TraitTab {
         g.fill(point);
 
         g.dispose();
+    }
+
+    /** Draws the "Must Attack" glyph — an angry red face. See {@link #drawFace}. */
+    public static void drawMustAttackIcon(Graphics2D g, float x, float y, float size) {
+        drawFace(g, x, y, size, ATTACK_FILL, true);
+    }
+
+    /** Draws the "Must Block" glyph — an angry blue face. See {@link #drawFace}. */
+    public static void drawMustBlockIcon(Graphics2D g, float x, float y, float size) {
+        drawFace(g, x, y, size, BLOCK_FILL, true);
+    }
+
+    /** Draws the "Cannot Attack" glyph — a glum red face. See {@link #drawFace}. */
+    public static void drawCannotAttackIcon(Graphics2D g, float x, float y, float size) {
+        drawFace(g, x, y, size, ATTACK_FILL, false);
+    }
+
+    /** Draws the "Cannot Block" glyph — a glum blue face. See {@link #drawFace}. */
+    public static void drawCannotBlockIcon(Graphics2D g, float x, float y, float size) {
+        drawFace(g, x, y, size, BLOCK_FILL, false);
+    }
+
+    /**
+     * Draws one of the four attack/block status faces into the box {@code [x, y, x + size, y + size]}.
+     * Same 24x24 logical grid as {@link #drawHasteIcon}.
+     *
+     * <p>The fill says which action (red = attack, blue = block) and the expression says which way
+     * it is compelled: {@code must} gets angry triangular eyes with brows slanting down toward the
+     * centre and a smile; otherwise round dot eyes, brows tilted up toward the centre and a frown.
+     */
+    private static void drawFace(Graphics2D g0, float x, float y, float size, Color fill, boolean must) {
+        Graphics2D g = (Graphics2D) g0.create();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        float s = size / 24f;
+        g.translate(x, y);
+        g.scale(s, s);
+
+        Ellipse2D.Float face = new Ellipse2D.Float(12 - 9.6f, 12 - 9.6f, 19.2f, 19.2f);
+        g.setColor(fill);
+        g.fill(face);
+        g.setColor(FACE_INK);
+        g.setStroke(new BasicStroke(0.8f));
+        g.draw(face);
+
+        BasicStroke feature = new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+
+        if (must) {
+            // Triangular eyes, apex pointing inward.
+            g.setStroke(new BasicStroke(0.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            for (Path2D.Float eye : new Path2D.Float[]{
+                    tri(5.8f, 8.6f, 11f, 11.4f, 6.4f, 12.6f),
+                    tri(18.2f, 8.6f, 13f, 11.4f, 17.6f, 12.6f) }) {
+                g.fill(eye);
+                g.draw(eye);
+            }
+
+            // Eyebrows slanting down toward the centre.
+            g.setStroke(feature);
+            g.draw(new Line2D.Float(5.4f, 6.4f, 10.6f, 9f));
+            g.draw(new Line2D.Float(18.6f, 6.4f, 13.4f, 9f));
+
+            g.draw(new QuadCurve2D.Float(8.2f, 15.2f, 12f, 18.6f, 15.8f, 15.2f));   // smile
+        } else {
+            // Dot eyes.
+            g.fill(new Ellipse2D.Float(8.4f - 1.3f, 11f - 1.3f, 2.6f, 2.6f));
+            g.fill(new Ellipse2D.Float(15.6f - 1.3f, 11f - 1.3f, 2.6f, 2.6f));
+
+            // Eyebrows tilted up toward the centre.
+            g.setStroke(feature);
+            g.draw(new Line2D.Float(5.6f, 8.6f, 10.6f, 6.6f));
+            g.draw(new Line2D.Float(18.4f, 8.6f, 13.4f, 6.6f));
+
+            g.draw(new QuadCurve2D.Float(8.2f, 17.6f, 12f, 14.4f, 15.8f, 17.6f));   // frown
+        }
+
+        g.dispose();
+    }
+
+    private static Path2D.Float tri(float x1, float y1, float x2, float y2, float x3, float y3) {
+        Path2D.Float p = new Path2D.Float();
+        p.moveTo(x1, y1);
+        p.lineTo(x2, y2);
+        p.lineTo(x3, y3);
+        p.closePath();
+        return p;
     }
 }
