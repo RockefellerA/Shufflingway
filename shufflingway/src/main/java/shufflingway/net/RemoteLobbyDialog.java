@@ -96,7 +96,7 @@ public class RemoteLobbyDialog extends JDialog {
         // ── Join ─────────────────────────────────────────────────────────────
         lobbyList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         lobbyList.setVisibleRowCount(5);
-        lobbyList.setCellRenderer(new DefaultListCellRenderer() {
+        lobbyList.setCellRenderer(new PlainTextListRenderer() {
             @Override public Component getListCellRendererComponent(JList<?> l, Object v, int i,
                                                                     boolean sel, boolean focus) {
                 JLabel c = (JLabel) super.getListCellRendererComponent(l, v, i, sel, focus);

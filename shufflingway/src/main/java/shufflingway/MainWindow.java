@@ -143,6 +143,7 @@ import shufflingway.menu.FileMenu;
 import shufflingway.menu.HelpMenu;
 import shufflingway.menu.MultiplayerMenu;
 import shufflingway.net.ActionType;
+import shufflingway.net.ChatText;
 import shufflingway.net.ChoiceKind;
 import shufflingway.net.GameAction;
 import shufflingway.net.GameConnection;
@@ -1924,8 +1925,7 @@ public class MainWindow {
 				}),
 				action -> {
 					if (action.type() == ActionType.CHAT) {
-						String msg = action.payload().optString("msg", "");
-						if (!msg.isEmpty()) logEntry("[Opponent] " + msg);
+						onChatReceived(action.payload().optString("msg", ""));
 					} else if (action.type() == ActionType.STATE_CHECKSUM) {
 						onRemoteChecksum(action.payload());
 					} else if (isNewGameMessage(action.type())) {
@@ -2492,7 +2492,8 @@ public class MainWindow {
 		chatSendBtn.setEnabled(false);
 
 		Runnable sendChat = () -> {
-			String text = chatInput.getText().trim();
+			// Cleaned as the receiver will clean it, so both logs show the same line.
+			String text = ChatText.clean(chatInput.getText());
 			if (text.isEmpty()) return;
 			GameConnection conn = multiplayerMenu == null ? null : multiplayerMenu.getActiveConnection();
 			if (conn == null) return;
@@ -4223,6 +4224,15 @@ public class MainWindow {
 	/** The game log's current contents, for tests that assert on what a play wrote. */
 	String gameLogText() {
 		return gameLog == null ? "" : gameLog.getText();
+	}
+
+	/**
+	 * Logs the opponent's chat message. Cleaned first, since the sender's build is not ours to trust:
+	 * a line break inside a message would otherwise start a forged log line (see {@link ChatText}).
+	 */
+	void onChatReceived(String raw) {
+		String msg = ChatText.clean(raw);
+		if (!msg.isEmpty()) logEntry("[Opponent] " + msg);
 	}
 
 	void logEntry(String text) {

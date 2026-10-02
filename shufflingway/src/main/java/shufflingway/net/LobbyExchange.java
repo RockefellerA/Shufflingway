@@ -39,6 +39,9 @@ public final class LobbyExchange {
 
 	private LobbyExchange() {}
 
+	/** Longest opponent deck name shown; a longer one is cut and ends in "…". */
+	static final int MAX_DECK_NAME_LENGTH = 100;
+
 	/**
 	 * Reads {@code deckId} out of the local deck database as a wire-ready serial list, tagged with
 	 * the local player's username and counter color, so the peer can label us on their board and
@@ -171,8 +174,11 @@ public final class LobbyExchange {
 		}
 		List<String> serials = new ArrayList<>(arr.length());
 		for (int i = 0; i < arr.length(); i++) serials.add(arr.getString(i));
-		return new RemoteDeck(action.payload().optString("deckName", "Opponent's deck"),
-				AppSettings.clampUsername(action.payload().optString("username", "")), serials,
+		// Both go into the game log, so they are cleaned like chat: a line break in either would
+		// start a forged log line.
+		String deckName = ChatText.clean(action.payload().optString("deckName", ""), MAX_DECK_NAME_LENGTH);
+		return new RemoteDeck(deckName.isEmpty() ? "Opponent's deck" : deckName,
+				AppSettings.clampUsername(ChatText.clean(action.payload().optString("username", ""))), serials,
 				CounterColors.validOrNull(action.payload().optString("counterColor", null)));
 	}
 

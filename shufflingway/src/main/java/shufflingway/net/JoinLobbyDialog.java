@@ -66,7 +66,7 @@ public class JoinLobbyDialog extends JDialog {
 
         hostList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         hostList.setVisibleRowCount(4);
-        hostList.setCellRenderer(new DefaultListCellRenderer() {
+        hostList.setCellRenderer(new PlainTextListRenderer() {
             @Override public Component getListCellRendererComponent(JList<?> l, Object v, int i,
                                                                     boolean sel, boolean focus) {
                 JLabel c = (JLabel) super.getListCellRendererComponent(l, v, i, sel, focus);
