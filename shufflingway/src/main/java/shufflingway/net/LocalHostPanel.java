@@ -5,12 +5,9 @@ import scraper.AppPaths;
 import scraper.CardDatabase;
 import shufflingway.AppSettings;
 import shufflingway.UpdateChecker;
-import shufflingway.dialog.DeckChooserPanel;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.net.*;
 import java.sql.SQLException;
@@ -20,34 +17,31 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Modal dialog that opens a {@link ServerSocket} on the default port and waits
- * for an opponent to connect. The host is announced on the local network
- * (see {@link LanDiscovery}); across the internet, share your IP address and port out-of-band.
+ * The Host tab of {@link LocalLobbyDialog}. Pressing Host opens a {@link ServerSocket} on
+ * {@link #DEFAULT_PORT} and waits for an opponent to connect. The host is announced on the local
+ * network (see {@link LanDiscovery}); across the internet, share the address shown here
+ * out-of-band. Nothing is opened or announced until Host is pressed, so a player who only came to
+ * join never ties up the port or appears in anyone's list.
  *
  * <p>"Start Game" unlocks once an opponent has connected and confirmed a deck, <em>and</em> the
  * host has picked one. Pressing it runs {@link LobbyExchange} — decks are swapped, the host picks
- * the shuffle seed and flips for first turn — and the results are exposed as a
- * {@link MatchSetup} alongside the live {@link GameConnection}. Cancelling returns {@code null}
- * from both.
+ * the shuffle seed and flips for first turn — and the dialog closes with the resulting
+ * {@link MatchSetup}. If the opponent leaves first, hosting ends and the tab can host again.
  *
  * <p>Switching on "Enable Standard Banlist" deselects both players' decks; each has to choose
  * again from the decks the banlist allows.
  */
-public class HostLobbyDialog extends JDialog {
+final class LocalHostPanel extends LocalLobbyDialog.Role {
 
     static final int DEFAULT_PORT = 7777;
 
     private GameConnection connection;
-    private ServerSocket serverSocket;
-    private MatchSetup    setup;
+    private volatile ServerSocket serverSocket;
 
     /** Announces this host to the local network while it waits for an opponent. */
     private volatile LanDiscovery.Broadcaster broadcaster;
 
-    private final JLabel statusLabel;
-    private final JButton cancelBtn;
-    private final JButton startBtn;
-    private final DeckChooserPanel deckChooser;
+    private final JButton hostBtn;
     /**
      * "Enable Debugging": whether the Debug menu may be used during the match, on both clients.
      * Offered only to a host who has the Debug menu at all; otherwise the match runs without it.
@@ -56,13 +50,16 @@ public class HostLobbyDialog extends JDialog {
     /** "Enable Standard Banlist": decks that break it cannot be chosen, by either player. */
     private final JCheckBox banlistBox;
 
+    /** Host was pressed and has not ended since. EDT only. */
+    private boolean hosting;
     /** Times the banlist has been switched on; sent with the settings to void older LOBBY_READYs. */
     private int banlistResets;
     /** Whether the joiner has a deck confirmed under the current settings. EDT only. */
     private boolean opponentReady;
     /** Start was pressed and the deck swap is under way. EDT only. */
     private boolean starting;
-    private volatile boolean cancelled;
+    /** The dialog has closed; threads still running stand down quietly. */
+    private volatile boolean closed;
 
     /** Fixed when Start is pressed, for the lobby reader to build the match from. */
     private volatile int     matchDeckId = -1;
@@ -70,16 +67,9 @@ public class HostLobbyDialog extends JDialog {
     private volatile boolean matchDebug;
     private volatile boolean matchBanlist;
 
-    public HostLobbyDialog(Frame owner) {
-        super(owner, "Host Game", true);
-        setResizable(false);
-        setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-        addWindowListener(new WindowAdapter() {
-            @Override public void windowClosing(WindowEvent e) { cancel(); }
-        });
-
-        JPanel content = new JPanel(new BorderLayout(10, 10));
-        content.setBorder(BorderFactory.createEmptyBorder(16, 20, 12, 20));
+    LocalHostPanel(LocalLobbyDialog lobby) {
+        super(lobby, new BorderLayout(0, 6));
+        setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
 
         // Show all local IPv4 addresses so the host can tell the opponent which to use
         JPanel ipPanel = new JPanel(new GridLayout(0, 1, 0, 4));
@@ -89,12 +79,7 @@ public class HostLobbyDialog extends JDialog {
             lbl.setFont(new Font("Monospaced", Font.BOLD, 13));
             ipPanel.add(lbl);
         }
-        content.add(ipPanel, BorderLayout.NORTH);
-
-        statusLabel = new JLabel("Waiting for opponent…", SwingConstants.CENTER);
-        statusLabel.setFont(new Font("Dialog", Font.PLAIN, 12));
-
-        deckChooser = new DeckChooserPanel("Your Deck", this::refreshStartButton);
+        add(ipPanel, BorderLayout.NORTH);
 
         debugBox = new JCheckBox("Enable Debugging", false);
         debugBox.setToolTipText("Let both players use the Debug menu during this game.");
@@ -105,38 +90,54 @@ public class HostLobbyDialog extends JDialog {
                 "Decks that break the Standard banlist cannot be chosen, by either player.");
         banlistBox.addActionListener(e -> onBanlistToggled());
 
-        JPanel options = new JPanel(new GridLayout(0, 1, 0, 2));
-        options.add(banlistBox);
-        if (AppSettings.isDebugEnabled()) options.add(debugBox);
+        hostBtn = new JButton("Host");
+        hostBtn.addActionListener(e -> startHosting());
 
-        JPanel south = new JPanel(new BorderLayout(0, 4));
-        south.add(statusLabel, BorderLayout.CENTER);
-        south.add(options, BorderLayout.SOUTH);
-
-        JPanel centre = new JPanel(new BorderLayout(0, 6));
-        centre.add(deckChooser, BorderLayout.CENTER);
-        centre.add(south, BorderLayout.SOUTH);
-        content.add(centre, BorderLayout.CENTER);
-
-        cancelBtn = new JButton("Cancel");
-        cancelBtn.addActionListener(e -> cancel());
-
-        startBtn = new JButton("Start Game");
-        startBtn.setEnabled(false);
-        startBtn.addActionListener(e -> beginMatch());
-
-        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        btnRow.add(cancelBtn);
-        btnRow.add(startBtn);
-        content.add(btnRow, BorderLayout.SOUTH);
-
-        setContentPane(content);
-        pack();
-        setMinimumSize(new Dimension(380, 400));
-        setLocationRelativeTo(owner);
-
-        openServerSocket();
+        // The Join tab is taller, so the spare height goes above the Host button, not between options.
+        JPanel options = new JPanel(new GridBagLayout());
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.gridx = 0; gc.gridy = 0; gc.weightx = 1; gc.anchor = GridBagConstraints.WEST;
+        gc.insets = new Insets(0, 0, 2, 0);
+        options.add(banlistBox, gc);
+        if (AppSettings.isDebugEnabled()) { gc.gridy++; options.add(debugBox, gc); }
+        gc.gridy++; gc.weighty = 1; gc.anchor = GridBagConstraints.SOUTHEAST;
+        options.add(hostBtn, gc);
+        add(options, BorderLayout.CENTER);
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Role
+    // ---------------------------------------------------------------------------------------------
+
+    @Override JButton commitButton() { return hostBtn; }
+
+    @Override String actionLabel() { return "Start Game"; }
+
+    /** Start unlocks only once both halves are ready: the joiner's deck confirmed, and one picked here. */
+    @Override boolean actionEnabled() {
+        return connection != null && opponentReady && !starting
+                && lobby.deckChooser().getSelectedDeckId() >= 0;
+    }
+
+    @Override void onAction() { beginMatch(); }
+
+    @Override void refreshControls() { hostBtn.setEnabled(!hosting); }
+
+    @Override void activated() {
+        lobby.deckChooser().setBanlistEnforced(banlistBox.isSelected());
+        lobby.setStatus("Choose your options, then press Host to wait for an opponent.");
+    }
+
+    @Override void shutdown(boolean matched) {
+        closed = true;
+        stopBroadcast();
+        closeServerSocket();
+        if (!matched && connection != null) { connection.close(); connection = null; }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Lobby
+    // ---------------------------------------------------------------------------------------------
 
     /** Whether the match will run with the Debug menu usable. */
     private boolean debugEnabled() {
@@ -156,27 +157,21 @@ public class HostLobbyDialog extends JDialog {
      */
     private void onBanlistToggled() {
         boolean on = banlistBox.isSelected();
-        deckChooser.setBanlistEnforced(on);
+        lobby.deckChooser().setBanlistEnforced(on);
         if (on) {
             banlistResets++;
-            deckChooser.clearSelection();
+            lobby.deckChooser().clearSelection();
             opponentReady = false;
         }
         sendLobbySettings();
         showOpponentStatus();
-        refreshStartButton();
-    }
-
-    /** Start unlocks only once both halves are ready: the joiner's deck confirmed, and one picked here. */
-    private void refreshStartButton() {
-        startBtn.setEnabled(connection != null && opponentReady && !starting
-                && deckChooser.getSelectedDeckId() >= 0);
+        lobby.refresh();
     }
 
     private void showOpponentStatus() {
         GameConnection conn = connection;
         if (conn == null || starting) return;
-        statusLabel.setText("Connected: " + conn.getRemoteAddress() + " — "
+        lobby.setStatus("Connected: " + conn.getRemoteAddress() + " — "
                 + (opponentReady ? "opponent is ready." : "opponent is choosing a deck…"));
     }
 
@@ -185,8 +180,8 @@ public class HostLobbyDialog extends JDialog {
      * from there and authors the seed and coin flip. The deck is read off the EDT.
      */
     private void beginMatch() {
-        int    deckId   = deckChooser.getSelectedDeckId();
-        String deckName = deckChooser.getSelectedDeckName();
+        int    deckId   = lobby.deckChooser().getSelectedDeckId();
+        String deckName = lobby.deckChooser().getSelectedDeckName();
         GameConnection conn = connection;
         if (deckId < 0 || conn == null || !opponentReady) return;
 
@@ -196,7 +191,8 @@ public class HostLobbyDialog extends JDialog {
         matchHostGoesFirst = new Random().nextBoolean();
         matchDebug         = debugEnabled();
         matchBanlist       = banlistBox.isSelected();
-        statusLabel.setText("Exchanging decks…");
+        lobby.setStatus("Exchanging decks…");
+        lobby.refresh();
 
         new Thread(() -> {
             try {
@@ -207,21 +203,21 @@ public class HostLobbyDialog extends JDialog {
         }, "HostLobby-setup").start();
     }
 
-    /** Freezes the lobby while Start is under way; unlocking leaves Start to {@link #refreshStartButton}. */
+    /** Freezes the lobby while Start is under way; unlocking leaves Start to {@link #actionEnabled}. */
     private void lockSettings(boolean locked) {
-        if (locked) startBtn.setEnabled(false);
-        cancelBtn.setEnabled(!locked);
+        lobby.setCancelEnabled(!locked);
         debugBox.setEnabled(!locked);
         banlistBox.setEnabled(!locked);
-        deckChooser.setEnabled(!locked);
+        lobby.deckChooser().setEnabled(!locked);
     }
 
     /** Start did not go through; back to waiting in the lobby. */
     private void startFailed(String message) {
         starting = false;
+        matchDeckId = -1;
         lockSettings(false);
-        statusLabel.setText(message);
-        refreshStartButton();
+        lobby.setStatus(message);
+        lobby.refresh();
     }
 
     /**
@@ -239,19 +235,18 @@ public class HostLobbyDialog extends JDialog {
                 boolean debug         = matchDebug;
                 boolean banlist       = matchBanlist;
                 long    seed          = LobbyExchange.sendGameSetup(conn, hostGoesFirst, debug, banlist);
-                setup = new MatchSetup(matchDeckId, remote.serials(), remote.name(), remote.username(),
+                MatchSetup setup = new MatchSetup(matchDeckId, remote.serials(), remote.name(), remote.username(),
                         seed, true, hostGoesFirst, debug, banlist, remote.counterColor());
-                SwingUtilities.invokeLater(this::dispose);
+                SwingUtilities.invokeLater(() -> lobby.finish(conn, setup));
             } catch (IOException ex) {
-                if (cancelled) return;
+                if (closed) return;
                 conn.close();
                 SwingUtilities.invokeLater(() -> {
                     connection = null;
                     opponentReady = false;
                     starting = false;
                     lockSettings(false);
-                    statusLabel.setText("Opponent disconnected.");
-                    refreshStartButton();
+                    hostingEnded("Opponent disconnected. Host again, or join a game instead.");
                 });
             }
         }, "HostLobby-reader").start();
@@ -265,16 +260,29 @@ public class HostLobbyDialog extends JDialog {
             return;
         }
         showOpponentStatus();
-        refreshStartButton();
+        lobby.refresh();
     }
 
-    private void openServerSocket() {
+    // ---------------------------------------------------------------------------------------------
+    // Hosting
+    // ---------------------------------------------------------------------------------------------
+
+    private void startHosting() {
+        hosting       = true;
+        opponentReady = false;
+        matchDeckId   = -1;
+        lobby.commit(this);
+        lobby.setStatus("Waiting for opponent…");
+
         new Thread(() -> {
+            ServerSocket ss = null;
             try {
-                serverSocket = new ServerSocket(DEFAULT_PORT);
+                ss = new ServerSocket(DEFAULT_PORT);
+                serverSocket = ss;
+                if (closed) return;   // the dialog closed while the socket was opening
                 broadcaster = LanDiscovery.startBroadcast(DEFAULT_PORT, AppSettings.getUsername());
                 while (true) {
-                    Socket client = serverSocket.accept();
+                    Socket client = ss.accept();
                     GameConnection conn = new GameConnection(client);
                     String rejection = performHandshake(conn);
                     if (rejection != null) {
@@ -283,33 +291,40 @@ public class HostLobbyDialog extends JDialog {
                         conn.close();
                         final String reason = rejection;
                         SwingUtilities.invokeLater(() ->
-                                statusLabel.setText("Rejected: " + reason + " — waiting…"));
+                                lobby.setStatus("Rejected: " + reason + " — waiting…"));
                         continue;
                     }
-                    SwingUtilities.invokeLater(() -> {
-                        // Assigned and first sent on the EDT, where the checkbox is read, so a
-                        // toggle cannot fall between the two and leave the joiner a stale value.
-                        stopBroadcast();
-                        connection = conn;
-                        opponentReady = false;
-                        sendLobbySettings();
-                        startLobbyReader(conn);
-                        showOpponentStatus();
-                        cancelBtn.setText("Cancel");
-                        refreshStartButton();
-                    });
+                    SwingUtilities.invokeLater(() -> opponentConnected(conn));
                     break;
                 }
             } catch (IOException e) {
-                if (serverSocket != null && !serverSocket.isClosed()) {
-                    SwingUtilities.invokeLater(() -> statusLabel.setText("Error: " + e.getMessage()));
-                }
+                if (!closed) SwingUtilities.invokeLater(() -> hostingEnded("Could not host: " + e.getMessage()));
             } finally {
                 stopBroadcast();
-                try { if (serverSocket != null) serverSocket.close(); }
-                catch (IOException ignored) {}
+                if (ss != null) {
+                    try { ss.close(); } catch (IOException ignored) {}
+                }
             }
         }, "HostLobby-accept").start();
+    }
+
+    private void opponentConnected(GameConnection conn) {
+        if (closed) { conn.close(); return; }
+        // Assigned and first sent on the EDT, where the checkbox is read, so a toggle cannot fall
+        // between the two and leave the joiner a stale value.
+        connection = conn;
+        opponentReady = false;
+        sendLobbySettings();
+        startLobbyReader(conn);
+        showOpponentStatus();
+        lobby.refresh();
+    }
+
+    /** Hosting stopped without a match; the tab can host again, or the Join tab be used. */
+    private void hostingEnded(String message) {
+        hosting = false;
+        lobby.setStatus(message);
+        lobby.uncommit();
     }
 
     /**
@@ -355,20 +370,12 @@ public class HostLobbyDialog extends JDialog {
         if (b != null) b.stop();
     }
 
-    private void cancel() {
-        cancelled = true;
-        stopBroadcast();
-        try { if (serverSocket != null) serverSocket.close(); }
-        catch (IOException ignored) {}
-        if (connection != null) { connection.close(); connection = null; }
-        dispose();
+    private void closeServerSocket() {
+        ServerSocket ss = serverSocket;
+        if (ss != null) {
+            try { ss.close(); } catch (IOException ignored) {}
+        }
     }
-
-    /** Returns the live connection, or {@code null} if the dialog was cancelled. */
-    public GameConnection getConnection() { return connection; }
-
-    /** The agreed match parameters, or {@code null} if setup did not complete. */
-    public MatchSetup getSetup() { return setup; }
 
     private static List<String> getLocalAddresses() {
         List<String> addrs = new ArrayList<>();

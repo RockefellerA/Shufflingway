@@ -83,7 +83,7 @@ public class RemoteLobbyDialog extends JDialog {
         // ── Server ───────────────────────────────────────────────────────────
         // The last server that accepted this client, so it only has to be typed once.
         serverField = new JTextField(AppSettings.getRemoteServer(), 14);
-        portField   = new JTextField(String.valueOf(AppSettings.getRemotePort(HostLobbyDialog.DEFAULT_PORT)), 5);
+        portField   = new JTextField(String.valueOf(AppSettings.getRemotePort(LocalHostPanel.DEFAULT_PORT)), 5);
         connectBtn  = new JButton("Connect");
         connectBtn.addActionListener(e -> attemptConnect());
         JPanel serverRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
@@ -156,8 +156,8 @@ public class RemoteLobbyDialog extends JDialog {
         createPanel.add(createBtn, gc);
 
         tabs = new JTabbedPane();
-        tabs.addTab("Join", joinPanel);
         tabs.addTab("Create", createPanel);
+        tabs.addTab("Join", joinPanel);
 
         JPanel top = new JPanel(new BorderLayout(0, 8));
         top.add(serverRow, BorderLayout.NORTH);
@@ -271,7 +271,7 @@ public class RemoteLobbyDialog extends JDialog {
         if (statusLabel.getText().startsWith("Connected")) {
             statusLabel.setText(lobbies.isEmpty()
                     ? "Connected. No open lobbies yet — create one, or wait for one to appear."
-                    : "Connected. Join a lobby, or create your own.");
+                    : "Connected. Create a lobby, or join an open one.");
         }
         refreshControls();
     }
