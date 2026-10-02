@@ -49,6 +49,9 @@ class TurnPhases {
 		// owns the Break Zone. See PlayerTurnState.putToBzFromFieldThisTurn.
 		mw.p1Turn.putToBzFromFieldThisTurn.clear();
 		mw.p2Turn.putToBzFromFieldThisTurn.clear();
+		mw.dealtDamageToForwardThisTurn.clear();
+		mw.enteredOtherThanFromHandThisTurn.clear();
+		mw.leftHandAwaitingArrival.clear();
 		mw.p2Turn.castRemovedUsedThisTurn.clear();
 		mw.p2Turn.elementForwardsEnteredThisTurn.clear();
 		mw.p2Turn.charactersEnteredThisTurn.clear();
@@ -139,6 +142,9 @@ class TurnPhases {
 		// Both sides, as at the other turn boundary above.
 		mw.p1Turn.putToBzFromFieldThisTurn.clear();
 		mw.p2Turn.putToBzFromFieldThisTurn.clear();
+		mw.dealtDamageToForwardThisTurn.clear();
+		mw.enteredOtherThanFromHandThisTurn.clear();
+		mw.leftHandAwaitingArrival.clear();
 		mw.p1Turn.castRemovedUsedThisTurn.clear();
 		mw.p1Turn.elementForwardsEnteredThisTurn.clear();
 		mw.p1Turn.charactersEnteredThisTurn.clear();

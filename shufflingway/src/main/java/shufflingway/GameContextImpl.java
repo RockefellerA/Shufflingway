@@ -7917,6 +7917,16 @@ final class GameContextImpl implements GameContext {
 						: (t.idx() < mw.p2MonsterCards.size() ? mw.effectiveP2MonsterPower(t.idx()) : 0);
 			}
 
+			@Override public boolean targetHasDealtDamageToForwardThisTurn(ForwardTarget t) {
+				CardData card = cardAtTarget(t);
+				return card != null && mw.dealtDamageToForwardThisTurn.contains(card);
+			}
+
+			@Override public boolean targetEnteredOtherThanFromHandThisTurn(ForwardTarget t) {
+				CardData card = cardAtTarget(t);
+				return card != null && mw.enteredOtherThanFromHandThisTurn.contains(card);
+			}
+
 			@Override public boolean targetPowerHasChanged(ForwardTarget t) {
 				CardData card = cardAtTarget(t);
 				if (card == null) return false;

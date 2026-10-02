@@ -2874,6 +2874,20 @@ public interface GameContext {
     boolean targetPowerHasChanged(ForwardTarget t);
 
     /**
+     * Whether the card at {@code t} has dealt damage to a Forward this turn, in battle or by its
+     * ability — 28-028H Shiva's "If it has dealt damage to a Forward this turn, break it." This very
+     * card, by identity: one that left the field and came back is a new object with no history.
+     */
+    boolean targetHasDealtDamageToForwardThisTurn(ForwardTarget t);
+
+    /**
+     * Whether the card at {@code t} entered the field this turn other than from a player's hand —
+     * from a deck, a Break Zone, Warp, out of the game, … — 28-064H Cactuar's "If it has entered
+     * the field other than from any player's hand this turn, break it."
+     */
+    boolean targetEnteredOtherThanFromHandThisTurn(ForwardTarget t);
+
+    /**
      * The card currently occupying {@code t}, or {@code null} if the slot is empty. Useful for
      * holding on to a chosen card across an effect that moves it — a target's side and index go
      * stale the moment control of it changes.

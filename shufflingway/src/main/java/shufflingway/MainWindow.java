@@ -411,6 +411,19 @@ public class MainWindow {
 	 * {@link #enteredFieldByAbilityOf}.
 	 */
 	final Set<CardData> enteredViaWarp = Collections.newSetFromMap(new IdentityHashMap<>());
+	/**
+	 * Cards whose latest move was out of a hand, until they arrive somewhere — what the
+	 * enters-field dispatch reads to tell an entry from a hand from any other. Dropped when the
+	 * card goes to a Break Zone or out of the game instead, and at each turn boundary, so a card
+	 * that left a hand for some other zone does not carry the mark to the field later.
+	 */
+	final Set<CardData> leftHandAwaitingArrival = Collections.newSetFromMap(new IdentityHashMap<>());
+	/**
+	 * Cards on either side that entered the field this turn other than from a player's hand —
+	 * 28-064H Cactuar. Cleared at both turn boundaries: "this turn" is the current turn whoever's
+	 * field the card is on.
+	 */
+	final Set<CardData> enteredOtherThanFromHandThisTurn = Collections.newSetFromMap(new IdentityHashMap<>());
 
 	/** A zone a card can be brought onto the field from, for the triggers that ask which. */
 	enum EntryOrigin { BREAK_ZONE, DECK }
@@ -1462,6 +1475,13 @@ public class MainWindow {
 	 */
 	final Map<CardData, Set<CardData>> damagedBySourcesThisTurn = new IdentityHashMap<>();
 	/**
+	 * Every card that has dealt damage to a Forward this turn — 28-028H Shiva. Kept apart from
+	 * {@link #damagedBySourcesThisTurn} because that map loses a source when its victim re-enters
+	 * the field, and the dealer's history has to outlive the victim. Fed by {@link #recordDamagedBy},
+	 * dropped per card by {@link #forgetDamageRecordFor}, and cleared at both turn boundaries.
+	 */
+	final Set<CardData> dealtDamageToForwardThisTurn = Collections.newSetFromMap(new IdentityHashMap<>());
+	/**
 	 * One pending "when the marked card is put from the field into the Break Zone this turn, do
 	 * this" trigger.
 	 *
@@ -1845,8 +1865,12 @@ public class MainWindow {
 
 	public MainWindow() {
         this.p1ForwardUrls = new ArrayList<>();
-		gameState.setRemovedFromGameListener(autoAbilityTriggers::triggerAutoAbilitiesForRemovedFromGame);
+		gameState.setRemovedFromGameListener(c -> {
+			leftHandAwaitingArrival.remove(c);
+			autoAbilityTriggers.triggerAutoAbilitiesForRemovedFromGame(c);
+		});
 		gameState.setBreakZoneLeftListener(autoAbilityTriggers::triggerAutoAbilitiesForBreakZoneLeft);
+		gameState.setHandLeftListener((c, p1) -> leftHandAwaitingArrival.add(c));
 		initialize();
 	}
 
@@ -5779,10 +5803,16 @@ public class MainWindow {
 	 * blow that records the source is usually the one that kills.
 	 */
 	void recordDamagedBy(CardData damaged, CardData source) {
+		recordDamagedBy(damaged, source, true);
+	}
+
+	/** @param damagedIsForward whether {@code damaged} was a Forward, or acting as one, when hit */
+	void recordDamagedBy(CardData damaged, CardData source, boolean damagedIsForward) {
 		if (damaged == null || source == null || damaged == source) return;
 		damagedBySourcesThisTurn
 				.computeIfAbsent(damaged, k -> Collections.newSetFromMap(new IdentityHashMap<>()))
 				.add(source);
+		if (damagedIsForward) dealtDamageToForwardThisTurn.add(source);
 	}
 
 	/** Whether {@code source} is recorded as having damaged {@code damaged} this turn. */
@@ -5805,6 +5835,7 @@ public class MainWindow {
 	void forgetDamageRecordFor(CardData card) {
 		damagedBySourcesThisTurn.remove(card);
 		for (Set<CardData> sources : damagedBySourcesThisTurn.values()) sources.remove(card);
+		dealtDamageToForwardThisTurn.remove(card);
 	}
 
 	/**
@@ -9419,6 +9450,7 @@ public class MainWindow {
 	void addToBreakZone(CardData card, boolean fromField)
 	{
 		entryOrigin.remove(card);
+		leftHandAwaitingArrival.remove(card);
 		boolean player1 = gameState.getIdentity().get(card);
 
 		// FA1: "If a card is put into your Break Zone in any situation, remove it from the game instead."

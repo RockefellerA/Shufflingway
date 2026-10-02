@@ -132,7 +132,7 @@ public class GameState {
     // --- P1 ---
     private final Deque<CardData>          p1MainDeck        = new ArrayDeque<>();
     private final List<CardData>           p1LbDeck          = new ArrayList<>();
-    private final List<CardData>           p1Hand            = new ArrayList<>();
+    private final HandList                 p1Hand            = new HandList(true);
     private final BreakZoneList            p1BreakZone       = new BreakZoneList(true);
     private final List<CardData>           p1DamageZone      = new ArrayList<>();
     private final List<WarpEntry>          p1WarpZone        = new ArrayList<>();
@@ -160,7 +160,7 @@ public class GameState {
     private final Deque<CardData>          p2MainDeck    = new ArrayDeque<>();
     private final List<CardData>           p2LbDeck      = new ArrayList<>();
     private final List<CardData>           p2DamageZone  = new ArrayList<>();
-    private final List<CardData>           p2Hand        = new ArrayList<>();
+    private final HandList                 p2Hand        = new HandList(false);
     private final BreakZoneList            p2BreakZone   = new BreakZoneList(false);
     private final Map<String, Integer>     p2CpByElement = new HashMap<>();
 
@@ -193,7 +193,7 @@ public class GameState {
     public void reset() {
         p1MainDeck.clear();
         p1LbDeck.clear();
-        p1Hand.clear();
+        p1Hand.clearSilently();
         p1BreakZone.clearSilently();
         p1DamageZone.clear();
         p1WarpZone.clear();
@@ -211,7 +211,7 @@ public class GameState {
         p2MainDeck.clear();
         p2LbDeck.clear();
         p2DamageZone.clear();
-        p2Hand.clear();
+        p2Hand.clearSilently();
         p2BreakZone.clearSilently();
         p2CpByElement.clear();
         currentPhase  = null;
@@ -335,18 +335,51 @@ public class GameState {
     }
 
     /**
-     * A Break Zone. Cards leave it from some thirty places — casts, costs, recoveries, removals —
-     * each removing from the list directly, so the list itself is the one place every departure
-     * passes through. Each removal route reports the cards it took after they are out. Iterator
-     * removal is covered too: {@code ArrayList}'s iterator removes through {@link #remove(int)}.
+     * Told of every card that leaves a hand, after it has gone, with whose hand it was.
+     * {@link MainWindow} reads it for "entered the field other than from any player's hand"
+     * (28-064H Cactuar).
      */
-    private final class BreakZoneList extends ArrayList<CardData> {
-        private final boolean p1;
+    private java.util.function.BiConsumer<CardData, Boolean> handLeftListener = (c, p1) -> {};
 
-        BreakZoneList(boolean p1) { this.p1 = p1; }
+    public void setHandLeftListener(java.util.function.BiConsumer<CardData, Boolean> listener)
+    {
+        handLeftListener = listener != null ? listener : (c, p1) -> {};
+    }
+
+    /** A Break Zone; see {@link ZoneList}. */
+    private final class BreakZoneList extends ZoneList {
+        BreakZoneList(boolean p1) { super(p1); }
+
+        @Override void report(CardData c) { breakZoneLeftListener.accept(c, p1); }
+    }
+
+    /**
+     * A hand; see {@link ZoneList}. A reorder empties and refills it, which reports every card as
+     * having left — harmless, since a card can only reach the field from a hand by leaving it
+     * again, and that departure is reported afresh.
+     */
+    private final class HandList extends ZoneList {
+        HandList(boolean p1) { super(p1); }
+
+        @Override void report(CardData c) { handLeftListener.accept(c, p1); }
+    }
+
+    /**
+     * A zone that reports its departures. Cards leave a Break Zone or a hand from some thirty
+     * places — casts, costs, discards, recoveries, removals — each removing from the list
+     * directly, so the list itself is the one place every departure passes through. Each removal
+     * route reports the cards it took after they are out. Iterator removal is covered too:
+     * {@code ArrayList}'s iterator removes through {@link #remove(int)}.
+     */
+    private abstract class ZoneList extends ArrayList<CardData> {
+        final boolean p1;
+
+        ZoneList(boolean p1) { this.p1 = p1; }
+
+        abstract void report(CardData c);
 
         private void left(Collection<CardData> gone) {
-            for (CardData c : gone) breakZoneLeftListener.accept(c, p1);
+            for (CardData c : gone) report(c);
         }
 
         /** Empties the zone for a new game, which no card "leaves". */

@@ -9011,6 +9011,21 @@ final class ActionResolverPatterns {
         "(?i)^If\\s+it\\s+is\\s+dull\\s+or\\s+has\\s+received\\s+damage,\\s+break\\s+it[.!]?$"
     );
     /**
+     * "If it has dealt damage to a Forward this turn, break it." — 28-028H Shiva. Anchored and read
+     * ahead of the plain break for the reason {@link #FOLLOWUP_BREAK_IF_POWER_CHANGED} is.
+     */
+    static final Pattern FOLLOWUP_BREAK_IF_DEALT_DAMAGE_TO_FORWARD = Pattern.compile(
+        "(?i)^If\\s+it\\s+has\\s+dealt\\s+damage\\s+to\\s+a\\s+Forward\\s+this\\s+turn,\\s+break\\s+it[.!]?$"
+    );
+    /**
+     * "If it has entered the field other than from any player's hand this turn, break it." —
+     * 28-064H Cactuar. Anchored and read ahead of the plain break for the same reason.
+     */
+    static final Pattern FOLLOWUP_BREAK_IF_ENTERED_NOT_FROM_HAND = Pattern.compile(
+        "(?i)^If\\s+it\\s+has\\s+entered\\s+the\\s+field\\s+other\\s+than\\s+from\\s+any\\s+player's\\s+hand"
+        + "\\s+this\\s+turn,\\s+break\\s+it[.!]?$"
+    );
+    /**
      * "If it has N power or less, break it. If you control &lt;condition&gt;, break it regardless
      * of its power instead." — 3-102R Odin, the corpus's only printing of a power-gated break with
      * a control condition that lifts the gate.

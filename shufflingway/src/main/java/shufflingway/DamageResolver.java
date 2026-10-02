@@ -1032,7 +1032,7 @@ class DamageResolver {
 		}
 		int accum  = dmgList.get(idx) + amount;
 		dmgList.set(idx, accum);
-		mw.recordDamagedBy(mons.get(idx), abilityDamageSource());
+		mw.recordDamagedBy(mons.get(idx), abilityDamageSource(), asFwd);
 		int effPow = asFwd ? (isP1 ? mw.p1MonsterForwardPower(idx) : mw.p2MonsterForwardPower(idx))
 		                   : (isP1 ? mw.effectiveP1MonsterPower(idx) : mw.effectiveP2MonsterPower(idx));
 		mw.logEntry((isP1 ? "" : "[P2] ") + mons.get(idx).name() + " takes " + amount + " damage"

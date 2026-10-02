@@ -1941,6 +1941,11 @@ final class AutoAbilityTriggers {
 		if (mw.lastCardWarpedIn) mw.enteredViaWarp.add(card); else mw.enteredViaWarp.remove(card);
 		// Consumed here whether or not anything fires: the next arrival of this card is a new one.
 		MainWindow.EntryOrigin origin = mw.entryOrigin.remove(card);
+		// From a hand only if its last move was out of one and nothing else claims the entry
+		// (28-064H Cactuar's "other than from any player's hand").
+		boolean fromHand = mw.leftHandAwaitingArrival.remove(card) && origin == null && !mw.lastCardWarpedIn;
+		if (fromHand) mw.enteredOtherThanFromHandThisTurn.remove(card);
+		else          mw.enteredOtherThanFromHandThisTurn.add(card);
 		if (mw.suppressAutoAbilityForNextCards > 0) {
 			mw.suppressAutoAbilityForNextCards--;
 			// Re-evaluate field boosts even when ETF auto-abilities are suppressed

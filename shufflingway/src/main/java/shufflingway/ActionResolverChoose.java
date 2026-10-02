@@ -6009,22 +6009,38 @@ final class ActionResolverChoose {
             };
         }
 
-        // --- "If it is dull or has received damage, break it." (27-031H Moomba) ---
-        // Ahead of the plain break below for the reason the Diabolos branch above is. As there, the
-        // choose happens either way and only the break is conditional.
-        if (FOLLOWUP_BREAK_IF_DULL_OR_DAMAGED.matcher(primaryFollowup.trim()).matches()) {
+        // --- "If it <is in some state / has done something this turn>, break it." ---
+        // 27-031H Moomba, 28-028H Shiva, 28-064H Cactuar. Ahead of the plain break below for the
+        // reason the Diabolos branch above is. As there, the choose happens either way and only the
+        // break is conditional; every condition is tested before anything is broken, since a break
+        // shifts the slots behind it.
+        String gateText = primaryFollowup.trim();
+        String gateLabel = null;
+        BiPredicate<GameContext, ForwardTarget> breakGate = null;
+        if (FOLLOWUP_BREAK_IF_DULL_OR_DAMAGED.matcher(gateText).matches()) {
+            gateLabel = "it is dull or has received damage";
+            breakGate = (ctx, t) -> t.zone() == ForwardTarget.CardZone.FORWARD
+                    && ((t.isP1() ? ctx.p1ForwardState(t.idx()) : ctx.p2ForwardState(t.idx())) == CardState.DULL
+                        || (t.isP1() ? ctx.p1ForwardCurrentDamage(t.idx()) : ctx.p2ForwardCurrentDamage(t.idx())) > 0);
+        } else if (FOLLOWUP_BREAK_IF_DEALT_DAMAGE_TO_FORWARD.matcher(gateText).matches()) {
+            gateLabel = "it has dealt damage to a Forward this turn";
+            breakGate = GameContext::targetHasDealtDamageToForwardThisTurn;
+        } else if (FOLLOWUP_BREAK_IF_ENTERED_NOT_FROM_HAND.matcher(gateText).matches()) {
+            gateLabel = "it has entered the field other than from any player's hand this turn";
+            breakGate = GameContext::targetEnteredOtherThanFromHandThisTurn;
+        }
+        if (breakGate != null) {
+            final String fGateLabel = gateLabel;
+            final BiPredicate<GameContext, ForwardTarget> fBreakGate = breakGate;
             return ctx -> {
-                ctx.logChooseHeader(choosePrefix + " — Break if it is dull or has received damage");
+                ctx.logChooseHeader(choosePrefix + " — Break if " + fGateLabel);
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 List<ForwardTarget> hit = new ArrayList<>();
                 for (ForwardTarget t : ts) {
-                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
-                    boolean dull = (t.isP1() ? ctx.p1ForwardState(t.idx()) : ctx.p2ForwardState(t.idx())) == CardState.DULL;
-                    int damage   = t.isP1() ? ctx.p1ForwardCurrentDamage(t.idx()) : ctx.p2ForwardCurrentDamage(t.idx());
-                    if (dull || damage > 0) hit.add(t);
-                    else ctx.logEntry("Effect: it is active and undamaged — not broken");
+                    if (fBreakGate.test(ctx, t)) hit.add(t);
+                    else ctx.logEntry("Effect: condition not met (" + fGateLabel + ") — not broken");
                 }
                 sortedByIdxDesc(hit, true) .forEach(ctx::breakTarget);
                 sortedByIdxDesc(hit, false).forEach(ctx::breakTarget);
