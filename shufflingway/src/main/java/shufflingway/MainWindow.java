@@ -295,10 +295,10 @@ public class MainWindow {
 	private CardBreakAnimator breakAnimator;
 	CardRfpAnimator           rfpAnimator;
 	CardLimitBreakAnimator    limitBreakAnimator;
-	/** Draws P1's attackers — Forwards, Monsters and Backups — raised out of their rows; see {@link #syncAttackerLift}. */
+	/** Draws P1's attackers and blocker — Forwards, Monsters and Backups — raised out of their rows; see {@link #syncCombatLift}. */
 	private SlotLiftOverlay   slotLift;
-	/** How far a selected or attacking P1 Character rises out of its row. */
-	private static final int  ATTACKER_LIFT = CARD_H / 12;
+	/** How far a selected or attacking/blocking P1 Character rises out of its row. */
+	private static final int  COMBAT_LIFT = CARD_H / 12;
 	/** Non-null when the next startBreakAnim call should slide to the break zone instead of slashing. */
 	JLabel pendingCostBreakDestLabel;
 	/** When true, the next startBreakAnim call is suppressed (e.g. RFP goes through breakP*Forward but needs no animation). */
@@ -757,6 +757,13 @@ public class MainWindow {
 	int                   p1BlockerSelection      = -1;   // index of forward P1 clicked to block with
 	int                   p1BlockerMonsterIdx     = -1;   // P1 monster acting as Forward chosen to block
 	int                   p1BlockerBackupIdx      = -1;   // P1 backup acting as Forward chosen to block
+	/**
+	 * The P1 Character blocking in the combat in progress, by identity — the slot's base card, as
+	 * {@link #slotLift} keys it — from block declaration until combat resolves. Unlike
+	 * {@link #p1BlockingIdx} it covers Monsters and Backups, and it does not drift if a slot index
+	 * shifts during the priority round.
+	 */
+	private CardData      p1DeclaredBlocker       = null;
 	List<Integer>         pendingP2PartyIndices   = null; // slot codes; set while P1 declares blocker vs P2 party
 	private int           pendingP2PartyCombined  = 0;
 
@@ -2576,7 +2583,7 @@ public class MainWindow {
 			frame.getContentPane().add(makeLetterboxBar(bottomBar), BorderLayout.SOUTH);
 		}
 
-		slotLift          = SlotLiftOverlay.install(frame, ATTACKER_LIFT);
+		slotLift          = SlotLiftOverlay.install(frame, COMBAT_LIFT);
 		cardSlideAnimator = CardSlideAnimator.install(frame);
 		breakAnimator     = CardBreakAnimator.install(frame);
 		rfpAnimator       = CardRfpAnimator.install(frame);
@@ -2907,6 +2914,7 @@ public class MainWindow {
 		p1BlockerSelection         = -1;
 		p1BlockerMonsterIdx        = -1;
 		p1BlockerBackupIdx         = -1;
+		p1DeclaredBlocker          = null;
 		p1BlockingIdx              = -1;
 		p1BlockedByAttacker        = null;
 		p2BlockingIdx              = -1;
@@ -10169,7 +10177,7 @@ public class MainWindow {
 		Icon icon = label.getIcon();
 		if (!(icon instanceof ImageIcon ii)) return;
 		JLayeredPane lp = frame.getRootPane().getLayeredPane();
-		// An attacker broken in combat is still raised; start from where it is drawn.
+		// An attacker or blocker broken in combat is still raised; start from where it is drawn.
 		int lift = slotLift != null ? slotLift.offset(label) : 0;
 		if (pendingCostBreakDestLabel != null) {
 			JLabel dest = pendingCostBreakDestLabel;
@@ -14502,8 +14510,9 @@ public class MainWindow {
 		if (occupant == null) {
 			if (slotLift != null) slotLift.lowerSlot(slot);
 		} else {
-			syncAttackerLift(occupant, slot, isSelectedAttacker(ForwardTarget.CardZone.BACKUP, idx)
-					|| p1DeclaredAttackers.stream().anyMatch(c -> c == occupant));
+			syncCombatLift(occupant, slot, isSelectedAttacker(ForwardTarget.CardZone.BACKUP, idx)
+					|| p1DeclaredAttackers.stream().anyMatch(c -> c == occupant)
+					|| isP1Blocker(ForwardTarget.CardZone.BACKUP, idx, occupant));
 		}
 		if (url == null) { slot.setIcon(null); slot.setText(null); slot.setToolTipText(null); return; }
 		if (fieldEntryAnimator.holdSlotBlank(slot, p1BackupCards[idx])) return;
@@ -14893,11 +14902,6 @@ public class MainWindow {
 	}
 
 	/**
-	 * Announces that {@code d} has just been discarded from {@code isP1}'s hand, to every trigger
-	 * that watches discards. Called per card by each discard path — {@link #playerBreakFromHand}
-	 * and the whole-hand discard, which moves the cards itself.
-	 */
-	/**
 	 * Whose Summon or ability is resolving right now — true for P1 — or {@code null} when none is
 	 * (battle, a cost, a game rule). An ability's side is read off the field where its card stands:
 	 * an auto ability run inline sets the source, not its side.
@@ -14911,6 +14915,11 @@ public class MainWindow {
 		return null;
 	}
 
+	/**
+	 * Announces that {@code d} has just been discarded from {@code isP1}'s hand, to every trigger
+	 * that watches discards. Called per card by each discard path — {@link #playerBreakFromHand}
+	 * and the whole-hand discard, which moves the cards itself.
+	 */
 	void noteDiscardedFromHand(CardData d, boolean isP1) {
 		// "due to your Summons or abilities" — an effect is mid-resolution and the hand that
 		// lost the card belongs to the other player. A discard paid as a cost or taken at the
@@ -14949,11 +14958,7 @@ public class MainWindow {
 	/** The {@link #resolutionSerial} each side's "you discard by effect" last fired in; index 0 = P1. */
 	private final int[] ownDiscardFiredSerial = { -1, -1 };
 
-	/**
-	 * Announces that {@code handOwnerIsP1} moved one or more cards from a Break Zone into their
-	 * hand, so their opponent's watchers (25-111H The Emperor) can react. Call once per effect
-	 * rather than per card: the trigger reads "1 or more cards".
-	 */
+
 	/**
 	 * Announces one card arriving in {@code handOwnerIsP1}'s hand from the Break Zone or, by a
 	 * search, from the deck — for its own "When [Self] is added to your hand from …" (14-079R
@@ -14967,6 +14972,11 @@ public class MainWindow {
 		autoAbilityTriggers.triggerAutoAbilitiesForAddedToHand(card, handOwnerIsP1, fromBreakZone);
 	}
 
+	/**
+	 * Announces that {@code handOwnerIsP1} moved one or more cards from a Break Zone into their
+	 * hand, so their opponent's watchers (25-111H The Emperor) can react. Call once per effect
+	 * rather than per card: the trigger reads "1 or more cards".
+	 */
 	void notifyCardsAddedToHandFromBreakZone(boolean handOwnerIsP1) {
 		autoAbilityTriggers.triggerAutoAbilitiesForBreakZoneToHand(handOwnerIsP1);
 	}
@@ -18879,8 +18889,9 @@ public class MainWindow {
 		CardState state = p1MonsterStates.get(idx);
 		JLabel slot  = p1MonsterLabels.get(idx);
 		CardData card     = p1MonsterCards.get(idx);
-		syncAttackerLift(card, slot, isSelectedAttacker(ForwardTarget.CardZone.MONSTER, idx)
-				|| p1DeclaredAttackers.stream().anyMatch(c -> c == card));
+		syncCombatLift(card, slot, isSelectedAttacker(ForwardTarget.CardZone.MONSTER, idx)
+				|| p1DeclaredAttackers.stream().anyMatch(c -> c == card)
+				|| isP1Blocker(ForwardTarget.CardZone.MONSTER, idx, card));
 		if (url == null) return;
 		if (fieldEntryAnimator.holdSlotBlank(slot, card)) return;
 		int power         = effectiveP1MonsterPower(idx);
@@ -19067,7 +19078,8 @@ public class MainWindow {
 	/** Reloads and re-renders a single P1 forward slot using its stored URL and state. */
 	void refreshP1ForwardSlot(int idx) {
 		refreshPlayerDamageShieldIcon(true);
-		syncAttackerLift(p1ForwardCards.get(idx), p1ForwardLabels.get(idx), isForwardAttacking(true, idx));
+		syncCombatLift(p1ForwardCards.get(idx), p1ForwardLabels.get(idx), isForwardAttacking(true, idx)
+				|| isP1Blocker(ForwardTarget.CardZone.FORWARD, idx, p1ForwardCards.get(idx)));
 		if (fieldEntryAnimator.holdSlotBlank(p1ForwardLabels.get(idx), p1ForwardCards.get(idx))) return;
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		final boolean primed = isPrimedForward(true, idx);
@@ -19722,12 +19734,23 @@ public class MainWindow {
 	}
 
 	/**
-	 * Raises a P1 attacker out of its row, or settles it back. Read from the slot's own refresh, so a
-	 * Character goes up when it is chosen, stays up while it is dulled and through combat, and comes
-	 * down once {@link #continueAttackPhase} clears the declared attackers after damage.
+	 * Raises a P1 attacker or blocker out of its row, or settles it back. Read from the slot's own
+	 * refresh, so a Character goes up when it is chosen, stays up while it is dulled and through
+	 * combat, and comes down once the combat it is in has dealt its damage — for attackers when
+	 * {@link #continueAttackPhase} clears the declared attackers, for a blocker when the block
+	 * handler clears {@link #p1DeclaredBlocker}.
 	 */
-	private void syncAttackerLift(CardData card, JLabel slot, boolean attacking) {
-		if (slotLift != null && card != null && slot != null) slotLift.setLifted(card, slot, attacking);
+	private void syncCombatLift(CardData card, JLabel slot, boolean inCombat) {
+		if (slotLift != null && card != null && slot != null) slotLift.setLifted(card, slot, inCombat);
+	}
+
+	/**
+	 * Whether {@code card}, in P1's {@code zone} slot {@code idx}, is the blocker P1 has chosen in
+	 * the block step or has declared for the combat in progress.
+	 */
+	private boolean isP1Blocker(ForwardTarget.CardZone zone, int idx, CardData card) {
+		if (card == null) return false;
+		return card == p1DeclaredBlocker || p1ChosenBlockerCode() == ForwardTarget.slotCode(zone, idx);
 	}
 
 	/**
@@ -20149,6 +20172,7 @@ public class MainWindow {
 		sendToOpponent(RemoteOpponent.blockAction(blkZone, blkIdx, null));
 
 		// Clear pending state before any callbacks to avoid re-entrancy
+		p1DeclaredBlocker           = blkZone != null ? partyMemberBaseCard(true, p1ChosenBlockerCode()) : null;
 		pendingP2Attacker           = null;
 		pendingP2AttackerIdx        = -1;
 		pendingP2BlockDone          = null;
@@ -20186,6 +20210,7 @@ public class MainWindow {
 					resolveActingCombat(false, atkZone, attackerIdx, true, fBlkZone, fBlkIdx);
 				p1BlockingIdx       = -1;
 				p1BlockedByAttacker = null;
+				p1DeclaredBlocker   = null;
 				setAttackSubStep(-1);
 				refreshAllForwardSlots();
 				for (int i = 0; i < p1BackupCards.length; i++) refreshP1BackupSlot(i);
@@ -20251,6 +20276,7 @@ public class MainWindow {
 			return;
 		}
 
+		p1DeclaredBlocker      = blockerCode >= 0 ? partyMemberBaseCard(true, blockerCode) : null;
 		pendingP2PartyIndices  = null;
 		pendingP2PartyCombined = 0;
 		pendingP2BlockDone     = null;
@@ -20277,6 +20303,7 @@ public class MainWindow {
 				sendToOpponent(RemoteOpponent.blockAction(blockerSlot.zone(), blockerSlot.idx(), spread));
 				p1BlockingIdx       = -1;
 				p1BlockedByAttacker = null;
+				p1DeclaredBlocker   = null;
 				setAttackSubStep(-1);
 				refreshAllForwardSlots();
 				for (int i = 0; i < p1BackupCards.length; i++) refreshP1BackupSlot(i);

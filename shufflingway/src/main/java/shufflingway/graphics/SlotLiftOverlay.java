@@ -15,7 +15,7 @@ import java.util.Map;
 
 /**
  * Transparent overlay on the frame's PALETTE_LAYER that draws chosen card slots raised a few pixels
- * above where their layout puts them — P1's attackers, from selection until combat resolves.
+ * above where their layout puts them — P1's attackers and blocker, from selection until combat resolves.
  *
  * <p>A slot cannot simply be moved. The Forward row lives in a scroll pane whose viewport clips to
  * the card row and sits flush against the centre-facing edge, and the Backup row is packed tight
