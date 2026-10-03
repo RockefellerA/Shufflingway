@@ -10139,6 +10139,25 @@ public record CardData(
                 variable ? 0 : Integer.parseInt(n), variable));
     }
 
+    /** A card-type word printed straight after the name in a "Card Name X" dull-cost item. */
+    private static final Pattern NAMED_DULL_TYPE_SUFFIX = Pattern.compile(
+        "(?i)\\s+(Forwards?|Backups?|Monsters?|Characters?)\\b"
+    );
+
+    /**
+     * The type a named dull-cost item accepts, read from the text {@code m} matched after its
+     * {@code nameGroup}: the type printed after the name — 11-117R Ceodore's "Card Name Cecil
+     * Forward" — or, with none printed, "Character", any card of that name. 3-023C Luca's "dull 1
+     * active Card Name Rydia" is paid by a Rydia Forward or a Rydia Backup alike.
+     */
+    private static String namedDullCostType(Matcher m, String nameGroup) {
+        String after = m.group().substring(m.end(nameGroup) - m.start());
+        Matcher t = NAMED_DULL_TYPE_SUFFIX.matcher(after);
+        if (!t.lookingAt()) return "Character";
+        String word = t.group(1).toLowerCase(Locale.ROOT);
+        return word.startsWith("forward") ? "Forward" : word.startsWith("backup") ? "Backup" : "Character";
+    }
+
     /** Parses one or more dull-forward cost items from the raw {@code dullcost} group string.
      *  Handles "Dull N [cond] [elem] Forward(s)", "Dull N [cond] Card Name X Forward [and ...]",
      *  and the bare-name form "Dull [cond] CardName [and N [cond] ...]". */
@@ -10157,7 +10176,7 @@ public record CardData(
             if (!isKeyword) {
                 costs.add(new DullForwardCost(1,
                         bareM.group("cond") != null ? bareM.group("cond").toLowerCase() : null,
-                        null, barename.trim(), null, null, null, null));
+                        null, barename.trim(), null, null, namedDullCostType(bareM, "barename"), null));
                 String cont = bareM.group("continuation");
                 if (cont != null && !cont.isBlank()) {
                     // Prepend "Dull " so the continuation matches DULL_COST_ITEM_PATTERN normally
@@ -10185,7 +10204,8 @@ public record CardData(
                                 cardName != null ? cardName.trim()                 : null,
                                 job      != null ? job.trim()                      : null,
                                 category != null ? category.trim()                 : null,
-                                isChar ? "Character" : bkpsOnly ? "Backup"         : null,
+                                cardName != null ? namedDullCostType(contM, "cardname")
+                                        : isChar ? "Character" : bkpsOnly ? "Backup" : null,
                                 jobOrName != null ? stripTrailingType(jobOrName)   : null,
                                 except   != null ? except.trim()                   : null));
                     }
@@ -10228,7 +10248,8 @@ public record CardData(
                     cardName  != null ? cardName.trim()             : null,
                     job       != null ? job.trim()                  : null,
                     category  != null ? category.trim()             : null,
-                    isChar ? "Character" : backupsOnly ? "Backup"   : null,
+                    cardName  != null ? namedDullCostType(m, "cardname")
+                            : isChar ? "Character" : backupsOnly ? "Backup" : null,
                     jobOrName != null ? stripTrailingType(jobOrName) : null,
                     except    != null ? except.trim()               : null,
                     sameElem, selfPaysOne));

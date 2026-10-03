@@ -14733,6 +14733,11 @@ public class MainWindow {
 	/** @see CostCalculator#canAffordAbilityCost */
 	boolean canAffordAbilityCost(ActionAbility ability, boolean isP1) { return costs.canAffordAbilityCost(ability, isP1); }
 
+	/** @see CostCalculator#canAffordAbilityCost(ActionAbility, boolean, CostCalculator.ReservedCards) */
+	boolean canAffordAbilityCost(ActionAbility ability, boolean isP1, CostCalculator.ReservedCards reserved) {
+		return costs.canAffordAbilityCost(ability, isP1, reserved);
+	}
+
 	/** @see CostCalculator#canAffordCpTokens */
 	boolean canAffordCpTokens(List<String> cost, int total, boolean isP1) { return costs.canAffordCpTokens(cost, total, isP1); }
 
@@ -15801,7 +15806,78 @@ public class MainWindow {
 			if (!autoAbilityTriggers.dullForwardCostSatisfied(dfc, isP1, source)) return false;
 		for (DiscardCost dc : ability.discardCosts())
 			if (!autoAbilityTriggers.discardCostSatisfied(dc, isP1)) return false;
-		return canAffordAbilityCost(ability, isP1);
+		return canAffordAbilityCost(ability, isP1, cardsReservedByOtherCosts(ability, source, isP1));
+	}
+
+	/**
+	 * The cards the parts of {@code ability}'s cost other than CP would use, so the CP check leaves
+	 * them out: the source for its own 《Dull》, the cards a "dull N other …" cost would dull, the
+	 * hand card an 《S》 is paid with, and the cards a discard cost would discard. A card pays one
+	 * part of a cost, never two.
+	 *
+	 * <p>Where several cards could pay a part, those least useful to the CP are taken: a Forward
+	 * before a Backup, then a card making none of the Elements the CP names before one that does.
+	 * The payment itself lets the player pick, so this is only the most favourable reading — it
+	 * asks whether some way of paying exists, and a pessimistic pick would darken a button for a
+	 * cost that can be paid.
+	 */
+	CostCalculator.ReservedCards cardsReservedByOtherCosts(ActionAbility ability, CardData source, boolean isP1) {
+		Set<String> cpElements = new HashSet<>();
+		for (String token : ability.cpCost()) if (!token.isEmpty()) cpElements.add(token);
+		Comparator<CardData> leastUsefulForCp = Comparator.comparingInt(c -> makesAnyOf(c, cpElements) ? 1 : 0);
+
+		// Field cards dulled by the cost.
+		List<CardData> dulled = new ArrayList<>();
+		if (ability.requiresDull()) dulled.add(source);
+		CardData[] backupRow = playerBackupCards(isP1);
+		for (DullForwardCost dfc : ability.dullForwardCosts()) {
+			List<CardData> pool = new ArrayList<>(autoAbilityTriggers.dullCostPayerPool(dfc, isP1));
+			pool.removeIf(c -> dulled.stream().anyMatch(d -> d == c));
+			pool.sort(Comparator.<CardData>comparingInt(c -> isIn(backupRow, c) ? 1 : 0)
+					.thenComparing(leastUsefulForCp));
+			int needed = dfc.count();
+			if (dfc.sourceReplacesOne() && autoAbilityTriggers.activeFieldSlotOf(source, isP1) != null) needed--;
+			dulled.addAll(pool.subList(0, Math.max(0, Math.min(needed, pool.size()))));
+		}
+
+		// Hand cards discarded by the cost.
+		List<CardData> hand = playerHand(isP1);
+		List<CardData> discarded = new ArrayList<>();
+		if (ability.isSpecial() && !specialSCostWaivedThisTurn.contains(source)
+				&& !canPaySpecialCostWithCrystal(source, isP1)) {
+			String primerName = priming.getPrimerCardName(source, isP1);
+			CardData.SpecialAbilityProxy proxy = effectiveSpecialAbilityProxy(source, isP1);
+			hand.stream()
+					.filter(c -> source.name().equalsIgnoreCase(c.name())
+							|| (primerName != null && primerName.equalsIgnoreCase(c.name()))
+							|| (proxy != null && proxy.meetsSubstitute(c)))
+					.min(leastUsefulForCp)
+					.ifPresent(discarded::add);
+		}
+		for (DiscardCost dc : ability.discardCosts()) {
+			Set<Integer> taken = new HashSet<>();
+			for (int i = 0; i < hand.size(); i++) {
+				CardData c = hand.get(i);
+				if (discarded.stream().anyMatch(d -> d == c)) taken.add(i);
+			}
+			List<CardData> payers = new ArrayList<>();
+			for (int i : autoAbilityTriggers.discardCostPayerIdxs(dc, hand, taken)) payers.add(hand.get(i));
+			// A set of different card types is fixed by its types, not open to reordering.
+			if (!dc.eachDifferentType()) payers.sort(leastUsefulForCp);
+			discarded.addAll(payers.subList(0, Math.min(dc.count(), payers.size())));
+		}
+		return new CostCalculator.ReservedCards(dulled, discarded);
+	}
+
+	/** Whether {@code c} contains any of {@code elements}. */
+	private boolean makesAnyOf(CardData c, Set<String> elements) {
+		for (String e : elements) if (effectiveContainsElement(c, e)) return true;
+		return false;
+	}
+
+	private static boolean isIn(CardData[] row, CardData c) {
+		for (CardData x : row) if (x == c) return true;
+		return false;
 	}
 
 	// -------------------------------------------------------------------------

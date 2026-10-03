@@ -7442,7 +7442,7 @@ final class AutoAbilityTriggers {
 	}
 
 	/** Every active card that matches {@code dfc} and sits in a zone the cost accepts. */
-	private List<CardData> dullCostPayerPool(DullForwardCost dfc, boolean isP1) {
+	List<CardData> dullCostPayerPool(DullForwardCost dfc, boolean isP1) {
 		List<CardData>  fwds    = isP1 ? mw.p1ForwardCards  : mw.p2ForwardCards;
 		List<CardState> fwdSt   = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
 		List<CardData>  mons    = isP1 ? mw.p1MonsterCards  : mw.p2MonsterCards;
@@ -7552,7 +7552,7 @@ final class AutoAbilityTriggers {
 	}
 
 	/** The field slot {@code source} occupies while active, or {@code null} if it cannot be dulled. */
-	private ForwardTarget activeFieldSlotOf(CardData source, boolean isP1) {
+	ForwardTarget activeFieldSlotOf(CardData source, boolean isP1) {
 		if (source == null) return null;
 		List<CardData>  fwds  = isP1 ? mw.p1ForwardCards  : mw.p2ForwardCards;
 		List<CardState> fwdSt = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;

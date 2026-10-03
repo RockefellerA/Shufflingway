@@ -962,13 +962,44 @@ class CostCalculator {
 	 * separately in the context-menu enable logic).
 	 */
 	boolean canAffordAbilityCost(ActionAbility ability, boolean isP1) {
+		return canAffordAbilityCost(ability, isP1, ReservedCards.NONE);
+	}
+
+	/**
+	 * Cards already spoken for by the parts of a cost that are not CP, so the CP check does not
+	 * count them again. A card pays one part of a cost: a Backup dulled for a 《Dull》 cost cannot
+	 * also be dulled for CP, and a hand card discarded for an 《S》 or a discard cost cannot also be
+	 * discarded for CP. Both lists are compared by identity — {@code CardData} is a record, so two
+	 * copies of one printing are {@code equals}.
+	 *
+	 * @param backups field cards the cost dulls
+	 * @param hand    hand cards the cost discards
+	 */
+	record ReservedCards(List<CardData> backups, List<CardData> hand) {
+		static final ReservedCards NONE = new ReservedCards(List.of(), List.of());
+
+		boolean holdsBackup(CardData c)   { return holds(backups, c); }
+		boolean holdsHandCard(CardData c) { return holds(hand, c); }
+
+		private static boolean holds(List<CardData> cards, CardData c) {
+			for (CardData x : cards) if (x == c) return true;
+			return false;
+		}
+	}
+
+	/**
+	 * As {@link #canAffordAbilityCost(ActionAbility, boolean)}, leaving {@code reserved} out of the
+	 * CP sources — Time Mage 1-049C's "《Ice》《Dull》" needs its Ice from somewhere other than Time
+	 * Mage, which the 《Dull》 turns sideways.
+	 */
+	boolean canAffordAbilityCost(ActionAbility ability, boolean isP1, ReservedCards reserved) {
 		List<String> cost = ability.cpCost();
 		if (cost.isEmpty()) return true;
 		int total = cost.size();
 		if (ability.inlineCostReductionJob() != null)
 			total = Math.max(0, total - mw.computeInlineReduction(ability.inlineCostReductionJob(),
 					ability.inlineCostReductionExcludeName(), isP1));
-		return canAffordCpTokens(cost, total, isP1);
+		return canAffordCpTokens(cost, total, isP1, reserved);
 	}
 
 	/**
@@ -980,6 +1011,11 @@ class CostCalculator {
 	 * @param total the number of CP actually owed, which cost reductions may drop below {@code cost.size()}
 	 */
 	boolean canAffordCpTokens(List<String> cost, int total, boolean isP1) {
+		return canAffordCpTokens(cost, total, isP1, ReservedCards.NONE);
+	}
+
+	/** As {@link #canAffordCpTokens(List, int, boolean)}, never counting a {@code reserved} card as a CP source. */
+	boolean canAffordCpTokens(List<String> cost, int total, boolean isP1, ReservedCards reserved) {
 		if (cost.isEmpty()) return true;
 
 		boolean hasGeneric = cost.contains("");
@@ -1003,6 +1039,7 @@ class CostCalculator {
 		CardState[] bkpStates = mw.playerBackupStates(isP1);
 		for (int i = 0; i < bkpCards.length && !mw.backupCpSuppressed(isP1); i++) {
 			if (bkpCards[i] == null || bkpStates[i] != CardState.ACTIVE) continue;
+			if (reserved.holdsBackup(bkpCards[i])) continue;
 			CardData bkp = bkpCards[i];
 			boolean isAnyElem = bkp.backupCpAnyElement()
 					|| (bkp.backupCpAnyElementOfForwards() && !mw.playerForwardCards(isP1).isEmpty())
@@ -1024,6 +1061,7 @@ class CostCalculator {
 		Set<String> ldGrants = mw.lightDarkDiscardGrants(isP1);
 		for (CardData h : mw.playerHand(isP1)) {
 			if (!CpPaymentUtils.canDiscardForCp(h, ldGrants)) continue;
+			if (reserved.holdsHandCard(h)) continue;
 			available += 2;
 			for (int ei = 0; ei < elems.length; ei++) if (h.containsElement(elems[ei])) hasSrc[ei] = true;
 		}

@@ -34516,6 +34516,7 @@ public class CardBehaviorTest {
 		List<DullForwardCost> costs = abilities.get(0).dullForwardCosts();
 		assertEquals(1, costs.size());
 		assertEquals("Monk", costs.get(0).cardName(), "the bare name is the whole filter");
+		assertEquals("Character", costs.get(0).cardType(), "no type printed: any card of that name");
 		assertEquals("active", costs.get(0).condition());
 		assertEquals(1, costs.get(0).count());
 		assertEquals("Monk gains +1000 power until the end of the turn.",
@@ -34540,6 +34541,26 @@ public class CardBehaviorTest {
 		assertEquals(2, costs.size(), "two named Forwards, two costs");
 		assertEquals("Cecil", costs.get(0).cardName());
 		assertEquals("Rosa",  costs.get(1).cardName());
+		assertEquals("Forward", costs.get(0).cardType(), "the printed suffix keeps the cost to Forwards");
+		assertEquals("Forward", costs.get(1).cardType());
+	}
+
+	// A name with no type is any card of that name — 3-023C Luca's "dull 1 active Card Name Rydia"
+	// takes a Rydia Backup as readily as a Rydia Forward. The Forward-row default belongs to the
+	// unnamed form ("Dull 2 active Forwards"), and a printed "Forward" after the name still holds.
+	@Test
+	void aNamedDullCostWithNoTypeTakesABackupOfThatName() {
+		MainWindow mw = new MainWindow();
+		DullForwardCost monk = CardData.parseActionAbilities(MONK_TEXT).get(0).dullForwardCosts().get(0);
+		TestCards.placeP1Backup(mw, TestCards.makeBackup("Monk", "Earth", 2));
+		assertTrue(mw.autoAbilityTriggers.dullForwardCostSatisfied(monk, true), "a Monk Backup is a Monk");
+
+		DullForwardCost cecil = CardData.parseActionAbilities(
+				"Dull 1 active Card Name Cecil Forward and 1 active Card Name Rosa Forward: Play Ceodore onto the field.")
+				.get(0).dullForwardCosts().get(0);
+		TestCards.placeP1Backup(mw, TestCards.makeBackup("Cecil", "Light", 3));
+		assertFalse(mw.autoAbilityTriggers.dullForwardCostSatisfied(cecil, true),
+				"Ceodore asks for a Cecil Forward, which a Cecil Backup is not");
 	}
 
 	@Test

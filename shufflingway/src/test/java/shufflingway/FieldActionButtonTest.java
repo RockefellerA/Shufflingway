@@ -537,6 +537,120 @@ class FieldActionButtonTest {
 		assertTrue(buttons(mw, true, 0).isEmpty(), "once primed, there is nothing left to prime");
 	}
 
+	private static CardData backup(String name, String element, String text) {
+		return new CardData(null, name, element, 2, 0, "Backup", false, 0, false, false,
+				Set.of(), 0, List.of(), "", CardData.parsePrimingCost(text),
+				CardData.parseActionAbilities(text), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, text);
+	}
+
+	// Time Mage 1-049C: "《Ice》《Dull》". Paying the 《Dull》 turns Time Mage sideways, so it cannot
+	// also be the Backup that makes the Ice — with an empty hand and no other Ice source, the
+	// button must not light up, though Time Mage alone looks like an Ice Backup to dull.
+	@Test
+	void aBackupThatDullsForItsOwnCostCannotAlsoMakeTheCp() {
+		MainWindow mw = inP1Main1();
+		mw.p1BackupCards[0]  = backup("Time Mage", "Ice", "《Ice》《Dull》: Choose 1 Forward. It cannot attack this turn.");
+		mw.p1BackupStates[0] = CardState.ACTIVE;
+		mw.placeCardInForwardZone(forward("Target", "", ""));   // something for "Choose 1 Forward" to choose
+		mw.syncSlotButtons();
+		FieldSlotLabel slot = mw.fieldSlot(true, ForwardTarget.CardZone.BACKUP, 0);
+		assertFalse(slot.buttons().get(0).usable(), "Time Mage cannot pay both the Ice and the Dull");
+
+		mw.p1BackupCards[1]  = backup("Fire Mage", "Fire", "");
+		mw.p1BackupStates[1] = CardState.ACTIVE;
+		mw.syncSlotButtons();
+		assertFalse(slot.buttons().get(0).usable(), "a Fire Backup makes no Ice");
+
+		mw.p1BackupCards[2]  = backup("Ice Mage", "Ice", "");
+		mw.p1BackupStates[2] = CardState.ACTIVE;
+		mw.syncSlotButtons();
+		assertTrue(slot.buttons().get(0).usable(), "a second Ice Backup makes the Ice; Time Mage pays the Dull");
+	}
+
+	private static CardData card(String name, String element, String type, String text) {
+		return new CardData(null, name, element, 2, "Forward".equals(type) ? 5000 : 0, type, false, 0, false, false,
+				Set.of(), 0, List.of(), "", List.of(),
+				CardData.parseActionAbilities(text), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, text);
+	}
+
+	private static boolean firstButtonUsable(MainWindow mw, ForwardTarget.CardZone zone, int idx) {
+		mw.syncSlotButtons();
+		return mw.fieldSlot(true, zone, idx).buttons().get(0).usable();
+	}
+
+	// Luca 3-023C pays four things at once: its own 《Dull》, "dull 1 active Card Name Rydia", the
+	// 《S》 (a Luca from hand) and 《Fire》. When Rydia is a Fire Backup, she is the card that dulls
+	// for the cost — so she cannot also make the Fire, and neither can Luca or the Luca in hand.
+	@Test
+	void lucasFireMustComeFromACardNoOtherPartOfItsCostUses() {
+		MainWindow mw = inP1Main1();
+		String text = "[[s]]Lightning Brain Buster[[/]] 《S》《Fire》《Dull》, dull 1 active Card Name Rydia: "
+				+ "Choose 1 Forward. Deal it 10000 damage.";
+		mw.p1BackupCards[0] = card("Luca", "Fire", "Backup", text);
+		mw.p1BackupCards[1] = card("Rydia", "Fire", "Backup", "");
+		mw.p1BackupStates[0] = mw.p1BackupStates[1] = CardState.ACTIVE;
+		mw.gameState.getP1Hand().add(card("Luca", "Fire", "Backup", text));
+		mw.placeCardInForwardZone(forward("Target", "", ""));
+		assertFalse(firstButtonUsable(mw, ForwardTarget.CardZone.BACKUP, 0),
+				"Luca dulls, Rydia dulls, the Luca in hand pays the S: nothing is left to make the Fire");
+
+		mw.p1BackupCards[2] = card("Fire Mage", "Fire", "Backup", "");
+		mw.p1BackupStates[2] = CardState.ACTIVE;
+		assertTrue(firstButtonUsable(mw, ForwardTarget.CardZone.BACKUP, 0), "a third Fire Backup makes it");
+	}
+
+	// The card a Special's 《S》 is paid with leaves the hand for the 《S》, not for CP.
+	@Test
+	void theCardPayingTheSCannotAlsoPayTheCp() {
+		MainWindow mw = inP1Main1();
+		String text = "[[s]]Blast[[/]] 《S》《Fire》: Choose 1 Forward. Deal it 1000 damage.";
+		mw.placeCardInForwardZone(card("Blaster", "Fire", "Forward", text));
+		mw.gameState.getP1Hand().add(card("Blaster", "Fire", "Forward", text));
+		assertFalse(firstButtonUsable(mw, ForwardTarget.CardZone.FORWARD, 0),
+				"the only Fire card in hand is the Blaster the S needs");
+
+		mw.gameState.getP1Hand().add(card("Shiva", "Ice", "Summon", ""));
+		assertFalse(firstButtonUsable(mw, ForwardTarget.CardZone.FORWARD, 0), "an Ice card makes no Fire");
+
+		mw.gameState.getP1Hand().add(card("Ifrit", "Fire", "Summon", ""));
+		assertTrue(firstButtonUsable(mw, ForwardTarget.CardZone.FORWARD, 0));
+	}
+
+	// Ninja 1-078C: "《Wind》, discard 1 card". With one card in hand it can pay one or the other.
+	// With a second, the discard takes whichever card the Wind does not need.
+	@Test
+	void aDiscardCostAndTheCpCannotShareACard() {
+		MainWindow mw = inP1Main1();
+		mw.placeCardInForwardZone(card("Ninja", "Wind", "Forward",
+				"《Wind》, discard 1 card: Choose 1 Forward. Deal it 1000 damage."));
+		mw.gameState.getP1Hand().add(card("Wind Card", "Wind", "Summon", ""));
+		assertFalse(firstButtonUsable(mw, ForwardTarget.CardZone.FORWARD, 0), "one card, two costs");
+
+		mw.gameState.getP1Hand().add(0, card("Fire Card", "Fire", "Summon", ""));
+		assertTrue(firstButtonUsable(mw, ForwardTarget.CardZone.FORWARD, 0),
+				"discard the Fire card, pay the Wind with the Wind card — whichever order the hand is in");
+	}
+
+	// Palom 5-018L dulls a Forward for its cost, and a Forward never makes CP: nothing to share.
+	@Test
+	void dullingAForwardForTheCostTakesNothingFromTheCp() {
+		MainWindow mw = inP1Main1();
+		mw.placeCardInForwardZone(card("Palom", "Fire", "Forward",
+				"《2》, dull 1 active Forward: Choose 1 Forward. Deal it 1000 damage."));
+		mw.placeCardInForwardZone(card("Porom", "Water", "Forward", ""));
+		mw.p1ForwardPlayedOnTurn.set(0, 0);
+		mw.p1ForwardPlayedOnTurn.set(1, 0);
+		mw.gameState.getP1Hand().add(card("Any Card", "Ice", "Summon", ""));
+		assertTrue(firstButtonUsable(mw, ForwardTarget.CardZone.FORWARD, 0),
+				"Porom dulls for the cost; the card in hand makes the 2 CP");
+	}
+
 	@Test
 	void anEmptySlotHasNoButtons() {
 		MainWindow mw = inP1Main1();
