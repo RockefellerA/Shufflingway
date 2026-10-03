@@ -202,6 +202,17 @@ public record ActionAbility(
     }
 
     /**
+     * Whether the ability costs nothing at all — a printed 《0》 (11-018H Sabin). Checks the same
+     * costs {@link #withCostsWaived} strips, so the two agree on what a cost is.
+     */
+    public boolean hasNoCost() {
+        return !requiresDull() && !isSpecial() && crystalCost() == 0 && selfMillCost() == 0 && !hasXCost()
+                && cpCost().isEmpty() && breakZoneCosts().isEmpty() && discardCosts().isEmpty()
+                && removeFromGameCosts().isEmpty() && returnToHandCosts().isEmpty() && counterCosts().isEmpty()
+                && dullForwardCosts().isEmpty() && bottomOfDeckCostCardName() == null && revealCost() == null;
+    }
+
+    /**
      * A copy with the 《S》 alone cleared and every other cost kept — what the payment dialog is shown
      * when "you can do so without paying 《S》" is open (17-002L Edgar), so it does not ask for a
      * same-named card. For display only: the payment is still handed the ability itself, which is

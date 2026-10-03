@@ -121,6 +121,7 @@ import shufflingway.dialog.RemovedFromPlayDialog;
 import shufflingway.dialog.StandardPaymentDialog;
 import shufflingway.dialog.WarpPaymentDialog;
 import shufflingway.dialog.WelcomeDialog;
+import shufflingway.graphics.AbilityToolTip;
 import shufflingway.graphics.ActionButton;
 import shufflingway.graphics.BoardEdgeFadePanel;
 import shufflingway.graphics.CardAnimation;
@@ -14685,12 +14686,23 @@ public class MainWindow {
 
 	/**
 	 * An ability as its action button describes it — the menu label's wording with the whole
-	 * effect, wrapped to a readable width — for the button's tooltip and its confirmation.
+	 * effect — as HTML with no width of its own. The button's {@link AbilityToolTip} sizes it to
+	 * the text; the confirmation wraps it to a fixed width ({@link #abilityConfirmationHtml}).
 	 *
 	 * @param payOwnCost whether to note that P1 pays for it, on an opponent's card's ability
 	 *                   either player may use
 	 */
 	String abilityDescriptionHtml(ActionAbility ability, boolean payOwnCost) {
+		return "<html>" + abilityDescriptionBody(ability, payOwnCost) + "</html>";
+	}
+
+	/** {@link #abilityDescriptionHtml} wrapped to a fixed width, for the confirmation dialog. */
+	private String abilityConfirmationHtml(ActionAbility ability, boolean payOwnCost) {
+		return "<html><div style='width: " + UiScale.scale(300) + "px'>"
+				+ abilityDescriptionBody(ability, payOwnCost) + "</div></html>";
+	}
+
+	private String abilityDescriptionBody(ActionAbility ability, boolean payOwnCost) {
 		String plain = buildAbilityLabel(ability, false);
 		String body;
 		String prefix = "[" + ability.abilityName() + "] ";
@@ -14700,7 +14712,7 @@ public class MainWindow {
 		else
 			body = escapeTooltipHtml(plain);
 		if (payOwnCost) body += " (pay your own cost)";
-		return "<html><div style='width: " + UiScale.scale(300) + "px'>" + body + "</div></html>";
+		return body;
 	}
 
 	/** HTML version of {@link #buildAbilityMenuLabel}: wraps the [AbilityName] in orange. */
@@ -22035,10 +22047,12 @@ public class MainWindow {
 
 		List<ActionButton.Spec> specs   = new ArrayList<>();
 		List<Runnable>          actions = new ArrayList<>();
+		CardData acting = zone == ForwardTarget.CardZone.FORWARD
+				? (isP1 ? effectiveP1Forward(idx) : effectiveP2Forward(idx)) : base;
 		for (AutoAbilityTriggers.FieldAbilityChoice c : slotAbilityChoices(isP1, zone, idx)) {
 			ActionAbility ability = c.ability();
-			specs.add(abilityButtonSpec(ability, c.enabled() && !fieldTargetingActive,
-					abilityDescriptionHtml(ability, !isP1)));
+			specs.add(abilityButtonSpec(ability, acting.name(), counterColorFor(isP1),
+					c.enabled() && !fieldTargetingActive, abilityDescriptionHtml(ability, !isP1)));
 			actions.add(() -> useSlotAbility(isP1, zone, slot, base, ability));
 		}
 		// Prime — offered until the Forward has been primed.
@@ -22054,11 +22068,19 @@ public class MainWindow {
 	/**
 	 * How an ability's button reads, from its printed cost: coloured by the Elements the cost
 	 * names (neutral when it names none), and marked with the cost's symbol — the S of a Special
-	 * ability, else the Dull arrow, else the discard arrow. With none of those, a neutral face
-	 * carries the generic CP amount, or X. Any other cost alone (a Break Zone cost, counters)
-	 * leaves the face neutral and blank.
+	 * ability, else the Dull arrow, else the discard arrow, else the Crystal, else BZ for putting the
+	 * card itself into the Break Zone, else the remove-from-game cards, else the counter orb, else the
+	 * return-to-hand arrow, else the Dull arrow over dots for dulling other Characters, else BZ over
+	 * dots for putting another card into the Break Zone, else the deck with N cards leaving it. With
+	 * none of those, a neutral face carries the generic CP amount, or X, or 0 for an ability that
+	 * costs nothing.
+	 *
+	 * @param sourceName   the name of the card using the ability, which a Break Zone cost names
+	 *                     when it puts that card itself there; {@code null} when not known
+	 * @param counterColor the "#rrggbb" counters on that card are drawn in, for the counter orb
 	 */
-	static ActionButton.Spec abilityButtonSpec(ActionAbility ability, boolean usable, String tooltip) {
+	static ActionButton.Spec abilityButtonSpec(ActionAbility ability, String sourceName, String counterColor,
+			boolean usable, String tooltip) {
 		List<Color> colors = new ArrayList<>();
 		int generic = 0;
 		for (String token : ability.cpCost()) {
@@ -22069,13 +22091,41 @@ public class MainWindow {
 		ActionButton.Glyph glyph = ability.isSpecial()               ? ActionButton.Glyph.SPECIAL
 				: ability.requiresDull()                         ? ActionButton.Glyph.DULL
 				: !ability.discardCosts().isEmpty()              ? ActionButton.Glyph.DISCARD
+				: ability.crystalCost() > 0                      ? ActionButton.Glyph.CRYSTAL
+				: putsItselfIntoBreakZone(ability, sourceName)   ? ActionButton.Glyph.BREAK_ZONE
+				: !ability.removeFromGameCosts().isEmpty()       ? ActionButton.Glyph.REMOVE_FROM_GAME
+				: !ability.counterCosts().isEmpty()              ? ActionButton.Glyph.COUNTERS
+				: !ability.returnToHandCosts().isEmpty()         ? ActionButton.Glyph.RETURN_TO_HAND
+				: !ability.dullForwardCosts().isEmpty()          ? ActionButton.Glyph.DULL_OTHERS
+				: !ability.breakZoneCosts().isEmpty()            ? ActionButton.Glyph.BREAK_ZONE_OTHER
+				: ability.selfMillCost() > 0                     ? ActionButton.Glyph.SELF_MILL
 				: ActionButton.Glyph.NONE;
 		String label = null;
-		if (glyph == ActionButton.Glyph.NONE && colors.isEmpty()) {
-			if (ability.hasXCost())  label = "X";
-			else if (generic > 0)    label = String.valueOf(generic);
+		if (glyph == ActionButton.Glyph.COUNTERS) {
+			CounterCost counters = ability.counterCosts().get(0);
+			label = counters.variable() ? "X" : String.valueOf(counters.count());
+		} else if (glyph == ActionButton.Glyph.SELF_MILL) {
+			label = String.valueOf(ability.selfMillCost());
+		} else if (glyph == ActionButton.Glyph.NONE && colors.isEmpty()) {
+			if (ability.hasXCost())          label = "X";
+			else if (generic > 0)            label = String.valueOf(generic);
+			else if (ability.hasNoCost())    label = "0";
 		}
-		return new ActionButton.Spec(ActionButton.Kind.ABILITY, colors, glyph, label, usable, tooltip);
+		return new ActionButton.Spec(ActionButton.Kind.ABILITY, colors, glyph, label,
+				glyph == ActionButton.Glyph.COUNTERS ? counterColor : null, usable, tooltip);
+	}
+
+	/** {@link #abilityButtonSpec(ActionAbility, String, String, boolean, String)} with no source card known. */
+	static ActionButton.Spec abilityButtonSpec(ActionAbility ability, boolean usable, String tooltip) {
+		return abilityButtonSpec(ability, null, CounterColors.DEFAULT, usable, tooltip);
+	}
+
+	/** Whether one of {@code ability}'s Break Zone costs puts the card named {@code sourceName} itself there. */
+	private static boolean putsItselfIntoBreakZone(ActionAbility ability, String sourceName) {
+		if (sourceName == null) return false;
+		for (BreakZoneCost bz : ability.breakZoneCosts())
+			if (bz.name() != null && bz.name().equalsIgnoreCase(sourceName)) return true;
+		return false;
 	}
 
 	/**
@@ -22143,7 +22193,7 @@ public class MainWindow {
 		CardData acting = slotAbilityActor(isP1, zone, slot, base, ability);
 		if (acting == null) { syncSlotButtons(); return; }
 		if (!autoAbilityTriggers.paymentOffersAWayBack(ability, acting, true)) {
-			int choice = showEffectOptionDialog(abilityDescriptionHtml(ability, !isP1), acting.name(),
+			int choice = showEffectOptionDialog(abilityConfirmationHtml(ability, !isP1), acting.name(),
 					new Object[]{ "Ok", "Cancel" });
 			if (choice != 0) return;
 			acting = slotAbilityActor(isP1, zone, slot, base, ability);

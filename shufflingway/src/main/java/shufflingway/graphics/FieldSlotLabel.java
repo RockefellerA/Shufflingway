@@ -12,6 +12,7 @@ import java.util.function.Supplier;
 
 import javax.swing.Icon;
 import javax.swing.JLabel;
+import javax.swing.JToolTip;
 import javax.swing.SwingUtilities;
 import javax.swing.ToolTipManager;
 
@@ -43,6 +44,13 @@ public class FieldSlotLabel extends JLabel {
 	private static final int TOOLTIP_DISMISS_MS = 20_000;
 	/** The tooltip manager's delay before the pointer came over this slot, or -1 while it is elsewhere. */
 	private int savedDismissDelay = -1;
+
+	/** How long the pointer rests on a button before its tooltip appears. */
+	private static final int BUTTON_TOOLTIP_DELAY_MS = 500;
+	/** The button under the pointer, usable or not — the one whose tooltip would show — or -1. */
+	private int tipButton = -1;
+	/** The tooltip manager's start delay while {@link #tipButton} has it borrowed, or -1. */
+	private int savedInitialDelay = -1;
 
 	/**
 	 * @param lift the overlay that draws this slot while it is raised; read on each paint, since
@@ -147,9 +155,11 @@ public class FieldSlotLabel extends JLabel {
 				ToolTipManager ttm = ToolTipManager.sharedInstance();
 				savedDismissDelay = ttm.getDismissDelay();
 				ttm.setDismissDelay(Math.max(savedDismissDelay, TOOLTIP_DISMISS_MS));
+				setTipButton(buttonAt(e.getX(), e.getY()));
 			}
 			case MouseEvent.MOUSE_EXITED -> {
 				setHover(-1);
+				setTipButton(-1);
 				if (savedDismissDelay >= 0) ToolTipManager.sharedInstance().setDismissDelay(savedDismissDelay);
 				savedDismissDelay = -1;
 			}
@@ -160,9 +170,45 @@ public class FieldSlotLabel extends JLabel {
 
 	@Override
 	protected void processMouseMotionEvent(MouseEvent e) {
-		if (e.getID() == MouseEvent.MOUSE_MOVED || e.getID() == MouseEvent.MOUSE_DRAGGED)
-			setHover(buttonAt(e.getX(), e.getY()));
+		if (e.getID() == MouseEvent.MOUSE_MOVED || e.getID() == MouseEvent.MOUSE_DRAGGED) {
+			int i = buttonAt(e.getX(), e.getY());
+			setHover(i);
+			// Ahead of super, which is where the tooltip manager hears the move and restarts its
+			// timer: the timer has to be restarted with the button's delay, not the card's.
+			setTipButton(i);
+		}
 		super.processMouseMotionEvent(e);
+	}
+
+	/**
+	 * Notes which button the pointer is on, and while it is on one, shortens the tooltip manager's
+	 * start delay to {@link #BUTTON_TOOLTIP_DELAY_MS} — handing the usual delay back as soon as the
+	 * pointer leaves the buttons, so the card's other tooltips keep their own timing.
+	 */
+	private void setTipButton(int i) {
+		if (i == tipButton) return;
+		tipButton = i;
+		ToolTipManager ttm = ToolTipManager.sharedInstance();
+		if (i >= 0 && savedInitialDelay < 0) {
+			savedInitialDelay = ttm.getInitialDelay();
+			ttm.setInitialDelay(BUTTON_TOOLTIP_DELAY_MS);
+		} else if (i < 0 && savedInitialDelay >= 0) {
+			ttm.setInitialDelay(savedInitialDelay);
+			savedInitialDelay = -1;
+		}
+	}
+
+	/**
+	 * The tooltip to show: the action-button style over a button, the stock one elsewhere on the
+	 * slot. The tooltip manager asks each time it shows one, so moving between a button and a
+	 * trait tab switches styles.
+	 */
+	@Override
+	public JToolTip createToolTip() {
+		if (tipButton < 0) return super.createToolTip();
+		JToolTip tip = new AbilityToolTip();
+		tip.setComponent(this);
+		return tip;
 	}
 
 	/** Repaints the slot wherever it is being drawn — in place, or raised by the lift overlay. */
@@ -182,12 +228,13 @@ public class FieldSlotLabel extends JLabel {
 
 	/**
 	 * A slot can be rebuilt out from under the pointer, and then never hears the pointer leave —
-	 * so it hands back the tooltip delay it borrowed on its way off screen too.
+	 * so it hands back the tooltip delays it borrowed on its way off screen too.
 	 */
 	@Override
 	public void removeNotify() {
 		if (savedDismissDelay >= 0) ToolTipManager.sharedInstance().setDismissDelay(savedDismissDelay);
 		savedDismissDelay = -1;
+		setTipButton(-1);
 		super.removeNotify();
 	}
 

@@ -14,10 +14,13 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Rectangle2D;
+import java.awt.geom.RoundRectangle2D;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 
 import shufflingway.CardState;
+import shufflingway.CounterColors;
 import shufflingway.FontLoader;
 import static shufflingway.graphics.CardAnimation.CARD_H;
 import static shufflingway.graphics.CardAnimation.CARD_W;
@@ -62,6 +65,22 @@ public final class ActionButton {
 		DULL,
 		/** A discard cost: a white arrow pointing right. */
 		DISCARD,
+		/** A Crystal cost (a 《C》 token): an oblong off-white hexagon with a white band, turned 45 degrees clockwise. */
+		CRYSTAL,
+		/** "Put [this card] into the Break Zone": the letters BZ. */
+		BREAK_ZONE,
+		/** A remove-from-the-game cost: a white card upright, a black card marked X turned in front of it. */
+		REMOVE_FROM_GAME,
+		/** A remove-counters cost: a counter orb in its owner's colour, the count on it. */
+		COUNTERS,
+		/** A return-to-hand cost: a white arrow pointing down. */
+		RETURN_TO_HAND,
+		/** A cost of dulling other Characters: the Dull arrow over three dots. */
+		DULL_OTHERS,
+		/** Putting another card into the Break Zone: BZ over three dots. */
+		BREAK_ZONE_OTHER,
+		/** Putting the top N of the deck into the Break Zone: a stack of cards, an arrow leaving it, N under the arrow. */
+		SELF_MILL,
 		/** None of the above: the face carries the Spec's label, if it has one. */
 		NONE
 	}
@@ -77,13 +96,20 @@ public final class ActionButton {
 	 *
 	 * @param colors the cost's Elements in printed order, each once; empty for a neutral face
 	 * @param glyph  the cost symbol on the face
-	 * @param label  short text for a face with no glyph, or {@code null}
+	 * @param label  short text for a face with no glyph, or {@code null}; with
+	 *               {@link Glyph#COUNTERS}, the number of counters, drawn on the orb
+	 * @param counterColor the orb's "#rrggbb" for {@link Glyph#COUNTERS}; {@code null} otherwise
 	 */
-	public record Spec(Kind kind, List<Color> colors, Glyph glyph, String label,
+	public record Spec(Kind kind, List<Color> colors, Glyph glyph, String label, String counterColor,
 	                   boolean usable, String tooltip) {
 
 		public Spec {
 			colors = List.copyOf(colors);
+		}
+
+		/** A button whose glyph needs no counter colour — every glyph but {@link Glyph#COUNTERS}. */
+		public Spec(Kind kind, List<Color> colors, Glyph glyph, String label, boolean usable, String tooltip) {
+			this(kind, colors, glyph, label, null, usable, tooltip);
 		}
 
 		/** The Priming button: neutral, carrying the Priming glyph. */
@@ -100,6 +126,9 @@ public final class ActionButton {
 	private static final float CLEARANCE = 3f;    // between the card edge and a button
 	private static final float MARGIN    = 4f;    // kept clear at each end of the stack
 	private static final float BEZEL     = 2.6f;
+
+	/** How far right a "1" label sits from advance-centred, at the design card width. See {@code drawLabel}. */
+	private static final float ONE_NUDGE = 1f;
 
 	/** The fill of the Special glyph's S. */
 	private static final Color SPECIAL_RED = new Color(0xd8, 0x1e, 0x1e);
@@ -243,6 +272,20 @@ public final class ActionButton {
 			case SPECIAL -> drawSpecialIcon(gg, gx, gy, size);
 			case DULL    -> drawDullIcon(gg, gx, gy, size);
 			case DISCARD -> drawDiscardIcon(gg, gx, gy, size);
+			case CRYSTAL -> drawCrystalIcon(gg, gx, gy, size);
+			case BREAK_ZONE       -> drawCentredText(gg, "BZ", cx + nudge, cy + nudge, size * 0.5f);
+			case REMOVE_FROM_GAME -> drawRemoveFromGameIcon(gg, gx, gy, size);
+			case COUNTERS         -> drawCounterIcon(gg, gx, gy, size, spec.counterColor(), spec.label());
+			case RETURN_TO_HAND   -> drawReturnToHandIcon(gg, gx, gy, size);
+			case DULL_OTHERS      -> {
+				drawDullIcon(gg, gx, gy - size * RAISE, size);
+				drawEllipsis(gg, gx, gy, size);
+			}
+			case BREAK_ZONE_OTHER -> {
+				drawCentredText(gg, "BZ", cx + nudge, cy + nudge - size * RAISE, size * 0.5f);
+				drawEllipsis(gg, gx, gy, size);
+			}
+			case SELF_MILL        -> drawSelfMillIcon(gg, gx, gy, size, spec.label());
 			case NONE    -> { if (spec.label() != null) drawLabel(gg, spec.label(), cx + nudge, cy + nudge, size); }
 		}
 		gg.dispose();
@@ -334,10 +377,21 @@ public final class ActionButton {
 	 * {@code [x, y, x + size, y + size]}. Authored on the 24x24 grid {@link TraitTab}'s glyphs use.
 	 */
 	public static void drawDiscardIcon(Graphics2D g0, float x, float y, float size) {
+		drawArrow(g0, x, y, size, 0);
+	}
+
+	/** The Return-to-hand glyph — the discard arrow turned to point down. */
+	public static void drawReturnToHandIcon(Graphics2D g0, float x, float y, float size) {
+		drawArrow(g0, x, y, size, Math.PI / 2);
+	}
+
+	/** A white arrow outlined in black, pointing right when {@code turn} is 0, turned clockwise by it. */
+	private static void drawArrow(Graphics2D g0, float x, float y, float size, double turn) {
 		Graphics2D g = (Graphics2D) g0.create();
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 		g.translate(x, y);
 		g.scale(size / 24f, size / 24f);
+		g.rotate(turn, 12, 12);
 
 		Path2D.Float arrow = new Path2D.Float();
 		arrow.moveTo(3.5f, 9.5f);
@@ -357,9 +411,59 @@ public final class ActionButton {
 		g.dispose();
 	}
 
-	/** Centred text on the face — the generic CP amount — white over a dark outline. */
+	/**
+	 * The Crystal glyph — an oblong hexagon, pointed at both ends and turned 45 degrees clockwise,
+	 * off-white with a white band along its length, on a dark outline (15-104L Lady Lilith prints
+	 * it so) — into the box {@code [x, y, x + size, y + size]}. Authored on the
+	 * 24x24 grid {@link TraitTab}'s glyphs use, upright, then turned about its centre.
+	 */
+	public static void drawCrystalIcon(Graphics2D g0, float x, float y, float size) {
+		Graphics2D g = (Graphics2D) g0.create();
+		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		g.translate(x, y);
+		g.scale(size / 24f, size / 24f);
+		g.rotate(Math.PI / 4, 12, 12);
+
+		Path2D.Float hex = new Path2D.Float();
+		hex.moveTo(12, 2.5f);
+		hex.lineTo(16.5f, 7);
+		hex.lineTo(16.5f, 17);
+		hex.lineTo(12, 21.5f);
+		hex.lineTo(7.5f, 17);
+		hex.lineTo(7.5f, 7);
+		hex.closePath();
+
+		// Off-white body with a white band down its long axis, as the card prints the symbol.
+		g.setColor(CRYSTAL_BODY);
+		g.fill(hex);
+		Graphics2D band = (Graphics2D) g.create();
+		band.clip(hex);
+		band.setColor(Color.WHITE);
+		band.fill(new Rectangle2D.Float(10.6f, 2.5f, 2.8f, 19f));
+		band.dispose();
+		g.setColor(Color.BLACK);
+		g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.draw(hex);
+		g.dispose();
+	}
+
+	/** The Crystal glyph's body: off-white, so the white band through it shows. */
+	private static final Color CRYSTAL_BODY = new Color(0xc8, 0xc8, 0xd0);
+
+	/**
+	 * Centred text on the face — the generic CP amount — white over a dark outline.
+	 *
+	 * <p>A "1" is nudged right by {@link #ONE_NUDGE}: it is narrower than the other digits in the
+	 * overlay font, and centring it by its advance width leaves it more than a pixel left of the
+	 * button's centre once it snaps to the pixel grid.
+	 */
 	private static void drawLabel(Graphics2D g, String text, float cx, float cy, float size) {
-		Font font = FontLoader.loadOverlayFont(12).deriveFont(size * 0.85f);
+		drawCentredText(g, text, cx + ("1".equals(text) ? ONE_NUDGE * scale() : 0), cy, size * 0.85f);
+	}
+
+	/** {@code text} in the overlay font at {@code fontSize}, centred on {@code (cx, cy)}, white over a dark outline. */
+	private static void drawCentredText(Graphics2D g, String text, float cx, float cy, float fontSize) {
+		Font font = FontLoader.loadOverlayFont(12).deriveFont(fontSize);
 		g.setFont(font);
 		FontMetrics fm = g.getFontMetrics();
 		float tx = cx - fm.stringWidth(text) / 2f;
@@ -370,6 +474,126 @@ public final class ActionButton {
 				if (dx != 0 || dy != 0) g.drawString(text, tx + dx, ty + dy);
 		g.setColor(Color.WHITE);
 		g.drawString(text, tx, ty);
+	}
+
+	/**
+	 * How far a glyph with dots under it is lifted, as a share of the glyph box — the dots are what
+	 * say "another card" or "other Characters" rather than this one, so they need the room.
+	 */
+	private static final float RAISE = 0.13f;
+
+	/**
+	 * Three dots along the bottom of the box {@code [x, y, x + size, y + size]} — the "others" mark
+	 * under a glyph whose cost reaches beyond the card using it. White on a dark outline.
+	 */
+	private static void drawEllipsis(Graphics2D g0, float x, float y, float size) {
+		Graphics2D g = (Graphics2D) g0.create();
+		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		g.translate(x, y);
+		g.scale(size / 24f, size / 24f);
+		for (float dx : new float[]{ 7.5f, 12f, 16.5f }) {
+			Ellipse2D.Float dot = new Ellipse2D.Float(dx - 1.5f, 19.5f, 3f, 3f);
+			g.setColor(Color.WHITE);
+			g.fill(dot);
+			g.setColor(new Color(0, 0, 0, 200));
+			g.setStroke(new BasicStroke(0.8f));
+			g.draw(dot);
+		}
+		g.dispose();
+	}
+
+	/**
+	 * The Self-mill glyph into the box {@code [x, y, x + size, y + size]}: a stack of cards on the
+	 * left, a curved arrow leaving the top of it to the right, and {@code count} under the arrow.
+	 * Authored on the 24x24 grid {@link TraitTab}'s glyphs use.
+	 */
+	public static void drawSelfMillIcon(Graphics2D g0, float x, float y, float size, String count) {
+		Graphics2D g = (Graphics2D) g0.create();
+		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		g.translate(x, y);
+		g.scale(size / 24f, size / 24f);
+
+		// The deck: three cards, each a little up and right of the one beneath.
+		BasicStroke edge = new BasicStroke(1.1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+		for (int i = 0; i < 3; i++) {
+			RoundRectangle2D.Float card = new RoundRectangle2D.Float(2.5f + i * 1.5f, 10f - i * 1.5f, 8, 11, 1.5f, 1.5f);
+			g.setColor(Color.WHITE);
+			g.fill(card);
+			g.setColor(Color.BLACK);
+			g.setStroke(edge);
+			g.draw(card);
+		}
+
+		// The arrow: off the top of the deck, arcing out to the right.
+		Path2D.Float shaft = new Path2D.Float();
+		shaft.moveTo(9.5f, 5.5f);
+		shaft.quadTo(14.5f, 1.5f, 18.5f, 6.5f);
+		Path2D.Float head = new Path2D.Float();
+		head.moveTo(21.5f, 9.5f);
+		head.lineTo(15.8f, 8.4f);
+		head.lineTo(20.2f, 4.0f);
+		head.closePath();
+		g.setColor(new Color(0, 0, 0, 200));
+		g.setStroke(new BasicStroke(3.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.draw(shaft);
+		g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.draw(head);
+		g.setColor(Color.WHITE);
+		g.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.draw(shaft);
+		g.fill(head);
+		g.dispose();
+
+		if (count != null)
+			drawCentredText(g0, count, x + size * (17.5f / 24f), y + size * (16.5f / 24f), size * 0.42f);
+	}
+
+	/**
+	 * The Remove-from-the-game glyph into the box {@code [x, y, x + size, y + size]}: a white card
+	 * standing upright, and in front of it a black card outlined in white, marked with a white X
+	 * and turned 45 degrees clockwise. Authored on the 24x24 grid {@link TraitTab}'s glyphs use.
+	 */
+	public static void drawRemoveFromGameIcon(Graphics2D g0, float x, float y, float size) {
+		Graphics2D g = (Graphics2D) g0.create();
+		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		g.translate(x, y);
+		g.scale(size / 24f, size / 24f);
+
+		RoundRectangle2D.Float upright = new RoundRectangle2D.Float(3, 2, 10, 14, 2, 2);
+		g.setColor(Color.WHITE);
+		g.fill(upright);
+		g.setColor(Color.BLACK);
+		g.setStroke(new BasicStroke(1.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.draw(upright);
+
+		g.rotate(Math.PI / 4, 15, 14.5f);
+		RoundRectangle2D.Float removed = new RoundRectangle2D.Float(10.5f, 8.5f, 9, 12, 2, 2);
+		g.setColor(Color.BLACK);
+		g.fill(removed);
+		g.setColor(Color.WHITE);
+		g.setStroke(new BasicStroke(1.3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.draw(removed);
+		g.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+		g.draw(new Line2D.Float(12.8f, 11.5f, 17.2f, 17.5f));
+		g.draw(new Line2D.Float(17.2f, 11.5f, 12.8f, 17.5f));
+		g.dispose();
+	}
+
+	/**
+	 * The Remove-counters glyph into the box {@code [x, y, x + size, y + size]}: the counter orb
+	 * the board draws on a card, in {@code hex}, with {@code count} on it in a smaller hand.
+	 */
+	public static void drawCounterIcon(Graphics2D g0, float x, float y, float size, String hex, String count) {
+		Graphics2D g = (Graphics2D) g0.create();
+		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+		// The same proportions as the orb on a card (CardAnimation.renderCounterOverlay).
+		int w = Math.max(1, Math.round(size)), h = Math.max(1, Math.round(size * 56f / 64f));
+		BufferedImage orb = Counter.render(w, h, hex != null ? hex : CounterColors.DEFAULT);
+		float ox = x + (size - w) / 2f, oy = y + (size - h) / 2f;
+		g.drawImage(orb, Math.round(ox), Math.round(oy), null);
+		if (count != null) drawCentredText(g, count, ox + w / 2f, oy + h / 2f, size * 0.5f);
+		g.dispose();
 	}
 
 	private static Ellipse2D.Float circle(float cx, float cy, float r) {

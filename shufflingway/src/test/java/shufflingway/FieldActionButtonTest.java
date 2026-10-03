@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.Color;
+import java.awt.FontMetrics;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Ellipse2D;
@@ -17,9 +19,13 @@ import java.util.Set;
 import javax.swing.ImageIcon;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.ToolTipManager;
+import javax.swing.border.BevelBorder;
+import javax.swing.border.CompoundBorder;
 
 import org.junit.jupiter.api.Test;
 
+import shufflingway.graphics.AbilityToolTip;
 import shufflingway.graphics.ActionButton;
 import shufflingway.graphics.CardAnimation;
 import shufflingway.graphics.FieldCardIcon;
@@ -202,6 +208,96 @@ class FieldActionButtonTest {
 				H / 2, H / 2, 0, false)), "off the buttons, the slot's own tooltip (none here)");
 	}
 
+	// ── The button tooltip ───────────────────────────────────────────────
+
+	private static void moveTo(FieldSlotLabel slot, double x, double y) {
+		slot.dispatchEvent(new MouseEvent(slot, MouseEvent.MOUSE_MOVED, 0, 0, (int) x, (int) y, 0, false));
+	}
+
+	@Test
+	void aButtonGetsTheAbilityTooltipAndTheRestOfTheSlotKeepsTheStockOne() {
+		FieldSlotLabel slot = slotWithButtons(List.of(() -> { }, () -> { }));
+		moveTo(slot, button(1).getCenterX(), button(1).getCenterY());
+		assertTrue(slot.createToolTip() instanceof AbilityToolTip, "over a button — even an unusable one");
+
+		moveTo(slot, H / 2.0, H / 2.0);
+		assertFalse(slot.createToolTip() instanceof AbilityToolTip, "trait tabs and counters keep theirs");
+	}
+
+	// The tooltip manager's start delay is one setting for the whole application, so the slot only
+	// borrows it while the pointer is on a button.
+	@Test
+	void theTooltipDelayIsHalfASecondOnAButtonAndRestoredOffIt() {
+		ToolTipManager ttm = ToolTipManager.sharedInstance();
+		int before = ttm.getInitialDelay();
+		try {
+			ttm.setInitialDelay(750);
+			FieldSlotLabel slot = slotWithButtons(List.of(() -> { }, () -> { }));
+			moveTo(slot, button(0).getCenterX(), button(0).getCenterY());
+			assertEquals(500, ttm.getInitialDelay());
+			moveTo(slot, button(1).getCenterX(), button(1).getCenterY());
+			assertEquals(500, ttm.getInitialDelay(), "still on a button");
+			moveTo(slot, H / 2.0, H / 2.0);
+			assertEquals(750, ttm.getInitialDelay(), "handed back off the buttons");
+
+			moveTo(slot, button(0).getCenterX(), button(0).getCenterY());
+			slot.dispatchEvent(new MouseEvent(slot, MouseEvent.MOUSE_EXITED, 0, 0, -1, -1, 0, false));
+			assertEquals(750, ttm.getInitialDelay(), "and when the pointer leaves the slot from a button");
+		} finally {
+			ttm.setInitialDelay(before);
+		}
+	}
+
+	@Test
+	void theAbilityTooltipIsWhiteOnDarkGreyInARaisedBevel() {
+		AbilityToolTip tip = new AbilityToolTip();
+		assertTrue(tip.isOpaque());
+		assertEquals(Color.WHITE, tip.getForeground());
+		Color bg = tip.getBackground();
+		assertTrue(bg.getRed() < 0x50 && bg.getRed() == bg.getGreen(), "a dark, neutral grey");
+		assertTrue(tip.getBorder() instanceof CompoundBorder cb
+				&& cb.getOutsideBorder() instanceof BevelBorder bevel
+				&& bevel.getBevelType() == BevelBorder.RAISED, "framed by a raised bevel");
+	}
+
+	private static final String SHORT_DESCRIPTION = "<html>[Dull, Fire] → Draw 1 card.</html>";
+	private static final String LONG_DESCRIPTION = "<html><font color='#ED930D'>[Ultimate Jecht Shot]</font> "
+			+ "[Dull, S, Fire, any, any] → Choose 1 Forward opponent controls. Break it. If you have received "
+			+ "5 or more damage, deal your opponent 1 point of damage and draw 1 card. You can only use this "
+			+ "ability during your turn.</html>";
+
+	/** How many lines of text {@code tip} lays its description out on, from its height. */
+	private static double linesOf(AbilityToolTip tip, String text) {
+		AbilityToolTip oneLine = new AbilityToolTip();
+		oneLine.setTipText("<html>x</html>");
+		int lineHeight = oneLine.getPreferredSize().height - oneLine.getInsets().top - oneLine.getInsets().bottom;
+		tip.setTipText(text);
+		int height = tip.getPreferredSize().height - tip.getInsets().top - tip.getInsets().bottom;
+		return height / (double) lineHeight;
+	}
+
+	// A fixed width made every tooltip as wide as the longest one, so short descriptions trailed off
+	// into empty grey. A short one is now exactly its own length.
+	@Test
+	void aShortDescriptionSitsOnOneLineAsWideAsItsText() {
+		AbilityToolTip tip = new AbilityToolTip();
+		assertEquals(1.0, linesOf(tip, SHORT_DESCRIPTION), 0.25);
+		assertFalse(tip.getTipText().contains("width"), "no width imposed: the text sets it");
+	}
+
+	@Test
+	void aLongDescriptionWrapsOntoTwoEvenLines() {
+		AbilityToolTip tip = new AbilityToolTip();
+		assertEquals(2.0, linesOf(tip, LONG_DESCRIPTION), 0.25, "two lines, not three");
+
+		FontMetrics fm = tip.getFontMetrics(tip.getFont());
+		int oneLineWidth = fm.stringWidth("[Ultimate Jecht Shot] [Dull, S, Fire, any, any] → Choose 1 Forward "
+				+ "opponent controls. Break it. If you have received 5 or more damage, deal your opponent 1 point "
+				+ "of damage and draw 1 card. You can only use this ability during your turn.");
+		int textWidth = tip.getPreferredSize().width - tip.getInsets().left - tip.getInsets().right;
+		assertTrue(textWidth < oneLineWidth * 0.75, "about half its one-line length, not the whole of it");
+	}
+
 	// ── How a button reads its cost ──────────────────────────────────────
 
 	private static ActionButton.Spec specFor(String text) {
@@ -268,12 +364,89 @@ class FieldActionButtonTest {
 				specFor("《Dull》, discard 1 card: Draw 1 card.").glyph(), "Dull outranks discard");
 	}
 
+	// 101 cards print 《0》 (11-018H Sabin). Nothing to pay reads as a 0, the way the card prints it.
 	@Test
-	void aCostOfAnotherKindIsNeutralAndBlank() {
-		ActionButton.Spec spec = specFor("Put 1 Backup into the Break Zone: Draw 1 card.");
+	void anAbilityThatCostsNothingShowsAZero() {
+		ActionButton.Spec spec = specFor("《0》: Draw 1 card.");
 		assertTrue(spec.colors().isEmpty());
 		assertEquals(ActionButton.Glyph.NONE, spec.glyph());
+		assertEquals("0", spec.label());
+		assertNull(specFor("Put 1 Backup into the Break Zone: Draw 1 card.").label(),
+				"a cost of another kind is still a cost, not a 0");
+	}
+
+	@Test
+	void aCrystalCostCarriesTheCrystal() {
+		ActionButton.Spec spec = specFor("《C》: Draw 1 card.");
+		assertEquals(ActionButton.Glyph.CRYSTAL, spec.glyph());
 		assertNull(spec.label());
+		assertEquals(ActionButton.Glyph.CRYSTAL, specFor("《C》《2》: Draw 1 card.").glyph(),
+				"the Crystal outranks the generic amount");
+		assertEquals(ActionButton.Glyph.DULL, specFor("《C》《Dull》: Draw 1 card.").glyph(),
+				"and Dull outranks the Crystal");
+	}
+
+	private static ActionButton.Spec specFor(String text, String sourceName) {
+		List<ActionAbility> parsed = CardData.parseActionAbilities(text);
+		assertEquals(1, parsed.size(), "fixture must parse as one action ability: " + text);
+		return MainWindow.abilityButtonSpec(parsed.get(0), sourceName, "#3366cc", true, "tip");
+	}
+
+	// BZ marks the card paying with itself (10-005C Gancanagh). Putting some other card there is a
+	// different cost, which gets the dots.
+	@Test
+	void puttingTheCardItselfIntoTheBreakZoneReadsBZ() {
+		String text = "Put Gancanagh into the Break Zone: Choose 1 Forward. Deal it 8000 damage.";
+		assertEquals(ActionButton.Glyph.BREAK_ZONE, specFor(text, "Gancanagh").glyph());
+		assertEquals(ActionButton.Glyph.BREAK_ZONE_OTHER, specFor(text, "Dendrobium").glyph(),
+				"a Break Zone cost naming another card is not this card's own");
+	}
+
+	@Test
+	void aRemoveFromGameCostCarriesTheRemovedCards() {
+		assertEquals(ActionButton.Glyph.REMOVE_FROM_GAME, specFor(
+				"Remove 1 Forward other than Lady Lilith from the game: Draw 1 card.", "Lady Lilith").glyph());
+	}
+
+	// The orb is drawn in the colour the owner's counters are, with how many the cost removes.
+	@Test
+	void aCounterCostCarriesTheOrbWithItsCount() {
+		ActionButton.Spec spec = specFor("Remove 2 Ninja Counters from Edge: Draw 1 card.", "Edge");
+		assertEquals(ActionButton.Glyph.COUNTERS, spec.glyph());
+		assertEquals("2", spec.label());
+		assertEquals("#3366cc", spec.counterColor());
+		assertNull(specFor("《Dull》: Draw 1 card.", "Edge").counterColor(), "no orb, no orb colour");
+	}
+
+	@Test
+	void aReturnToHandCostCarriesTheDownArrow() {
+		assertEquals(ActionButton.Glyph.RETURN_TO_HAND, specFor(
+				"Return 1 Forward you control to its owner's hand: Draw 1 card.", "Ursula").glyph());
+	}
+
+	// The dots mark a cost paid with something other than the card itself: its own 《Dull》 is the
+	// plain arrow, dulling other Characters (10-084C Monk) is the arrow over dots.
+	@Test
+	void dullingOtherCharactersIsTheDullArrowOverDots() {
+		assertEquals(ActionButton.Glyph.DULL_OTHERS,
+				specFor("Dull 1 active Card Name Monk: Monk gains +1000 power until the end of the turn.", "Monk").glyph());
+		assertEquals(ActionButton.Glyph.DULL, specFor("《Dull》: Draw 1 card.", "Monk").glyph(),
+				"the card's own Dull keeps the plain arrow");
+	}
+
+	@Test
+	void puttingAnotherCardIntoTheBreakZoneIsBZOverDots() {
+		assertEquals(ActionButton.Glyph.BREAK_ZONE_OTHER,
+				specFor("Put 1 Backup into the Break Zone: Draw 1 card.", "Mystic").glyph());
+		assertEquals(ActionButton.Glyph.BREAK_ZONE,
+				specFor("Put Mystic into the Break Zone: Draw 1 card.", "Mystic").glyph(), "the card itself is plain BZ");
+	}
+
+	@Test
+	void millingTheDeckIsTheStackWithItsCount() {
+		ActionButton.Spec spec = specFor("Put the top 2 cards of your deck into the Break Zone: Draw 1 card.", "Edea");
+		assertEquals(ActionButton.Glyph.SELF_MILL, spec.glyph());
+		assertEquals("2", spec.label());
 	}
 
 	// ── Which abilities ask before they resolve ──────────────────────────
