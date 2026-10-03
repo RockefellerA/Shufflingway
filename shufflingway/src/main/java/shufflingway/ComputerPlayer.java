@@ -12,7 +12,6 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import javax.swing.Timer;
 
@@ -362,14 +361,19 @@ class ComputerPlayer implements OpponentController {
 	// ── Attack Phase ─────────────────────────────────────────────────────
 
 	/**
-	 * Returns a list of P2 forward indices to party-attack with, or null if a party
-	 * attack offers no advantage. A party attack is chosen when the combined power of
-	 * 2-3 forwards can break a P1 forward that no single P2 forward could kill alone.
+	 * Returns the slot codes ({@link ForwardTarget#slotCode()}) of P2 Characters to party-attack
+	 * with, or null if a party attack offers no advantage. A party attack is chosen when the
+	 * combined power of 2-3 attackers — Forwards, or Monsters and Backups acting as Forwards — can
+	 * break a P1 forward that no single P2 attacker could kill alone.
 	 */
 	private List<Integer> p2ChoosePartyAttack() {
 		List<Integer> attackable = new ArrayList<>();
 		for (int i = 0; i < mw.p2ForwardStates.size(); i++)
-			if (p2ForwardCanAttack(i)) attackable.add(i);
+			if (p2ForwardCanAttack(i)) attackable.add(ForwardTarget.slotCode(ForwardTarget.CardZone.FORWARD, i));
+		for (int i = 0; i < mw.p2MonsterStates.size(); i++)
+			if (mw.p2MonsterCanAttackAsForward(i)) attackable.add(ForwardTarget.slotCode(ForwardTarget.CardZone.MONSTER, i));
+		for (int i = 0; i < mw.p2BackupCards.length; i++)
+			if (mw.p2BackupCanAttackAsForward(i)) attackable.add(ForwardTarget.slotCode(ForwardTarget.CardZone.BACKUP, i));
 		if (attackable.size() < 2) return null;
 
 		for (int p1 = 0; p1 < mw.p1ForwardStates.size(); p1++) {
@@ -378,8 +382,8 @@ class ComputerPlayer implements OpponentController {
 			int p1Hp = mw.effectiveP1ForwardPower(p1) - mw.p1ForwardDamage.get(p1);
 
 			boolean canKillAlone = false;
-			for (int i : attackable)
-				if (mw.effectiveP2ForwardPower(i) >= p1Hp) { canKillAlone = true; break; }
+			for (int code : attackable)
+				if (mw.partyMemberPower(false, code) >= p1Hp) { canKillAlone = true; break; }
 			if (canKillAlone) continue;
 
 			// Try pairs
@@ -387,9 +391,7 @@ class ComputerPlayer implements OpponentController {
 				for (int b = a + 1; b < attackable.size(); b++) {
 					List<Integer> pair = List.of(attackable.get(a), attackable.get(b));
 					if (!mw.canFormValidParty(false, pair)) continue;
-					if (mw.effectiveP2ForwardPower(attackable.get(a))
-							+ mw.effectiveP2ForwardPower(attackable.get(b)) >= p1Hp)
-						return pair;
+					if (mw.partyPower(false, pair) >= p1Hp) return pair;
 				}
 			}
 			// Try triples
@@ -398,43 +400,12 @@ class ComputerPlayer implements OpponentController {
 					for (int c = b + 1; c < attackable.size(); c++) {
 						List<Integer> triple = List.of(attackable.get(a), attackable.get(b), attackable.get(c));
 						if (!mw.canFormValidParty(false, triple)) continue;
-						if (mw.effectiveP2ForwardPower(attackable.get(a))
-								+ mw.effectiveP2ForwardPower(attackable.get(b))
-								+ mw.effectiveP2ForwardPower(attackable.get(c)) >= p1Hp)
-							return triple;
+						if (mw.partyPower(false, triple) >= p1Hp) return triple;
 					}
 				}
 			}
 		}
 		return null;
-	}
-
-	private void executeP2PartyAttack(List<Integer> partyIndices, Runnable onDone) {
-		int combinedPower = 0;
-		StringBuilder names = new StringBuilder();
-		for (int idx : partyIndices) {
-			if (!mw.effectiveP2HasTrait(idx, CardData.Trait.BRAVE)) {
-				CardState p2PartyBefore = mw.p2ForwardStates.get(idx);
-				mw.p2ForwardStates.set(idx, CardState.DULL);
-				mw.animateDullP2Forward(idx, null);
-				if (p2PartyBefore == CardState.ACTIVE)
-					mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(mw.p2ForwardCards.get(idx), false);
-			}
-			mw.recordAttackDeclared(mw.effectiveP2Forward(idx));
-			combinedPower += mw.effectiveP2ForwardPower(idx);
-			if (names.length() > 0) names.append(", ");
-			names.append(mw.p2ForwardCards.get(idx).name());
-		}
-		mw.logEntry("[P2] Party Attack! " + names + " (" + combinedPower + " combined)");
-		mw.p2Turn.formedPartyThisTurn = true;
-		for (int idx : partyIndices)
-			mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(
-					mw.p2ForwardPrimedTop.get(idx) != null ? mw.p2ForwardPrimedTop.get(idx) : mw.p2ForwardCards.get(idx), false);
-		List<CardData> p2PartyMembers = partyIndices.stream()
-				.map(mw.p2ForwardCards::get).collect(Collectors.toList());
-		mw.autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(false, p2PartyMembers);
-		final int fCombined = combinedPower;
-		mw.initP1BlockDeclarationVsParty(partyIndices, fCombined, onDone);
 	}
 
 	private void doAttackPhase(Runnable onDone) {
@@ -464,7 +435,7 @@ class ComputerPlayer implements OpponentController {
 		List<Integer> party = p2ChoosePartyAttack();
 		if (party != null) {
 			mw.p2Turn.attackDeclarationsThisTurn++;
-			executeP2PartyAttack(party, () -> {
+			mw.declareP2PartyAttack(party, () -> {
 				if (!mw.gameState.isP1GameOver()) step(() -> doAttackPhase(onDone));
 			});
 			return;
@@ -1300,10 +1271,10 @@ class ComputerPlayer implements OpponentController {
 	 */
 	private Integer choosePartyBlocker(List<Integer> attackerIndices, boolean forcedBlock) {
 		int minAttackerPower = Integer.MAX_VALUE;
-		for (int idx : attackerIndices) {
-			if (idx < mw.p1ForwardCards.size())
+		for (int code : attackerIndices) {
+			if (mw.partyMemberBaseCard(true, code) != null)
 				minAttackerPower = Math.min(minAttackerPower,
-						mw.effectiveP1ForwardPower(idx) - mw.p1ForwardDamage.get(idx));
+						mw.partyMemberPower(true, code) - mw.partyMemberDamage(true, code));
 		}
 		int bestBlockerIdx = -1, bestBlockerPower = 0;
 		for (int i = 0; i < mw.p2ForwardStates.size(); i++) {

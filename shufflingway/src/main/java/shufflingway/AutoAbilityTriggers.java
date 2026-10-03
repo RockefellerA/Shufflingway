@@ -7881,7 +7881,7 @@ final class AutoAbilityTriggers {
 		mw.addToBreakZone(c, true);
 		mw.p1BackupTempForwardPower.remove(c); mw.p1BackupForwardBoost.remove(c);
 		mw.p1BackupTempTraits.remove(c);       mw.p1BackupForwardDamage.remove(c);
-		if (mw.p1BackupAttackIdx == idx) mw.p1BackupAttackIdx = -1;
+		mw.dropFromAttackSelection(ForwardTarget.CardZone.BACKUP, idx);
 		mw.p1BackupCards[idx]   = null;
 		mw.p1BackupUrls[idx]    = null;
 		mw.p1BackupStates[idx]  = CardState.ACTIVE;

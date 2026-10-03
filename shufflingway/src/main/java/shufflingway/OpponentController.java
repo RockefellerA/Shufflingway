@@ -52,10 +52,11 @@ interface OpponentController {
 	/**
 	 * Asks the opponent to declare a blocker against a party attack.
 	 *
-	 * @param attackerIndices indices into {@code p1ForwardCards} of the attacking party
+	 * @param attackerIndices slot codes ({@link ForwardTarget#slotCode()}) of P1's attacking party
 	 * @param combinedPower   the party's combined power
 	 * @param forcedBlock     true when a party member carries a "must block if possible" ability
-	 * @param onChosen        receives the blocking P2 Forward's index, or {@code null} for no block
+	 * @param onChosen        receives the blocker's slot code ({@link ForwardTarget#slotCode()}) — a P2
+	 *                        Forward, or a Monster or Backup acting as one — or {@code null} for no block
 	 */
 	void requestPartyBlocker(List<Integer> attackerIndices, int combinedPower, boolean forcedBlock,
 	                         Consumer<Integer> onChosen);
@@ -69,9 +70,9 @@ interface OpponentController {
 	/**
 	 * Asks the opponent how to spread its blocker's damage across a blocked party.
 	 *
-	 * @param attackerIndices indices into {@code p1ForwardCards} of the attacking party
+	 * @param attackerIndices slot codes ({@link ForwardTarget#slotCode()}) of P1's attacking party
 	 * @param blockerPower    the blocker's power, i.e. the damage available to assign
-	 * @param onAssigned      receives attacker index → damage; an empty map assigns nothing
+	 * @param onAssigned      receives attacker slot code → damage; an empty map assigns nothing
 	 */
 	void requestPartyBlockerDamage(List<Integer> attackerIndices, int blockerPower,
 	                               Consumer<Map<Integer, Integer>> onAssigned);

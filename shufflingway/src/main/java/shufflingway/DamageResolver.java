@@ -635,7 +635,7 @@ class DamageResolver {
 	int applyFieldWideDamageModifiers(int amount, CardData damaged, boolean isP1,
 			ForwardTarget.CardZone zone, int idx, boolean fromAbility) {
 		int effectivePower = mw.fieldForwardPower(isP1, zone, idx);
-		boolean attackerIsBackup = !fromAbility && (isP1 ? mw.pendingP2AttackerIsBackup : mw.p1BackupAttackIdx >= 0);
+		boolean attackerIsBackup = !fromAbility && mw.attackingWithBackup(!isP1);
 
 		for (CardData protector : mw.fieldCards(isP1)) {
 			if (mw.lostAbilitiesCards.contains(protector)) continue;

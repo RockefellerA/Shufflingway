@@ -17328,6 +17328,140 @@ public class CardBehaviorTest {
 		assertTrue(mw.canFormValidParty(true, List.of(0, 1)), "with its abilities gone, so is the restriction");
 	}
 
+	// =========================================================================================
+	// Mixed parties: a Monster or Backup that has become a Forward can party attack with Forwards.
+	// Party members travel as slot codes (ForwardTarget#slotCode) — zone and index in one int, a
+	// Forward's code being its plain index — so every party list can name any of the three rows.
+	// =========================================================================================
+
+	private static final int MONSTER_0 = ForwardTarget.slotCode(ForwardTarget.CardZone.MONSTER, 0);
+	private static final int BACKUP_0  = ForwardTarget.slotCode(ForwardTarget.CardZone.BACKUP, 0);
+
+	/** P1's Monster zone gets {@code monster}, made a Forward of {@code power} until end of turn. */
+	private static void placeP1MonsterForward(MainWindow mw, CardData monster, int power) {
+		mw.gameState.getIdentity().put(monster, true);
+		mw.placeCardInMonsterZone(monster);
+		mw.p1MonsterTempForwardPower.put(monster, power);
+	}
+
+	@Test
+	void aForwardsSlotCodeIsItsIndexSoAllForwardPartiesReadAsBefore() {
+		assertEquals(3, ForwardTarget.slotCode(ForwardTarget.CardZone.FORWARD, 3));
+		ForwardTarget t = ForwardTarget.fromSlotCode(false, MONSTER_0);
+		assertEquals(ForwardTarget.CardZone.MONSTER, t.zone());
+		assertEquals(0, t.idx());
+		assertFalse(t.isP1());
+		assertEquals(MONSTER_0, t.slotCode());
+	}
+
+	@Test
+	void aMonsterActingAsAForwardFormsAPartyWithAForwardThatSharesItsElement() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Ally", "Wind", 3, 7000));
+		placeP1MonsterForward(mw, makeForward("Chocobo", "Wind", 2, 5000), 5000);
+
+		assertTrue(mw.canFormValidParty(true, List.of(0, MONSTER_0)));
+		assertEquals(12000, mw.partyPower(true, List.of(0, MONSTER_0)), "the Monster adds its power as a Forward");
+	}
+
+	@Test
+	void aMonsterOfAnotherElementCannotJoinTheParty() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Ally", "Wind", 3, 7000));
+		placeP1MonsterForward(mw, makeForward("Bomb", "Fire", 2, 5000), 5000);
+
+		assertFalse(mw.canFormValidParty(true, List.of(0, MONSTER_0)));
+	}
+
+	@Test
+	void aBackupActingAsAForwardFormsAPartyToo() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Ally", "Earth", 3, 7000));
+		CardData backup = makeIcbCard("Scholar", "Earth", "Backup", "");
+		mw.gameState.getIdentity().put(backup, true);
+		mw.placeCardInFirstBackupSlot(backup);
+		mw.makeP1BackupTemporaryForward(backup, 8000);
+
+		assertTrue(mw.canFormValidParty(true, List.of(0, BACKUP_0)));
+		assertEquals(15000, mw.partyPower(true, List.of(0, BACKUP_0)));
+	}
+
+	@Test
+	void declaringAMixedPartyDullsAndDeclaresEveryMember() {
+		MainWindow mw = new MainWindow();
+		CardData ally    = makeForward("Ally", "Wind", 3, 7000);
+		CardData chocobo = makeForward("Chocobo", "Wind", 2, 5000);
+		placeP1Forward(mw, ally);
+		placeP1MonsterForward(mw, chocobo, 5000);
+
+		mw.executeP1Attack(List.of(0, MONSTER_0));
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertEquals(CardState.DULL, mw.p1MonsterStates.get(0), "the Monster dulls with the rest of the party");
+		assertTrue(mw.p1DeclaredAttackers.contains(ally));
+		assertTrue(mw.p1DeclaredAttackers.contains(chocobo));
+		assertTrue(mw.isFormingParty(chocobo, true), "party-conditioned abilities see the Monster in the party");
+	}
+
+	@Test
+	void theCpuSpreadsItsBlockerAcrossAMixedPartyBySlotCode() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Ally", "Wind", 3, 7000));
+		placeP1MonsterForward(mw, makeForward("Chocobo", "Wind", 2, 5000), 5000);
+
+		Map<Integer, Integer> spread = mw.p2AiBuildDamageMap(List.of(0, MONSTER_0), 7000);
+
+		assertEquals(5000, spread.get(MONSTER_0), "the weaker member, the Monster, is finished off first");
+		assertEquals(2000, spread.get(0), "and the rest lands on the Forward");
+	}
+
+	@Test
+	void theChosenBlockerIsReadFromWhicheverRowItWasPickedIn() {
+		MainWindow mw = new MainWindow();
+		assertEquals(-1, mw.p1ChosenBlockerCode(), "nothing chosen");
+
+		mw.p1BlockerMonsterIdx = 0;
+		assertEquals(MONSTER_0, mw.p1ChosenBlockerCode(), "a Monster acting as a Forward is a blocker too");
+
+		mw.p1BlockerMonsterIdx = -1;
+		mw.p1BlockerBackupIdx  = 0;
+		assertEquals(BACKUP_0, mw.p1ChosenBlockerCode(), "and so is a Backup");
+
+		mw.p1BlockerBackupIdx = -1;
+		mw.p1BlockerSelection = 2;
+		assertEquals(2, mw.p1ChosenBlockerCode(), "a Forward's code is its index");
+	}
+
+	@Test
+	void aMonsterThatBlocksAPartyTakesTheWholeCombinedHit() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeTraitForward("Rival", "Fire", 3, 7000, CardData.Trait.FIRST_STRIKE));
+		placeP2Forward(mw, makeTraitForward("Second", "Fire", 3, 7000, CardData.Trait.FIRST_STRIKE));
+		CardData chocobo = makeForward("Chocobo", "Wind", 2, 5000);
+		placeP1MonsterForward(mw, chocobo, 5000);
+
+		// First Strike throughout the party and a blocker it breaks: no return damage to assign.
+		Map<Integer, Integer> spread = mw.resolveP1BlockVsP2Party(
+				new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER), chocobo, List.of(0, 1), 14000);
+
+		assertTrue(spread.isEmpty(), "the party struck first, so the Monster dealt nothing back");
+		assertFalse(mw.p1MonsterCards.contains(chocobo), "the Monster that blocked is broken");
+		assertTrue(mw.gameState.getP1BreakZone().contains(chocobo));
+	}
+
+	@Test
+	void aRemotePartyCanNameAMonsterOnTheOpponentsSide() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Rival", "Wind", 3, 7000));
+		CardData beast = makeForward("Beast", "Wind", 2, 5000);
+		mw.gameState.getIdentity().put(beast, false);
+		mw.placeP2CardInMonsterZone(beast);
+		mw.p2MonsterTempForwardPower.put(beast, 5000);
+
+		assertSame(beast, mw.remoteAttackerAt(ForwardTarget.CardZone.FORWARD, MONSTER_0));
+		assertEquals(12000, mw.remoteAttackPower(ForwardTarget.CardZone.FORWARD, List.of(0, MONSTER_0)));
+	}
+
 	@Test
 	void elenaCannotAttackWithNeitherArmSatisfied() {
 		MainWindow mw = new MainWindow();

@@ -44,6 +44,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -136,6 +137,7 @@ import shufflingway.graphics.HandFanOverlapLayout;
 import shufflingway.graphics.HandFanPanel;
 import shufflingway.graphics.PlayerHandFanPanel;
 import shufflingway.graphics.ShieldIcon;
+import shufflingway.graphics.SlotLiftOverlay;
 import shufflingway.graphics.TraitTab;
 import shufflingway.graphics.TintedToggleButton;
 import shufflingway.graphics.TriangleIcon;
@@ -293,6 +295,10 @@ public class MainWindow {
 	private CardBreakAnimator breakAnimator;
 	CardRfpAnimator           rfpAnimator;
 	CardLimitBreakAnimator    limitBreakAnimator;
+	/** Draws P1's attackers — Forwards, Monsters and Backups — raised out of their rows; see {@link #syncAttackerLift}. */
+	private SlotLiftOverlay   slotLift;
+	/** How far a selected or attacking P1 Character rises out of its row. */
+	private static final int  ATTACKER_LIFT = CARD_H / 12;
 	/** Non-null when the next startBreakAnim call should slide to the break zone instead of slashing. */
 	JLabel pendingCostBreakDestLabel;
 	/** When true, the next startBreakAnim call is suppressed (e.g. RFP goes through breakP*Forward but needs no animation). */
@@ -581,7 +587,6 @@ public class MainWindow {
 	final Map<CardData, EnumSet<CardData.Trait>> p2BackupTempTraits = new HashMap<>();
 	final Map<CardData, Integer> p1BackupForwardDamage    = new HashMap<>();
 	final Map<CardData, Integer> p2BackupForwardDamage    = new HashMap<>();
-	int p1BackupAttackIdx = -1;
 	private int p2BackupAttackIdx = -1;
 
 	final List<JLabel>   p1MonsterLabels      = new ArrayList<>();
@@ -590,7 +595,6 @@ public class MainWindow {
 	final List<CardState> p1MonsterStates      = new ArrayList<>();
 	final List<Integer>  p1MonsterPlayedOnTurn = new ArrayList<>();
 	final List<Integer>  p1MonsterDamage       = new ArrayList<>();
-	private int                  p1MonsterAttackIdx    = -1;
 	final Map<CardData, Integer> p1MonsterTempForwardPower = new HashMap<>();
 	final Map<CardData, Integer> p1MonsterPowerBoost = new HashMap<>();
 	final Map<CardData, EnumSet<CardData.Trait>> p1MonsterTempTraits = new HashMap<>();
@@ -662,6 +666,10 @@ public class MainWindow {
 	// Attack button and selection state for party attacks
 	private JButton              attackButton;
 	private JButton              skipAttackButton;
+	/**
+	 * The Characters P1 has chosen to attack with, as slot codes ({@link ForwardTarget#slotCode()}):
+	 * Forwards, and Monsters and Backups acting as Forwards, in any mix that forms a valid party.
+	 */
 	final List<Integer>  p1AttackSelection = new ArrayList<>();
 	/**
 	 * The cards P1 has actually declared as attackers for the combat in progress — set when the
@@ -703,7 +711,7 @@ public class MainWindow {
 		CardData base = fwds.get(idx);
 		CardData top  = isP1 ? effectiveP1Forward(idx) : effectiveP2Forward(idx);
 		for (CardData c : declared) if (c == base || c == top) return true;
-		return isP1 && p1AttackSelection.contains(idx);
+		return isP1 && isSelectedAttacker(ForwardTarget.CardZone.FORWARD, idx);
 	}
 
 	/** Whether the Forward in slot {@code idx} is the one blocking in the combat in progress. */
@@ -746,10 +754,10 @@ public class MainWindow {
 	boolean  pendingP2AttackerIsMonster = false;
 	boolean  pendingP2AttackerIsBackup  = false;
 	int      pendingP2AttackerPower     = 0;
-	private int           p1BlockerSelection      = -1;   // index of forward P1 clicked to block with
-	private int           p1BlockerMonsterIdx     = -1;   // P1 monster acting as Forward chosen to block
-	private int           p1BlockerBackupIdx      = -1;   // P1 backup acting as Forward chosen to block
-	List<Integer>         pendingP2PartyIndices   = null; // set while P1 declares blocker vs P2 party
+	int                   p1BlockerSelection      = -1;   // index of forward P1 clicked to block with
+	int                   p1BlockerMonsterIdx     = -1;   // P1 monster acting as Forward chosen to block
+	int                   p1BlockerBackupIdx      = -1;   // P1 backup acting as Forward chosen to block
+	List<Integer>         pendingP2PartyIndices   = null; // slot codes; set while P1 declares blocker vs P2 party
 	private int           pendingP2PartyCombined  = 0;
 
 	// Blocking-target tracking: set between "Blocker Declared" and resolveCombat so that
@@ -2399,16 +2407,6 @@ public class MainWindow {
 				p1AttackSelection.clear();
 				refreshAttackButton();
 				executeP1Attack(sel);
-			} else if (p1MonsterAttackIdx >= 0) {
-				int monIdx = p1MonsterAttackIdx;
-				p1MonsterAttackIdx = -1;
-				refreshAttackButton();
-				executeP1MonsterAttack(monIdx);
-			} else if (p1BackupAttackIdx >= 0) {
-				int bIdx = p1BackupAttackIdx;
-				p1BackupAttackIdx = -1;
-				refreshAttackButton();
-				executeP1BackupAttack(bIdx);
 			}
 		});
 
@@ -2578,6 +2576,7 @@ public class MainWindow {
 			frame.getContentPane().add(makeLetterboxBar(bottomBar), BorderLayout.SOUTH);
 		}
 
+		slotLift          = SlotLiftOverlay.install(frame, ATTACKER_LIFT);
 		cardSlideAnimator = CardSlideAnimator.install(frame);
 		breakAnimator     = CardBreakAnimator.install(frame);
 		rfpAnimator       = CardRfpAnimator.install(frame);
@@ -4005,7 +4004,6 @@ public class MainWindow {
 			case MAIN_1 -> {
                             p1AttackSelection.clear();
                             p1DeclaredAttackers.clear();
-                            p1MonsterAttackIdx = -1;
                             logEntry("[Priority] P1 passes — P2 may respond.");
                             if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
                             offerPhasePriority(() -> {
@@ -4299,7 +4297,6 @@ public class MainWindow {
 		p1MonsterStates.clear();
 		p1MonsterPlayedOnTurn.clear();
 		p1MonsterDamage.clear();
-		p1MonsterAttackIdx = -1;
 		p1MonsterTempForwardPower.clear();
 		p1MonsterPowerBoost.clear();
 		p1MonsterTempTraits.clear();
@@ -4943,16 +4940,13 @@ public class MainWindow {
 	void setPlayerDamageSource(CardData source) { playerDamageSource = source; }
 
 	/**
-	 * Returns the first Forward among {@code attackerIndices} carrying any source-scoped EX Burst
+	 * Returns the first party member among slot codes {@code attackerIndices} carrying any source-scoped EX Burst
 	 * suppression, or {@code null} if none does.  An unblocked party deals its single point of
 	 * damage collectively, so one suppressing member is enough to credit the damage to it.
 	 */
 	CardData partyExBurstSuppressor(List<Integer> attackerIndices, boolean attackersAreP1) {
-		List<CardData> fwds = attackersAreP1 ? p1ForwardCards : p2ForwardCards;
-		for (int idx : attackerIndices) {
-			if (idx < 0 || idx >= fwds.size()) continue;
-			if (exBurstSuppressionCostCap(fwds.get(idx)) != null) return fwds.get(idx);
-		}
+		for (CardData member : partyMemberBaseCards(attackersAreP1, attackerIndices))
+			if (exBurstSuppressionCostCap(member) != null) return member;
 		return null;
 	}
 
@@ -5304,9 +5298,7 @@ public class MainWindow {
 		Set<CardData> partySnapshot = Collections.emptySet();
 		if (p1AttackSelection.contains(idx)) {
 			partySnapshot = new HashSet<>();
-			for (int i : p1AttackSelection) {
-				if (i >= 0 && i < p1ForwardCards.size()) partySnapshot.add(p1ForwardCards.get(i));
-			}
+			partySnapshot.addAll(partyMemberBaseCards(true, p1AttackSelection));
 		}
 
 		if (toRfg) {
@@ -5331,7 +5323,7 @@ public class MainWindow {
 			p1ForwardLabels.clear();
 			for (int i = 0; i < p1ForwardCards.size(); i++) {
 				final int fi = i;
-				JLabel lbl = new JLabel("", SwingConstants.CENTER);
+				JLabel lbl = newLiftableSlotLabel();
 				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 				lbl.setOpaque(false);
@@ -5416,9 +5408,7 @@ public class MainWindow {
 		Set<CardData> partySnapshot = Collections.emptySet();
 		if (pendingP2PartyIndices != null && pendingP2PartyIndices.contains(idx)) {
 			partySnapshot = new HashSet<>();
-			for (int i : pendingP2PartyIndices) {
-				if (i >= 0 && i < p2ForwardCards.size()) partySnapshot.add(p2ForwardCards.get(i));
-			}
+			partySnapshot.addAll(partyMemberBaseCards(false, pendingP2PartyIndices));
 		}
 
 		if (toRfg) {
@@ -5516,7 +5506,7 @@ public class MainWindow {
 		p1ForwardLabels.clear();
 		for (int i = 0; i < p1ForwardCards.size(); i++) {
 			final int fi = i;
-			JLabel lbl = new JLabel("", SwingConstants.CENTER);
+			JLabel lbl = newLiftableSlotLabel();
 			lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 			lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 			lbl.setOpaque(false);
@@ -5674,7 +5664,7 @@ public class MainWindow {
 		if (p1ForwardPanel == null) return;
 		int idx = p1ForwardLabels.size();
 
-		JLabel lbl = new JLabel("", SwingConstants.CENTER);
+		JLabel lbl = newLiftableSlotLabel();
 		lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 		lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 		lbl.setOpaque(false);
@@ -5864,7 +5854,7 @@ public class MainWindow {
 			fromLabels[fromIdx].setIcon(null);
 			fromLabels[fromIdx].setText(null);
 		}
-		if (fromP1 && p1BackupAttackIdx == fromIdx) p1BackupAttackIdx = -1;
+		if (fromP1) dropFromAttackSelection(ForwardTarget.CardZone.BACKUP, fromIdx);
 
 		moveBackupGrants(source, fromP1);
 		if (fromP1) { refreshP1BackupSlot(fromIdx); refreshP2BackupSlot(toIdx); }
@@ -6100,7 +6090,7 @@ public class MainWindow {
 			p1ForwardLabels.clear();
 			for (int i = 0; i < p1ForwardCards.size(); i++) {
 				final int fi = i;
-				JLabel lbl = new JLabel("", SwingConstants.CENTER);
+				JLabel lbl = newLiftableSlotLabel();
 				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 				lbl.setOpaque(false);
@@ -6213,7 +6203,7 @@ public class MainWindow {
 			p1ForwardLabels.clear();
 			for (int i = 0; i < p1ForwardCards.size(); i++) {
 				final int fi = i;
-				JLabel lbl = new JLabel("", SwingConstants.CENTER);
+				JLabel lbl = newLiftableSlotLabel();
 				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 				lbl.setOpaque(false);
@@ -7097,7 +7087,7 @@ public class MainWindow {
 			p1ForwardLabels.clear();
 			for (int i = 0; i < p1ForwardCards.size(); i++) {
 				final int fi = i;
-				JLabel lbl = new JLabel("", SwingConstants.CENTER);
+				JLabel lbl = newLiftableSlotLabel();
 				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 				lbl.setOpaque(false);
@@ -7203,7 +7193,7 @@ public class MainWindow {
 		logEntry(c.name() + " → returned to hand");
 		p1BackupTempForwardPower.remove(c); p1BackupForwardBoost.remove(c);
 		p1BackupTempTraits.remove(c);       p1BackupForwardDamage.remove(c);
-		if (p1BackupAttackIdx == idx) p1BackupAttackIdx = -1;
+		dropFromAttackSelection(ForwardTarget.CardZone.BACKUP, idx);
 		p1BackupCards[idx]  = null;
 		p1BackupUrls[idx]   = null;
 		p1BackupStates[idx] = CardState.ACTIVE;
@@ -8023,9 +8013,8 @@ public class MainWindow {
 	 */
 	private int p1ForwardCompelledToBlockIdxForPendingAttack() {
 		if (pendingP2PartyIndices != null) {
-			for (int ai : pendingP2PartyIndices) {
-				if (ai < 0 || ai >= p2ForwardCards.size()) continue;
-				int idx = p1ForwardCompelledToBlockIdx(p2ForwardCards.get(ai));
+			for (CardData member : partyMemberBaseCards(false, pendingP2PartyIndices)) {
+				int idx = p1ForwardCompelledToBlockIdx(member);
 				if (idx >= 0) return idx;
 			}
 			return -1;
@@ -8135,21 +8124,20 @@ public class MainWindow {
 		if (skipAttackButton != null && waiting) skipAttackButton.setEnabled(false);
 	}
 
-	/** The card the opponent declared an attack with, or {@code null} if that slot is empty here. */
+	/**
+	 * The card the opponent declared an attack with, or {@code null} if that slot is empty here.
+	 * Under FORWARD, {@code idx} is a slot code, which can name a Monster or Backup in a party.
+	 */
 	CardData remoteAttackerAt(ForwardTarget.CardZone zone, int idx) {
+		if (zone == ForwardTarget.CardZone.FORWARD) return partyMemberBaseCard(false, idx);
 		return fieldCardDataOrNull(new ForwardTarget(false, idx, zone));
 	}
 
 	/** The effective total power of an attack the opponent declared, as this client computes it. */
 	int remoteAttackPower(ForwardTarget.CardZone zone, List<Integer> indices) {
+		if (zone == ForwardTarget.CardZone.FORWARD) return partyPower(false, indices);
 		int total = 0;
-		for (int idx : indices) {
-			total += switch (zone) {
-				case MONSTER -> p2MonsterForwardPower(idx);
-				case BACKUP  -> p2BackupForwardPower(idx);
-				default      -> effectiveP2ForwardPower(idx);
-			};
-		}
+		for (int idx : indices) total += fieldForwardPower(false, zone, idx);
 		return total;
 	}
 
@@ -8174,7 +8162,8 @@ public class MainWindow {
 		Runnable onDone = () -> refreshAllForwardSlots();
 
 		if (indices.size() > 1) {
-			replayRemotePartyAttack(indices, onDone);
+			// A party arrives as slot codes under FORWARD; see ForwardTarget#slotCode.
+			declareP2PartyAttack(indices, onDone);
 			return;
 		}
 		int idx = indices.get(0);
@@ -8217,33 +8206,6 @@ public class MainWindow {
 		}
 	}
 
-	/** The party arm of {@link #replayRemoteAttack}; mirrors {@code ComputerPlayer.executeP2PartyAttack}. */
-	private void replayRemotePartyAttack(List<Integer> partyIndices, Runnable onDone) {
-		int combinedPower = 0;
-		StringBuilder names = new StringBuilder();
-		for (int idx : partyIndices) {
-			if (!effectiveP2HasTrait(idx, CardData.Trait.BRAVE)) {
-				CardState before = p2ForwardStates.get(idx);
-				p2ForwardStates.set(idx, CardState.DULL);
-				animateDullP2Forward(idx, null);
-				if (before == CardState.ACTIVE)
-					autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p2ForwardCards.get(idx), false);
-			}
-			recordAttackDeclared(effectiveP2Forward(idx));
-			combinedPower += effectiveP2ForwardPower(idx);
-			if (names.length() > 0) names.append(", ");
-			names.append(p2ForwardCards.get(idx).name());
-		}
-		logEntry("[P2] Party Attack! " + names + " (" + combinedPower + " combined)");
-		p2Turn.formedPartyThisTurn = true;
-		for (int idx : partyIndices)
-			autoAbilityTriggers.triggerAutoAbilitiesForAttack(
-					p2ForwardPrimedTop.get(idx) != null ? p2ForwardPrimedTop.get(idx) : p2ForwardCards.get(idx), false);
-		autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(false,
-				partyIndices.stream().map(p2ForwardCards::get).collect(Collectors.toList()));
-		initP1BlockDeclarationVsParty(partyIndices, combinedPower, onDone);
-	}
-
 	/** True when P1 controls at least one Forward that is allowed to block right now. */
 	private boolean hasEligibleP1Blocker() {
 		for (int i = 0; i < p1ForwardStates.size(); i++) {
@@ -8256,10 +8218,13 @@ public class MainWindow {
 		return false;
 	}
 
+	/** {@code attackerIndices} are P2's party as slot codes ({@link ForwardTarget#slotCode()}). */
 	void initP1BlockDeclarationVsParty(List<Integer> attackerIndices, int combinedPower, Runnable onDone) {
 		p2DeclaredAttackers.clear();
-		for (int idx : attackerIndices)
-			if (idx < p2ForwardCards.size()) p2DeclaredAttackers.add(effectiveP2Forward(idx));
+		for (int code : attackerIndices) {
+			CardData attacker = partyMemberCard(false, code);
+			if (attacker != null) p2DeclaredAttackers.add(attacker);
+		}
 		refreshCombatGlows();   // the whole party turns red, so the blocker choice reads at a glance
 		// Every exit path below runs finish, which makes it this side's single combat boundary —
 		// the counterpart to continueAttackPhase on the client that declared the attack.
@@ -8271,11 +8236,7 @@ public class MainWindow {
 			onDone.run();
 		};
 
-		StringBuilder names = new StringBuilder();
-		for (int idx : attackerIndices) {
-			if (names.length() > 0) names.append(", ");
-			names.append(p2ForwardCards.get(idx).name());
-		}
+		String names = partyMemberNames(false, attackerIndices);
 		setAttackSubStep(1);
 		refreshPhaseTracker();
 		p2AttackJoiners.clear();
@@ -8306,8 +8267,8 @@ public class MainWindow {
 				setAttackSubStep(3);
 				setPlayerDamageSource(partyExBurstSuppressor(attackerIndices, false));
 				p1TakeDamage();
-				for (int idx : attackerIndices)
-					autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(p2ForwardCards.get(idx), false);
+				for (CardData member : partyMemberBaseCards(false, attackerIndices))
+					autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(member, false);
 				setAttackSubStep(-1);
 				finish.run();
 			});
@@ -10208,11 +10169,13 @@ public class MainWindow {
 		Icon icon = label.getIcon();
 		if (!(icon instanceof ImageIcon ii)) return;
 		JLayeredPane lp = frame.getRootPane().getLayeredPane();
+		// An attacker broken in combat is still raised; start from where it is drawn.
+		int lift = slotLift != null ? slotLift.offset(label) : 0;
 		if (pendingCostBreakDestLabel != null) {
 			JLabel dest = pendingCostBreakDestLabel;
 			pendingCostBreakDestLabel = null;
 			boolean destIsP1 = dest == p1BreakLabel;
-			Point start = SwingUtilities.convertPoint(label, label.getWidth() / 2, label.getHeight() / 2, lp);
+			Point start = SwingUtilities.convertPoint(label, label.getWidth() / 2, label.getHeight() / 2 - lift, lp);
 			Point end   = SwingUtilities.convertPoint(dest,  dest.getWidth()  / 2, dest.getHeight()  / 2, lp);
 			java.awt.image.BufferedImage img = CardAnimation.toARGB(ii.getImage(), ii.getIconWidth(), ii.getIconHeight());
 			if (destIsP1) p1BreakAnimHide++; else p2BreakAnimHide++;
@@ -10229,7 +10192,7 @@ public class MainWindow {
 			return;
 		}
 		Point         center = SwingUtilities.convertPoint(
-				label, label.getWidth() / 2, label.getHeight() / 2, lp);
+				label, label.getWidth() / 2, label.getHeight() / 2 - lift, lp);
 		java.awt.image.BufferedImage img = CardAnimation.toARGB(
 				ii.getImage(), ii.getIconWidth(), ii.getIconHeight());
 		breakAnimator.startBreak(img, center);
@@ -14535,13 +14498,21 @@ public class MainWindow {
 		JLabel slot  = p1BackupLabels[idx];
 		if (slot == null) return;
 		refreshPlayerDamageShieldIcon(true);
+		CardData occupant = p1BackupCards[idx];
+		if (occupant == null) {
+			if (slotLift != null) slotLift.lowerSlot(slot);
+		} else {
+			syncAttackerLift(occupant, slot, isSelectedAttacker(ForwardTarget.CardZone.BACKUP, idx)
+					|| p1DeclaredAttackers.stream().anyMatch(c -> c == occupant));
+		}
 		if (url == null) { slot.setIcon(null); slot.setText(null); slot.setToolTipText(null); return; }
 		if (fieldEntryAnimator.holdSlotBlank(slot, p1BackupCards[idx])) return;
 		CardData card = p1BackupCards[idx];
 		boolean actingForward = isP1BackupTemporarilyForward(idx);
-		boolean canAttack = attackSubStep == 1 && isBackupSelectableAsForward(idx);
+		boolean canAttack = attackSubStep == 1
+				&& isAttackCandidate(ForwardTarget.slotCode(ForwardTarget.CardZone.BACKUP, idx));
 		boolean canBlock  = isBackupBlockSelectable(idx);
-		boolean selected  = p1BackupAttackIdx == idx || p1BlockerBackupIdx == idx;
+		boolean selected  = isSelectedAttacker(ForwardTarget.CardZone.BACKUP, idx) || p1BlockerBackupIdx == idx;
 		int fwdPower = actingForward ? p1BackupForwardPower(idx) : 0;
 		int damage   = card != null ? p1BackupForwardDamage.getOrDefault(card, 0) : 0;
 		Map<String, Integer> countersMap = card != null ? gameState.getCountersMap(card) : Map.of();
@@ -15085,8 +15056,8 @@ public class MainWindow {
 		if (!isP1) return p2DeclaredAttackers;
 		if (!p1DeclaredAttackers.isEmpty()) return p1DeclaredAttackers;
 		return p1AttackSelection.stream()
-				.filter(i -> i < p1ForwardCards.size())
-				.map(this::effectiveP1Forward)
+				.map(code -> partyMemberCard(true, code))
+				.filter(Objects::nonNull)
 				.collect(Collectors.toList());
 	}
 
@@ -15136,6 +15107,7 @@ public class MainWindow {
 		for (int i = 0; i < p2ForwardLabels.size(); i++) refreshP2ForwardSlot(i);
 		for (int i = 0; i < p1MonsterLabels.size(); i++) refreshP1MonsterSlot(i);
 		for (int i = 0; i < p2MonsterLabels.size(); i++) refreshP2MonsterSlot(i);
+		refreshP1ActingBackupSlots();
 	}
 
 	/** The card acting at P1 Forward slot {@code idx} — the primed top card when one is stacked. */
@@ -18224,7 +18196,7 @@ public class MainWindow {
 				p1BackupTempForwardPower.remove(c); p1BackupForwardBoost.remove(c);
 				p1BackupTempTraits.remove(c);       p1BackupForwardDamage.remove(c);
 			}
-			if (p1BackupAttackIdx == idx) p1BackupAttackIdx = -1;
+			dropFromAttackSelection(ForwardTarget.CardZone.BACKUP, idx);
 			p1BackupCards[idx]  = null;
 			p1BackupUrls[idx]   = null;
 			p1BackupStates[idx] = CardState.ACTIVE;
@@ -18787,7 +18759,7 @@ public class MainWindow {
 		if (p1ForwardPanel == null) return;
 		int idx = p1ForwardLabels.size();
 
-		JLabel lbl = new JLabel("", SwingConstants.CENTER);
+		JLabel lbl = newLiftableSlotLabel();
 		lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 		lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 		lbl.setOpaque(false);
@@ -18849,7 +18821,7 @@ public class MainWindow {
 		if (p1MonsterPanel == null) return;
 		int idx = p1MonsterLabels.size();
 
-		JLabel lbl = new JLabel("", SwingConstants.CENTER);
+		JLabel lbl = newLiftableSlotLabel();
 		lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 		lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 		lbl.setOpaque(false);
@@ -18906,16 +18878,19 @@ public class MainWindow {
 		String url   = p1MonsterUrls.get(idx);
 		CardState state = p1MonsterStates.get(idx);
 		JLabel slot  = p1MonsterLabels.get(idx);
-		if (url == null) return;
-		if (fieldEntryAnimator.holdSlotBlank(slot, p1MonsterCards.get(idx))) return;
 		CardData card     = p1MonsterCards.get(idx);
+		syncAttackerLift(card, slot, isSelectedAttacker(ForwardTarget.CardZone.MONSTER, idx)
+				|| p1DeclaredAttackers.stream().anyMatch(c -> c == card));
+		if (url == null) return;
+		if (fieldEntryAnimator.holdSlotBlank(slot, card)) return;
 		int power         = effectiveP1MonsterPower(idx);
 		int basePower     = card.power();
 		CardData.BecomeForwardAbility bfa = card.becomeForwardAbility();
 		Integer tempFwdPower = p1MonsterTempForwardPower.get(card);
-		boolean canAttack = attackSubStep == 1 && isMonsterSelectableAsForward(idx);
+		boolean canAttack = attackSubStep == 1
+				&& isAttackCandidate(ForwardTarget.slotCode(ForwardTarget.CardZone.MONSTER, idx));
 		boolean canBlock  = isMonsterBlockSelectable(idx);
-		boolean selected  = p1MonsterAttackIdx == idx || p1BlockerMonsterIdx == idx;
+		boolean selected  = isSelectedAttacker(ForwardTarget.CardZone.MONSTER, idx) || p1BlockerMonsterIdx == idx;
 		Color   glow      = combatGlowFor(card, true);
 		int damage        = p1MonsterDamage.get(idx);
 		boolean bfaActive = bfa != null && (
@@ -19092,6 +19067,7 @@ public class MainWindow {
 	/** Reloads and re-renders a single P1 forward slot using its stored URL and state. */
 	void refreshP1ForwardSlot(int idx) {
 		refreshPlayerDamageShieldIcon(true);
+		syncAttackerLift(p1ForwardCards.get(idx), p1ForwardLabels.get(idx), isForwardAttacking(true, idx));
 		if (fieldEntryAnimator.holdSlotBlank(p1ForwardLabels.get(idx), p1ForwardCards.get(idx))) return;
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		final boolean primed = isPrimedForward(true, idx);
@@ -19100,22 +19076,15 @@ public class MainWindow {
 		CardState state  = p1ForwardStates.get(idx);
 		JLabel    slot   = p1ForwardLabels.get(idx);
 		if (url == null) return;
-		boolean hasHaste  = effectiveP1HasTrait(idx, CardData.Trait.HASTE);
 		CardData fwdCard  = p1ForwardCards.get(idx);
-		boolean canAttack = gameState.getCurrentPhase() == GameState.GamePhase.ATTACK
-				&& attackSubStep == 1
-				&& state == CardState.ACTIVE
-				&& hasAttackRemaining(effectiveP1Forward(idx))
-				&& !p1CannotAttack.contains(fwdCard)
-				&& !p1CannotAttackPersistent.contains(fwdCard)
-				&& !fwdCard.cannotAttackOrBlock()
-				&& !isFieldAbilityCannotAttackOrBlock(fwdCard, true)
-				&& (hasHaste || p1ForwardPlayedOnTurn.get(idx) != gameState.getTurnNumber());
+		// Green means a click would take it: once an attacker is chosen, only the Forwards that can
+		// still join that party stay lit.
+		boolean canAttack = isAttackCandidate(ForwardTarget.slotCode(ForwardTarget.CardZone.FORWARD, idx));
 		boolean canBlock  = isForwardBlockSelectable(idx);
 		int damage    = p1ForwardDamage.get(idx);
 		int power     = effectiveP1ForwardPower(idx);
 		int basePower = (topCard != null ? topCard : p1ForwardCards.get(idx)).power();
-		boolean selected = p1AttackSelection.contains(idx) || p1BlockerSelection == idx;
+		boolean selected = isSelectedAttacker(ForwardTarget.CardZone.FORWARD, idx) || p1BlockerSelection == idx;
 		Color   glow     = combatGlowFor(effectiveP1Forward(idx), true);
 		Map<String, Integer> countersMap = gameState.getCountersMap(fwdCard);
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
@@ -19180,6 +19149,19 @@ public class MainWindow {
 	void refreshAllForwardSlots() {
 		for (int i = 0; i < p1ForwardLabels.size(); i++) refreshP1ForwardSlot(i);
 		for (int i = 0; i < p1MonsterLabels.size(); i++) refreshP1MonsterSlot(i);
+		refreshP1ActingBackupSlots();
+	}
+
+	/**
+	 * Re-renders P1's Backups that are acting as Forwards (17-012R Tifa, a become-Forward ability).
+	 * They are Forwards for attack and block purposes, so whatever redraws the Forward row for a
+	 * change in who may attack or block has to redraw them too — otherwise a Backup's green glow
+	 * keeps whatever it was last drawn with, missing at the start of the attack step and lingering
+	 * after it.
+	 */
+	private void refreshP1ActingBackupSlots() {
+		for (int i = 0; i < p1BackupCards.length; i++)
+			if (isP1BackupTemporarilyForward(i)) refreshP1BackupSlot(i);
 	}
 
 	private boolean isForwardSelectable(int idx) {
@@ -19436,14 +19418,13 @@ public class MainWindow {
 	}
 
 	/**
-	 * Returns {@code true} if the forward at {@code idx} on the given player's side is a
-	 * party-element wildcard — either intrinsically, via an active field ability from a card
+	 * Returns {@code true} if the party member at slot code {@code code} on the given player's side
+	 * is a party-element wildcard — either intrinsically, via an active field ability from a card
 	 * on the same player's field, or via a turn-scoped grant.
 	 */
-	private boolean effectiveCanFormPartyAnyElement(boolean isP1, int idx) {
-		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-		if (idx < 0 || idx >= fwds.size()) return false;
-		CardData fwd = fwds.get(idx);
+	private boolean effectiveCanFormPartyAnyElement(boolean isP1, int code) {
+		CardData fwd = partyMemberBaseCard(isP1, code);
+		if (fwd == null) return false;
 		if (fwd.canFormPartyAnyElement()) return true;
 		if (turn(isP1).partyAnyElementThisTurn) return true;
 		// Check permanent field-ability grants from any card on the same player's field
@@ -19465,14 +19446,14 @@ public class MainWindow {
 	 * An empty set means the non-wildcard members share no element — an invalid party.
 	 *
 	 * @param isP1    which player's field abilities to check for wildcard grants
-	 * @param indices forward-slot indices making up the party (from that player's forward list)
+	 * @param indices slot codes of the party members ({@link ForwardTarget#slotCode()})
 	 */
 	private Set<String> partyRequiredElements(boolean isP1, List<Integer> indices) {
-		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 		Set<String> required = null;
 		for (int i : indices) {
 			if (effectiveCanFormPartyAnyElement(isP1, i)) continue;
-			CardData m = fwds.get(i);
+			CardData m = partyMemberBaseCard(isP1, i);
+			if (m == null) continue;
 			Set<String> elems = new java.util.HashSet<>(Arrays.asList(m.elements()));
 			if (required == null) required = elems;
 			else required.retainAll(elems);
@@ -19480,14 +19461,18 @@ public class MainWindow {
 		return required;
 	}
 
-	/** Returns {@code true} if {@code indices} form a valid party for {@code isP1}'s forwards. */
+	/**
+	 * Returns {@code true} if the slot codes {@code indices} form a valid party for {@code isP1} —
+	 * Forwards, and Monsters or Backups acting as Forwards, in any mix.
+	 */
 	boolean canFormValidParty(boolean isP1, List<Integer> indices) {
 		// A party is two or more Forwards, so a card that "cannot form parties" only bars the
 		// grouping — it is still free to attack by itself, which is a one-member selection.
 		if (indices.size() > 1) {
-			List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-			for (int i : indices)
-				if (i >= 0 && i < fwds.size() && cannotFormParties(fwds.get(i))) return false;
+			for (int i : indices) {
+				CardData member = partyMemberBaseCard(isP1, i);
+				if (member != null && cannotFormParties(member)) return false;
+			}
 		}
 		Set<String> req = partyRequiredElements(isP1, indices);
 		return req == null || !req.isEmpty();
@@ -19507,46 +19492,242 @@ public class MainWindow {
 	}
 
 	// -------------------------------------------------------------------------
+	// Party members across zones
+	// -------------------------------------------------------------------------
+
+	// A party can mix Forwards with Monsters and Backups acting as Forwards, so its members travel
+	// as slot codes (ForwardTarget#slotCode) — zone and index in one int, where a Forward's code is
+	// its plain index. Every party list is a list of codes: P1's attack selection, a declared party,
+	// pendingP2PartyIndices, and the keys of a blocker's damage spread.
+
+	/** The slot a party member's code names on {@code isP1}'s side. */
+	ForwardTarget partyMember(boolean isP1, int code) {
+		return ForwardTarget.fromSlotCode(isP1, code);
+	}
+
+	/** The card in a party member's slot — a primed Forward's base card — or {@code null} once it has emptied. */
+	CardData partyMemberBaseCard(boolean isP1, int code) {
+		return fieldCardDataOrNull(partyMember(isP1, code));
+	}
+
+	/** The card acting in a party member's slot — a primed Forward's top card — or {@code null} once it has emptied. */
+	CardData partyMemberCard(boolean isP1, int code) {
+		ForwardTarget t = partyMember(isP1, code);
+		CardData base = fieldCardDataOrNull(t);
+		if (base == null || t.zone() != ForwardTarget.CardZone.FORWARD) return base;
+		return isP1 ? effectiveP1Forward(t.idx()) : effectiveP2Forward(t.idx());
+	}
+
+	/** A party member's power as a Forward, or 0 once its slot has emptied. */
+	int partyMemberPower(boolean isP1, int code) {
+		ForwardTarget t = partyMember(isP1, code);
+		return fieldCardDataOrNull(t) == null ? 0 : fieldForwardPower(isP1, t.zone(), t.idx());
+	}
+
+	/** The damage already on a party member, or 0 once its slot has emptied. */
+	int partyMemberDamage(boolean isP1, int code) {
+		ForwardTarget t = partyMember(isP1, code);
+		return fieldCardDataOrNull(t) == null ? 0 : fieldCombatDamage(isP1, t.zone(), t.idx());
+	}
+
+	/** Whether a party member has {@code trait}, innately or granted; {@code false} once its slot has emptied. */
+	boolean partyMemberHasTrait(boolean isP1, int code, CardData.Trait trait) {
+		ForwardTarget t = partyMember(isP1, code);
+		return fieldCardDataOrNull(t) != null && fieldForwardTrait(isP1, t.zone(), t.idx(), trait);
+	}
+
+	/** The base cards of the party members still on the field, in party order. */
+	List<CardData> partyMemberBaseCards(boolean isP1, List<Integer> codes) {
+		List<CardData> out = new ArrayList<>();
+		for (int code : codes) {
+			CardData c = partyMemberBaseCard(isP1, code);
+			if (c != null) out.add(c);
+		}
+		return out;
+	}
+
+	/** Takes P1's Character in {@code zone} slot {@code idx} out of the attackers being chosen — it has left that slot. */
+	void dropFromAttackSelection(ForwardTarget.CardZone zone, int idx) {
+		if (p1AttackSelection.remove((Integer) ForwardTarget.slotCode(zone, idx))) refreshAttackButton();
+	}
+
+	/**
+	 * Whether a Backup acting as a Forward is among {@code isP1}'s attackers in the combat in
+	 * progress — what "damage dealt by a Backup" asks of combat damage. A party with a Backup in it
+	 * deals its damage as one instance from every member, so the Backup's share makes it count.
+	 */
+	boolean attackingWithBackup(boolean isP1) {
+		CardData[] backups = isP1 ? p1BackupCards : p2BackupCards;
+		for (CardData c : isP1 ? p1DeclaredAttackers : p2DeclaredAttackers)
+			for (CardData b : backups) if (b != null && b == c) return true;
+		return false;
+	}
+
+	/** The party's names, comma-separated, for the log. */
+	String partyMemberNames(boolean isP1, List<Integer> codes) {
+		return partyMemberBaseCards(isP1, codes).stream().map(CardData::name).collect(Collectors.joining(", "));
+	}
+
+	/**
+	 * Dulls a member of {@code isP1}'s new attack — Brave aside — and records its declaration. A
+	 * Forward turning dull fires its "becomes dull" abilities, as the single-Forward attack does.
+	 * Attack triggers are the caller's, fired once every member has dulled.
+	 */
+	void dullAndRecordAttacker(boolean isP1, int code) {
+		ForwardTarget t   = partyMember(isP1, code);
+		int           idx = t.idx();
+		if (fieldCardDataOrNull(t) == null) return;
+		boolean brave = fieldForwardTrait(isP1, t.zone(), idx, CardData.Trait.BRAVE);
+		switch (t.zone()) {
+			case FORWARD -> {
+				List<CardState> states = isP1 ? p1ForwardStates : p2ForwardStates;
+				CardState before = states.get(idx);
+				if (!brave) {
+					states.set(idx, CardState.DULL);
+					if (isP1) animateDullForward(idx, null); else animateDullP2Forward(idx, null);
+					if (before == CardState.ACTIVE)
+						autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(partyMemberBaseCard(isP1, code), isP1);
+				}
+			}
+			case MONSTER -> {
+				if (!brave) {
+					(isP1 ? p1MonsterStates : p2MonsterStates).set(idx, CardState.DULL);
+					if (isP1) animateDullMonster(idx); else animateDullP2Monster(idx);
+				}
+			}
+			case BACKUP -> {
+				if (!brave) {
+					(isP1 ? p1BackupStates : p2BackupStates)[idx] = CardState.DULL;
+					if (isP1) animateDullBackup(idx, true); else animateDullP2Backup(idx, true);
+				}
+			}
+			default -> { }
+		}
+		recordAttackDeclared(partyMemberCard(isP1, code));
+	}
+
+	/**
+	 * P2 declares a party attack at slot codes {@code codes}: every member dulls, the attack and
+	 * party-attack triggers fire, and P1 is handed the block declaration. Shared by the AI's own
+	 * declaration and by the replay of a remote player's, so both clients resolve the same party.
+	 */
+	void declareP2PartyAttack(List<Integer> codes, Runnable onDone) {
+		int combinedPower = partyPower(false, codes);
+		for (int code : codes) dullAndRecordAttacker(false, code);
+		logEntry("[P2] Party Attack! " + partyMemberNames(false, codes) + " (" + combinedPower + " combined)");
+		p2Turn.formedPartyThisTurn = true;
+		for (int code : codes) {
+			CardData attacker = partyMemberCard(false, code);
+			if (attacker != null) autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, false);
+		}
+		autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(false, partyMemberBaseCards(false, codes));
+		initP1BlockDeclarationVsParty(codes, combinedPower, onDone);
+	}
+
+	// -------------------------------------------------------------------------
 	// Attacker and blocker selection
 	// -------------------------------------------------------------------------
 
-	private void toggleAttackSelection(int idx) {
-		if (!isForwardSelectable(idx)) return;
-		if (p1AttackSelection.contains(idx)) {
-			p1AttackSelection.remove((Integer) idx);
-			refreshAttackButton();
-			refreshP1ForwardSlot(idx);
-			return;
-		}
-		if (!p1AttackSelection.isEmpty()) {
-			// Berserker 3-091C: barred both from joining a party and from being joined, so the
-			// check reads the incoming Forward and everything already selected.
-			if (cannotFormParties(p1ForwardCards.get(idx))) {
-				logEntry("Cannot add to party — " + p1ForwardCards.get(idx).name() + " cannot form parties");
+	/**
+	 * Adds the P1 Character at slot code {@code code} to the attackers being chosen, or takes it back
+	 * out. Forwards, and Monsters and Backups acting as Forwards, all come through here, since any
+	 * of them can make up a party together.
+	 */
+	private void toggleAttackSelection(int code) {
+		if (attackSubStep != 1 || p1IsHoldingCombatPriority() || p1AttackDeclarationInFlight()) return;
+		if (!isAttackerSelectable(code)) return;
+		if (p1AttackSelection.contains(code)) {
+			p1AttackSelection.remove((Integer) code);
+		} else {
+			String why = attackSelectionRejection(code);
+			if (why != null) {
+				logEntry(why);
 				return;
 			}
-			for (int sel : p1AttackSelection) {
-				if (!cannotFormParties(p1ForwardCards.get(sel))) continue;
-				logEntry("Cannot add to party — " + p1ForwardCards.get(sel).name() + " cannot form parties");
-				return;
-			}
-			if (!effectiveCanFormPartyAnyElement(true, idx)) {
-				// Compute the common element constraint across non-wildcard existing members
-				Set<String> required = partyRequiredElements(true, p1AttackSelection);
-				// null  → all existing members are wildcards → any element OK
-				// empty → existing members share no common element (shouldn't occur in valid state)
-				if (required != null && !required.isEmpty()) {
-					CardData newFwd = p1ForwardCards.get(idx);
-					if (Arrays.stream(newFwd.elements()).noneMatch(required::contains)) {
-						logEntry("Cannot add to party — no shared element with the party");
-						return;
-					}
-				}
-			}
+			p1AttackSelection.add(code);
 		}
-		p1AttackSelection.add(idx);
 		refreshAttackButton();
-		refreshP1ForwardSlot(idx);
+		refreshAllForwardSlots();
+	}
+
+	/** Whether the P1 Character at slot code {@code code} may attack right now, party aside. */
+	private boolean isAttackerSelectable(int code) {
+		ForwardTarget t = partyMember(true, code);
+		return switch (t.zone()) {
+			case FORWARD -> isForwardSelectable(t.idx());
+			case MONSTER -> isMonsterSelectableAsForward(t.idx());
+			case BACKUP  -> isBackupSelectableAsForward(t.idx());
+			default      -> false;
+		};
+	}
+
+	/** Whether the P1 Character in {@code zone} slot {@code idx} is among the attackers being chosen. */
+	private boolean isSelectedAttacker(ForwardTarget.CardZone zone, int idx) {
+		return p1AttackSelection.contains(ForwardTarget.slotCode(zone, idx));
+	}
+
+	/**
+	 * Whether the P1 Character at slot code {@code code} should glow as an attacker choice: it may
+	 * attack, and it is either already chosen or could join the attackers chosen so far.
+	 */
+	private boolean isAttackCandidate(int code) {
+		if (!isAttackerSelectable(code)) return false;
+		return p1AttackSelection.contains(code) || attackSelectionRejection(code) == null;
+	}
+
+	/**
+	 * Why the unselected P1 Character at slot code {@code code} cannot join the attackers chosen so
+	 * far, as the log line to show, or {@code null} when it can. Assumes {@link #isAttackerSelectable}.
+	 *
+	 * <p>This is what the click checks and also what the slot's green glow is drawn from, so a
+	 * Character is lit exactly when clicking it would add it to the party.
+	 */
+	private String attackSelectionRejection(int code) {
+		if (p1AttackSelection.isEmpty()) return null;
+		CardData joining = partyMemberBaseCard(true, code);
+		if (joining == null) return null;
+		// Berserker 3-091C: barred both from joining a party and from being joined, so the
+		// check reads the incoming Character and everything already selected.
+		if (cannotFormParties(joining))
+			return "Cannot add to party — " + joining.name() + " cannot form parties";
+		for (int sel : p1AttackSelection) {
+			CardData member = partyMemberBaseCard(true, sel);
+			if (member != null && cannotFormParties(member))
+				return "Cannot add to party — " + member.name() + " cannot form parties";
+		}
+		if (!effectiveCanFormPartyAnyElement(true, code)) {
+			// Compute the common element constraint across non-wildcard existing members
+			Set<String> required = partyRequiredElements(true, p1AttackSelection);
+			// null  → all existing members are wildcards → any element OK
+			// empty → existing members share no common element (shouldn't occur in valid state)
+			if (required != null && !required.isEmpty()
+					&& Arrays.stream(joining.elements()).noneMatch(required::contains))
+				return "Cannot add to party — no shared element with the party";
+		}
+		return null;
+	}
+
+	/** A field slot label that hands its painting to {@link #slotLift} while raised. */
+	private JLabel newLiftableSlotLabel() {
+		return newLiftableSlotLabel(SwingConstants.CENTER);
+	}
+
+	/** As {@link #newLiftableSlotLabel()}, with the horizontal alignment that slot's row lays out with. */
+	private JLabel newLiftableSlotLabel(int horizontalAlignment) {
+		return new JLabel("", horizontalAlignment) {
+			@Override protected void paintComponent(Graphics g) {
+				if (slotLift == null || !slotLift.isLifted(this)) super.paintComponent(g);
+			}
+		};
+	}
+
+	/**
+	 * Raises a P1 attacker out of its row, or settles it back. Read from the slot's own refresh, so a
+	 * Character goes up when it is chosen, stays up while it is dulled and through combat, and comes
+	 * down once {@link #continueAttackPhase} clears the declared attackers after damage.
+	 */
+	private void syncAttackerLift(CardData card, JLabel slot, boolean attacking) {
+		if (slotLift != null && card != null && slot != null) slotLift.setLifted(card, slot, attacking);
 	}
 
 	/**
@@ -19559,8 +19740,8 @@ public class MainWindow {
 		if (gameState.getCurrentPhase() != GameState.GamePhase.ATTACK) return;
 		if (p1InBlockDeclaration()) {
 			toggleP1BlockerSelection(idx);
-		} else if (!p1AttackDeclarationInFlight()) {
-			toggleAttackSelection(idx);
+		} else {
+			toggleAttackSelection(ForwardTarget.slotCode(ForwardTarget.CardZone.FORWARD, idx));
 		}
 	}
 
@@ -19603,9 +19784,8 @@ public class MainWindow {
 		if (pendingP2PartyIndices != null) {
 			// A member can be broken during the priority round before the block is declared.
 			List<ForwardTarget> live = new ArrayList<>();
-			for (int i : pendingP2PartyIndices)
-				if (i >= 0 && i < p2ForwardCards.size())
-					live.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
+			for (int code : pendingP2PartyIndices)
+				if (partyMemberBaseCard(false, code) != null) live.add(partyMember(false, code));
 			return live;
 		}
 		if (pendingP2AttackerIdx < 0) return List.of();
@@ -20023,25 +20203,36 @@ public class MainWindow {
 		}
 	}
 
+	/**
+	 * The slot code of the blocker P1 has chosen — a Forward, or a Monster or Backup acting as one —
+	 * or {@code -1} when none is chosen.
+	 */
+	int p1ChosenBlockerCode() {
+		if (p1BlockerSelection  >= 0) return ForwardTarget.slotCode(ForwardTarget.CardZone.FORWARD, p1BlockerSelection);
+		if (p1BlockerMonsterIdx >= 0) return ForwardTarget.slotCode(ForwardTarget.CardZone.MONSTER, p1BlockerMonsterIdx);
+		if (p1BlockerBackupIdx  >= 0) return ForwardTarget.slotCode(ForwardTarget.CardZone.BACKUP,  p1BlockerBackupIdx);
+		return -1;
+	}
+
 	private void handleP1PartyBlockAction() {
 		List<Integer> attackerIndices = pendingP2PartyIndices;
 		int           combinedPower   = pendingP2PartyCombined;
 		Runnable      onDone          = pendingP2BlockDone;
-		int           blockerIdx      = p1BlockerSelection;
+		int           blockerCode     = p1ChosenBlockerCode();
 
 		// Must-block validation: done before clearing state so isForwardBlockSelectable still works.
-		if (blockerIdx < 0) {
-			boolean partyMustBeBlocked = attackerIndices.stream()
-					.anyMatch(i -> attackerMustBeBlocked(p2ForwardCards.get(i)))
+		if (blockerCode < 0) {
+			List<CardData> partyCards = partyMemberBaseCards(false, attackerIndices);
+			boolean partyMustBeBlocked = partyCards.stream().anyMatch(this::attackerMustBeBlocked)
 					|| forwardsMustBlock(true);
 			if (partyMustBeBlocked) {
 				for (int i = 0; i < p1ForwardStates.size(); i++) {
 					if (isForwardBlockSelectable(i)) {
 						// No name when the compulsion is the field-wide kind — it names a side, not
 						// an attacker, so there is no party member to point at.
-						String mustBlockName = attackerIndices.stream()
-								.filter(i2 -> attackerMustBeBlocked(p2ForwardCards.get(i2)))
-								.map(i2 -> p2ForwardCards.get(i2).name())
+						String mustBlockName = partyCards.stream()
+								.filter(this::attackerMustBeBlocked)
+								.map(CardData::name)
 								.findFirst().orElse("the attacking party");
 						showEffectOptionDialog("You must block " + mustBlockName
 								+ " — select an eligible Forward.", "Must Block", new Object[]{"OK"});
@@ -20053,7 +20244,8 @@ public class MainWindow {
 		// Dio 26-075C, party form: a compelled Forward must be the one declared, so this is
 		// checked whether or not a blocker was named. See handleP1BlockAction for the single case.
 		int partyCompelled = p1ForwardCompelledToBlockIdxForPendingAttack();
-		if (partyCompelled >= 0 && blockerIdx != partyCompelled) {
+		if (partyCompelled >= 0
+				&& blockerCode != ForwardTarget.slotCode(ForwardTarget.CardZone.FORWARD, partyCompelled)) {
 			showEffectOptionDialog(p1ForwardCards.get(partyCompelled).name()
 					+ " must block if possible.", "Must Block", new Object[]{"OK"});
 			return;
@@ -20063,29 +20255,31 @@ public class MainWindow {
 		pendingP2PartyCombined = 0;
 		pendingP2BlockDone     = null;
 		p1BlockerSelection     = -1;
+		p1BlockerMonsterIdx    = -1;
+		p1BlockerBackupIdx     = -1;
 		refreshAttackButton();
 
-		if (blockerIdx >= 0 && blockerIdx < p1ForwardCards.size()) {
-			CardData top    = p1ForwardPrimedTop.get(blockerIdx);
-			CardData blocker = (top != null) ? top : p1ForwardCards.get(blockerIdx);
-			p1BlockingIdx = blockerIdx;
+		ForwardTarget blockerSlot = blockerCode >= 0 ? ForwardTarget.fromSlotCode(true, blockerCode) : null;
+		CardData      blocker     = blockerSlot != null ? partyMemberCard(true, blockerCode) : null;
+		if (blocker != null) {
+			if (blockerSlot.zone() == ForwardTarget.CardZone.FORWARD) p1BlockingIdx = blockerSlot.idx();
 			autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, true);
-			for (int idx : attackerIndices)
-				autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(p2ForwardCards.get(idx), false);
+			for (CardData member : partyMemberBaseCards(false, attackerIndices))
+				autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(member, false);
 			// Block declared: the turn player (P2) responds first, then P1, then damage.
 			combatPriorityRound(false, blocker.name() + " blocks the party!", () -> {
 				setAttackSubStep(3);
 				Map<Integer, Integer> spread =
-						resolveP1BlockVsP2Party(blockerIdx, blocker, attackerIndices, combinedPower);
+						resolveP1BlockVsP2Party(blockerSlot, blocker, attackerIndices, combinedPower);
 				// Unlike a single block, the party answer is not complete at declaration time: how
 				// the blocker splits its damage is chosen during resolution, and the attacking
 				// client needs that map to reach the same board. So the answer goes out here.
-				sendToOpponent(RemoteOpponent.blockAction(
-						ForwardTarget.CardZone.FORWARD, blockerIdx, spread));
+				sendToOpponent(RemoteOpponent.blockAction(blockerSlot.zone(), blockerSlot.idx(), spread));
 				p1BlockingIdx       = -1;
 				p1BlockedByAttacker = null;
 				setAttackSubStep(-1);
 				refreshAllForwardSlots();
+				for (int i = 0; i < p1BackupCards.length; i++) refreshP1BackupSlot(i);
 				onDone.run();
 			});
 		} else {
@@ -20094,8 +20288,8 @@ public class MainWindow {
 				setAttackSubStep(3);
 				setPlayerDamageSource(partyExBurstSuppressor(attackerIndices, false));
 				p1TakeDamage();
-				for (int idx : attackerIndices)
-					autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(p2ForwardCards.get(idx), false);
+				for (CardData member : partyMemberBaseCards(false, attackerIndices))
+					autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(member, false);
 				setAttackSubStep(-1);
 				onDone.run();
 			});
@@ -20307,7 +20501,7 @@ public class MainWindow {
 		opponent.requestBlocker(attackerPower, attacker, forcedBlock, onChosen);
 	}
 
-	/** The party-attack form of {@link #requestP2Blocker}. */
+	/** The party-attack form of {@link #requestP2Blocker}; the blocker comes back as its slot code. */
 	private void requestP2PartyBlocker(List<Integer> attackerIndices, int combinedPower, boolean forcedBlock,
 			Consumer<Integer> onChosen) {
 		if (opponent == null) { onChosen.accept(null); return; }
@@ -20571,8 +20765,9 @@ public class MainWindow {
 	}
 
 	/**
-	 * {@code declaredIdx} with the Forwards that joined {@code isP1}'s attack added, by where they
-	 * stand now, or {@code null} when none joined (or none is still there). Spends the joiners.
+	 * {@code declaredIdx} — slot codes — with the Forwards that joined {@code isP1}'s attack added, by
+	 * where they stand now, or {@code null} when none joined (or none is still there). Spends the
+	 * joiners. A joiner is always a Forward, whose slot code is its index.
 	 */
 	List<Integer> partyWithJoiners(boolean isP1, List<Integer> declaredIdx) {
 		List<CardData> joiners = isP1 ? p1AttackJoiners : p2AttackJoiners;
@@ -20587,10 +20782,10 @@ public class MainWindow {
 		return party.size() > declaredIdx.size() ? party : null;
 	}
 
-	/** The combined power of {@code isP1}'s Forwards at {@code indices}. */
-	private int partyPower(boolean isP1, List<Integer> indices) {
+	/** The combined power of {@code isP1}'s party at slot codes {@code indices}. */
+	int partyPower(boolean isP1, List<Integer> indices) {
 		int total = 0;
-		for (int i : indices) total += isP1 ? effectiveP1ForwardPower(i) : effectiveP2ForwardPower(i);
+		for (int code : indices) total += partyMemberPower(isP1, code);
 		return total;
 	}
 
@@ -20703,8 +20898,6 @@ public class MainWindow {
 		sendCombatChecksum();
 		p1AttackSelection.clear();
 		p1DeclaredAttackers.clear();
-		p1MonsterAttackIdx = -1;
-		p1BackupAttackIdx = -1;
 		// Combat is over: red comes off, and gray goes on for whatever has now spent its last
 		// declaration. Both rows, since the opponent's screen is showing the same board.
 		refreshCombatGlows();
@@ -20774,28 +20967,7 @@ public class MainWindow {
 	private void handleP1MonsterLeftClick(int idx) {
 		if (fieldTargetingActive) return;
 		if (p1InBlockDeclaration()) { toggleP1MonsterBlocker(idx); return; }
-		if (attackSubStep != 1 || p1IsHoldingCombatPriority() || p1AttackDeclarationInFlight()) return;
-		if (!isMonsterSelectableAsForward(idx)) return;
-		if (!p1AttackSelection.isEmpty()) {
-			logEntry("Deselect the Forward first before selecting a Monster attacker.");
-			return;
-		}
-		if (p1BackupAttackIdx >= 0) {
-			logEntry("Deselect the Backup first before selecting a Monster attacker.");
-			return;
-		}
-		if (p1MonsterAttackIdx == idx) {
-			p1MonsterAttackIdx = -1;
-		} else {
-			if (p1MonsterAttackIdx >= 0) {
-				int prev = p1MonsterAttackIdx;
-				p1MonsterAttackIdx = -1;
-				refreshP1MonsterSlot(prev);
-			}
-			p1MonsterAttackIdx = idx;
-		}
-		refreshAttackButton();
-		refreshP1MonsterSlot(idx);
+		toggleAttackSelection(ForwardTarget.slotCode(ForwardTarget.CardZone.MONSTER, idx));
 	}
 
 	/**
@@ -21172,28 +21344,7 @@ public class MainWindow {
 	private void handleP1BackupLeftClick(int idx) {
 		if (fieldTargetingActive) return;
 		if (p1InBlockDeclaration()) { toggleP1BackupBlocker(idx); return; }
-		if (attackSubStep != 1 || p1IsHoldingCombatPriority() || p1AttackDeclarationInFlight()) return;
-		if (!isBackupSelectableAsForward(idx)) return;
-		if (!p1AttackSelection.isEmpty()) {
-			logEntry("Deselect the Forward first before selecting a Backup attacker.");
-			return;
-		}
-		if (p1MonsterAttackIdx >= 0) {
-			logEntry("Deselect the Monster first before selecting a Backup attacker.");
-			return;
-		}
-		if (p1BackupAttackIdx == idx) {
-			p1BackupAttackIdx = -1;
-		} else {
-			if (p1BackupAttackIdx >= 0) {
-				int prev = p1BackupAttackIdx;
-				p1BackupAttackIdx = -1;
-				refreshP1BackupSlot(prev);
-			}
-			p1BackupAttackIdx = idx;
-		}
-		refreshAttackButton();
-		refreshP1BackupSlot(idx);
+		toggleAttackSelection(ForwardTarget.slotCode(ForwardTarget.CardZone.BACKUP, idx));
 	}
 
 	private void executeP1BackupAttack(int bIdx) {
@@ -21271,7 +21422,7 @@ public class MainWindow {
 		p1BackupTempTraits.clear();       p2BackupTempTraits.clear();
 		p1BackupForwardDamage.clear();    p2BackupForwardDamage.clear();
 		p1TempGrantedAbilities.clear();   p2TempGrantedAbilities.clear();
-		p1BackupAttackIdx = -1; p2BackupAttackIdx = -1;
+		p2BackupAttackIdx = -1;
 		for (int i = 0; i < p1BackupCards.length; i++) refreshP1BackupSlot(i);
 		for (int i = 0; i < p2BackupCards.length; i++) refreshP2BackupSlot(i);
 	}
@@ -21319,8 +21470,7 @@ public class MainWindow {
 			attackButton.setEnabled(true);
 		} else {
 			int n = p1AttackSelection.size();
-			boolean hasAnyAttacker = n > 0 || p1MonsterAttackIdx >= 0 || p1BackupAttackIdx >= 0;
-			attackButton.setEnabled(inAttack && p1Turn && hasAnyAttacker && attackSubStep == 1
+			attackButton.setEnabled(inAttack && p1Turn && n > 0 && attackSubStep == 1
 					&& !p1AttackDeclarationInFlight());
 			attackButton.setText(n > 1 ? twoLineLabel("Party", "Attack") : "Attack");
 		}
@@ -21331,36 +21481,42 @@ public class MainWindow {
 					&& !p1AttackDeclarationInFlight());
 	}
 
+	/**
+	 * Declares P1's attack with the Characters at slot codes {@code selection}. One Monster or
+	 * Backup acting as a Forward goes through its own single-attacker path; anything else — a lone
+	 * Forward, or a party of any mix — is resolved here.
+	 */
 	void executeP1Attack(List<Integer> selection) {
 		if (selection.isEmpty()) return;
+		if (selection.size() == 1) {
+			ForwardTarget only = partyMember(true, selection.get(0));
+			if (only.zone() == ForwardTarget.CardZone.MONSTER) { executeP1MonsterAttack(only.idx()); return; }
+			if (only.zone() == ForwardTarget.CardZone.BACKUP)  { executeP1BackupAttack(only.idx());  return; }
+		}
 		p1Turn.attackDeclarationsThisTurn++;
 		p1AttackJoiners.clear();
 
 		// Dull the attackers (Brave ones stay active) and trigger their attack auto-abilities
-		for (int idx : selection) {
-			CardState stateBefore = p1ForwardStates.get(idx);
-			if (!effectiveP1HasTrait(idx, CardData.Trait.BRAVE)) {
-				p1ForwardStates.set(idx, CardState.DULL);
-				animateDullForward(idx, null);
-				if (stateBefore == CardState.ACTIVE)
-					autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p1ForwardCards.get(idx), true);
-			}
-			recordAttackDeclared(effectiveP1Forward(idx));
+		for (int code : selection) dullAndRecordAttacker(true, code);
+		for (int code : selection) {
+			CardData attacker = partyMemberCard(true, code);
+			if (attacker != null) autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, true);
 		}
-		for (int idx : selection)
-			autoAbilityTriggers.triggerAutoAbilitiesForAttack(
-					p1ForwardPrimedTop.get(idx) != null ? p1ForwardPrimedTop.get(idx) : p1ForwardCards.get(idx), true);
 
 		// The button emptied p1AttackSelection when it fired the declaration; record who is actually
 		// attacking so attack-conditional abilities stay usable while P1 holds priority.
 		p1DeclaredAttackers.clear();
-		for (int idx : selection) p1DeclaredAttackers.add(effectiveP1Forward(idx));
+		for (int code : selection) {
+			CardData attacker = partyMemberCard(true, code);
+			if (attacker != null) p1DeclaredAttackers.add(attacker);
+		}
 		refreshCombatGlows();
 
-		// Combat stays on Declare Attackers until both players have passed on the declaration.
+		// Combat stays on Declare Attackers until both players have passed on the declaration. A
+		// party travels as slot codes under FORWARD, which for an all-Forward party are its indices.
 		refreshAttackButton();
 		sendToOpponent(RemoteOpponent.attackAction(ForwardTarget.CardZone.FORWARD, selection,
-				selection.stream().mapToInt(this::effectiveP1ForwardPower).sum()));
+				partyPower(true, selection)));
 
 		if (selection.size() == 1) {
 			int idx = selection.get(0);
@@ -21410,19 +21566,12 @@ public class MainWindow {
 				});
 			});
 		} else {
-			int combinedPower = 0;
-			StringBuilder names = new StringBuilder();
-			for (int idx : selection) {
-				combinedPower += effectiveP1ForwardPower(idx);
-				if (names.length() > 0) names.append(", ");
-				names.append(p1ForwardCards.get(idx).name());
-			}
+			int combinedPower = partyPower(true, selection);
 			p1Turn.formedPartyThisTurn = true;
-			List<CardData> p1PartyMembers = selection.stream()
-					.map(p1ForwardCards::get).collect(Collectors.toList());
-			autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(true, p1PartyMembers);
+			autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(true, partyMemberBaseCards(true, selection));
 			final int fCombined = combinedPower;
-			combatPriorityRound(true, "Party Attack! " + names + " (" + combinedPower + " combined)", () -> {
+			combatPriorityRound(true, "Party Attack! " + partyMemberNames(true, selection)
+					+ " (" + combinedPower + " combined)", () -> {
 				if (survivingDeclaredAttackers(true).isEmpty()) { skipBlockStepNoAttackers(); return; }
 				setAttackSubStep(2);
 				refreshAttackButton();
@@ -21437,43 +21586,45 @@ public class MainWindow {
 	// Party attack and block resolution, AI picks
 	// -------------------------------------------------------------------------
 
+	/** {@code attackerIndices} are P1's party as slot codes ({@link ForwardTarget#slotCode()}). */
 	private void p2OfferBlockParty(List<Integer> attackerIndices, int combinedPower, Runnable onDone) {
 		// Blocking a party means blocking every member, so one member carrying the compulsion
 		// forces the block — the same reading handleP1PartyBlockAction takes on the human side.
-		boolean forced = attackerIndices.stream()
-				.anyMatch(i -> i < p1ForwardCards.size() && attackerMustBeBlocked(p1ForwardCards.get(i)))
+		boolean forced = partyMemberBaseCards(true, attackerIndices).stream()
+				.anyMatch(this::attackerMustBeBlocked)
 				|| forwardsMustBlock(false);
-		requestP2PartyBlocker(attackerIndices, combinedPower, forced, chosenIdx -> {
-			if (chosenIdx != null) {
-				final int blockerIdx   = chosenIdx;
-				CardData  blocker      = p2ForwardCards.get(blockerIdx);
-				final int blockerPower = effectiveP2ForwardPower(blockerIdx);
+		requestP2PartyBlocker(attackerIndices, combinedPower, forced, chosenCode -> {
+			// The blocker comes back as a slot code: a Forward, or a Monster or Backup acting as one.
+			ForwardTarget blockerSlot = chosenCode != null ? ForwardTarget.fromSlotCode(false, chosenCode) : null;
+			CardData      blocker     = blockerSlot != null ? fieldCardDataOrNull(blockerSlot) : null;
+			if (blocker != null) {
+				final ForwardTarget.CardZone blkZone = blockerSlot.zone();
+				final int blkIdx       = blockerSlot.idx();
+				final int blockerPower = fieldForwardPower(false, blkZone, blkIdx);
 				logEntry("[P2] " + blocker.name() + " blocks the party!");
 				// Both players may respond to the block before damage is worked out.
 				combatPriorityRound(true, null, () -> {
 					setAttackSubStep(3);
 					// Party has First Strike only if every attacker has it and the blocker does not
 					boolean partyFirst = attackerIndices.stream()
-							.allMatch(i -> effectiveHasTrait(true, i, CardData.Trait.FIRST_STRIKE))
-							&& !effectiveHasTrait(false, blockerIdx, CardData.Trait.FIRST_STRIKE);
+							.allMatch(i -> partyMemberHasTrait(true, i, CardData.Trait.FIRST_STRIKE))
+							&& !fieldForwardTrait(false, blkZone, blkIdx, CardData.Trait.FIRST_STRIKE);
 					boolean blockerBroken = combinedPower >= blockerPower;
 					// See resolveP1BlockVsP2Party — the combined power is one instance of damage.
 					if (combinedPower > 0) autoAbilityTriggers.fireIsDealtDamageTriggers(blocker, false, combinedPower,
 							partyDealer(attackerIndices, true));
 					// Every member of the party dealt part of that one instance, so each is a damager
 					// of the blocker. Recorded before the break, as everywhere damage lands.
+					List<CardData> members = partyMemberBaseCards(true, attackerIndices);
 					if (combinedPower > 0)
-						for (int i : attackerIndices)
-							if (i < p1ForwardCards.size()) recordDamagedBy(blocker, p1ForwardCards.get(i));
+						for (CardData m : members) recordDamagedBy(blocker, m);
 					if (combinedPower > 0)
-						for (int i : attackerIndices)
-							if (i < p1ForwardCards.size())
-								autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToForward(p1ForwardCards.get(i), true);
-					if (blockerBroken) breakP2Forward(blockerIdx);
+						for (CardData m : members) autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToForward(m, true);
+					if (blockerBroken) breakFieldCard(false, blkZone, blkIdx);
 					if (!partyFirst || !blockerBroken) {
 						// How the blocker spreads its damage is the opponent's call.
 						opponent.requestPartyBlockerDamage(attackerIndices, blockerPower, damageMap -> {
-							applyPartyBlockerDamage(damageMap, blocker);
+							applyBlockerDamageToParty(true, damageMap, blocker);
 							if (onDone != null) onDone.run();
 						});
 					} else {
@@ -21493,17 +21644,25 @@ public class MainWindow {
 	}
 
 	/**
-	 * Builds the AI's optimal damage assignment for a party-attack block.
+	 * Builds the AI's optimal damage assignment for a party-attack block: P1's party at slot codes
+	 * {@code attackerIndices}, keyed the same way.
 	 * Package-private: {@link ComputerPlayer} delegates to it, and it is also P1's fallback
 	 * when the party-damage dialog is dismissed without an assignment.
 	 */
 	Map<Integer, Integer> p2AiBuildDamageMap(List<Integer> attackerIndices, int blockerPower) {
+		return aiBuildPartyDamageMap(true, attackerIndices, blockerPower);
+	}
+
+	/**
+	 * Spreads {@code blockerPower} across {@code partyIsP1}'s party at slot codes {@code codes}:
+	 * finish off the weakest members first, and pile what is left onto the strongest.
+	 */
+	private Map<Integer, Integer> aiBuildPartyDamageMap(boolean partyIsP1, List<Integer> codes, int blockerPower) {
 		List<int[]> targets = new ArrayList<>();
-		for (int idx : attackerIndices) {
-			if (idx < p1ForwardCards.size()) {
-				int hp = effectiveP1ForwardPower(idx) - p1ForwardDamage.get(idx);
-				targets.add(new int[]{ idx, hp });
-			}
+		for (int code : codes) {
+			if (partyMemberBaseCard(partyIsP1, code) == null) continue;
+			int hp = partyMemberPower(partyIsP1, code) - partyMemberDamage(partyIsP1, code);
+			targets.add(new int[]{ code, hp });
 		}
 		if (targets.isEmpty()) return Map.of();
 		targets.sort((a, b) -> Integer.compare(a[1], b[1]));
@@ -21511,9 +21670,9 @@ public class MainWindow {
 		int remaining = blockerPower;
 		for (int[] t : targets) {
 			if (remaining <= 0) break;
-			int idx = t[0], hp = t[1];
+			int code = t[0], hp = t[1];
 			int dmg = Math.min(remaining, roundToThousand(hp));
-			damageMap.put(idx, dmg);
+			damageMap.put(code, dmg);
 			remaining -= dmg;
 		}
 		if (remaining > 0)
@@ -21522,14 +21681,14 @@ public class MainWindow {
 	}
 
 	/**
-	 * Returns {@code true} if any party member other than {@code damagedIdx} has a
-	 * "forming a party with [self]" field ability, nullifying that Forward's combat damage.
+	 * Returns {@code true} if any party member other than {@code damagedCode} has a
+	 * "forming a party with [self]" field ability, nullifying that member's combat damage.
 	 */
-	private boolean partyProtectionApplies(Set<Integer> partySet, int damagedIdx, boolean isP1) {
-		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-		for (int protectorIdx : partySet) {
-			if (protectorIdx == damagedIdx || protectorIdx >= fwds.size()) continue;
-			CardData protector = fwds.get(protectorIdx);
+	private boolean partyProtectionApplies(Set<Integer> partySet, int damagedCode, boolean isP1) {
+		for (int protectorCode : partySet) {
+			if (protectorCode == damagedCode) continue;
+			CardData protector = partyMemberBaseCard(isP1, protectorCode);
+			if (protector == null) continue;
 			for (FieldAbility fa : protector.fieldAbilities()) {
 				Matcher m = AutoAbilityTriggers.FA_PARTY_DAMAGE_PROTECTION.matcher(fa.effectText());
 				if (m.find() && m.group("source").trim().equalsIgnoreCase(protector.name()))
@@ -21545,57 +21704,71 @@ public class MainWindow {
 	 * clauses in print ask ("a Forward opponent controls") and the one card "that Forward" can name.
 	 */
 	private AutoAbilityTriggers.DamageDealer partyDealer(List<Integer> attackerIndices, boolean partyIsP1) {
-		List<CardData> fwds = partyIsP1 ? p1ForwardCards : p2ForwardCards;
-		for (int i : attackerIndices)
-			if (i < fwds.size()) return new AutoAbilityTriggers.DamageDealer(fwds.get(i), partyIsP1, false);
+		for (int code : attackerIndices) {
+			CardData member = partyMemberBaseCard(partyIsP1, code);
+			if (member != null) return new AutoAbilityTriggers.DamageDealer(member, partyIsP1, false);
+		}
 		return null;
 	}
 
 	/**
-	 * Applies a party-block damage map: logs, updates p1ForwardDamage, and breaks lethal targets.
-	 * {@code blocker} is the P2 Forward whose power was spread across the party — the damager of
-	 * record for every entry in the map.
+	 * Applies a blocker's damage spread onto {@code partyIsP1}'s attacking party — keyed by slot
+	 * code — and breaks the members it finishes. {@code blocker} is the opposing Forward whose power
+	 * was spread across them, the damager of record for every entry in the map.
 	 */
-	private void applyPartyBlockerDamage(Map<Integer, Integer> damageMap, CardData blocker) {
+	private void applyBlockerDamageToParty(boolean partyIsP1, Map<Integer, Integer> damageMap, CardData blocker) {
 		if (damageMap.isEmpty()) return;
 		Set<Integer> partySet = damageMap.keySet();
 		for (Map.Entry<Integer, Integer> entry : damageMap.entrySet()) {
-			int idx = entry.getKey(), dmg = entry.getValue();
-			if (idx >= p1ForwardCards.size()) continue;
-			if (partySet.size() >= 2 && partyProtectionApplies(partySet, idx, true)) {
-				logEntry(p1ForwardCards.get(idx).name() + " — party damage nullified");
+			int code = entry.getKey(), dmg = entry.getValue();
+			CardData member = partyMemberBaseCard(partyIsP1, code);
+			if (member == null) continue;
+			if (partySet.size() >= 2 && partyProtectionApplies(partySet, code, partyIsP1)) {
+				logEntry(member.name() + " — party damage nullified");
 				continue;
 			}
-			p1ForwardDamage.set(idx, p1ForwardDamage.get(idx) + dmg);
-			logEntry("[P2] Deals " + dmg + " damage to " + p1ForwardCards.get(idx).name());
+			ForwardTarget t = partyMember(partyIsP1, code);
+			addFieldCombatDamage(partyIsP1, t.zone(), t.idx(), dmg);
+			logEntry((partyIsP1 ? "[P2] " : "") + "Deals " + dmg + " damage to " + member.name());
 			// One instance of damage per party member the blocker's power was spread across, each
 			// firing "is dealt damage" triggers in its own right — see resolveCombat.
-			autoAbilityTriggers.fireIsDealtDamageTriggers(p1ForwardCards.get(idx), true, dmg,
-					new AutoAbilityTriggers.DamageDealer(blocker, false, false));
-			if (dmg > 0) recordDamagedBy(p1ForwardCards.get(idx), blocker);
-			if (dmg > 0) autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToForward(blocker, false);
+			autoAbilityTriggers.fireIsDealtDamageTriggers(member, partyIsP1, dmg,
+					new AutoAbilityTriggers.DamageDealer(blocker, !partyIsP1, false));
+			if (dmg > 0) recordDamagedBy(member, blocker);
+			if (dmg > 0) autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToForward(blocker, !partyIsP1);
 		}
+		// Highest code first: within a zone that is the highest slot, so breaking one never shifts
+		// the index of another still waiting to break.
 		List<Integer> toBreak = new ArrayList<>();
-		for (int idx : damageMap.keySet()) {
-			if (idx < p1ForwardCards.size()
-					&& p1ForwardDamage.get(idx) >= effectiveP1ForwardPower(idx))
-				toBreak.add(idx);
+		for (int code : damageMap.keySet()) {
+			if (partyMemberBaseCard(partyIsP1, code) != null
+					&& partyMemberDamage(partyIsP1, code) >= partyMemberPower(partyIsP1, code))
+				toBreak.add(code);
 		}
 		toBreak.sort(Collections.reverseOrder());
-		for (int idx : toBreak) breakP1Forward(idx);
-		for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
+		for (int code : toBreak) {
+			ForwardTarget t = partyMember(partyIsP1, code);
+			breakFieldCard(partyIsP1, t.zone(), t.idx());
+		}
+		refreshFieldGrantDependents(partyIsP1);
 	}
 
-	/** P1 blocks a P2 party attack: combined power hits the blocker; P1 assigns blocker power back. */
-	/** @return the damage the blocker spread across the party, empty when First Strike stopped it. */
-	private Map<Integer, Integer> resolveP1BlockVsP2Party(int blockerIdx, CardData blocker,
+	/**
+	 * P1 blocks a P2 party attack: combined power hits the blocker; P1 assigns blocker power back.
+	 * The blocker in {@code blockerSlot} may be a Forward, or a Monster or Backup acting as one.
+	 *
+	 * @return the damage the blocker spread across the party, empty when First Strike stopped it.
+	 */
+	Map<Integer, Integer> resolveP1BlockVsP2Party(ForwardTarget blockerSlot, CardData blocker,
 			List<Integer> attackerIndices, int combinedPower) {
+		ForwardTarget.CardZone blkZone = blockerSlot.zone();
+		int                    blkIdx  = blockerSlot.idx();
 		// Party has First Strike only if every attacker has it and the blocker does not
 		boolean partyFirst = attackerIndices.stream()
-				.allMatch(i -> effectiveHasTrait(false, i, CardData.Trait.FIRST_STRIKE))
-				&& !effectiveHasTrait(true, blockerIdx, CardData.Trait.FIRST_STRIKE);
+				.allMatch(i -> partyMemberHasTrait(false, i, CardData.Trait.FIRST_STRIKE))
+				&& !fieldForwardTrait(true, blkZone, blkIdx, CardData.Trait.FIRST_STRIKE);
 
-		int blockerPower = effectiveP1ForwardPower(blockerIdx);
+		int blockerPower = fieldForwardPower(true, blkZone, blkIdx);
 		logEntry("[P2] Party deals " + combinedPower + " damage to " + blocker.name());
 		boolean blockerBroken = combinedPower >= blockerPower;
 		// The party's combined power is one instance of damage to the blocker; triggers fire on it
@@ -21603,64 +21776,32 @@ public class MainWindow {
 		if (combinedPower > 0) autoAbilityTriggers.fireIsDealtDamageTriggers(blocker, true, combinedPower,
 				partyDealer(attackerIndices, false));
 		// Each member dealt part of that instance, so each is a damager of the blocker.
+		List<CardData> members = partyMemberBaseCards(false, attackerIndices);
 		if (combinedPower > 0)
-			for (int i : attackerIndices)
-				if (i < p2ForwardCards.size()) recordDamagedBy(blocker, p2ForwardCards.get(i));
+			for (CardData m : members) recordDamagedBy(blocker, m);
 		if (combinedPower > 0)
-			for (int i : attackerIndices)
-				if (i < p2ForwardCards.size())
-					autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToForward(p2ForwardCards.get(i), false);
-		if (blockerBroken) breakP1Forward(blockerIdx);
+			for (CardData m : members) autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToForward(m, false);
+		if (blockerBroken) breakFieldCard(true, blkZone, blkIdx);
 
 		if (!partyFirst || !blockerBroken) {
+			List<Integer>  live          = new ArrayList<>();
 			List<CardData> attackerCards = new ArrayList<>();
-			int[] effectivePowers = new int[attackerIndices.size()];
-			for (int i = 0; i < attackerIndices.size(); i++) {
-				int idx = attackerIndices.get(i);
-				attackerCards.add(p2ForwardCards.get(idx));
-				effectivePowers[i] = effectiveP2ForwardPower(idx);
+			for (int code : attackerIndices) {
+				CardData member = partyMemberBaseCard(false, code);
+				if (member == null) continue;
+				live.add(code);
+				attackerCards.add(member);
 			}
+			int[] effectivePowers = new int[live.size()];
+			for (int i = 0; i < live.size(); i++) effectivePowers[i] = partyMemberPower(false, live.get(i));
 			Map<Integer, Integer> damageMap = cardPickerDialog.assignPartyDamage(
-					attackerIndices, attackerCards, effectivePowers, blockerPower);
-			if (damageMap.isEmpty()) damageMap = p2AiBuildDamageMap(attackerIndices, blockerPower);
-			applyP2PartyAttackerDamage(damageMap, blocker);
+					live, attackerCards, effectivePowers, blockerPower);
+			if (damageMap.isEmpty()) damageMap = aiBuildPartyDamageMap(false, live, blockerPower);
+			applyBlockerDamageToParty(false, damageMap, blocker);
 			return damageMap;
 		}
 		logEntry("First Strike — party takes no return damage");
 		return Map.of();
-	}
-
-	/**
-	 * Applies a damage map onto P2 party attackers; breaks those that reach lethal. {@code blocker}
-	 * is the P1 Forward whose power was spread across them — see {@link #applyPartyBlockerDamage}.
-	 */
-	private void applyP2PartyAttackerDamage(Map<Integer, Integer> damageMap, CardData blocker) {
-		if (damageMap.isEmpty()) return;
-		Set<Integer> partySet = damageMap.keySet();
-		for (Map.Entry<Integer, Integer> entry : damageMap.entrySet()) {
-			int idx = entry.getKey(), dmg = entry.getValue();
-			if (idx >= p2ForwardCards.size()) continue;
-			if (partySet.size() >= 2 && partyProtectionApplies(partySet, idx, false)) {
-				logEntry(p2ForwardCards.get(idx).name() + " — party damage nullified");
-				continue;
-			}
-			p2ForwardDamage.set(idx, p2ForwardDamage.get(idx) + dmg);
-			logEntry("Deals " + dmg + " damage to " + p2ForwardCards.get(idx).name());
-			// See applyPartyBlockerDamage — one instance of damage per party member.
-			autoAbilityTriggers.fireIsDealtDamageTriggers(p2ForwardCards.get(idx), false, dmg,
-					new AutoAbilityTriggers.DamageDealer(blocker, true, false));
-			if (dmg > 0) recordDamagedBy(p2ForwardCards.get(idx), blocker);
-			if (dmg > 0) autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToForward(blocker, true);
-		}
-		List<Integer> toBreak = new ArrayList<>();
-		for (int idx : damageMap.keySet()) {
-			if (idx < p2ForwardCards.size()
-					&& p2ForwardDamage.get(idx) >= effectiveP2ForwardPower(idx))
-				toBreak.add(idx);
-		}
-		toBreak.sort(Collections.reverseOrder());
-		for (int idx : toBreak) breakP2Forward(idx);
-		for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
 	}
 
 	private static int roundToThousand(int value) {
@@ -21947,7 +22088,8 @@ public class MainWindow {
 		JPanel slotsPanel = new JPanel(new GridLayout(1, 5, 2, 0));
 		slotsPanel.setOpaque(false);
 		for (int i = 0; i < 5; i++) {
-			JLabel slot = new JLabel();
+			// Liftable so P1's Backup rises like any attacker; LEADING is a plain JLabel's default.
+			JLabel slot = newLiftableSlotLabel(SwingConstants.LEADING);
 			slot.setFont(FontLoader.loadPixelFont(11));
 			slot.setBorder(BorderFactory.createEmptyBorder());
 			slot.setOpaque(false);

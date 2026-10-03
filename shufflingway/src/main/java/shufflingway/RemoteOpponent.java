@@ -600,6 +600,7 @@ class RemoteOpponent implements OpponentController {
 			mw.reportDesync("opponent attacked from an unknown zone \"" + payload.optString("zone", "") + "\"");
 			return;
 		}
+		// A party always travels under FORWARD, as slot codes; see attackAction.
 		if (indices.size() > 1 && zone != ForwardTarget.CardZone.FORWARD) {
 			mw.reportDesync("opponent declared a party attack from " + zone + ", which cannot form a party");
 			return;
@@ -623,8 +624,9 @@ class RemoteOpponent implements OpponentController {
 
 	/**
 	 * The opponent answered the attack this client is holding. Their blocker sits on their own
-	 * side there and on P1's here, so the target is rebuilt against the local board before the
-	 * parked callback resumes the combat that was waiting on it.
+	 * side there and on P2's here — the same flip {@link #applyAttack} makes — so the target is
+	 * rebuilt against the local board before the parked callback resumes the combat that was
+	 * waiting on it.
 	 */
 	private void applyBlock(JSONObject payload) {
 		mw.setAwaitingRemoteBlock(false);
@@ -633,18 +635,13 @@ class RemoteOpponent implements OpponentController {
 		if (pendingPartyBlock != null) {
 			Consumer<Integer> resume = pendingPartyBlock;
 			pendingPartyBlock = null;
-			if (!blocked) { pendingPartyAttackers = List.of(); resume.accept(null); return; }
-			int idx = payload.optInt("idx", -1);
-			if (idx < 0 || idx >= mw.p1ForwardCards.size()) {
-				mw.reportDesync("opponent blocked the party with Forward " + idx
-						+ ", which is not on their field here");
-				pendingPartyAttackers = List.of();
-				resume.accept(null);
-				return;
-			}
-			partyDamageAnswer     = damageSpread(payload);
 			pendingPartyAttackers = List.of();
-			resume.accept(idx);
+			if (!blocked) { resume.accept(null); return; }
+			ForwardTarget blocker = blockerOf(payload);
+			if (blocker == null) { resume.accept(null); return; }
+			partyDamageAnswer = damageSpread(payload);
+			// A party's blocker is handed back as a slot code: it may be a Monster or Backup.
+			resume.accept(blocker.slotCode());
 			return;
 		}
 
@@ -655,25 +652,29 @@ class RemoteOpponent implements OpponentController {
 		Consumer<ForwardTarget> resume = pendingBlock;
 		pendingBlock = null;
 		if (!blocked) { resume.accept(null); return; }
+		resume.accept(blockerOf(payload));
+	}
 
+	/**
+	 * The blocker a BLOCK names, on this client's P2 side, or {@code null} — with the desync
+	 * reported — when the zone is unknown or the slot holds nothing here.
+	 */
+	private ForwardTarget blockerOf(JSONObject payload) {
 		ForwardTarget.CardZone zone;
 		try {
 			zone = ForwardTarget.CardZone.valueOf(payload.optString("zone", ""));
 		} catch (IllegalArgumentException e) {
 			mw.reportDesync("opponent blocked from an unknown zone \"" + payload.optString("zone", "") + "\"");
-			resume.accept(null);
-			return;
+			return null;
 		}
 		int idx = payload.optInt("idx", -1);
-		// The blocker is on the opponent's field, which is this client's P1 side.
-		ForwardTarget blocker = new ForwardTarget(true, idx, zone);
+		ForwardTarget blocker = new ForwardTarget(false, idx, zone);
 		if (mw.fieldCardDataOrNull(blocker) == null) {
 			mw.reportDesync("opponent blocked with " + zone + " slot " + idx
 					+ ", which holds nothing on their field here");
-			resume.accept(null);
-			return;
+			return null;
 		}
-		resume.accept(blocker);
+		return blocker;
 	}
 
 	// ── Two-sided card choices ───────────────────────────────────────────
@@ -861,7 +862,7 @@ class RemoteOpponent implements OpponentController {
 				.put("indices", new JSONArray(indices)));
 	}
 
-	/** Reads the blocker's party damage spread, keyed by attacker slot. */
+	/** Reads the blocker's party damage spread, keyed by attacker slot code. */
 	static Map<Integer, Integer> damageSpread(JSONObject payload) {
 		JSONObject raw = payload.optJSONObject("damage");
 		if (raw == null) return Map.of();
@@ -1429,7 +1430,9 @@ class RemoteOpponent implements OpponentController {
 	 * Builds an ATTACK for a declaration the local player has just made.
 	 *
 	 * <p>{@code indices} are slots on the sender's own field, which is the receiver's P2 side; more
-	 * than one is a party. {@code power} is the sender's effective total and is sent only so the
+	 * than one is a party. Under FORWARD they are slot codes ({@link ForwardTarget#slotCode()}), so a
+	 * party can carry Monsters and Backups acting as Forwards, while a Forward's code is just its
+	 * index. {@code power} is the sender's effective total and is sent only so the
 	 * receiver can cross-check it — it never overrides the receiver's own calculation, because a
 	 * disagreement is a desync to report rather than a number to adopt.
 	 */
@@ -1443,7 +1446,7 @@ class RemoteOpponent implements OpponentController {
 	/**
 	 * Builds a BLOCK answering the opponent's attack. A {@code null} zone declines the block.
 	 *
-	 * @param damage the blocker's spread across a blocked party, keyed by attacker slot; {@code null}
+	 * @param damage the blocker's spread across a blocked party, keyed by attacker slot code; {@code null}
 	 *               for a single attacker, where the blocker deals all its power to the one card
 	 */
 	static GameAction blockAction(ForwardTarget.CardZone zone, int idx, Map<Integer, Integer> damage) {

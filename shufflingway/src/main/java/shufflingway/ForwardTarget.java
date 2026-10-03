@@ -48,6 +48,28 @@ public record ForwardTarget(boolean isP1, int idx, CardZone zone) {
     }
 
     /**
+     * This slot as one integer with no side: the zone and the index. What an attacking party's
+     * member list carries, since a party can mix Forwards with Monsters and Backups acting as
+     * Forwards. FORWARD is zone 0, so a Forward's slot code is its plain index, and a party of
+     * Forwards reads exactly as the index list it always was — on this client and on the wire.
+     */
+    public int slotCode() {
+        return (zone.ordinal() << ZONE_SHIFT) | (idx & IDX_MASK);
+    }
+
+    /** Unpacks a {@link #slotCode()} onto {@code isP1}'s side of the board. */
+    public static ForwardTarget fromSlotCode(boolean isP1, int code) {
+        int ordinal = (code >> ZONE_SHIFT) & ZONE_MASK;
+        CardZone zone = ordinal < CardZone.values().length ? CardZone.values()[ordinal] : CardZone.BREAK_ZONE;
+        return new ForwardTarget(isP1, code & IDX_MASK, zone);
+    }
+
+    /** The slot code of {@code idx} in {@code zone}; see {@link #slotCode()}. */
+    public static int slotCode(CardZone zone, int idx) {
+        return (zone.ordinal() << ZONE_SHIFT) | (idx & IDX_MASK);
+    }
+
+    /**
      * Reads a code written by the client on the other side of the board. The two sit opposite each
      * other, so what the sender packed as their own side is this client's opponent and vice versa.
      */
