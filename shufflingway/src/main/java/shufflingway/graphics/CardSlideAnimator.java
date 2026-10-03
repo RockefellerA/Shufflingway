@@ -32,6 +32,7 @@ public class CardSlideAnimator extends JComponent {
 
 	private final List<Slide> slides = new ArrayList<>();
 	private final Timer       timer;
+	private final OverlayDirtyRegion dirty = new OverlayDirtyRegion();
 
 	public CardSlideAnimator() {
 		setOpaque(false);
@@ -75,7 +76,25 @@ public class CardSlideAnimator extends JComponent {
 	private void tick() {
 		slides.removeIf(s -> { s.frame++; return s.frame >= TOTAL_FRAMES; });
 		if (slides.isEmpty()) timer.stop();
-		repaint();
+		Rectangle now = null;
+		for (Slide s : slides) {
+			Point p = position(s);
+			if (p == null) continue;
+			now = OverlayDirtyRegion.union(now, new Rectangle(
+					p.x - s.img.getWidth() / 2 - OverlayDirtyRegion.PAD,
+					p.y - s.img.getHeight() / 2 - OverlayDirtyRegion.PAD,
+					s.img.getWidth() + 2 * OverlayDirtyRegion.PAD,
+					s.img.getHeight() + 2 * OverlayDirtyRegion.PAD));
+		}
+		dirty.repaint(this, now);
+	}
+
+	/** Where {@code s}'s centre is this frame, or {@code null} while it waits out its delay. */
+	private static Point position(Slide s) {
+		if (s.frame <= 0) return null;
+		double t = easeIn((double) s.frame / TOTAL_FRAMES);
+		return new Point((int) Math.round(s.start.x + (s.end.x - s.start.x) * t),
+				(int) Math.round(s.start.y + (s.end.y - s.start.y) * t));
 	}
 
 	@Override
@@ -85,13 +104,11 @@ public class CardSlideAnimator extends JComponent {
 		g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
 				RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 		for (Slide s : slides) {
-			if (s.frame <= 0) continue;   // still in stagger delay
-			double t = easeIn((double) s.frame / TOTAL_FRAMES);
-			int x = (int) Math.round(s.start.x + (s.end.x - s.start.x) * t);
-			int y = (int) Math.round(s.start.y + (s.end.y - s.start.y) * t);
+			Point p = position(s);
+			if (p == null) continue;   // still in stagger delay
 			g2.drawImage(s.img,
-					x - s.img.getWidth()  / 2,
-					y - s.img.getHeight() / 2,
+					p.x - s.img.getWidth()  / 2,
+					p.y - s.img.getHeight() / 2,
 					null);
 		}
 		g2.dispose();

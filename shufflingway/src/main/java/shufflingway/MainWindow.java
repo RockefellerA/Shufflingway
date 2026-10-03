@@ -125,6 +125,7 @@ import shufflingway.graphics.CardAnimation;
 import static shufflingway.graphics.CardAnimation.CARD_H;
 import static shufflingway.graphics.CardAnimation.CARD_W;
 import shufflingway.graphics.CardBreakAnimator;
+import shufflingway.graphics.CardLimitBreakAnimator;
 import shufflingway.graphics.CardRfpAnimator;
 import shufflingway.graphics.CardSlideAnimator;
 import shufflingway.graphics.CrystalDisplay;
@@ -291,6 +292,7 @@ public class MainWindow {
 	CardSlideAnimator cardSlideAnimator;
 	private CardBreakAnimator breakAnimator;
 	CardRfpAnimator           rfpAnimator;
+	CardLimitBreakAnimator    limitBreakAnimator;
 	/** Non-null when the next startBreakAnim call should slide to the break zone instead of slashing. */
 	JLabel pendingCostBreakDestLabel;
 	/** When true, the next startBreakAnim call is suppressed (e.g. RFP goes through breakP*Forward but needs no animation). */
@@ -2579,6 +2581,7 @@ public class MainWindow {
 		cardSlideAnimator = CardSlideAnimator.install(frame);
 		breakAnimator     = CardBreakAnimator.install(frame);
 		rfpAnimator       = CardRfpAnimator.install(frame);
+		limitBreakAnimator = CardLimitBreakAnimator.install(frame);
 	}
 
 	// -------------------------------------------------------------------------
@@ -10114,6 +10117,17 @@ public class MainWindow {
 	}
 
 	/**
+	 * Places a card cast out of the Limit Break deck and lands it in its slot with a golden flash and
+	 * a shake. {@code placement} runs right away; see {@link FieldEntryAnimator} for what the
+	 * animation holds back. Placed outright when the window is not on screen, for the reason
+	 * {@link #placeFromHandWithAnim} gives.
+	 */
+	void placeFromLbWithAnim(CardData card, boolean isP1, Runnable placement) {
+		if (frame == null || !frame.isShowing() || limitBreakAnimator == null) { placement.run(); return; }
+		fieldEntryAnimator.placeWithAnim(card, isP1, FieldEntryAnimator.Style.LIMIT_BREAK, placement);
+	}
+
+	/**
 	 * Where card {@code handIdx} of {@code isP1}'s hand sits on screen, in layered-pane coordinates:
 	 * its place in the fan, or the off-screen hand anchor {@link #animateCardDraw} uses when the fan
 	 * cannot say. {@code null} when the window is not on screen.
@@ -14215,11 +14229,17 @@ public class MainWindow {
 		// always used. Restored afterwards, as the other two executors restore it.
 		lastCardWasCast = true;
 		if (card.isBackup()) {
-			if (isP1) placeCardInFirstBackupSlot(card); else placeP2CardInFirstBackupSlot(card);
+			placeFromLbWithAnim(card, isP1, () -> {
+				if (isP1) placeCardInFirstBackupSlot(card); else placeP2CardInFirstBackupSlot(card);
+			});
 		} else if (card.isForward()) {
-			if (isP1) placeCardInForwardZone(card); else placeP2CardInForwardZone(card);
+			placeFromLbWithAnim(card, isP1, () -> {
+				if (isP1) placeCardInForwardZone(card); else placeP2CardInForwardZone(card);
+			});
 		} else if (card.isMonster()) {
-			if (isP1) placeCardInMonsterZone(card); else placeP2CardInMonsterZone(card);
+			placeFromLbWithAnim(card, isP1, () -> {
+				if (isP1) placeCardInMonsterZone(card); else placeP2CardInMonsterZone(card);
+			});
 		} else if (card.isSummon()) {
 			showSummonOnStack(card, isP1);
 		}

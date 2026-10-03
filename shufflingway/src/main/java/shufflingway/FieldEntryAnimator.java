@@ -17,6 +17,7 @@ import javax.swing.SwingWorker;
 import javax.swing.Timer;
 
 import shufflingway.graphics.CardAnimation;
+import shufflingway.graphics.CardLimitBreakAnimator;
 import shufflingway.graphics.CardRfpAnimator;
 import shufflingway.graphics.CardSlideAnimator;
 import static shufflingway.graphics.CardAnimation.CARD_H;
@@ -54,7 +55,9 @@ final class FieldEntryAnimator {
 		 * place in the hand to its slot. It travels already turned to the state it enters in, so a
 		 * card that enters dull slides out dull.
 		 */
-		FROM_HAND
+		FROM_HAND,
+		/** A card cast out of the Limit Break deck — it lands in its slot in a golden flash and shakes. */
+		LIMIT_BREAK
 	}
 
 	private final MainWindow mw;
@@ -235,6 +238,10 @@ final class FieldEntryAnimator {
 				if (origin == null) yield 0;
 				mw.cardSlideAnimator.startSlide(img, origin, center, 0);
 				yield CardSlideAnimator.TOTAL_FRAMES * CardSlideAnimator.FRAME_MS;
+			}
+			case LIMIT_BREAK -> {
+				mw.limitBreakAnimator.start(img, center);
+				yield CardLimitBreakAnimator.TOTAL_FRAMES * CardLimitBreakAnimator.FRAME_MS;
 			}
 		};
 	}

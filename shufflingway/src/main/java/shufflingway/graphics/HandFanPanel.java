@@ -53,6 +53,10 @@ public class HandFanPanel extends JComponent {
 	private BufferedImage back;
 	/** Identity of whatever {@link #back} was built from; a mismatch invalidates the cache. */
 	private String backKey = "";
+	/** The whole fan as last painted, at device resolution; rebuilt when anything below changes. */
+	private BufferedImage fan;
+	private int    fanCount, fanW, fanH;
+	private double fanSx, fanSy;
 
 	/** @see HandFanLayout#peekHeight() */
 	public static int peekHeight() {
@@ -138,9 +142,34 @@ public class HandFanPanel extends JComponent {
 			int bw  = Math.min(CardAnimation.CARD_W * BACK_SUPERSAMPLE, cap);
 			int bh  = (int) Math.round(bw * (double) CardAnimation.CARD_H / CardAnimation.CARD_W);
 			back = CardAnimation.toARGB(raw, bw, bh);
+			fan  = null;
 		}
 
+		// Device pixels per user pixel, so the cached fan is rendered at the screen's real
+		// resolution and blitted back 1:1 rather than resampled.
+		AffineTransform dev = ((Graphics2D) g0).getTransform();
+		double sx = dev.getScaleX(), sy = dev.getScaleY();
+		if (fan == null || fanCount != count || fanW != w || fanH != h || fanSx != sx || fanSy != sy) {
+			fan = renderFan(w, h, sx, sy);
+			fanCount = count; fanW = w; fanH = h; fanSx = sx; fanSy = sy;
+		}
 		Graphics2D g = (Graphics2D) g0.create();
+		g.scale(1 / sx, 1 / sy);
+		g.drawImage(fan, 0, 0, null);
+		g.dispose();
+	}
+
+	/**
+	 * Paints the fan into an image {@code scaleX}/{@code scaleY} times the panel's size. Every back is
+	 * a rotated, supersampled resample that the screen pipeline cannot accelerate, so drawing the fan
+	 * live cost a software transform per card on every repaint — and an animation overlay repaints
+	 * whatever lies beneath it.
+	 */
+	private BufferedImage renderFan(int w, int h, double scaleX, double scaleY) {
+		BufferedImage img = new BufferedImage(Math.max(1, (int) Math.round(w * scaleX)),
+				Math.max(1, (int) Math.round(h * scaleY)), BufferedImage.TYPE_INT_ARGB_PRE);
+		Graphics2D g = img.createGraphics();
+		g.scale(scaleX, scaleY);
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,   RenderingHints.VALUE_ANTIALIAS_ON);
 		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,  RenderingHints.VALUE_INTERPOLATION_BICUBIC);
 		g.setRenderingHint(RenderingHints.KEY_RENDERING,      RenderingHints.VALUE_RENDER_QUALITY);
@@ -176,5 +205,6 @@ public class HandFanPanel extends JComponent {
 		}
 
 		g.dispose();
+		return img;
 	}
 }

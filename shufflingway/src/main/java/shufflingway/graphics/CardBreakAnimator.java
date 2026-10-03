@@ -44,6 +44,7 @@ public class CardBreakAnimator extends JComponent {
 
 	private final List<Break> breaks = new ArrayList<>();
 	private final Timer       timer;
+	private final OverlayDirtyRegion dirty = new OverlayDirtyRegion();
 
 	public CardBreakAnimator() {
 		setOpaque(false);
@@ -82,7 +83,15 @@ public class CardBreakAnimator extends JComponent {
 	private void tick() {
 		breaks.removeIf(b -> { b.frame++; return b.frame >= TOTAL_FRAMES; });
 		if (breaks.isEmpty()) timer.stop();
-		repaint();
+		Rectangle now = null;
+		for (Break b : breaks) {
+			// The slash is clipped to the card; the halves drift up to MAX_DRIFT_PX off it.
+			int grow = MAX_DRIFT_PX + OverlayDirtyRegion.PAD;
+			now = OverlayDirtyRegion.union(now, new Rectangle(
+					b.center.x - b.img.getWidth() / 2 - grow, b.center.y - b.img.getHeight() / 2 - grow,
+					b.img.getWidth() + 2 * grow, b.img.getHeight() + 2 * grow));
+		}
+		dirty.repaint(this, now);
 	}
 
 	@Override

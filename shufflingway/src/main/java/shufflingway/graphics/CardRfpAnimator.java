@@ -47,6 +47,7 @@ public class CardRfpAnimator extends JComponent {
 
     private final List<Rfp> rfps  = new ArrayList<>();
     private final Timer     timer;
+    private final OverlayDirtyRegion dirty = new OverlayDirtyRegion();
 
     public CardRfpAnimator() {
         setOpaque(false);
@@ -84,7 +85,15 @@ public class CardRfpAnimator extends JComponent {
     private void tick() {
         rfps.removeIf(r -> { r.frame++; return r.frame >= TOTAL_FRAMES; });
         if (rfps.isEmpty()) timer.stop();
-        repaint();
+        Rectangle now = null;
+        for (Rfp r : rfps) {
+            // The flash (0.55 of the card's longer side) or the sparkles (0.38, plus an arm of 10),
+            // whichever reaches further; the collapsing card stays inside both.
+            int m = Math.max(r.img.getWidth(), r.img.getHeight());
+            now = OverlayDirtyRegion.union(now,
+                    OverlayDirtyRegion.around(r.center.x, r.center.y, Math.max(m * 0.55, m * 0.38 + 10)));
+        }
+        dirty.repaint(this, now);
     }
 
     @Override
