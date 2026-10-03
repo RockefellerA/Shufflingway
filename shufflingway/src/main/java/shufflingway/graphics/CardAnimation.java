@@ -23,13 +23,22 @@ public class CardAnimation {
 	public static int CARD_H = UiScale.scale(205);
 
 	/**
-	 * Empty canvas kept to the left of an ACTIVE card's art, so {@link TraitTab} has somewhere to
-	 * poke into on the card's left edge. A DULL card is {@code CARD_H} wide and therefore fills the
-	 * canvas — its tabs use the strip above it instead, which is the same card edge once rotated.
-	 * The consequence is that a card's left edge sits {@code LEFT_GUTTER} further left when dull;
-	 * {@link #renderBackupCardAtAngle} slides between the two so the rotation stays continuous.
+	 * Empty canvas kept along the card's left edge, so {@link TraitTab} has somewhere to poke into.
+	 * An ACTIVE card's art is inset this far from the canvas's left side. A DULL card is
+	 * {@code CARD_H} wide and fills the canvas sideways, so its art is inset this far from the top
+	 * instead — the same card edge once rotated CW.
+	 *
+	 * <p>What is left of the canvas after the art and this gutter, {@link #rightGutter()}, sits
+	 * along the card's right edge: beside an ACTIVE card and below a DULL one. {@link ActionButton}
+	 * uses it. {@link #renderBackupCardAtAngle} slides between the two orientations so the rotation
+	 * stays continuous.
 	 */
 	public static int LEFT_GUTTER = UiScale.scale(30);
+
+	/** The strip along the card's right edge: beside an ACTIVE card, below a DULL one. See {@link #LEFT_GUTTER}. */
+	public static int rightGutter() {
+		return CARD_H - CARD_W - LEFT_GUTTER;
+	}
 
 	private CardAnimation() {}
 
@@ -46,9 +55,9 @@ public class CardAnimation {
 		g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
 		double t = Math.max(0.0, Math.min(1.0, angle / (Math.PI / 2)));
 		// Active: art at (LEFT_GUTTER, 0) -> centre (LEFT_GUTTER + CARD_W/2, CARD_H/2).
-		// Dull:   art at (0, CARD_H - CARD_W) spanning CARD_H x CARD_W -> centre (CARD_H/2, CARD_H - CARD_W/2).
+		// Dull:   art at (0, LEFT_GUTTER) spanning CARD_H x CARD_W -> centre (CARD_H/2, LEFT_GUTTER + CARD_W/2).
 		double cx = lerp(LEFT_GUTTER + CARD_W / 2.0, CARD_H / 2.0, t);
-		double cy = lerp(CARD_H / 2.0, CARD_H - CARD_W / 2.0, t);
+		double cy = lerp(CARD_H / 2.0, LEFT_GUTTER + CARD_W / 2.0, t);
 		g.translate(cx, cy);
 		g.rotate(angle);
 		g.translate(-CARD_W / 2.0, -CARD_H / 2.0);
@@ -66,7 +75,7 @@ public class CardAnimation {
 	 * {@code CARD_H × CARD_H} canvas, respecting the slot alignment rules:
 	 * <ul>
 	 *   <li>Active - upright card pinned to the left edge, top</li>
-	 *   <li>Dull — card rotated 90° CW ({@code CARD_H × CARD_W}), pinned left + bottom</li>
+	 *   <li>Dull — card rotated 90° CW ({@code CARD_H × CARD_W}), pinned left, below the tab gutter</li>
 	 * </ul>
 	 */
 	public static BufferedImage renderBackupCard(BufferedImage card, CardState state) {
@@ -107,14 +116,14 @@ public class CardAnimation {
 		switch (state) {
 			case CardState.DULL -> {
 				BufferedImage rotated = rotateCW90(card);          // now CARD_H × CARD_W
-				g.drawImage(rotated, 0, CARD_H - CARD_W, null);   // pinned to bottom-left
+				g.drawImage(rotated, 0, LEFT_GUTTER, null);        // pinned left, below the tab gutter
 			}
 			default -> g.drawImage(card, LEFT_GUTTER, 0, null);   // pinned to top, past the tab gutter
 		}
 
 		// Card bounds within the square canvas depend on orientation
 		boolean dull = (state == CardState.DULL);
-		int cx = dull ? 0 : LEFT_GUTTER,  cy = dull ? CARD_H - CARD_W : 0;
+		int cx = dull ? 0 : LEFT_GUTTER,  cy = dull ? LEFT_GUTTER : 0;
 		int cw = dull ? CARD_H : CARD_W;
 		int ch = dull ? CARD_W : CARD_H;
 
@@ -191,9 +200,9 @@ public class CardAnimation {
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 		if (state == CardState.DULL) {
 			// CW 90° about (0,0) followed by translate so that drawing in (0..CARD_W, 0..CARD_H) lands on
-			// the rotated card's natural face: original (0,0) → canvas (CARD_H, CARD_H - CARD_W);
-			// original (CARD_W, CARD_H) → canvas (0, CARD_H).
-			g.translate(CARD_H, CARD_H - CARD_W);
+			// the rotated card's natural face: original (0,0) → canvas (CARD_H, LEFT_GUTTER);
+			// original (CARD_W, CARD_H) → canvas (0, LEFT_GUTTER + CARD_W).
+			g.translate(CARD_H, LEFT_GUTTER);
 			g.rotate(Math.PI / 2);
 		} else {
 			g.translate(LEFT_GUTTER, 0);   // active art starts past the tab gutter
@@ -226,7 +235,7 @@ public class CardAnimation {
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 		if (state == CardState.DULL) {
-			g.translate(CARD_H, CARD_H - CARD_W);
+			g.translate(CARD_H, LEFT_GUTTER);   // the same rotation as renderPill
 			g.rotate(Math.PI / 2);
 		} else {
 			g.translate(LEFT_GUTTER, 0);   // active art starts past the tab gutter
@@ -257,8 +266,8 @@ public class CardAnimation {
 
 		int cx, cy, rw, rh;
 		if (state == CardState.DULL) {
-			// rotated 90° CW: CARD_H wide × CARD_W tall, pinned bottom-left
-			cx = 0; cy = CARD_H - CARD_W; rw = CARD_H; rh = CARD_W;
+			// rotated 90° CW: CARD_H wide × CARD_W tall, pinned left, below the tab gutter
+			cx = 0; cy = LEFT_GUTTER; rw = CARD_H; rh = CARD_W;
 		} else {
 			cx = LEFT_GUTTER; cy = 0; rw = CARD_W; rh = CARD_H;
 		}

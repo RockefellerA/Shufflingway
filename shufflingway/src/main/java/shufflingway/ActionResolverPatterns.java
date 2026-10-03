@@ -13326,7 +13326,7 @@ final class ActionResolverPatterns {
      * Matches "choose 1 Forward. Place 1 Petrification Counter on it …" (Medusa). The chosen Forward
      * receives a Petrification Counter; the "cannot attack or block while petrified" restriction and
      * the "《5》: Remove all Petrification Counters" ability are driven off the counter's presence
-     * (see {@code MainWindow#isFieldAbilityCannotAttackOrBlock} and {@code addAbilityMenuItems}).
+     * (see {@code MainWindow#isFieldAbilityCannotAttackOrBlock} and {@code AutoAbilityTriggers#fieldAbilityChoices}).
      */
     static final Pattern CHOOSE_FORWARD_PLACE_PETRIFICATION = Pattern.compile(
         "(?i)^choose\\s+1\\s+Forward[.!]?\\s+Place\\s+1\\s+Petrification\\s+Counter\\s+on\\s+it\\b.*",

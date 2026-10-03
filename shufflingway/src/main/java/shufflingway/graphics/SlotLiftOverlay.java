@@ -214,7 +214,7 @@ public class SlotLiftOverlay extends JComponent {
 	}
 
 	/** Repaints the strip {@code slot} can occupy anywhere between resting and fully raised. */
-	private void repaintSlot(JLabel slot) {
+	public void repaintSlot(JLabel slot) {
 		if (!slot.isShowing() || !isShowing()) return;
 		Point p = SwingUtilities.convertPoint(slot, 0, 0, this);
 		int pad = OverlayDirtyRegion.PAD;
@@ -239,34 +239,17 @@ public class SlotLiftOverlay extends JComponent {
 					g2.clip(vr);
 				}
 				Point     p  = SwingUtilities.convertPoint(slot, 0, 0, this);
-				Rectangle ir = iconBounds(slot, icon);
+				Rectangle ir = FieldSlotLabel.iconBounds(slot, icon);
 				int x = p.x + ir.x;
 				int y = p.y + ir.y - offset(l);
 				icon.paintIcon(slot, g2, x, y);
+				// The slot paints nothing of its own while raised, so its buttons come up with it.
+				if (slot instanceof FieldSlotLabel f) f.paintButtons(g2, x, y);
 				l.lastDrawn = new Rectangle(x, y, icon.getIconWidth(), icon.getIconHeight());
 			} finally {
 				g2.dispose();
 			}
 		}
-	}
-
-	/** Where {@code slot} lays out {@code icon}, in its own coordinates — honouring its alignment. */
-	private static Rectangle iconBounds(JLabel slot, Icon icon) {
-		Insets    in    = slot.getInsets();
-		Rectangle viewR = new Rectangle(in.left, in.top,
-				slot.getWidth() - in.left - in.right, slot.getHeight() - in.top - in.bottom);
-		Rectangle iconR = new Rectangle();
-		Rectangle textR = new Rectangle();
-		Font      font  = slot.getFont();
-		if (font == null) {
-			return new Rectangle(viewR.x + (viewR.width - icon.getIconWidth()) / 2,
-					viewR.y + (viewR.height - icon.getIconHeight()) / 2, icon.getIconWidth(), icon.getIconHeight());
-		}
-		SwingUtilities.layoutCompoundLabel(slot, slot.getFontMetrics(font), slot.getText(), icon,
-				slot.getVerticalAlignment(), slot.getHorizontalAlignment(),
-				slot.getVerticalTextPosition(), slot.getHorizontalTextPosition(),
-				viewR, iconR, textR, slot.getIconTextGap());
-		return iconR;
 	}
 
 	/** Smoothstep: eases out of the row and into the raised position. */

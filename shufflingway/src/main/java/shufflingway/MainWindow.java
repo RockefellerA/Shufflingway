@@ -121,6 +121,7 @@ import shufflingway.dialog.RemovedFromPlayDialog;
 import shufflingway.dialog.StandardPaymentDialog;
 import shufflingway.dialog.WarpPaymentDialog;
 import shufflingway.dialog.WelcomeDialog;
+import shufflingway.graphics.ActionButton;
 import shufflingway.graphics.BoardEdgeFadePanel;
 import shufflingway.graphics.CardAnimation;
 import static shufflingway.graphics.CardAnimation.CARD_H;
@@ -131,6 +132,8 @@ import shufflingway.graphics.CardRfpAnimator;
 import shufflingway.graphics.CardSlideAnimator;
 import shufflingway.graphics.CrystalDisplay;
 import shufflingway.graphics.ExBurstGlow;
+import shufflingway.graphics.FieldCardIcon;
+import shufflingway.graphics.FieldSlotLabel;
 import shufflingway.graphics.GradientPanel;
 import shufflingway.graphics.GrayscaleLabel;
 import shufflingway.graphics.HandFanOverlapLayout;
@@ -2073,10 +2076,6 @@ public class MainWindow {
 		for (int i = 0; i < p2BackupLabels.length; i++) {
 			final int backupIdx = i;
 			p2BackupLabels[i].addMouseListener(new MouseAdapter() {
-				@Override public void mousePressed(MouseEvent e) {
-					if (p2BackupLabels[backupIdx].getIcon() != null)
-						showP2BackupContextMenu(backupIdx, p2BackupLabels[backupIdx], e);
-				}
 				@Override public void mouseEntered(MouseEvent e) {
 					if (p2BackupLabels[backupIdx].getIcon() != null)
 						showZoomAt(p2BackupUrls[backupIdx]);
@@ -2251,8 +2250,6 @@ public class MainWindow {
 							&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK
 							&& (isBackupSelectableAsForward(backupIdx) || isBackupBlockSelectable(backupIdx))) {
 						handleP1BackupLeftClick(backupIdx);
-					} else {
-						showBackupContextMenu(backupIdx, p1BackupLabels[backupIdx], e);
 					}
 				}
 				@Override public void mouseEntered(MouseEvent e) {
@@ -3266,6 +3263,7 @@ public class MainWindow {
 		boolean p1GoesFirst = matchSetup.localGoesFirst();
 		gameState.startFirstTurn(p1GoesFirst ? GameState.Player.P1 : GameState.Player.P2);
 		startMainPhaseAutoAdvance();
+		startSlotButtonSync();
 		refreshPhaseTracker();
 		refreshP1HandLabel();
 		if (p1GoesFirst) {
@@ -3474,6 +3472,7 @@ public class MainWindow {
 					? GameState.Player.P1 : GameState.Player.P2;
 			gameState.startFirstTurn(firstPlayer);
 			startMainPhaseAutoAdvance();
+			startSlotButtonSync();
 			refreshPhaseTracker();
 			refreshP1HandLabel();
 			if (p1GoesFirst) {
@@ -5331,7 +5330,7 @@ public class MainWindow {
 			p1ForwardLabels.clear();
 			for (int i = 0; i < p1ForwardCards.size(); i++) {
 				final int fi = i;
-				JLabel lbl = newLiftableSlotLabel();
+				JLabel lbl = newFieldSlotLabel();
 				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 				lbl.setOpaque(false);
@@ -5344,8 +5343,6 @@ public class MainWindow {
 						if (SwingUtilities.isLeftMouseButton(e)
 								&& p1ForwardClickSelectsCombat()) {
 							handleP1ForwardLeftClick(fi);
-						} else {
-							showForwardContextMenu(fi, lbl, e);
 						}
 					}
 					@Override public void mouseEntered(MouseEvent e) {
@@ -5440,7 +5437,7 @@ public class MainWindow {
 			p2ForwardLabels.clear();
 			for (int i = 0; i < p2ForwardCards.size(); i++) {
 				final int fi = i;
-				JLabel lbl = new JLabel("", SwingConstants.CENTER);
+				JLabel lbl = newFieldSlotLabel();
 				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 				lbl.setOpaque(false);
@@ -5514,7 +5511,7 @@ public class MainWindow {
 		p1ForwardLabels.clear();
 		for (int i = 0; i < p1ForwardCards.size(); i++) {
 			final int fi = i;
-			JLabel lbl = newLiftableSlotLabel();
+			JLabel lbl = newFieldSlotLabel();
 			lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 			lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 			lbl.setOpaque(false);
@@ -5527,8 +5524,6 @@ public class MainWindow {
 					if (SwingUtilities.isLeftMouseButton(e)
 							&& p1ForwardClickSelectsCombat()) {
 						handleP1ForwardLeftClick(fi);
-					} else {
-						showForwardContextMenu(fi, lbl, e);
 					}
 				}
 				@Override public void mouseEntered(MouseEvent e) {
@@ -5552,7 +5547,7 @@ public class MainWindow {
 		p2ForwardLabels.clear();
 		for (int i = 0; i < p2ForwardCards.size(); i++) {
 			final int fi = i;
-			JLabel lbl = new JLabel("", SwingConstants.CENTER);
+			JLabel lbl = newFieldSlotLabel();
 			lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 			lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 			lbl.setOpaque(false);
@@ -5672,7 +5667,7 @@ public class MainWindow {
 		if (p1ForwardPanel == null) return;
 		int idx = p1ForwardLabels.size();
 
-		JLabel lbl = newLiftableSlotLabel();
+		JLabel lbl = newFieldSlotLabel();
 		lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 		lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 		lbl.setOpaque(false);
@@ -5685,8 +5680,6 @@ public class MainWindow {
 				if (SwingUtilities.isLeftMouseButton(e)
 						&& p1ForwardClickSelectsCombat()) {
 					handleP1ForwardLeftClick(idx);
-				} else {
-					showForwardContextMenu(idx, lbl, e);
 				}
 			}
 			@Override public void mouseEntered(MouseEvent e) {
@@ -5724,17 +5717,13 @@ public class MainWindow {
 		if (p2ForwardPanel == null) return;
 		int idx = p2ForwardLabels.size();
 
-		JLabel lbl = new JLabel("", SwingConstants.CENTER);
+		JLabel lbl = newFieldSlotLabel();
 		lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 		lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 		lbl.setOpaque(false);
 		lbl.setFont(FontLoader.loadPixelFont(11));
 		lbl.setBorder(BorderFactory.createEmptyBorder());
 		lbl.addMouseListener(new MouseAdapter() {
-			@Override public void mousePressed(MouseEvent e) {
-				if (lbl.getIcon() != null && SwingUtilities.isRightMouseButton(e))
-					showP2ForwardContextMenu(idx, lbl, e);
-			}
 			@Override public void mouseEntered(MouseEvent e) {
 				if (lbl.getIcon() == null) return;
 				CardData top = p2ForwardPrimedTop.get(idx);
@@ -6098,7 +6087,7 @@ public class MainWindow {
 			p1ForwardLabels.clear();
 			for (int i = 0; i < p1ForwardCards.size(); i++) {
 				final int fi = i;
-				JLabel lbl = newLiftableSlotLabel();
+				JLabel lbl = newFieldSlotLabel();
 				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 				lbl.setOpaque(false);
@@ -6111,8 +6100,6 @@ public class MainWindow {
 						if (SwingUtilities.isLeftMouseButton(e)
 								&& p1ForwardClickSelectsCombat()) {
 							handleP1ForwardLeftClick(fi);
-						} else {
-							showForwardContextMenu(fi, lbl, e);
 						}
 					}
 					@Override public void mouseEntered(MouseEvent e) {
@@ -6160,7 +6147,7 @@ public class MainWindow {
 			p2ForwardLabels.clear();
 			for (int i = 0; i < p2ForwardCards.size(); i++) {
 				final int fi = i;
-				JLabel lbl = new JLabel("", SwingConstants.CENTER);
+				JLabel lbl = newFieldSlotLabel();
 				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 				lbl.setOpaque(false);
@@ -6211,7 +6198,7 @@ public class MainWindow {
 			p1ForwardLabels.clear();
 			for (int i = 0; i < p1ForwardCards.size(); i++) {
 				final int fi = i;
-				JLabel lbl = newLiftableSlotLabel();
+				JLabel lbl = newFieldSlotLabel();
 				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 				lbl.setOpaque(false);
@@ -6224,8 +6211,6 @@ public class MainWindow {
 						if (SwingUtilities.isLeftMouseButton(e)
 								&& p1ForwardClickSelectsCombat()) {
 							handleP1ForwardLeftClick(fi);
-						} else {
-							showForwardContextMenu(fi, lbl, e);
 						}
 					}
 					@Override public void mouseEntered(MouseEvent e) {
@@ -6275,7 +6260,7 @@ public class MainWindow {
 			p2ForwardLabels.clear();
 			for (int i = 0; i < p2ForwardCards.size(); i++) {
 				final int fi = i;
-				JLabel lbl = new JLabel("", SwingConstants.CENTER);
+				JLabel lbl = newFieldSlotLabel();
 				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 				lbl.setOpaque(false);
@@ -7095,7 +7080,7 @@ public class MainWindow {
 			p1ForwardLabels.clear();
 			for (int i = 0; i < p1ForwardCards.size(); i++) {
 				final int fi = i;
-				JLabel lbl = newLiftableSlotLabel();
+				JLabel lbl = newFieldSlotLabel();
 				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 				lbl.setOpaque(false);
@@ -7108,8 +7093,6 @@ public class MainWindow {
 						if (SwingUtilities.isLeftMouseButton(e)
 								&& p1ForwardClickSelectsCombat()) {
 							handleP1ForwardLeftClick(fi);
-						} else {
-							showForwardContextMenu(fi, lbl, e);
 						}
 					}
 					@Override public void mouseEntered(MouseEvent e) {
@@ -7160,7 +7143,7 @@ public class MainWindow {
 			p2ForwardLabels.clear();
 			for (int i = 0; i < p2ForwardCards.size(); i++) {
 				final int fi = i;
-				JLabel lbl = new JLabel("", SwingConstants.CENTER);
+				JLabel lbl = newFieldSlotLabel();
 				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 				lbl.setOpaque(false);
@@ -14526,11 +14509,11 @@ public class MainWindow {
 		int damage   = card != null ? p1BackupForwardDamage.getOrDefault(card, 0) : 0;
 		Map<String, Integer> countersMap = card != null ? gameState.getCountersMap(card) : Map.of();
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
-		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
+		if (slot.getIcon() == null) slot.setIcon(new FieldCardIcon(CardAnimation.renderPlaceholder(state), state));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image raw = ImageCache.load(url);
-				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
+				if (raw == null) return new FieldCardIcon(CardAnimation.renderPlaceholder(state), state);
 				BufferedImage canvas = CardAnimation.renderBackupCard(
 						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack || canBlock, selected, p1BackupFrozen[idx]);
 				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
@@ -14538,7 +14521,7 @@ public class MainWindow {
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
 				if (!countersMap.isEmpty())
 					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, counterColorFor(true));
-				return new ImageIcon(canvas);
+				return new FieldCardIcon(canvas, state);
 			}
 			@Override protected void done() {
 				try {
@@ -14559,6 +14542,11 @@ public class MainWindow {
 	 * {@code "[Mug] Wind, Dull, S → ...effect..."} (truncated to 60 chars).
 	 */
 	String buildAbilityMenuLabel(ActionAbility ability) {
+		return buildAbilityLabel(ability, true);
+	}
+
+	/** As {@link #buildAbilityMenuLabel}, with the effect text cut short only when {@code truncate}. */
+	private String buildAbilityLabel(ActionAbility ability, boolean truncate) {
 		StringBuilder sb = new StringBuilder();
 		if (ability.isSpecial() && !ability.abilityName().isEmpty())
 			sb.append("[").append(ability.abilityName()).append("] ");
@@ -14691,8 +14679,28 @@ public class MainWindow {
 		if (restrict.length() > 0) sb.append(restrict).append(" — ");
 
 		String fx = ability.effectText();
-		sb.append(fx.length() > 55 ? fx.substring(0, 52) + "..." : fx);
+		sb.append(truncate && fx.length() > 55 ? fx.substring(0, 52) + "..." : fx);
 		return sb.toString();
+	}
+
+	/**
+	 * An ability as its action button describes it — the menu label's wording with the whole
+	 * effect, wrapped to a readable width — for the button's tooltip and its confirmation.
+	 *
+	 * @param payOwnCost whether to note that P1 pays for it, on an opponent's card's ability
+	 *                   either player may use
+	 */
+	String abilityDescriptionHtml(ActionAbility ability, boolean payOwnCost) {
+		String plain = buildAbilityLabel(ability, false);
+		String body;
+		String prefix = "[" + ability.abilityName() + "] ";
+		if (ability.isSpecial() && !ability.abilityName().isEmpty() && plain.startsWith(prefix))
+			body = "<font color='#ED930D'>[" + escapeTooltipHtml(ability.abilityName()) + "]</font> "
+					+ escapeTooltipHtml(plain.substring(prefix.length()));
+		else
+			body = escapeTooltipHtml(plain);
+		if (payOwnCost) body += " (pay your own cost)";
+		return "<html><div style='width: " + UiScale.scale(300) + "px'>" + body + "</div></html>";
 	}
 
 	/** HTML version of {@link #buildAbilityMenuLabel}: wraps the [AbilityName] in orange. */
@@ -18330,7 +18338,7 @@ public class MainWindow {
 	 *
 	 * <p>The two orientations anchor differently, exactly as {@code renderBackupCard} composites
 	 * them: an ACTIVE card is inset by {@link CardAnimation#LEFT_GUTTER} to leave the trait tabs
-	 * their strip, while a DULL card spans the full width and is pinned to the bottom instead.
+	 * their strip, while a DULL card spans the full width and is inset from the top instead.
 	 */
 	private static javax.swing.border.Border cardBoundsGlowBorder(Color color, boolean dull) {
 		return new javax.swing.border.AbstractBorder() {
@@ -18339,7 +18347,7 @@ public class MainWindow {
 				int cw = dull ? CARD_H : CARD_W;
 				int ch = dull ? CARD_W : CARD_H;
 				int cx = dull ? x : x + CardAnimation.LEFT_GUTTER;
-				int cy = dull ? y + (CARD_H - CARD_W) : y;
+				int cy = dull ? y + CardAnimation.LEFT_GUTTER : y;
 				java.awt.Graphics2D g = (java.awt.Graphics2D) g0.create();
 				g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
 						java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
@@ -18565,19 +18573,6 @@ public class MainWindow {
 
 	// -------------------------------------------------------------------------
 
-	private void showBackupContextMenu(int idx, JLabel slot, MouseEvent e) {
-		if (fieldTargetingActive) return;
-		JPopupMenu menu = new JPopupMenu();
-
-		CardData card = p1BackupCards[idx];
-		if (card != null) {
-			autoAbilityTriggers.addAbilityMenuItems(menu, card, p1BackupFrozen[idx], p1BackupStates[idx], p1BackupPlayedOnTurn[idx],
-					abilityCostDull(new ForwardTarget(true, idx, ForwardTarget.CardZone.BACKUP)), true);
-		}
-
-		if (menu.getComponentCount() > 0) menu.show(slot, e.getX(), e.getY());
-	}
-
 
 	// -------------------------------------------------------------------------
 	// -------------------------------------------------------------------------
@@ -18769,7 +18764,7 @@ public class MainWindow {
 		if (p1ForwardPanel == null) return;
 		int idx = p1ForwardLabels.size();
 
-		JLabel lbl = newLiftableSlotLabel();
+		JLabel lbl = newFieldSlotLabel();
 		lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 		lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 		lbl.setOpaque(false);
@@ -18782,8 +18777,6 @@ public class MainWindow {
 				if (SwingUtilities.isLeftMouseButton(e)
 						&& p1ForwardClickSelectsCombat()) {
 					handleP1ForwardLeftClick(idx);
-				} else {
-					showForwardContextMenu(idx, lbl, e);
 				}
 			}
 			@Override public void mouseEntered(MouseEvent e) {
@@ -18831,7 +18824,7 @@ public class MainWindow {
 		if (p1MonsterPanel == null) return;
 		int idx = p1MonsterLabels.size();
 
-		JLabel lbl = newLiftableSlotLabel();
+		JLabel lbl = newFieldSlotLabel();
 		lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 		lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 		lbl.setOpaque(false);
@@ -18849,8 +18842,6 @@ public class MainWindow {
 				if (SwingUtilities.isLeftMouseButton(e)
 						&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK) {
 					handleP1MonsterLeftClick(currentIdx);
-				} else {
-					showMonsterContextMenu(currentIdx, lbl, e);
 				}
 			}
 			@Override public void mouseEntered(MouseEvent e) {
@@ -18915,11 +18906,11 @@ public class MainWindow {
 		Map<CardData.Trait, List<String>> statusDetails = monsterStatusDetails(true, idx);
 		List<CardData.Trait> traitTabs = visibleMonsterTraitTabs(true, idx, statusDetails);
 		final boolean primed = false;   // Priming tops a Forward slot; the Monster row has no tops
-		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
+		if (slot.getIcon() == null) slot.setIcon(new FieldCardIcon(CardAnimation.renderPlaceholder(state), state));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image raw = ImageCache.load(url);
-				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
+				if (raw == null) return new FieldCardIcon(CardAnimation.renderPlaceholder(state), state);
 				BufferedImage canvas = CardAnimation.renderBackupCard(
 						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack || canBlock, selected, p1MonsterFrozen.get(idx), glow);
 				TraitTab.renderTraitTabs(canvas, state, traitTabs, primed);
@@ -18931,7 +18922,7 @@ public class MainWindow {
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
 				if (!countersMap.isEmpty())
 					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, counterColorFor(true));
-				return new ImageIcon(canvas);
+				return new FieldCardIcon(canvas, state);
 			}
 			@Override protected void done() {
 				try {
@@ -18952,19 +18943,13 @@ public class MainWindow {
 		if (p2MonsterPanel == null) return;
 		int idx = p2MonsterLabels.size();
 
-		JLabel lbl = new JLabel("", SwingConstants.CENTER);
+		JLabel lbl = newFieldSlotLabel();
 		lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 		lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 		lbl.setOpaque(false);
 		lbl.setFont(FontLoader.loadPixelFont(11));
 		lbl.setBorder(BorderFactory.createEmptyBorder());
 		lbl.addMouseListener(new MouseAdapter() {
-			@Override public void mousePressed(MouseEvent e) {
-				if (lbl.getIcon() != null && SwingUtilities.isRightMouseButton(e)) {
-					int currentIdx = p2MonsterLabels.indexOf(lbl);
-					if (currentIdx >= 0) showP2MonsterContextMenu(currentIdx, lbl, e);
-				}
-			}
 			@Override public void mouseEntered(MouseEvent e) {
 				if (lbl.getIcon() != null) {
 					int currentIdx = p2MonsterLabels.indexOf(lbl);
@@ -19017,11 +19002,11 @@ public class MainWindow {
 		Map<CardData.Trait, List<String>> statusDetails = monsterStatusDetails(false, idx);
 		List<CardData.Trait> traitTabs = visibleMonsterTraitTabs(false, idx, statusDetails);
 		final boolean primed = false;   // Priming tops a Forward slot; the Monster row has no tops
-		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
+		if (slot.getIcon() == null) slot.setIcon(new FieldCardIcon(CardAnimation.renderPlaceholder(state), state));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image raw = ImageCache.load(url);
-				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
+				if (raw == null) return new FieldCardIcon(CardAnimation.renderPlaceholder(state), state);
 				BufferedImage canvas = CardAnimation.toARGB(raw, CARD_W, CARD_H);
 				canvas = CardAnimation.renderBackupCard(canvas, state, false, false, p2MonsterFrozen.get(idx), glow);
 				TraitTab.renderTraitTabs(canvas, state, traitTabs, primed);
@@ -19033,7 +19018,7 @@ public class MainWindow {
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
 				if (!countersMap.isEmpty())
 					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, counterColorFor(false));
-				return new ImageIcon(canvas);
+				return new FieldCardIcon(canvas, state);
 			}
 			@Override protected void done() {
 				try {
@@ -19043,21 +19028,6 @@ public class MainWindow {
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
-	}
-
-	/** Shows a context menu for a P1 monster slot. */
-	private void showMonsterContextMenu(int idx, JLabel slot, MouseEvent e) {
-		if (fieldTargetingActive) return;
-		JPopupMenu menu = new JPopupMenu();
-
-		// Action abilities
-		autoAbilityTriggers.addAbilityMenuItems(menu, p1MonsterCards.get(idx), p1MonsterFrozen.get(idx),
-				p1MonsterStates.get(idx), p1MonsterPlayedOnTurn.get(idx),
-				abilityCostDull(new ForwardTarget(true, idx, ForwardTarget.CardZone.MONSTER)), true);
-
-
-
-		if (menu.getComponentCount() > 0) menu.show(slot, e.getX(), e.getY());
 	}
 
 	/** Refreshes all forward and monster slots on the given player's side to reflect updated field grants. */
@@ -19102,12 +19072,12 @@ public class MainWindow {
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
 		Map<CardData.Trait, List<String>> statusDetails = forwardStatusDetails(true, idx);
 		List<CardData.Trait> traitTabs = visibleTraitTabs(true, idx, statusDetails);
-		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
+		if (slot.getIcon() == null) slot.setIcon(new FieldCardIcon(CardAnimation.renderPlaceholder(state), state));
 		final Object renderToken = markSlotRender(slot);
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image raw = ImageCache.load(url);
-				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
+				if (raw == null) return new FieldCardIcon(CardAnimation.renderPlaceholder(state), state);
 				BufferedImage canvas = CardAnimation.renderBackupCard(CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack || canBlock, selected, Boolean.TRUE.equals(p1ForwardFrozen.get(idx)), glow);
 				TraitTab.renderTraitTabs(canvas, state, traitTabs, primed);
 				if (damage > 0) {
@@ -19120,7 +19090,7 @@ public class MainWindow {
 				}
 				if (!countersMap.isEmpty())
 					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, counterColorFor(true));
-				return new ImageIcon(canvas);
+				return new FieldCardIcon(canvas, state);
 			}
 			@Override protected void done() {
 				if (slotRenderSuperseded(slot, renderToken)) return;
@@ -19719,18 +19689,17 @@ public class MainWindow {
 		return null;
 	}
 
-	/** A field slot label that hands its painting to {@link #slotLift} while raised. */
-	private JLabel newLiftableSlotLabel() {
-		return newLiftableSlotLabel(SwingConstants.CENTER);
+	/**
+	 * A field slot label: it draws its card's action buttons ({@link #syncSlotButtons}) and hands
+	 * its painting to {@link #slotLift} while raised.
+	 */
+	private FieldSlotLabel newFieldSlotLabel() {
+		return newFieldSlotLabel(SwingConstants.CENTER);
 	}
 
-	/** As {@link #newLiftableSlotLabel()}, with the horizontal alignment that slot's row lays out with. */
-	private JLabel newLiftableSlotLabel(int horizontalAlignment) {
-		return new JLabel("", horizontalAlignment) {
-			@Override protected void paintComponent(Graphics g) {
-				if (slotLift == null || !slotLift.isLifted(this)) super.paintComponent(g);
-			}
-		};
+	/** As {@link #newFieldSlotLabel()}, with the horizontal alignment that slot's row lays out with. */
+	private FieldSlotLabel newFieldSlotLabel(int horizontalAlignment) {
+		return new FieldSlotLabel(horizontalAlignment, () -> slotLift);
 	}
 
 	/**
@@ -20440,8 +20409,12 @@ public class MainWindow {
 
 	/**
 	 * Whether pressing Next for P1 right now would be exactly the click they would have made:
-	 * it is their own Main Phase, Next is live and nothing else holds it, the board is settled,
-	 * no menu or dialog is open, and there is nothing they could do instead.
+	 * it is their own Main Phase or Attack Preparation, Next is live and nothing else holds it, the
+	 * board is settled, no menu or dialog is open, and there is nothing they could do instead.
+	 *
+	 * <p>Attack Preparation is the only Attack Phase sub-step that qualifies: Next there passes
+	 * priority into attacker declaration, whereas past it Next ends the Attack Phase, which is a
+	 * choice not to attack rather than a click with nothing lost.
 	 *
 	 * <p>Everything but the last condition is cheap, and is asked first so the play check only
 	 * runs while the phase is otherwise ready to move.
@@ -20455,7 +20428,8 @@ public class MainWindow {
 		if (!AppSettings.isAutoAdvanceMainPhases()) return false;
 		if (gameState.isP1GameOver() || gameState.getCurrentPlayer() != GameState.Player.P1) return false;
 		GameState.GamePhase phase = gameState.getCurrentPhase();
-		if (phase != GameState.GamePhase.MAIN_1 && phase != GameState.GamePhase.MAIN_2) return false;
+		boolean attackPrep = phase == GameState.GamePhase.ATTACK && attackSubStep == 0;
+		if (phase != GameState.GamePhase.MAIN_1 && phase != GameState.GamePhase.MAIN_2 && !attackPrep) return false;
 		if (nextPhaseButton == null || !nextPhaseButton.isEnabled() || !nextPhaseButton.isShowing()) return false;
 		if (p1CombatPriorityOnPass != null || p1PriorityInP2MainOnDone != null) return false;
 		if (fieldTargetingActive || p2AutoPassTimer != null) return false;
@@ -22019,71 +21993,199 @@ public class MainWindow {
 	}
 
 	// -------------------------------------------------------------------------
-	// Field context menus
+	// Field action buttons
 	// -------------------------------------------------------------------------
 
-	/** Whether the P1 Forward at {@code idx} can be primed right now — its menu's "Prime" item. */
+	/** How often {@link #syncSlotButtons()} re-reads what every field card's buttons can do. */
+	private static final int SLOT_BUTTON_SYNC_MS = 200;
+	private Timer slotButtonSyncTimer;
+
+	/**
+	 * Starts keeping the field's action buttons current. Polled rather than pushed: whether an
+	 * ability can be used turns on CP in hand and on the field, the phase, priority and the stack,
+	 * and no one event covers every change to those. Idempotent; started with a game, like
+	 * {@link #startMainPhaseAutoAdvance}, so a window built only to test board state has no timer.
+	 */
+	private void startSlotButtonSync() {
+		if (slotButtonSyncTimer != null) return;
+		slotButtonSyncTimer = new Timer(SLOT_BUTTON_SYNC_MS, e -> syncSlotButtons());
+		slotButtonSyncTimer.start();
+	}
+
+	/**
+	 * Rebuilds the action buttons on every field slot. P1's cards get a button for each action
+	 * ability they offer from the field, and a P1 Forward that can still be primed gets a Priming
+	 * button. The buttons are the only way to use these from the board.
+	 * P2's cards get buttons only for abilities either player may use: the rest are P2's to use,
+	 * so there is nothing for P1 to click.
+	 */
+	void syncSlotButtons() {
+		for (int i = 0; i < p1ForwardLabels.size(); i++) syncSlotButtons(true,  ForwardTarget.CardZone.FORWARD, i, p1ForwardLabels.get(i));
+		for (int i = 0; i < p1MonsterLabels.size(); i++) syncSlotButtons(true,  ForwardTarget.CardZone.MONSTER, i, p1MonsterLabels.get(i));
+		for (int i = 0; i < p1BackupLabels.length;  i++) syncSlotButtons(true,  ForwardTarget.CardZone.BACKUP,  i, p1BackupLabels[i]);
+		for (int i = 0; i < p2ForwardLabels.size(); i++) syncSlotButtons(false, ForwardTarget.CardZone.FORWARD, i, p2ForwardLabels.get(i));
+		for (int i = 0; i < p2MonsterLabels.size(); i++) syncSlotButtons(false, ForwardTarget.CardZone.MONSTER, i, p2MonsterLabels.get(i));
+		for (int i = 0; i < p2BackupLabels.length;  i++) syncSlotButtons(false, ForwardTarget.CardZone.BACKUP,  i, p2BackupLabels[i]);
+	}
+
+	private void syncSlotButtons(boolean isP1, ForwardTarget.CardZone zone, int idx, JLabel label) {
+		if (!(label instanceof FieldSlotLabel slot)) return;
+		CardData base = fieldCardDataOrNull(new ForwardTarget(isP1, idx, zone));
+		if (base == null) { slot.setButtons(List.of(), List.of()); return; }
+
+		List<ActionButton.Spec> specs   = new ArrayList<>();
+		List<Runnable>          actions = new ArrayList<>();
+		for (AutoAbilityTriggers.FieldAbilityChoice c : slotAbilityChoices(isP1, zone, idx)) {
+			ActionAbility ability = c.ability();
+			specs.add(abilityButtonSpec(ability, c.enabled() && !fieldTargetingActive,
+					abilityDescriptionHtml(ability, !isP1)));
+			actions.add(() -> useSlotAbility(isP1, zone, slot, base, ability));
+		}
+		// Prime — offered until the Forward has been primed.
+		if (isP1 && zone == ForwardTarget.CardZone.FORWARD
+				&& base.hasPriming() && p1ForwardPrimedTop.get(idx) == null) {
+			specs.add(ActionButton.Spec.prime(canPrimeP1Forward(idx) && !fieldTargetingActive,
+					"Prime (" + base.primingTarget() + ")"));
+			actions.add(() -> primeFromSlot(slot, base));
+		}
+		slot.setButtons(specs, actions);
+	}
+
+	/**
+	 * How an ability's button reads, from its printed cost: coloured by the Elements the cost
+	 * names (neutral when it names none), and marked with the cost's symbol — the S of a Special
+	 * ability, else the Dull arrow, else the discard arrow. With none of those, a neutral face
+	 * carries the generic CP amount, or X. Any other cost alone (a Break Zone cost, counters)
+	 * leaves the face neutral and blank.
+	 */
+	static ActionButton.Spec abilityButtonSpec(ActionAbility ability, boolean usable, String tooltip) {
+		List<Color> colors = new ArrayList<>();
+		int generic = 0;
+		for (String token : ability.cpCost()) {
+			if (token.isEmpty()) { generic++; continue; }
+			ElementColor element = ElementColor.fromName(token);
+			if (element != null && !colors.contains(element.color)) colors.add(element.color);
+		}
+		ActionButton.Glyph glyph = ability.isSpecial()               ? ActionButton.Glyph.SPECIAL
+				: ability.requiresDull()                         ? ActionButton.Glyph.DULL
+				: !ability.discardCosts().isEmpty()              ? ActionButton.Glyph.DISCARD
+				: ActionButton.Glyph.NONE;
+		String label = null;
+		if (glyph == ActionButton.Glyph.NONE && colors.isEmpty()) {
+			if (ability.hasXCost())  label = "X";
+			else if (generic > 0)    label = String.valueOf(generic);
+		}
+		return new ActionButton.Spec(ActionButton.Kind.ABILITY, colors, glyph, label, usable, tooltip);
+	}
+
+	/**
+	 * The abilities the card in a slot offers P1, read for the card that acts there — the top card
+	 * of a primed Forward — with its frozen flag, state and entry turn.
+	 */
+	private List<AutoAbilityTriggers.FieldAbilityChoice> slotAbilityChoices(
+			boolean isP1, ForwardTarget.CardZone zone, int idx) {
+		return switch (zone) {
+			case FORWARD -> isP1
+					? autoAbilityTriggers.fieldAbilityChoices(effectiveP1Forward(idx), p1ForwardFrozen.get(idx),
+							p1ForwardStates.get(idx), p1ForwardPlayedOnTurn.get(idx), true)
+					: autoAbilityTriggers.fieldAbilityChoices(effectiveP2Forward(idx), p2ForwardFrozen.get(idx),
+							p2ForwardStates.get(idx), p2ForwardPlayedOnTurn.get(idx), false);
+			case MONSTER -> isP1
+					? autoAbilityTriggers.fieldAbilityChoices(p1MonsterCards.get(idx), p1MonsterFrozen.get(idx),
+							p1MonsterStates.get(idx), p1MonsterPlayedOnTurn.get(idx), true)
+					: autoAbilityTriggers.fieldAbilityChoices(p2MonsterCards.get(idx), p2MonsterFrozen.get(idx),
+							p2MonsterStates.get(idx), p2MonsterPlayedOnTurn.get(idx), false);
+			// P2's Backups keep no entry turn; 0 reads as on the field since before this turn.
+			case BACKUP -> isP1
+					? autoAbilityTriggers.fieldAbilityChoices(p1BackupCards[idx], p1BackupFrozen[idx],
+							p1BackupStates[idx], p1BackupPlayedOnTurn[idx], true)
+					: autoAbilityTriggers.fieldAbilityChoices(p2BackupCards[idx], p2BackupFrozen[idx],
+							p2BackupStates[idx], 0, false);
+			default -> List.of();
+		};
+	}
+
+	/** The label of slot {@code idx} in {@code isP1}'s {@code zone}, or {@code null} when there is none. */
+	FieldSlotLabel fieldSlot(boolean isP1, ForwardTarget.CardZone zone, int idx) {
+		JLabel label = switch (zone) {
+			case FORWARD -> idx < (isP1 ? p1ForwardLabels : p2ForwardLabels).size()
+					? (isP1 ? p1ForwardLabels : p2ForwardLabels).get(idx) : null;
+			case MONSTER -> idx < (isP1 ? p1MonsterLabels : p2MonsterLabels).size()
+					? (isP1 ? p1MonsterLabels : p2MonsterLabels).get(idx) : null;
+			case BACKUP  -> (isP1 ? p1BackupLabels : p2BackupLabels)[idx];
+			default      -> null;
+		};
+		return label instanceof FieldSlotLabel f ? f : null;
+	}
+
+	/** Where {@code slot} currently stands in its zone, or -1 once it has left the board. */
+	private int slotIndexOf(boolean isP1, ForwardTarget.CardZone zone, JLabel slot) {
+		return switch (zone) {
+			case FORWARD -> (isP1 ? p1ForwardLabels : p2ForwardLabels).indexOf(slot);
+			case MONSTER -> (isP1 ? p1MonsterLabels : p2MonsterLabels).indexOf(slot);
+			case BACKUP  -> Arrays.asList(isP1 ? p1BackupLabels : p2BackupLabels).indexOf(slot);
+			default      -> -1;
+		};
+	}
+
+	/**
+	 * An ability button's click: opens the ability's payment dialog. An
+	 * ability with nothing to pay in that dialog — no CP, no X — would resolve on the spot, so it
+	 * asks first, under the ability's description, giving the click the same way back the payment
+	 * dialog's Cancel gives every other ability.
+	 *
+	 * <p>The buttons are refreshed on a timer, so the click re-reads the slot first — the card may
+	 * have moved, left, or stopped being able to pay since the button was last drawn — and again
+	 * after the confirmation, which the board does not stand still for.
+	 */
+	private void useSlotAbility(boolean isP1, ForwardTarget.CardZone zone, FieldSlotLabel slot,
+			CardData base, ActionAbility ability) {
+		CardData acting = slotAbilityActor(isP1, zone, slot, base, ability);
+		if (acting == null) { syncSlotButtons(); return; }
+		if (!autoAbilityTriggers.paymentOffersAWayBack(ability, acting, true)) {
+			int choice = showEffectOptionDialog(abilityDescriptionHtml(ability, !isP1), acting.name(),
+					new Object[]{ "Ok", "Cancel" });
+			if (choice != 0) return;
+			acting = slotAbilityActor(isP1, zone, slot, base, ability);
+			if (acting == null) { syncSlotButtons(); return; }
+		}
+		int idx = slotIndexOf(isP1, zone, slot);
+		autoAbilityTriggers.showActionAbilityPaymentDialog(ability, acting,
+				abilityCostDull(new ForwardTarget(isP1, idx, zone)), true);
+		syncSlotButtons();
+	}
+
+	/**
+	 * The card that uses {@code ability} from {@code slot} — the top card of a primed Forward —
+	 * if {@code base} still stands there and the ability can still be used; otherwise {@code null}.
+	 */
+	private CardData slotAbilityActor(boolean isP1, ForwardTarget.CardZone zone, FieldSlotLabel slot,
+			CardData base, ActionAbility ability) {
+		if (fieldTargetingActive) return null;
+		int idx = slotIndexOf(isP1, zone, slot);
+		if (idx < 0 || fieldCardDataOrNull(new ForwardTarget(isP1, idx, zone)) != base) return null;
+		boolean usable = slotAbilityChoices(isP1, zone, idx).stream()
+				.anyMatch(c -> c.enabled() && c.ability().equals(ability));
+		if (!usable) return null;
+		return zone == ForwardTarget.CardZone.FORWARD
+				? (isP1 ? effectiveP1Forward(idx) : effectiveP2Forward(idx)) : base;
+	}
+
+	/** The Priming button's click: opens the Priming payment dialog. */
+	private void primeFromSlot(FieldSlotLabel slot, CardData base) {
+		if (fieldTargetingActive) return;
+		int idx = p1ForwardLabels.indexOf(slot);
+		if (idx < 0 || p1ForwardCards.get(idx) != base || !canPrimeP1Forward(idx)) { syncSlotButtons(); return; }
+		priming.showPrimingPaymentDialog(base, idx);
+		syncSlotButtons();
+	}
+
+	/** Whether the P1 Forward at {@code idx} can be primed right now — its Priming button. */
 	private boolean canPrimeP1Forward(int idx) {
 		CardData fwd = p1ForwardCards.get(idx);
 		return fwd.hasPriming() && p1ForwardPrimedTop.get(idx) == null
 				&& priming.primingTimingWindowOpen() && priming.canAffordPrimingCost(fwd)
 				&& !priming.primingTargetOnField(fwd.primingTarget(), true);
-	}
-
-	/** Shows a context menu for a P1 forward slot. */
-	private void showForwardContextMenu(int idx, JLabel slot, MouseEvent e) {
-		if (fieldTargetingActive) return;
-		JPopupMenu menu = new JPopupMenu();
-
-		// Action abilities (use effective card — top card when primed)
-		CardData effectiveFwd = p1ForwardPrimedTop.get(idx) != null
-				? p1ForwardPrimedTop.get(idx) : p1ForwardCards.get(idx);
-		autoAbilityTriggers.addAbilityMenuItems(menu, effectiveFwd, p1ForwardFrozen.get(idx),
-				p1ForwardStates.get(idx), p1ForwardPlayedOnTurn.get(idx),
-				abilityCostDull(new ForwardTarget(true, idx, ForwardTarget.CardZone.FORWARD)), true);
-
-		// Prime — visible only when not yet primed
-		CardData fwd = p1ForwardCards.get(idx);
-		if (fwd.hasPriming() && p1ForwardPrimedTop.get(idx) == null) {
-			JMenuItem primeItem = new JMenuItem("Prime (" + fwd.primingTarget() + ")");
-			primeItem.setEnabled(canPrimeP1Forward(idx));
-			primeItem.addActionListener(ae -> priming.showPrimingPaymentDialog(fwd, idx));
-			menu.add(primeItem);
-		}
-
-		if (menu.getComponentCount() > 0) menu.show(slot, e.getX(), e.getY());
-	}
-
-	private void showP2BackupContextMenu(int idx, JLabel slot, MouseEvent e) {
-		if (fieldTargetingActive) return;
-		JPopupMenu menu = new JPopupMenu();
-		CardData card = p2BackupCards[idx];
-		if (card != null) {
-			autoAbilityTriggers.addAbilityMenuItems(menu, card, p2BackupFrozen[idx], p2BackupStates[idx], 0,
-					abilityCostDull(new ForwardTarget(false, idx, ForwardTarget.CardZone.BACKUP)), false);
-		}
-		if (menu.getComponentCount() > 0) menu.show(slot, e.getX(), e.getY());
-	}
-
-	private void showP2MonsterContextMenu(int idx, JLabel slot, MouseEvent e) {
-		if (fieldTargetingActive) return;
-		JPopupMenu menu = new JPopupMenu();
-		autoAbilityTriggers.addAbilityMenuItems(menu, p2MonsterCards.get(idx), p2MonsterFrozen.get(idx),
-				p2MonsterStates.get(idx), p2MonsterPlayedOnTurn.get(idx),
-				abilityCostDull(new ForwardTarget(false, idx, ForwardTarget.CardZone.MONSTER)), false);
-		if (menu.getComponentCount() > 0) menu.show(slot, e.getX(), e.getY());
-	}
-
-	private void showP2ForwardContextMenu(int idx, JLabel slot, MouseEvent e) {
-		if (fieldTargetingActive) return;
-		JPopupMenu menu = new JPopupMenu();
-		CardData fwd         = p2ForwardCards.get(idx);
-		CardData effectiveFwd = p2ForwardPrimedTop.get(idx) != null ? p2ForwardPrimedTop.get(idx) : fwd;
-		autoAbilityTriggers.addAbilityMenuItems(menu, effectiveFwd, p2ForwardFrozen.get(idx),
-				p2ForwardStates.get(idx), p2ForwardPlayedOnTurn.get(idx),
-				abilityCostDull(new ForwardTarget(false, idx, ForwardTarget.CardZone.FORWARD)), false);
-
-		if (menu.getComponentCount() > 0) menu.show(slot, e.getX(), e.getY());
 	}
 
 	// -------------------------------------------------------------------------
@@ -22116,7 +22218,7 @@ public class MainWindow {
 		slotsPanel.setOpaque(false);
 		for (int i = 0; i < 5; i++) {
 			// Liftable so P1's Backup rises like any attacker; LEADING is a plain JLabel's default.
-			JLabel slot = newLiftableSlotLabel(SwingConstants.LEADING);
+			JLabel slot = newFieldSlotLabel(SwingConstants.LEADING);
 			slot.setFont(FontLoader.loadPixelFont(11));
 			slot.setBorder(BorderFactory.createEmptyBorder());
 			slot.setOpaque(false);
@@ -22555,17 +22657,13 @@ public class MainWindow {
 		if (p2ForwardPanel == null) return;
 		int idx = p2ForwardLabels.size();
 
-		JLabel lbl = new JLabel("", SwingConstants.CENTER);
+		JLabel lbl = newFieldSlotLabel();
 		lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
 		lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
 		lbl.setOpaque(false);
 		lbl.setFont(FontLoader.loadPixelFont(11));
 		lbl.setBorder(BorderFactory.createEmptyBorder());
 		lbl.addMouseListener(new MouseAdapter() {
-			@Override public void mousePressed(MouseEvent e) {
-				if (lbl.getIcon() != null && SwingUtilities.isRightMouseButton(e))
-					showP2ForwardContextMenu(idx, lbl, e);
-			}
 			@Override public void mouseEntered(MouseEvent e) {
 				if (lbl.getIcon() == null) return;
 				CardData top = p2ForwardPrimedTop.get(idx);
@@ -22639,11 +22737,11 @@ public class MainWindow {
 		int damage   = card != null ? p2BackupForwardDamage.getOrDefault(card, 0) : 0;
 		Map<String, Integer> countersMap = card != null ? gameState.getCountersMap(card) : Map.of();
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
-		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
+		if (slot.getIcon() == null) slot.setIcon(new FieldCardIcon(CardAnimation.renderPlaceholder(state), state));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image raw = ImageCache.load(url);
-				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
+				if (raw == null) return new FieldCardIcon(CardAnimation.renderPlaceholder(state), state);
 				BufferedImage canvas = CardAnimation.renderBackupCard(
 						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, false, false, p2BackupFrozen[idx]);
 				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
@@ -22651,7 +22749,7 @@ public class MainWindow {
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
 				if (!countersMap.isEmpty())
 					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, counterColorFor(false));
-				return new ImageIcon(canvas);
+				return new FieldCardIcon(canvas, state);
 			}
 			@Override protected void done() {
 				try {
@@ -22681,12 +22779,12 @@ public class MainWindow {
 		Map<CardData.Trait, List<String>> statusDetails = forwardStatusDetails(false, idx);
 		List<CardData.Trait> traitTabs = visibleTraitTabs(false, idx, statusDetails);
 		final boolean primed = isPrimedForward(false, idx);
-		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
+		if (slot.getIcon() == null) slot.setIcon(new FieldCardIcon(CardAnimation.renderPlaceholder(state), state));
 		final Object renderToken = markSlotRender(slot);
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image raw = ImageCache.load(url);
-				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
+				if (raw == null) return new FieldCardIcon(CardAnimation.renderPlaceholder(state), state);
 				BufferedImage canvas = CardAnimation.renderBackupCard(CardAnimation.toARGB(raw, CARD_W, CARD_H), state, false, false, p2ForwardFrozen.get(idx), glow);
 				TraitTab.renderTraitTabs(canvas, state, traitTabs, primed);
 				if (damage > 0) {
@@ -22699,7 +22797,7 @@ public class MainWindow {
 				}
 				if (!countersMap.isEmpty())
 					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, counterColorFor(false));
-				return new ImageIcon(canvas);
+				return new FieldCardIcon(canvas, state);
 			}
 			@Override protected void done() {
 				if (slotRenderSuperseded(slot, renderToken)) return;

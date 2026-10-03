@@ -39,10 +39,8 @@ import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
-import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
@@ -7925,41 +7923,31 @@ final class AutoAbilityTriggers {
 
 
 	// =========================================================================================
-	// Ability menus and activation
+	// Field abilities and activation
 	// =========================================================================================
+	/** One action ability P1 can reach on a field card, and whether it could be used right now. */
+	record FieldAbilityChoice(ActionAbility ability, boolean enabled) {}
+
 	/**
-	 * Adds an action-ability section to {@code menu} for all abilities on {@code card}.
-	 * Each item is enabled only when the ability is currently activatable.
+	 * The action abilities P1 can reach on {@code card} from the field, in order, each with whether
+	 * it could be used right now — what the card's action buttons are built from.
 	 *
-	 * @param card        the card whose abilities to list
-	 * @param state       current field state of the card
-	 * @param playedTurn  turn the card entered the field
-	 * @param applyDull   called on confirm if the ability has a Dull cost (dulls the card)
+	 * <p>The human only ever acts as P1. P2's own abilities are P2's to use — the CPU's or the
+	 * remote player's — so a P2 card offers only its "each player can use this ability" abilities,
+	 * which P1 pays for.
 	 */
-	void addAbilityMenuItems(JPopupMenu menu, CardData card, boolean isFrozen,
-			CardState state, int playedTurn, Runnable applyDull, boolean isP1) {
-		forEachFieldAbility(card, isFrozen, state, playedTurn, isP1, (ability, activatorIsP1, abilityEnabled) -> {
-			// The human only ever acts as P1. P2's own abilities are P2's to use — the CPU's or the
-			// remote player's — so a P2 card offers only what P1 may activate on it.
-			if (!activatorIsP1) return;
-			String label = abilityEnabled ? mw.buildAbilityMenuLabelHtml(ability) : mw.buildAbilityMenuLabel(ability);
-			if (activatorIsP1 != isP1) {
-				String suffix = " (pay your own cost)";
-				label = label.startsWith("<html>") ? label.replace("</html>", suffix + "</html>") : label + suffix;
-			}
-			JMenuItem item = new JMenuItem(label);
-			item.setEnabled(abilityEnabled);
-			// Reuses the caller's dull runnable, so a granted "《Dull》: …" ability (e.g. Machinist's)
-			// dulls its grantee Forward when activated.
-			item.addActionListener(ae ->
-					showActionAbilityPaymentDialog(ability, card, applyDull, activatorIsP1));
-			menu.add(item);
+	List<FieldAbilityChoice> fieldAbilityChoices(CardData card, boolean isFrozen, CardState state,
+			int playedTurn, boolean isP1) {
+		List<FieldAbilityChoice> out = new ArrayList<>();
+		forEachFieldAbility(card, isFrozen, state, playedTurn, isP1, (ability, activatorIsP1, enabled) -> {
+			if (activatorIsP1) out.add(new FieldAbilityChoice(ability, enabled));
 		});
+		return out;
 	}
 
 	/**
 	 * Whether P1 could use any action ability {@code card} offers from the field right now — the
-	 * question {@link #addAbilityMenuItems} answers per item, asked of the card as a whole. For a
+	 * question {@link #fieldAbilityChoices} answers per ability, asked of the card as a whole. For a
 	 * P2 card only its "each player can use this ability" abilities count, since those are the
 	 * only ones P1 can reach.
 	 */
@@ -7971,16 +7959,16 @@ final class AutoAbilityTriggers {
 		return found[0];
 	}
 
-	/** One entry of a card's field ability menu: the ability, who pays for it, and whether it is usable now. */
+	/** One of a card's field abilities: the ability, who pays for it, and whether it is usable now. */
 	@FunctionalInterface
 	private interface FieldAbilityVisitor {
 		void visit(ActionAbility ability, boolean activatorIsP1, boolean enabled);
 	}
 
 	/**
-	 * Walks every action ability {@code card} offers from the field, in menu order, with the
-	 * activation verdict for each. Shared by the menu and {@link #hasUsableFieldAbility} so the
-	 * two cannot disagree about what the player can do.
+	 * Walks every action ability {@code card} offers from the field, in order, with the
+	 * activation verdict for each. Shared by the action buttons and {@link #hasUsableFieldAbility}
+	 * so the two cannot disagree about what the player can do.
 	 */
 	/**
 	 * The three groups a card's action abilities come in, in the order {@link #abilityCatalogue}
@@ -8087,7 +8075,6 @@ final class AutoAbilityTriggers {
 			Runnable applyDull, boolean isP1) {
 		// Own discount then the opposing field's tax (The Emperor 20-092R) — see effectiveAbilityCost.
 		final ActionAbility eff = mw.effectiveAbilityCost(ability, isP1);
-		List<String> rawCost = eff.cpCost();
 		List<BreakZoneCost> bzCosts = eff.breakZoneCosts();
 
 		// Wakka 16-138S: Reel Counters buy the whole cost. Offered ahead of the payment dialog
@@ -8117,7 +8104,7 @@ final class AutoAbilityTriggers {
 
 		// Zero CP + no X: confirm immediately.  Any S cost is resolved inside executeAbilityPayment,
 		// which prompts when more than one hand card can pay it.
-		if (rawCost.isEmpty() && !eff.hasXCost()) {
+		if (paysWithoutAWindow(eff)) {
 			payAndReport(ability, eff, source, applyDull, new AbilityPayment(List.of(), List.of(),
 					autoResolveBzTargets(source, bzCosts, isP1), 0, -1, Map.of()), isP1);
 			return;
@@ -8141,6 +8128,22 @@ final class AutoAbilityTriggers {
 			.show();
 	}
 
+
+	/** Whether {@link #showActionAbilityPaymentDialog} pays for {@code eff} at once, with no payment dialog. */
+	private static boolean paysWithoutAWindow(ActionAbility eff) {
+		return eff.cpCost().isEmpty() && !eff.hasXCost();
+	}
+
+	/**
+	 * Whether {@link #showActionAbilityPaymentDialog} would put a window in front of the player
+	 * before anything is paid — the CP payment dialog, or the offer to waive a 《S》 cost with
+	 * counters — so they can still back out. When it would not, using the ability commits at once.
+	 */
+	boolean paymentOffersAWayBack(ActionAbility ability, CardData source, boolean isP1) {
+		ActionAbility eff = mw.effectiveAbilityCost(ability, isP1);
+		if (eff.isSpecial() && isP1 && mw.specialCostCounterWaiver(source, isP1) != null) return true;
+		return !paysWithoutAWindow(eff);
+	}
 
 	/** Removes the counters a 《S》-cost waiver spends (Wakka 16-138S), as both clients do. */
 	private void spendCounterWaiver(CardData source, CardData.SpecialCostCounterWaiver waiver) {

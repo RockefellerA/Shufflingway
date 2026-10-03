@@ -34,8 +34,9 @@ import static shufflingway.graphics.CardAnimation.CARD_W;
  *   <li>{@link CardState#ACTIVE} — art is inset by {@link CardAnimation#LEFT_GUTTER}, so the
  *       card's left edge is at {@code LEFT_GUTTER} and tabs poke leftwards into the gutter,
  *       stacking downwards.</li>
- *   <li>{@link CardState#DULL} — art is rotated 90° CW and pinned bottom-left, which puts the
- *       card's left edge along the TOP of the art: tabs poke upwards into the strip above,
+ *   <li>{@link CardState#DULL} — art is rotated 90° CW and inset {@code LEFT_GUTTER} from the
+ *       top, which puts the card's left edge along the TOP of the art: tabs poke upwards into that
+ *       strip,
  *       stacking rightwards (mirrored, since the rotation reverses that axis, so a given trait
  *       keeps its position relative to the card).</li>
  * </ul>
@@ -157,7 +158,7 @@ public final class TraitTab {
      */
     public static Rectangle visibleStrip(CardState state) {
         boolean dull = state == CardState.DULL;
-        int room     = dull ? CARD_H - CARD_W : CardAnimation.LEFT_GUTTER;
+        int room     = CardAnimation.LEFT_GUTTER;
         return dull ? new Rectangle(0, 0, CARD_H, room)
                     : new Rectangle(0, 0, room, CARD_H);
     }
@@ -186,9 +187,9 @@ public final class TraitTab {
         // Centre the stack on the card edge; the axis is CARD_H long in both orientations.
         float lead     = (CARD_H - (slots * tabShort + (slots - 1) * TAB_GAP * s)) / 2f;
         boolean dull   = state == CardState.DULL;
-        // Free space outside the card's left edge: the gutter when active, the strip above the
-        // rotated art when dull (the same card edge, since a CW rotation sends left to top).
-        int room       = dull ? CARD_H - CARD_W : CardAnimation.LEFT_GUTTER;
+        // Free space outside the card's left edge: the gutter beside the art when active, the same
+        // gutter above the rotated art when dull (a CW rotation sends left to top).
+        int room       = CardAnimation.LEFT_GUTTER;
 
         List<Tab> out = new ArrayList<>(slots);
         for (int i = 0; i < slots; i++) {

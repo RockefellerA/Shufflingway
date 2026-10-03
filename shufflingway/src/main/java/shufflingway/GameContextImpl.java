@@ -949,7 +949,7 @@ final class GameContextImpl implements GameContext {
 					return;
 				}
 				// The borrower's own side, not the donor's: the abilities are used by source, and
-				// this is the map addAbilityMenuItems reads when source's menu is built.
+				// this is the map fieldAbilityChoices reads when source's buttons are built.
 				Map<CardData, List<ActionAbility>> map = isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities;
 				map.computeIfAbsent(source, k -> new ArrayList<>()).addAll(gained);
 				// Dropped at end of turn with the rest of the temp-grant map
