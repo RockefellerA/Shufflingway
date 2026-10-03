@@ -30878,6 +30878,79 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Discard costs narrowed by an Element and a type, or by a Category alone: 10-120L Folka's
+	// "Discard 1 Water Summon", and the "Category VII card(s)" / "Category XIII card" of 14-065L
+	// Cloud, 26-126R Yuffie and 28-095L Lumina. The cost pattern knew "Water card" and "Category
+	// VII Forwards" but not these, so all six abilities parsed with no discard at all — Folka's
+	// three and Cloud's were free, and Yuffie's and Lumina's cost only the 《Dull》.
+	// =========================================================================================
+
+	private static final String FOLKA_WATER_SUMMON_COST =
+			"Discard 1 Water Summon: Choose 1 Forward and 1 Backup. Activate them.";
+	private static final String YUFFIE_CATEGORY_CARDS_COST =
+			"《Dull》, discard 2 Category VII cards: Choose 1 Forward. Break it.";
+
+	private static DiscardCost onlyDiscardCost(String text) {
+		List<ActionAbility> parsed = CardData.parseActionAbilities(text);
+		assertEquals(1, parsed.size(), "one action ability");
+		assertEquals(1, parsed.get(0).discardCosts().size(), "the discard is read as a cost");
+		return parsed.get(0).discardCosts().get(0);
+	}
+
+	@Test
+	void folkasCostIsOneWaterSummon() {
+		assertTrue(CardData.parseActionAbilities(FOLKA_WATER_SUMMON_COST).get(0).cpCost().isEmpty(),
+				"no CP: the discard is the whole cost");
+		DiscardCost dc = onlyDiscardCost(FOLKA_WATER_SUMMON_COST);
+		assertEquals(1, dc.count());
+		assertEquals("Water", dc.element());
+		assertEquals("Summon", dc.cardType(), "the type is read beside the Element, not instead of it");
+	}
+
+	// Both halves bind: a Water Forward is not a Summon, and Ifrit is not Water.
+	@Test
+	void aWaterSummonCostTakesNeitherAnotherWaterCardNorAnotherSummon() {
+		MainWindow mw = new MainWindow();
+		DiscardCost dc = onlyDiscardCost(FOLKA_WATER_SUMMON_COST);
+		mw.gameState.getP2Hand().add(makeCostedTraitCard("Undine Knight", "Water", "Forward", 2, ""));
+		mw.gameState.getP2Hand().add(makeCostedTraitCard("Ifrit", "Fire", "Summon", 2, ""));
+		assertFalse(mw.autoAbilityTriggers.discardCostSatisfied(dc, false),
+				"a Water card and a Summon, but no Water Summon");
+
+		mw.gameState.getP2Hand().add(makeCostedTraitCard("Leviathan", "Water", "Summon", 2, ""));
+		assertTrue(mw.autoAbilityTriggers.discardCostSatisfied(dc, false));
+	}
+
+	@Test
+	void aCategoryCardsCostParsesWithNoTypeFilter() {
+		DiscardCost dc = onlyDiscardCost(YUFFIE_CATEGORY_CARDS_COST);
+		assertEquals(2, dc.count());
+		assertEquals("VII", dc.category());
+		assertNull(dc.cardType(), "\"cards\" is any type");
+		assertTrue(CardData.parseActionAbilities(YUFFIE_CATEGORY_CARDS_COST).get(0).requiresDull(),
+				"and the 《Dull》 before it is still there");
+
+		// The singular, with and without a 《Dull》 ahead of it (Cloud 14-065L, Lumina 28-095L).
+		assertEquals("VII", onlyDiscardCost("Discard 1 Category VII card: Cloud gains +1000 power.").category());
+		assertEquals("XIII", onlyDiscardCost(
+				"《Dull》, discard 1 Category XIII card: Choose 1 Category XIII card in your Break Zone. "
+				+ "Add it to your hand.").category());
+	}
+
+	@Test
+	void aCategoryCardsCostTakesAnyTypeFromThatCategory() {
+		MainWindow mw = new MainWindow();
+		DiscardCost dc = onlyDiscardCost(YUFFIE_CATEGORY_CARDS_COST);
+		mw.gameState.getP2Hand().add(makeCategoryCard("Tifa", "VII", "Forward"));
+		mw.gameState.getP2Hand().add(makeCategoryCard("Squall", "VIII", "Forward"));
+		assertFalse(mw.autoAbilityTriggers.discardCostSatisfied(dc, false), "only one Category VII card");
+
+		mw.gameState.getP2Hand().add(makeCategoryCard("Bahamut", "VII", "Summon"));
+		assertTrue(mw.autoAbilityTriggers.discardCostSatisfied(dc, false),
+				"a Category VII Summon pays it as well as a Forward");
+	}
+
+	// =========================================================================================
 	// Titan (XVI) 29-068L: "During your turn, the Backups opponent controls cannot produce CP."
 	//
 	// The payment dialogs have always read the row through MainWindow.cpPayableBackupCards, which

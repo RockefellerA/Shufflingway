@@ -9,12 +9,16 @@ package shufflingway;
  *       → {@code DiscardCost(1, null, null, null, null, null, false, false)}</li>
  *   <li>{@code discard 1 Water card}
  *       → {@code DiscardCost(1, null, "Water", null, null, null, false, false)}</li>
+ *   <li>{@code Discard 1 Water Summon}
+ *       → {@code DiscardCost(1, null, "Water", "Summon", null, null, false, false)}</li>
  *   <li>{@code discard 1 Summon}
  *       → {@code DiscardCost(1, null, null, "Summon", null, null, false, false)}</li>
  *   <li>{@code discard 1 Card Name Red Mage}
  *       → {@code DiscardCost(1, "Red Mage", null, null, null, null, false, false)}</li>
  *   <li>{@code Discard 2 Category VI Characters}
  *       → {@code DiscardCost(2, null, null, "Character", "VI", null, false, false)}</li>
+ *   <li>{@code discard 2 Category VII cards}
+ *       → {@code DiscardCost(2, null, null, null, "VII", null, false, false)}</li>
  *   <li>{@code Discard 3 cards, each of a different card type}
  *       → {@code DiscardCost(3, null, null, null, null, null, false, true)}</li>
  *   <li>{@code Discard 1 Job Moogle}

@@ -2768,9 +2768,13 @@ public record CardData(
             "|" +
                 "Job\\s+(?<job>.+)"                  +                        // "Job Moogle"
             "|" +
-                "Category\\s+(?<category>\\S+)\\s+(?<typecat>Characters?|Forwards?|Backups?|Monsters?|Summons?)" + // "Category VI Characters"
+                // "card(s)" is any type: 14-065L Cloud, 26-126R Yuffie and 28-095L Lumina print
+                // "Category VII card(s)" / "Category XIII card".
+                "Category\\s+(?<category>\\S+)\\s+(?:cards?|(?<typecat>Characters?|Forwards?|Backups?|Monsters?|Summons?))" + // "Category VI Characters"
             "|" +
-                "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+cards?" + // "Water card"
+                // An Element may narrow a type as well as "card": 10-120L Folka's "Water Summon".
+                "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+" +
+                "(?:cards?|(?<elemtype>Summons?|Forwards?|Backups?|Monsters?|Characters?))" + // "Water card", "Water Summon"
             "|" +
                 "(?<type>Summons?|Forwards?|Backups?|Monsters?|Characters?)" + // type only
             "|" +
@@ -3102,11 +3106,13 @@ public record CardData(
         String category  = m.group("category");
         String typeCat   = m.group("typecat");
         String element   = m.group("element");
+        String elemType  = m.group("elemtype");
         String type      = m.group("type");
         String different = m.group("different");
 
-        String finalType = typeCat != null ? normalizeTypeSuffix(typeCat)
-                         : type    != null ? normalizeTypeSuffix(type) : null;
+        String finalType = typeCat  != null ? normalizeTypeSuffix(typeCat)
+                         : elemType != null ? normalizeTypeSuffix(elemType)
+                         : type     != null ? normalizeTypeSuffix(type) : null;
 
         if (cardName != null) cardName = cardName.trim();
         if (category != null) category = category.trim();
