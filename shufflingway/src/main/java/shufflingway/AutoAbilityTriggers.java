@@ -7012,13 +7012,13 @@ final class AutoAbilityTriggers {
 			confirmBtn.setEnabled(total >= minCp
 					&& CpPaymentUtils.elementNeedsMet(dulled, discarded, elementNeeds));
 
-			String cap = maxCp == Integer.MAX_VALUE ? "∞" : String.valueOf(maxCp);
+			String cap = maxCp == Integer.MAX_VALUE ? "" : " / " + maxCp;
 			StringBuilder elemProgress = new StringBuilder();
 			for (Map.Entry<String, Integer> need : elementNeeds.entrySet())
 				elemProgress.append("  ").append(need.getKey()).append(": ")
 						.append(Math.min(elemPaid.getOrDefault(need.getKey(), 0), need.getValue()))
 						.append("/").append(need.getValue());
-			cpLabel.setText("CP produced: " + total + " / " + cap
+			cpLabel.setText("CP produced: " + total + cap
 					+ (minCp > 0 ? "  (min " + minCp + ")" : "") + elemProgress);
 
 			for (int i = 0; i < backupLbls.size(); i++) {
