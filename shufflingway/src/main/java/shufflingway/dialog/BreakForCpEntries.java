@@ -168,6 +168,17 @@ final class BreakForCpEntries {
         return generic;
     }
 
+    /** Each selected break's slot, picked Element and CP produced, in selection order. */
+    void forEachChoice(BreakChoice action) {
+        for (Map.Entry<Integer, String> br : chosen.entrySet())
+            action.accept(br.getKey(), br.getValue(), slots.getOrDefault(br.getKey(), 1));
+    }
+
+    @FunctionalInterface
+    interface BreakChoice {
+        void accept(int slot, String element, int amount);
+    }
+
     /** Repaints the break copies to match the current selection; called from the window's updateAll. */
     void refresh() {
         for (int i = 0; i < labels.size(); i++) {

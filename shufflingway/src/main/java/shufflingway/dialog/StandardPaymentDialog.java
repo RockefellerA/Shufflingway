@@ -241,9 +241,9 @@ public class StandardPaymentDialog {
         Map<String, Integer> costByElem = new LinkedHashMap<>();
         if (!isLD) for (String e : elems) costByElem.put(e, 1);
 
-        JLabel   cpLabel    = new JLabel();
-        cpLabel.setFont(FontLoader.loadPixelFont(11));
-        cpLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        // An Element-locked cast pins every cell to that Element; a Light/Dark cast pins none.
+        CpPaymentBar cpBar = new CpPaymentBar(cost,
+                castElemOnly != null ? Map.of(castElemOnly, cost) : costByElem);
         JButton confirmBtn = new JButton("Confirm");
         confirmBtn.setFont(FontLoader.loadPixelFont(11));
 
@@ -256,11 +256,14 @@ public class StandardPaymentDialog {
         Runnable updateAll = () -> {
             Map<String, Integer> cpByElem = new LinkedHashMap<>(bankCpByElem);
             int extraCp = 0;
+            // The Element each source's CP is drawn in on the gauge; the accounting is unaffected.
+            List<CpPaymentBar.Contribution> paid = new ArrayList<>();
             List<Integer> sortedBackups = new ArrayList<>(selectedBackups);
             if (!isLD) sortedBackups.sort(Comparator.comparingInt(s ->
                     (int) java.util.Arrays.stream(elems)
                             .filter(e -> backupCards[s].containsElement(e)).count()));
             for (int slot : sortedBackups) {
+                String produced = backupElementOverrides.getOrDefault(slot, backupCards[slot].element());
                 if (isLD) {
                     cpByElem.merge(elem, 1, Integer::sum);
                 } else if (backupElementOverrides.containsKey(slot)) {
@@ -270,23 +273,30 @@ public class StandardPaymentDialog {
                     else
                         extraCp++;
                 } else if (matchesAnyElement(backupCards[slot], elems)) {
-                    cpByElem.merge(contributingElement(backupCards[slot], elems, cpByElem, costByElem), 1, Integer::sum);
+                    produced = contributingElement(backupCards[slot], elems, cpByElem, costByElem);
+                    cpByElem.merge(produced, 1, Integer::sum);
                 } else {
                     extraCp++;
                 }
+                paid.add(new CpPaymentBar.Contribution("b" + slot, produced, 1));
             }
             extraCp += breaks.contribute(cpByElem, isLD ? elem : null);
+            breaks.forEachChoice((slot, picked, amount) ->
+                    paid.add(new CpPaymentBar.Contribution("x" + slot, picked, amount)));
             List<Integer> sortedDiscards = new ArrayList<>(selectedDiscards);
             if (!isLD) sortedDiscards.sort(Comparator.comparingInt(i ->
                     (int) java.util.Arrays.stream(elems)
                             .filter(e -> hand.get(i).containsElement(e)).count()));
             for (int idx : sortedDiscards) {
+                String produced = hand.get(idx).element();
                 if (isLD)
                     cpByElem.merge(elem, 2, Integer::sum);
-                else if (matchesAnyElement(hand.get(idx), elems))
-                    cpByElem.merge(contributingElement(hand.get(idx), elems, cpByElem, costByElem), 2, Integer::sum);
-                else
+                else if (matchesAnyElement(hand.get(idx), elems)) {
+                    produced = contributingElement(hand.get(idx), elems, cpByElem, costByElem);
+                    cpByElem.merge(produced, 2, Integer::sum);
+                } else
                     extraCp += 2;
+                paid.add(new CpPaymentBar.Contribution("d" + idx, produced, 2));
             }
             int total          = cpByElem.values().stream().mapToInt(Integer::intValue).sum() + extraCp;
             // A player may produce any amount of CP when paying a cost; only the per-element
@@ -295,8 +305,9 @@ public class StandardPaymentDialog {
             canAddDiscard[0]   = !backupCpOnly;
             boolean allElems   = isLD || cpByElem.values().stream().allMatch(v -> v >= 1);
             confirmBtn.setEnabled(total >= cost && allElems);
+            cpBar.update(paid, total >= cost && allElems);
             if (elems.length == 1) {
-                cpLabel.setText("CP: " + total + " / " + cost + "  (" + elem + ")");
+                cpBar.setToolTipText("CP: " + total + " / " + cost + "  (" + elem + ")");
             } else {
                 StringBuilder sb = new StringBuilder("CP: " + total + " / " + cost + "  (");
                 boolean first = true;
@@ -305,7 +316,7 @@ public class StandardPaymentDialog {
                     sb.append(e.getKey()).append(": ").append(e.getValue());
                     first = false;
                 }
-                cpLabel.setText(sb.append(")").toString());
+                cpBar.setToolTipText(sb.append(")").toString());
             }
             for (int i = 0; i < backupLbls.size(); i++) {
                 JLabel lbl = backupLbls.get(i); boolean sel = selectedBackups.contains(backupSlots.get(i));
@@ -486,7 +497,7 @@ public class StandardPaymentDialog {
         JPanel topPanel = new JPanel(new java.awt.BorderLayout(0, 4));
         topPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
         topPanel.add(title,     java.awt.BorderLayout.NORTH);
-        topPanel.add(cpLabel,   java.awt.BorderLayout.CENTER);
+        topPanel.add(cpBar,     java.awt.BorderLayout.CENTER);
         topPanel.add(hintPanel, java.awt.BorderLayout.SOUTH);
 
         JPanel mainPanel = new JPanel(new java.awt.BorderLayout(0, 4));
