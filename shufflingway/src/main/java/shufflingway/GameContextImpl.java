@@ -3318,9 +3318,10 @@ final class GameContextImpl implements GameContext {
 				// A fresh selection for the copy: its targets are chosen by its new controller,
 				// against the board as it stands now, and are not the ones the original picked.
 				AutoAbility copied = chosen.autoAbility();
-				List<ForwardTarget> preTargets = ActionResolver.preSelectTargets(
-						copied.effectText(), newSource, 0, mw.buildGameContext(isP1));
-				if (preTargets != null && preTargets.isEmpty()) preTargets = null;
+				GameContext selectCtx = mw.buildGameContext(isP1);
+				List<ForwardTarget> preTargets = AutoAbilityTriggers.targetsForStack(
+						ActionResolver.preSelectTargets(copied.effectText(), newSource, 0, selectCtx),
+						copied.effectText(), newSource, selectCtx);
 				mw.gameState.insertStack(mw.gameState.stackSize(),
 						new StackEntry(newSource, null, copied, isP1, 0, false, preTargets,
 								false, false, 0, 0, chosen.triggerCard(), chosen.enteredCard()));

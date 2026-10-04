@@ -5232,9 +5232,10 @@ final class AutoAbilityTriggers {
 		// MainWindow.lastDealtDamageAmount, which is why the value cannot be left on that field.
 		// Auto abilities have no X cost of their own, so nothing else is competing for it.
 		int entryX = fa.trigger().equals("is dealt damage") ? mw.lastDealtDamageAmount : 0;
+		GameContext selectCtx = mw.buildGameContext(effectIsP1);
 		List<ForwardTarget> preTargets = effectText.isBlank() ? null
-				: ActionResolver.preSelectTargets(effectText, source, entryX, mw.buildGameContext(effectIsP1));
-		if (preTargets != null && preTargets.isEmpty()) preTargets = null;
+				: targetsForStack(ActionResolver.preSelectTargets(effectText, source, entryX, selectCtx),
+						effectText, source, selectCtx);
 		// "When X is dealt damage by a Forward …, deal that Forward …": the dealer came down as the
 		// trigger card (fireIsDealtDamageTriggers), and "that Forward" is it.
 		if (fa.trigger().equals("is dealt damage") && mw.triggeringBrokenCard != null
@@ -5252,6 +5253,25 @@ final class AutoAbilityTriggers {
 		// shown: this runs mid-push, and showing the Stack here would start resolving it under the
 		// caller that is still putting things on it.
 		withBatch(() -> collectEventTriggers("opponent auto-ability put on stack", !isP1));
+	}
+
+
+	/**
+	 * What an auto ability carries onto the Stack from its push-time target selection: the picks,
+	 * or {@code null} to choose again as it resolves.
+	 *
+	 * <p>An empty selection can mean two things. Nothing eligible when the ability went on the
+	 * Stack falls back to choosing at resolution. An "up to" choice the player was offered and
+	 * declined — Gilgamesh 27-079H's "choose up to 2 Forwards" with none picked — is a choice
+	 * made, and asking again at resolution would make them decline it twice.
+	 */
+	static List<ForwardTarget> targetsForStack(List<ForwardTarget> picked, String effectText,
+			CardData source, GameContext ctx) {
+		if (picked == null || !picked.isEmpty()) return picked;
+		TargetSpec spec = ActionResolver.targetSpec(effectText, source);
+		boolean declined = spec != null && spec.upTo() && spec.zone() == null
+				&& ctx instanceof GameContextImpl impl && !impl.eligibleCharacters(spec).isEmpty();
+		return declined ? picked : null;
 	}
 
 

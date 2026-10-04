@@ -18579,12 +18579,11 @@ public class MainWindow {
 				BorderFactory.createEmptyBorder(4, 6, 4, 6)));
 		bar.getContentPane().add(hdr, BorderLayout.CENTER);
 		if (upTo) {
+			// Confirm alone: choosing none is confirming an empty selection, so a Cancel would only
+			// be a second button that does the same thing.
 			JButton confirmBtn = new JButton("Confirm");
 			confirmBtn.setFont(FontLoader.loadPixelFont(11));
 			confirmBtn.addActionListener(ae -> finish.run());
-			JButton cancelBtn = new JButton("Cancel");
-			cancelBtn.setFont(FontLoader.loadPixelFont(11));
-			cancelBtn.addActionListener(ae -> { sel.clear(); finish.run(); });
 			JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 6));
 			if (maxTotalCost >= 0) {
 				JLabel totalLbl = new JLabel("", SwingConstants.CENTER);
@@ -18608,7 +18607,6 @@ public class MainWindow {
 				south.add(totalLbl);
 			}
 			south.add(confirmBtn);
-			south.add(cancelBtn);
 			bar.getContentPane().add(south, BorderLayout.SOUTH);
 		}
 		bar.pack();
