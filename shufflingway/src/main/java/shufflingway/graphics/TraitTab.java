@@ -2,9 +2,11 @@ package shufflingway.graphics;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.GradientPaint;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.geom.Arc2D;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
@@ -63,7 +65,14 @@ public final class TraitTab {
     private static final Color ARROW_FILL   = new Color(0x5b, 0xc8, 0xe8);
     private static final Color ARROW_STROKE = Color.BLACK;
     private static final Color HEART_FILL   = new Color(0xe8, 0x45, 0x5a);
-    private static final Color BAR_FILL     = new Color(0xb6, 0xb6, 0xbc);
+    private static final Color BLADE_FILL   = new Color(0xe4, 0xe4, 0xea);
+    private static final Color BLADE_FULLER = new Color(0x9a, 0x9a, 0xa4);
+    private static final Color GUARD_FILL   = new Color(0xa0, 0xa0, 0xa8);
+    private static final Color GRIP_FILL    = new Color(0x7a, 0x4a, 0x2a);
+    private static final Color SWORD_EDGE   = new Color(0x1e, 0x1e, 0x24);
+    private static final Color SLASH_FILL   = new Color(0xff, 0xd2, 0x3f);
+    private static final Color SLASH_EDGE   = new Color(0x8a, 0x60, 0x00);
+    private static final Color SLASH_GLOW   = new Color(0xff, 0xd2, 0x3f, 70);
     private static final Color GEM_FILL     = new Color(0xe8, 0xb4, 0x4a);
     private static final Color PRIMED_FILL  = new Color(0x3d, 0xd9, 0x4a);
     private static final Color PRIMED_LINE  = new Color(0x0d, 0x3f, 0x14);
@@ -513,10 +522,12 @@ public final class TraitTab {
     }
 
     /**
-     * Draws the "First Strike" glyph — a white sword-point triangle breaking through a jagged
-     * horizontal bar — into the box {@code [x, y, x + size, y + size]}. Same 24x24 logical
-     * grid as {@link #drawHasteIcon}.
-     * NOTE: I don't like this one, gonna redesign it at some point.
+     * Draws the "First Strike" glyph — a sword tilted point-up-left, a white swing trail curving
+     * away from its point, and a yellow slash just ahead of the point — into the box
+     * {@code [x, y, x + size, y + size]}. Same 24x24 logical grid as {@link #drawHasteIcon}.
+     *
+     * <p>The trail says the sword has already swung and the slash says it has already landed:
+     * between them the glyph reads as "strikes first" rather than as a plain weapon.
      */
     public static void drawFirstStrikeIcon(Graphics2D g0, float x, float y, float size) {
         Graphics2D g = (Graphics2D) g0.create();
@@ -524,38 +535,79 @@ public final class TraitTab {
         float s = size / 24f;
         g.translate(x, y);
         g.scale(s, s);
+        // The coordinates below are authored point-up-right; flipping the grid puts the point at
+        // the upper left.
+        g.translate(24, 0);
+        g.scale(-1, 1);
 
-        Path2D.Float barLeft = new Path2D.Float();
-        barLeft.moveTo(2, 10);
-        barLeft.lineTo(9.5f, 10);
-        barLeft.lineTo(11, 11.5f);
-        barLeft.lineTo(9.5f, 13);
-        barLeft.lineTo(2, 13);
-        barLeft.closePath();
+        // Swing trail: a crescent leaving the point and fading as it curves down the outer side.
+        // Drawn first so the point sits on top of where it starts, and wide under the point so it
+        // reads as coming out of it.
+        Path2D.Float trail = new Path2D.Float();
+        trail.moveTo(17.9f, 6.3f);
+        trail.curveTo(21.5f, 9.7f, 21.3f, 15.2f, 16.3f, 19.5f);
+        trail.curveTo(18.9f, 14.7f, 19.3f, 10.7f, 16.9f, 7.7f);
+        trail.closePath();
+        // Kept faint so it stays behind the sword and the slash rather than competing with them.
+        g.setPaint(new GradientPaint(18.3f, 7.7f, new Color(255, 255, 255, 130),
+                16.3f, 19.5f, new Color(255, 255, 255, 0)));
+        g.fill(trail);
 
-        Path2D.Float barRight = new Path2D.Float();
-        barRight.moveTo(22, 10);
-        barRight.lineTo(14.5f, 10);
-        barRight.lineTo(13, 11.5f);
-        barRight.lineTo(14.5f, 13);
-        barRight.lineTo(22, 13);
-        barRight.closePath();
+        // Sword, authored point-up along x = 12 and turned 45 degrees clockwise about the centre,
+        // then slid one unit toward the hilt corner so the slash has room past the point.
+        Graphics2D sg = (Graphics2D) g.create();
+        sg.rotate(Math.toRadians(45), 12, 12);
+        sg.translate(0, 1);
+        BasicStroke edge = new BasicStroke(0.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
 
-        g.setStroke(new BasicStroke(0.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        for (Path2D.Float bar : new Path2D.Float[]{ barLeft, barRight }) {
-            g.setColor(BAR_FILL);
-            g.fill(bar);
-            g.setColor(ICON_LINE);
-            g.draw(bar);
+        Path2D.Float blade = new Path2D.Float();
+        // The point stops short of the corner to leave room for the slash beyond it.
+        blade.moveTo(12, 3f);
+        blade.lineTo(13.7f, 6.1f);
+        blade.lineTo(13.7f, 17f);
+        blade.lineTo(10.3f, 17f);
+        blade.lineTo(10.3f, 6.1f);
+        blade.closePath();
+        sg.setColor(BLADE_FILL);
+        sg.fill(blade);
+        sg.setStroke(edge);
+        sg.setColor(SWORD_EDGE);
+        sg.draw(blade);
+        // Fuller: one centre line keeps the blade from reading as a flat white bar.
+        sg.setColor(BLADE_FULLER);
+        sg.draw(new Line2D.Float(12, 7f, 12, 15.8f));
+
+        RoundRectangle2D.Float guard = new RoundRectangle2D.Float(7.2f, 17f, 9.6f, 2.2f, 1f, 1f);
+        Rectangle2D.Float grip = new Rectangle2D.Float(11f, 19.2f, 2f, 3f);
+        Ellipse2D.Float pommel = new Ellipse2D.Float(10.5f, 21.9f, 3f, 3f);
+        sg.setColor(GRIP_FILL);
+        sg.fill(grip);
+        sg.setColor(SWORD_EDGE);
+        sg.draw(grip);
+        for (Shape metal : new Shape[]{ guard, pommel }) {
+            sg.setColor(GUARD_FILL);
+            sg.fill(metal);
+            sg.setColor(SWORD_EDGE);
+            sg.draw(metal);
         }
+        sg.dispose();
 
-        Path2D.Float point = new Path2D.Float();
-        point.moveTo(12, 2);
-        point.lineTo(16, 21.5f);
-        point.lineTo(8, 21.5f);
-        point.closePath();
-        g.setColor(ICON_LINE);
-        g.fill(point);
+        // Yellow slash just ahead of the point, square to the blade: a thin crescent, pointed at
+        // both ends, bowing away from the sword like the leading edge of the cut.
+        Path2D.Float slash = new Path2D.Float();
+        slash.moveTo(16.25f, 1.25f);
+        slash.quadTo(22.61f, 1.39f, 22.75f, 7.75f);
+        slash.quadTo(19.92f, 4.08f, 16.25f, 1.25f);
+        slash.closePath();
+        g.setColor(SLASH_GLOW);
+        g.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.draw(slash);
+        g.setColor(SLASH_FILL);
+        g.fill(slash);
+        // A light edge: at tab size a heavier one swallows the yellow.
+        g.setColor(SLASH_EDGE);
+        g.setStroke(new BasicStroke(0.35f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.draw(slash);
 
         g.dispose();
     }

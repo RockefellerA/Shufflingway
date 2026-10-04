@@ -22134,7 +22134,8 @@ public class MainWindow {
 		// Prime — offered until the Forward has been primed.
 		if (isP1 && zone == ForwardTarget.CardZone.FORWARD
 				&& base.hasPriming() && p1ForwardPrimedTop.get(idx) == null) {
-			specs.add(ActionButton.Spec.prime(canPrimeP1Forward(idx) && !fieldTargetingActive,
+			specs.add(ActionButton.Spec.prime(costColors(effectivePrimingCost(base, true)),
+					canPrimeP1Forward(idx) && !fieldTargetingActive,
 					"Prime (" + base.primingTarget() + ")"));
 			actions.add(() -> primeFromSlot(slot, base));
 		}
@@ -22157,13 +22158,8 @@ public class MainWindow {
 	 */
 	static ActionButton.Spec abilityButtonSpec(ActionAbility ability, String sourceName, String counterColor,
 			boolean usable, String tooltip) {
-		List<Color> colors = new ArrayList<>();
-		int generic = 0;
-		for (String token : ability.cpCost()) {
-			if (token.isEmpty()) { generic++; continue; }
-			ElementColor element = ElementColor.fromName(token);
-			if (element != null && !colors.contains(element.color)) colors.add(element.color);
-		}
+		List<Color> colors = costColors(ability.cpCost());
+		int generic = (int) ability.cpCost().stream().filter(String::isEmpty).count();
 		ActionButton.Glyph glyph = ability.isSpecial()               ? ActionButton.Glyph.SPECIAL
 				: ability.requiresDull()                         ? ActionButton.Glyph.DULL
 				: !ability.discardCosts().isEmpty()              ? ActionButton.Glyph.DISCARD
@@ -22189,6 +22185,22 @@ public class MainWindow {
 		}
 		return new ActionButton.Spec(ActionButton.Kind.ABILITY, colors, glyph, label,
 				glyph == ActionButton.Glyph.COUNTERS ? counterColor : null, usable, tooltip);
+	}
+
+	/**
+	 * The colours a button face takes from a CP cost: each Element the cost names, in printed order
+	 * and once each. Generic CP adds none, so a cost naming no Element gives a neutral face.
+	 *
+	 * @param cpCost cost tokens — an Element name per Element CP, an empty string per generic CP
+	 */
+	static List<Color> costColors(List<String> cpCost) {
+		List<Color> colors = new ArrayList<>();
+		for (String token : cpCost) {
+			if (token.isEmpty()) continue;
+			ElementColor element = ElementColor.fromName(token);
+			if (element != null && !colors.contains(element.color)) colors.add(element.color);
+		}
+		return colors;
 	}
 
 	/** {@link #abilityButtonSpec(ActionAbility, String, String, boolean, String)} with no source card known. */

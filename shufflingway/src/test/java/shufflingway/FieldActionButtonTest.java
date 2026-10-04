@@ -324,6 +324,19 @@ class FieldActionButtonTest {
 				specFor("《Fire》《Fire》《Wind》《Water》: Draw 1 card.").colors());
 	}
 
+	// A Priming cost colours the Prime button the way an ability's cost colours its button: Clive
+	// 26-005H primes for 《Fire》《Fire》《3》, Hugo 24-064R for 《Earth》. Generic CP adds no colour.
+	@Test
+	void aPrimingCostColoursThePrimeButtonByItsElements() {
+		assertEquals(List.of(ElementColor.FIRE.color),
+				MainWindow.costColors(List.of("Fire", "Fire", "", "", "")));
+		assertEquals(List.of(ElementColor.EARTH.color), MainWindow.costColors(List.of("Earth")));
+		assertEquals(List.of(), MainWindow.costColors(List.of("", "")), "generic only: neutral face");
+		ActionButton.Spec prime = ActionButton.Spec.prime(MainWindow.costColors(List.of("Fire", "")), true, "tip");
+		assertEquals(ActionButton.Kind.PRIME, prime.kind());
+		assertEquals(List.of(ElementColor.FIRE.color), prime.colors());
+	}
+
 	@Test
 	void aDullCostCarriesTheDullGlyphOverItsColours() {
 		ActionButton.Spec spec = specFor("《Fire》《Ice》《Dull》: Draw 1 card.");

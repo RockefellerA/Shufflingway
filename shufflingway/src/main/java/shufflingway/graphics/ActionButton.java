@@ -112,9 +112,13 @@ public final class ActionButton {
 			this(kind, colors, glyph, label, null, usable, tooltip);
 		}
 
-		/** The Priming button: neutral, carrying the Priming glyph. */
-		public static Spec prime(boolean usable, String tooltip) {
-			return new Spec(Kind.PRIME, List.of(), Glyph.NONE, null, usable, tooltip);
+		/**
+		 * The Priming button, carrying the Priming glyph on a face coloured like an ability's.
+		 *
+		 * @param colors the Priming cost's Elements in printed order, each once; empty for a neutral face
+		 */
+		public static Spec prime(List<Color> colors, boolean usable, String tooltip) {
+			return new Spec(Kind.PRIME, colors, Glyph.NONE, null, usable, tooltip);
 		}
 	}
 

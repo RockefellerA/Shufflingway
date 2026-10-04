@@ -216,17 +216,6 @@ final class GameContextImpl implements GameContext {
 	}
 
 	/**
-	 * True if a modal sub-action removes cards from a Break Zone that can include the
-	 * opponent's (i.e. "either/any player's" or "your opponent's" Break Zone). Used by the
-	 * AI to skip such an action when the opponent has nothing there to remove.
-	 */
-	private static boolean removesFromOpponentBreakZone(String action) {
-		String a = action.toLowerCase(java.util.Locale.ROOT);
-		if (!a.contains("break zone") || !a.contains("remove")) return false;
-		return a.contains("either player") || a.contains("any player") || a.contains("opponent");
-	}
-
-	/**
 	 * True if {@code card} carries any of {@code excludedElements} and so is left alone by a sweep
 	 * printed as "other than &lt;Elements&gt;" — 2-138L Yuna's "other than Light and Dark".
 	 *
@@ -7737,7 +7726,7 @@ final class GameContextImpl implements GameContext {
 			@Override public List<String> chooseActions(CardData source,
 					List<String> actions, int selectCount, boolean upTo) {
 				return actionsChosenBy(isP1, source, actions, selectCount, upTo,
-						() -> aiChooseActions(actions, selectCount));
+						() -> aiChooseActions(actions, selectCount, upTo));
 			}
 
 			/**
@@ -7769,27 +7758,31 @@ final class GameContextImpl implements GameContext {
 				return out;
 			}
 
-			private List<String> aiChooseActions(List<String> actions, int selectCount) {
-				// AI: a "remove from either/opponent's Break Zone" action is worth taking only when
-				// the opponent has cards there. When they do, prefer it (strips their resources);
-				// when they don't, skip it entirely (it would only hit our own cards). All other
-				// actions keep their original top-down order behind any preferred removal.
-				boolean oppBzEmpty = (isP1 ? mw.gameState.getP2BreakZone()
-						: mw.gameState.getP1BreakZone()).isEmpty();
-				List<String> preferred = new ArrayList<>();
-				List<String> rest      = new ArrayList<>();
-				for (String a : actions) {
-					if (removesFromOpponentBreakZone(a)) {
-						if (!oppBzEmpty) preferred.add(a); // else: nothing to remove — drop it
-					} else {
-						rest.add(a);
-					}
+			/** The AI's picks from a menu it controls, judged against the board; see {@link AiActionPicker}. */
+			private List<String> aiChooseActions(List<String> actions, int selectCount, boolean upTo) {
+				boolean oppIsP1 = !isP1;
+				List<CardState> oppForwardStates = oppIsP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
+				List<CardState> oppMonsterStates = oppIsP1 ? mw.p1MonsterStates : mw.p2MonsterStates;
+				CardData[]  oppBackupCards  = oppIsP1 ? mw.p1BackupCards  : mw.p2BackupCards;
+				CardState[] oppBackupStates = oppIsP1 ? mw.p1BackupStates : mw.p2BackupStates;
+				int activeForwards = 0, dullForwards = 0, activeOthers = 0, dullOthers = 0;
+				for (CardState s : oppForwardStates) {
+					if (s == CardState.DULL) dullForwards++; else activeForwards++;
 				}
-				List<String> ordered = new ArrayList<>(preferred.size() + rest.size());
-				ordered.addAll(preferred);
-				ordered.addAll(rest);
-				int take = Math.min(selectCount, ordered.size());
-				return new ArrayList<>(ordered.subList(0, take));
+				for (CardState s : oppMonsterStates) {
+					if (s == CardState.DULL) dullOthers++; else activeOthers++;
+				}
+				for (int i = 0; i < oppBackupCards.length; i++) {
+					if (oppBackupCards[i] == null) continue;
+					if (oppBackupStates[i] == CardState.DULL) dullOthers++; else activeOthers++;
+				}
+				List<CardData> ownHand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				AiActionPicker.Board board = new AiActionPicker.Board(
+						(oppIsP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone()).isEmpty(),
+						activeForwards, dullForwards, activeForwards + activeOthers, dullForwards + dullOthers,
+						(oppIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand()).size(),
+						ownHand.stream().anyMatch(CardData::isSummon));
+				return AiActionPicker.pick(actions, selectCount, upTo, board);
 			}
 
 			@Override public List<String> chooseActionsByOpponent(CardData source,

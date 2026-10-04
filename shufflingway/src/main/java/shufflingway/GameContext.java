@@ -2588,7 +2588,8 @@ public interface GameContext {
     /**
      * Presents the player with a "Select N of M following actions" modal choice and returns
      * the chosen action texts (each later re-parsed and applied by the caller).
-     * The human player picks interactively; the AI picks the first {@code selectCount}.
+     * The human player picks interactively; the AI weighs each option against the board (see
+     * {@code AiActionPicker}). The actions resolve in the order they are returned.
      *
      * @param actions     the candidate action texts (the quoted sub-actions)
      * @param selectCount how many to choose
