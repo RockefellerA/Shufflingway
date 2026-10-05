@@ -1902,6 +1902,7 @@ public class MainWindow {
 		});
 		gameState.setBreakZoneLeftListener(autoAbilityTriggers::triggerAutoAbilitiesForBreakZoneLeft);
 		gameState.setHandLeftListener((c, p1) -> leftHandAwaitingArrival.add(c));
+		gameState.setStackTargetLookup(this::fieldCardDataOrNull);
 		initialize();
 	}
 
@@ -13517,12 +13518,14 @@ public class MainWindow {
 			return;
 		}
 
-		// P1 acted → P2 has priority. The CPU passes at once. A remote player is holding the same
-		// entry on their own client, in the window below, so this client waits for their pass.
+		// P1 acted → P2 has priority. The CPU responds if it has a reason to, and otherwise passes
+		// at once; a response goes on top and runs its own window, and this entry's turn comes when
+		// the Stack gets back to it. A remote player is holding the same entry on their own client,
+		// in the window below, so this client waits for their pass.
 		if (entry.isP1()) {
 			if (opponent instanceof RemoteOpponent remote && frame.isShowing())
 				awaitOpponentsStackPass(remote, entry);
-			else
+			else if (!cpuRespondsTo(entry))
 				resolveTopOfStack();
 			return;
 		}
@@ -13780,7 +13783,7 @@ public class MainWindow {
 				if (effect != null) {
 					// Targets were chosen when the Summon went on the Stack, so the opponent could
 					// respond to them; resolution uses that choice rather than asking again.
-					if (entry.preSelectedTargets() != null) ctx.preloadTargets(entry.preSelectedTargets());
+					if (entry.preSelectedTargets() != null) ctx.preloadTargets(liveTargets(entry));
 					currentResolutionIsSummon   = true;
 					currentSummonSource     = entry.source();
 					currentSummonSourceIsP1 = entry.isP1();
@@ -13879,7 +13882,7 @@ public class MainWindow {
 				if (effect != null) {
 					logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\": " + effectText);
 					// As with Summons: an auto-ability chooses when it goes on the Stack.
-					if (entry.preSelectedTargets() != null) ctx.preloadTargets(entry.preSelectedTargets());
+					if (entry.preSelectedTargets() != null) ctx.preloadTargets(liveTargets(entry));
 					currentAbilitySource     = entry.source();
 					currentAbilitySourceIsP1 = entry.isP1();
 					currentAbilityIsSpecial  = false;
@@ -13905,7 +13908,7 @@ public class MainWindow {
 				// Carried from activation, where the reveal cost was paid (Rinoa 18-097R).
 				currentRevealedForwardPower = entry.revealedForwardPower();
 				try {
-					if (entry.preSelectedTargets() != null) ctx.preloadTargets(entry.preSelectedTargets());
+					if (entry.preSelectedTargets() != null) ctx.preloadTargets(liveTargets(entry));
 					ActionResolver.resolve(entry.ability(), entry.source(), gameState, ctx, entry.xValue());
 				} finally {
 					currentAbilitySource    = null;
@@ -13928,9 +13931,33 @@ public class MainWindow {
 		else { lastDiscardedForwardPower = 0; lastDiscardedCardName = null; lastDiscardedCard = null; lastDiscardedCostCard = null; discardedByEffect.clear(); }
 	}
 
-	/** Calls {@link #showStackWindow()} only when we are not already inside a stack resolution chain. */
+	/**
+	 * Calls {@link #showStackWindow()} only when we are not already inside a stack resolution chain,
+	 * nor inside the AI putting a response together ({@link #cpuRespondsTo}).
+	 */
 	void showStackWindowIfNeeded() {
-		if (!isResolvingStack && !gameState.getStack().isEmpty()) showStackWindow();
+		if (!isResolvingStack && !cpuBuildingResponse && !gameState.getStack().isEmpty()) showStackWindow();
+	}
+
+	/**
+	 * Set while the AI pays for a response to the entry on top of the Stack. Paying fires
+	 * triggers — dulling Onion Knight 1-181H for its own cost is a "becomes dull" — and each of
+	 * those asks for the Stack window, which would open it on the entry being responded to, see the
+	 * AI pass on it, and resolve it halfway through the payment meant to answer it: the Bolt broke
+	 * the Knight before the Knight could leave. The response's own push opens the window instead.
+	 */
+	private boolean cpuBuildingResponse = false;
+
+	/** Asks the AI whether it responds to P1's {@code entry}; see {@link ComputerPlayer#respondToStack}. */
+	private boolean cpuRespondsTo(StackEntry entry) {
+		if (!(opponent instanceof ComputerPlayer cpu)) return false;
+		boolean was = cpuBuildingResponse;
+		cpuBuildingResponse = true;
+		try {
+			return cpu.respondToStack(entry);
+		} finally {
+			cpuBuildingResponse = was;
+		}
 	}
 
 	/** How often {@link #runWhenBoardSettled} re-checks whether the board has settled. */
@@ -15172,7 +15199,7 @@ public class MainWindow {
 				case ABILITY -> { if (entry.isSummon())  return false; }
 				case ANY     -> { }
 			}
-			List<ForwardTarget> chosen = entry.preSelectedTargets();
+			List<ForwardTarget> chosen = liveTargets(entry, false);
 			if (chosen == null || chosen.size() != 1) return false;
 			ForwardTarget only = chosen.get(0);
 			CardData card = fieldCardDataOrNull(only);
@@ -15297,6 +15324,44 @@ public class MainWindow {
 			}
 			case BREAK_ZONE -> null;
 		};
+	}
+
+	/**
+	 * {@code entry}'s pre-selected targets as they stand now, or {@code null} when it chose none
+	 * ahead of resolving.
+	 *
+	 * <p>A target is a slot, and the card in it is what was chosen. Each target is followed to
+	 * wherever the card it named when the entry went onto the Stack now sits
+	 * ({@link GameState#stackTargetCards}); one whose card has left the field is no longer a
+	 * target and is dropped, so the effect does nothing to it. Read by slot alone, a target outlived
+	 * the card: a Forward returned to hand in response left its slot to the next Forward along,
+	 * and a Summon aimed at the first landed on the second — an Onion Knight 1-181H bounced out of
+	 * the way of a Summon handed the damage to whichever Forward slid into its place.
+	 *
+	 * <p>A target that named no field card (a Break Zone pick), or an entry pushed before anything
+	 * was recorded for it, is read as it stands.
+	 */
+	List<ForwardTarget> liveTargets(StackEntry entry) {
+		return liveTargets(entry, true);
+	}
+
+	/** As {@link #liveTargets(StackEntry)}, logging a dropped target only when {@code announce} — the resolution does, an eligibility check does not. */
+	List<ForwardTarget> liveTargets(StackEntry entry, boolean announce) {
+		List<ForwardTarget> chosen = entry.preSelectedTargets();
+		if (chosen == null) return null;
+		List<CardData> cards = gameState.stackTargetCards(entry);
+		if (cards == null || cards.size() != chosen.size()) return chosen;
+		List<ForwardTarget> live = new ArrayList<>();
+		for (int i = 0; i < chosen.size(); i++) {
+			ForwardTarget t = chosen.get(i);
+			CardData card = cards.get(i);
+			if (card == null) { live.add(t); continue; }
+			ForwardTarget now = currentFieldTargetOf(card, t.isP1(), t.idx());
+			if (now != null) live.add(now);
+			else if (announce) logEntry(card.name() + " is no longer on the field — no longer a target of "
+					+ entry.source().name());
+		}
+		return live;
 	}
 
 	/** {@code source}'s own slot when {@code entry} could legally choose it, else {@code null}. */
@@ -21132,7 +21197,7 @@ public class MainWindow {
 		};
 	}
 
-	private int fieldCombatDamage(boolean isP1, ForwardTarget.CardZone zone, int idx) {
+	int fieldCombatDamage(boolean isP1, ForwardTarget.CardZone zone, int idx) {
 		return switch (zone) {
 			case FORWARD -> (isP1 ? p1ForwardDamage : p2ForwardDamage).get(idx);
 			case MONSTER -> (isP1 ? p1MonsterDamage : p2MonsterDamage).get(idx);

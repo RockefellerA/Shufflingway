@@ -1262,15 +1262,17 @@ final class ActionResolverHand {
 
     /**
      * The card a "play 1 … from your hand onto the field" payoff would take from the resolving
-     * player's hand now, or {@code null} — the first eligible, which is the card the AI plays. Read by
-     * the optional-cost payers so the CP is not paid by discarding that very card (14-019R Red XIII).
-     * {@code null} when {@code text} does not open with such a play.
+     * player's hand now, or {@code null} — the card the AI plays, see
+     * {@link GameContext#bestPlayableFromHand}. Read by the optional-cost payers so the CP is not
+     * paid by discarding that very card (14-019R Red XIII), and by the AI to weigh a self-bounce
+     * swap before paying for it (Onion Knight 1-181H). {@code null} when {@code text} does not open
+     * with such a play.
      */
-    static Function<GameContext, CardData> firstPlayableFromHand(String text, int xValue) {
+    static Function<GameContext, CardData> bestPlayableFromHand(String text, int xValue) {
         if (!text.trim().regionMatches(true, 0, "play ", 0, 5)) return null;
         PlaySpec s = playSpec(text, xValue);
         if (s == null) return null;
-        return ctx -> ctx.firstPlayableFromHand(s.inclForwards(), s.inclBackups(), s.inclMonsters(),
+        return ctx -> ctx.bestPlayableFromHand(s.inclForwards(), s.inclBackups(), s.inclMonsters(),
                 s.resolvedCost(ctx), s.resolvedCmp(), s.costVal2(), s.job(), s.name(), s.category(),
                 s.element(), s.excludeName(), s.excludeElement(), s.withTrait());
     }

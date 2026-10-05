@@ -1,6 +1,7 @@
 package shufflingway;
 
 import java.util.*;
+import java.util.function.Function;
 
 /**
  * Holds all mutable game state for an in-progress FFTCG match.
@@ -208,6 +209,7 @@ public class GameState {
         p1MulliganUsed       = false;
         p1GameOver           = false;
         stack.clear();
+        stackTargetCards.clear();
         p2MainDeck.clear();
         p2LbDeck.clear();
         p2DamageZone.clear();
@@ -869,12 +871,43 @@ public class GameState {
     // -------------------------------------------------------------------------
 
     /** Pushes an entry onto the top of the Stack. */
-    public void pushStack(StackEntry entry)         { stack.add(entry); }
+    public void pushStack(StackEntry entry)         { stack.add(entry); recordTargetCards(entry); }
 
     /** Removes and returns the top entry of the Stack, or {@code null} if empty. */
     public StackEntry popStack() {
         return stack.isEmpty() ? null : stack.remove(stack.size() - 1);
     }
+
+    /**
+     * The card each of {@code entry}'s pre-selected targets held when it went onto the Stack, index
+     * for index, or {@code null} when nothing was recorded for it; an element is {@code null} for
+     * a target that named no card on the field (a Break Zone pick).
+     *
+     * <p>A {@link ForwardTarget} is a slot, and slots move while an entry waits: a Forward that
+     * leaves shifts every one after it down, so the slot an entry chose can hold a different card
+     * by the time it resolves. Recorded here, at the only two ways onto the Stack, so the resolver
+     * can follow the card rather than the slot — {@code MainWindow.liveTargets}.
+     *
+     * <p>Kept past the pop, because an entry is popped before it resolves and its targets are read
+     * during resolution; dropped with the Stack when a game is reset.
+     */
+    public List<CardData> stackTargetCards(StackEntry entry) { return stackTargetCards.get(entry); }
+
+    /** Tells the Stack how to read the card a target names; set once by the board that owns the field. */
+    public void setStackTargetLookup(Function<ForwardTarget, CardData> lookup) {
+        stackTargetLookup = lookup;
+    }
+
+    private void recordTargetCards(StackEntry entry) {
+        if (entry.preSelectedTargets() == null || stackTargetLookup == null) return;
+        List<CardData> cards = new ArrayList<>();
+        for (ForwardTarget t : entry.preSelectedTargets()) cards.add(stackTargetLookup.apply(t));
+        stackTargetCards.put(entry, cards);
+    }
+
+    /** See {@link #stackTargetCards}; identity-keyed, because two entries can be equal records. */
+    private final Map<StackEntry, List<CardData>> stackTargetCards = new IdentityHashMap<>();
+    private Function<ForwardTarget, CardData> stackTargetLookup;
 
     /** Returns the top entry of the Stack without removing it, or {@code null} if empty. */
     public StackEntry peekStack()                   { return stack.isEmpty() ? null : stack.get(stack.size() - 1); }
@@ -898,6 +931,7 @@ public class GameState {
      */
     public void insertStack(int index, StackEntry entry) {
         stack.add(Math.max(0, Math.min(index, stack.size())), entry);
+        recordTargetCards(entry);
     }
 
     /**
@@ -912,7 +946,12 @@ public class GameState {
      */
     public boolean replaceStackEntry(StackEntry oldEntry, StackEntry newEntry) {
         for (int i = 0; i < stack.size(); i++) {
-            if (stack.get(i) == oldEntry) { stack.set(i, newEntry); return true; }
+            if (stack.get(i) == oldEntry) {
+                stack.set(i, newEntry);
+                stackTargetCards.remove(oldEntry);
+                recordTargetCards(newEntry);
+                return true;
+            }
         }
         return false;
     }

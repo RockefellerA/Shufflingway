@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -1850,6 +1851,8 @@ class ComputerPlayer implements OpponentController {
 			if (p2ShouldHoldDamageAbility(ability)) continue;
 			// Activating an already-active source changes nothing, and can now loop forever.
 			if (p2ShouldHoldActivateSelf(ability, card, state)) continue;
+			// Bouncing the source to play a card from hand is a swap, worth only a dearer card.
+			if (p2ShouldHoldSelfBounceSwap(ability, card)) continue;
 			// Gogo's "Mimic" replays a special ability a Character used this turn — pointless (and a
 			// wasted S + Dull cost) when none other than Mimic itself has been used yet.
 			if (ActionResolver.isUseSpecialAbilityUsedThisTurnEffect(ability.effectText())
@@ -1974,6 +1977,107 @@ class ComputerPlayer implements OpponentController {
 	 */
 	boolean p2ShouldHoldActivateSelf(ActionAbility ability, CardData source, CardState state) {
 		return state == CardState.ACTIVE && effectActivatesSelf(ability.effectText(), source);
+	}
+
+	/**
+	 * True when P2 should hold an ability that returns its own source to hand and plays a card from
+	 * hand — Onion Knight 1-181H ("《1》《Dull》, return Onion Knight to its owner's hand: You may play
+	 * 1 Card Name Onion Knight from your hand"), Onion Knight 17-044R. Used proactively that is a
+	 * swap: the source's cost goes back to hand and the ability's CP is spent, so it gains only when
+	 * the card it would play is dearer than both together — a 4-cost Onion Knight for 1-181H's 2 + 1.
+	 *
+	 * <p>Without this 1-181H played itself straight back — the only Onion Knight in hand once it had
+	 * returned, and active again with Haste — and repeated that for 1 CP a time until nothing was
+	 * left to pay with. The source is on the field while this is asked, so it is never the card
+	 * weighed, and a second copy of it is no dearer than the first. Its other use, pulling the source
+	 * out of a battle that would break it, is {@link #p2SelfBounceSave}'s and does not come here.
+	 */
+	boolean p2ShouldHoldSelfBounceSwap(ActionAbility ability, CardData source) {
+		if (!returnsSourceToHand(ability, source)) return false;
+		String play = ability.effectText().trim().replaceFirst("(?i)^you\\s+may\\s+", "");
+		Function<GameContext, CardData> pick = ActionResolverHand.bestPlayableFromHand(play, 0);
+		if (pick == null) return false;
+		CardData best = pick.apply(mw.buildGameContext(false));
+		return best == null || best.cost() <= source.cost() + ability.cpCost().size();
+	}
+
+	/**
+	 * P1 has put {@code entry} on the Stack and P2 holds priority on it: responds if anything is
+	 * worth responding with. Returns {@code true} when P2 did — its response is then on top of
+	 * {@code entry} and resolving ahead of it, and asks again when the Stack comes back round.
+	 *
+	 * <p>The one response for now is saving a Forward {@code entry} would break by returning it to
+	 * hand with its own ability ({@link #p2SelfBounceSave}). Only the choices {@code entry} has
+	 * already made are weighed, read through {@link MainWindow#liveTargets} so a target that has
+	 * since moved is still recognised.
+	 */
+	boolean respondToStack(StackEntry entry) {
+		List<ForwardTarget> targets = mw.liveTargets(entry, false);
+		String text = mw.resolvingEffectText(entry);
+		if (targets == null || text == null) return false;
+		for (ForwardTarget t : targets) {
+			if (t.isP1() || t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+			if (!p2EffectWouldBreak(text, t)) continue;
+			if (p2SelfBounceSave(t)) return true;
+		}
+		return false;
+	}
+
+	/** "… break it/them." — the chosen are broken outright. */
+	private static final Pattern BREAKS_CHOSEN = Pattern.compile("(?i)\\bbreak\\s+(?:it|them)\\b");
+	/** "… deal it/them N damage." */
+	private static final Pattern DAMAGES_CHOSEN = Pattern.compile("(?i)\\bdeal\\s+(?:it|them)\\s+(\\d+)\\s+damage\\b");
+
+	/**
+	 * Whether an effect reading {@code text} breaks P2's Forward at {@code t}: it breaks what it
+	 * chose, or deals it at least the damage it has left. Deliberately narrow — an effect it cannot
+	 * read is taken to spare the Forward, so a response is never paid for on a guess.
+	 */
+	private boolean p2EffectWouldBreak(String text, ForwardTarget t) {
+		if (BREAKS_CHOSEN.matcher(text).find()) return true;
+		Matcher m = DAMAGES_CHOSEN.matcher(text);
+		if (!m.find()) return false;
+		int left = mw.fieldForwardPower(false, t.zone(), t.idx()) - mw.fieldCombatDamage(false, t.zone(), t.idx());
+		return Integer.parseInt(m.group(1)) >= left;
+	}
+
+	/**
+	 * Saves P2's Forward at {@code t} from an effect about to break it by using an ability of its own
+	 * whose cost returns it to hand — Onion Knight 1-181H, the other half of what
+	 * {@link #p2ShouldHoldSelfBounceSwap} holds it for. The card goes back to hand rather than to the
+	 * Break Zone, and whatever the ability then plays is a new card the waiting effect never chose.
+	 * Bound by the ability's own timing ("only during your turn"), as any activation is.
+	 */
+	boolean p2SelfBounceSave(ForwardTarget t) {
+		int i = t.idx();
+		CardData card = mw.p2ForwardPrimedTop.get(i) != null ? mw.p2ForwardPrimedTop.get(i) : mw.p2ForwardCards.get(i);
+		if (mw.lostAbilitiesCards.contains(card)) return false;
+		for (ActionAbility ability : card.actionAbilities()) {
+			if (!returnsSourceToHand(ability, card)) continue;
+			if (!mw.canActivateAbility(ability, mw.p2ForwardFrozen.get(i), mw.p2ForwardStates.get(i),
+					mw.p2ForwardPlayedOnTurn.get(i), card, false)) continue;
+			if (ActionResolver.parse(ability.effectText(), card) == null) continue;
+			List<Integer>        backupDullIndices = new ArrayList<>();
+			Map<Integer, String> backupElems       = new LinkedHashMap<>();
+			List<Integer>        discardIndices    = new ArrayList<>();
+			Map<Integer, String> discardElems      = new LinkedHashMap<>();
+			if (!p2PlanAbilityPayment(ability, card, backupDullIndices, backupElems, discardIndices, discardElems))
+				continue;
+			mw.logEntry("[P2] Saves " + card.name() + " from the effect on the Stack: " + ability.effectText());
+			if (!mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card, mw.abilityCostDull(t),
+					backupDullIndices, discardIndices, 0)) {
+				logAbandonedActivation(card);
+				continue;
+			}
+			return true;
+		}
+		return false;
+	}
+
+	/** Whether {@code ability}'s cost includes returning {@code source} itself to its owner's hand. */
+	private static boolean returnsSourceToHand(ActionAbility ability, CardData source) {
+		return ability.returnToHandCosts().stream()
+				.anyMatch(r -> source.name().equalsIgnoreCase(r.cardName()));
 	}
 
 	/**

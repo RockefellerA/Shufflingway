@@ -4435,6 +4435,169 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Onion Knight 1-181H: "Haste / 《1》《Dull》, return Onion Knight to its owner's hand: You may
+    // play 1 Card Name Onion Knight from your hand onto the field. You can only use this ability
+    // during your turn." The AI used it on every pass through its main phase: once returned, the
+    // only Onion Knight in hand was the source itself, which the AI's first-eligible pick played
+    // straight back, active with Haste, for 1 CP a time until it ran out. Used proactively it is a
+    // swap, worth only an Onion Knight dearer than its 2 + 1 — and the pick takes the dearest.
+    // =========================================================================================
+
+    private static final String ONION_KNIGHT_SWAP_TEXT = "Haste[[br]] 《1》《Dull》, return Onion Knight to its"
+            + " owner's hand: You may play 1 Card Name Onion Knight from your hand onto the field. You can"
+            + " only use this ability during your turn.";
+
+    private static CardData makeSwapOnionKnight() {
+        return makeForwardWithText("Onion Knight", "Light", 2, 5000, ONION_KNIGHT_SWAP_TEXT);
+    }
+
+    /** Whether the AI holds 1-181H's swap with P2 holding {@code hand}. */
+    private static boolean aiHoldsOnionKnightSwap(CardData... hand) {
+        MainWindow mw = new MainWindow();
+        CardData knight = makeSwapOnionKnight();
+        placeP2Forward(mw, knight);
+        for (CardData c : hand) mw.gameState.getP2Hand().add(c);
+        return new ComputerPlayer(mw).p2ShouldHoldSelfBounceSwap(knight.actionAbilities().get(0), knight);
+    }
+
+    @Test
+    void aiHoldsOnionKnightsSwapWithNoOtherOnionKnightInHand() {
+        assertTrue(aiHoldsOnionKnightSwap());
+    }
+
+    @Test
+    void aiHoldsOnionKnightsSwapForASecondCopyOfItself() {
+        assertTrue(aiHoldsOnionKnightSwap(makeSwapOnionKnight()), "trading a 2 for a 2 gains nothing");
+    }
+
+    @Test
+    void aiHoldsOnionKnightsSwapForAThreeCostOnionKnight() {
+        assertTrue(aiHoldsOnionKnightSwap(makeForward("Onion Knight", "Lightning", 3, 6000)),
+                "3 is no more than the 2 + 1 the swap spends");
+    }
+
+    @Test
+    void aiHoldsOnionKnightsSwapForADearCardThatIsNoOnionKnight() {
+        assertTrue(aiHoldsOnionKnightSwap(makeForward("Bruiser", "Fire", 5, 9000)), "the play is Card Name Onion Knight");
+    }
+
+    @Test
+    void aiUsesOnionKnightsSwapForAFourCostOnionKnight() {
+        assertFalse(aiHoldsOnionKnightSwap(makeForward("Onion Knight", "Wind", 4, 8000)));
+    }
+
+    @Test
+    void aiPlaysTheDearestCardAPlayFromHandAllowsIt() {
+        MainWindow mw = new MainWindow();
+        CardData source = makeSwapOnionKnight();
+        CardData cheap  = makeSwapOnionKnight();
+        CardData dear   = makeForward("Onion Knight", "Wind", 4, 8000);
+        mw.gameState.getP2Hand().add(cheap);
+        mw.gameState.getP2Hand().add(dear);
+
+        ActionResolver.parse("You may play 1 Card Name Onion Knight from your hand onto the field.", source)
+                .accept(mw.buildGameContext(false));
+
+        assertTrue(mw.p2ForwardCards.contains(dear), "the 4-cost Onion Knight, not the first one in hand");
+        assertEquals(List.of(cheap), mw.gameState.getP2Hand());
+    }
+
+    // --- A Stack entry's targets follow the cards they chose, not the slots --------------------
+
+    /** P1's Bolt on the Stack, aimed at P2's Forward slot {@code idx}; nothing resolved yet. */
+    private static StackEntry p1BoltAt(MainWindow mw, int idx, int damage) {
+        CardData bolt = makeSummon("Bolt", "Fire", 2, "Choose 1 Forward. Deal it " + damage + " damage.");
+        mw.gameState.getIdentity().put(bolt, true);
+        mw.pushSummonOnStack(bolt, true, 0, 0, false,
+                List.of(new ForwardTarget(false, idx, ForwardTarget.CardZone.FORWARD)), true);
+        return mw.gameState.peekStack();
+    }
+
+    @Test
+    void aStackTargetFollowsItsCardWhenAnEarlierSlotEmpties() {
+        MainWindow mw = new MainWindow();
+        placeP2Forward(mw, makeForward("First", "Wind", 3, 7000));
+        CardData second = makeForward("Second", "Wind", 3, 7000);
+        placeP2Forward(mw, second);
+        StackEntry bolt = p1BoltAt(mw, 1, 5000);
+
+        mw.breakFieldCard(false, ForwardTarget.CardZone.FORWARD, 0);
+
+        assertEquals(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)), mw.liveTargets(bolt),
+                "Second slid down to slot 0, and the target went with it");
+    }
+
+    @Test
+    void aStackTargetThatLeftTheFieldHitsNothingInItsOldSlot() {
+        MainWindow mw = new MainWindow();
+        placeP2Forward(mw, makeForward("First", "Wind", 3, 7000));
+        CardData second = makeForward("Second", "Wind", 3, 7000);
+        placeP2Forward(mw, second);
+        StackEntry bolt = p1BoltAt(mw, 0, 5000);
+
+        mw.breakFieldCard(false, ForwardTarget.CardZone.FORWARD, 0);
+        assertEquals(List.of(), mw.liveTargets(bolt), "the chosen Forward is gone, so nothing is chosen");
+        mw.showStackWindow();
+
+        assertEquals(0, mw.gameState.stackSize());
+        assertEquals(0, mw.p2ForwardDamage.get(0), "Second, now in slot 0, was never chosen and takes nothing");
+    }
+
+    // --- The AI saves its Onion Knight from a Stack effect that would break it -------------------
+
+    /**
+     * P2's turn: its Onion Knight 1-181H active in Forward slot 0 beside an Ally, an active Backup
+     * to pay the 《1》, and {@code hand} in hand; P1 then aims a Bolt of {@code damage} at the Knight.
+     */
+    private static MainWindow boltAimedAtP2OnionKnight(boolean p2sTurn, int damage, CardData... hand) {
+        MainWindow mw = new MainWindow();
+        mw.opponent = new ComputerPlayer(mw);
+        mw.gameState.startFirstTurn(p2sTurn ? GameState.Player.P2 : GameState.Player.P1);
+        while (mw.gameState.getCurrentPhase() != GameState.GamePhase.MAIN_1) mw.gameState.advancePhase();
+        placeP2Forward(mw, makeSwapOnionKnight());
+        // On the field since an earlier turn, so its 《Dull》 is payable — the factory reads no Haste.
+        mw.p2ForwardPlayedOnTurn.set(0, 0);
+        placeP2Forward(mw, makeForward("Ally", "Wind", 3, 8000));
+        mw.p2BackupCards[0]  = makePlainBackup("Backup", "Light", 2);
+        mw.p2BackupStates[0] = CardState.ACTIVE;
+        for (CardData c : hand) mw.gameState.getP2Hand().add(c);
+        p1BoltAt(mw, 0, damage);
+        mw.showStackWindow();
+        return mw;
+    }
+
+    @Test
+    void aiSavesItsOnionKnightFromALethalSummonOnItsOwnTurn() {
+        CardData dear = makeForward("Onion Knight", "Wind", 4, 8000);
+        MainWindow mw = boltAimedAtP2OnionKnight(true, 5000, dear);
+
+        assertEquals(2, mw.gameState.stackSize(), "its ability went on top of the Bolt, which still waits");
+        assertTrue(mw.gameState.getP2Hand().stream().anyMatch(c -> c.name().equals("Onion Knight") && c.cost() == 2),
+                "the Knight returned to hand as the cost");
+
+        mw.passStackPriority();   // P1 passes on the Knight's ability; the Bolt follows
+
+        assertEquals(0, mw.gameState.stackSize());
+        assertTrue(mw.p2ForwardCards.contains(dear), "the ability played the 4-cost Onion Knight");
+        for (int i = 0; i < mw.p2ForwardCards.size(); i++)
+            assertEquals(0, mw.p2ForwardDamage.get(i), "the Bolt's Forward is gone, so it hits no one");
+    }
+
+    @Test
+    void aiLetsANonLethalSummonResolveOnItsOnionKnight() {
+        MainWindow mw = boltAimedAtP2OnionKnight(true, 3000);
+        assertEquals(0, mw.gameState.stackSize(), "3000 does not break a 5000 Knight, so no response");
+        assertEquals(3000, mw.p2ForwardDamage.get(0));
+    }
+
+    @Test
+    void aiCannotSaveItsOnionKnightOnItsOpponentsTurn() {
+        MainWindow mw = boltAimedAtP2OnionKnight(false, 5000);
+        assertEquals(0, mw.gameState.stackSize(), "\"only during your turn\"");
+        assertTrue(mw.gameState.getP2BreakZone().stream().anyMatch(c -> c.name().equals("Onion Knight")));
+    }
+
+    // =========================================================================================
     // Mont Leonis 22-113L: "When Mont Leonis enters the field, choose 1 Fire Forward of cost 3 or
     // less in your Break Zone and 1 Fire Forward of cost 5 or less in your Break Zone. If you
     // control 5 or more Fire Backups, play them onto the field. They gain Haste until the end of

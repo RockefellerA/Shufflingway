@@ -106,7 +106,7 @@ final class ActionResolverCost {
         // A payoff that plays from hand needs a card there (14-019R Red XIII): the payer must not
         // discard it for the CP. Asked at resolution, against the hand as it is then.
         Function<GameContext, CardData> needed =
-                ActionResolverHand.firstPlayableFromHand(effectText, xValue);
+                ActionResolverHand.bestPlayableFromHand(effectText, xValue);
         if (needed != null)
             return ctx -> ctx.mayPayCostToEffect(cp, element, crystals, effect, needed.apply(ctx));
         return ctx -> ctx.mayPayCostToEffect(cp, element, crystals, effect);

@@ -610,11 +610,11 @@ public interface GameContext {
             boolean suppressAutoAbility, String withTrait);
 
     /**
-     * The first card {@link #playCharacterFromHand} would accept from this player's hand under the
-     * same filters, or {@code null} — asked, not played. The AI plays the first eligible card, so
-     * this is the card it would take.
+     * The card the AI would take if {@link #playCharacterFromHand} played from this player's hand
+     * under the same filters — the dearest eligible card, the first of them on a tie — or
+     * {@code null} when none is eligible. Asked, not played.
      */
-    CardData firstPlayableFromHand(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+    CardData bestPlayableFromHand(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             int costVal, String costCmp, int costVal2,
             String jobFilter, String cardNameFilter, String categoryFilter,
             String elementFilter, String excludeName, String excludeElement, String withTrait);

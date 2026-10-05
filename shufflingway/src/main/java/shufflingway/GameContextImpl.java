@@ -3670,7 +3670,7 @@ final class GameContextImpl implements GameContext {
 
 			/** The card {@code entry} is currently choosing — what "another" excludes. */
 			private CardData currentTargetOf(StackEntry entry) {
-				List<ForwardTarget> chosen = entry.preSelectedTargets();
+				List<ForwardTarget> chosen = mw.liveTargets(entry, false);
 				return chosen == null || chosen.isEmpty() ? null
 						: mw.fieldCardDataOrNull(chosen.get(0));
 			}
@@ -4499,15 +4499,29 @@ final class GameContextImpl implements GameContext {
 				return played;
 			}
 
-			@Override public CardData firstPlayableFromHand(boolean inclForwards, boolean inclBackups,
+			@Override public CardData bestPlayableFromHand(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, int costVal, String costCmp, int costVal2,
 					String jobFilter, String cardNameFilter, String categoryFilter,
 					String elementFilter, String excludeName, String excludeElement, String withTrait) {
-				for (CardData card : isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand())
-					if (playableFromHand(card, inclForwards, inclBackups, inclMonsters, costVal, costCmp,
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				List<Integer> eligible = new ArrayList<>();
+				for (int i = 0; i < hand.size(); i++)
+					if (playableFromHand(hand.get(i), inclForwards, inclBackups, inclMonsters, costVal, costCmp,
 							costVal2, jobFilter, cardNameFilter, categoryFilter, elementFilter, excludeName,
-							excludeElement, withTrait)) return card;
-				return null;
+							excludeElement, withTrait)) eligible.add(i);
+				return eligible.isEmpty() ? null : hand.get(dearestOf(hand, eligible));
+			}
+
+			/**
+			 * The hand index among {@code eligible} the AI plays when a "play 1 … from your hand"
+			 * effect lets it pick: the dearest card, the first of them on a tie. The play costs
+			 * nothing, so the dearest is the most it saves — and an Onion Knight 1-181H just returned
+			 * to hand by its own ability is never picked over the 4-cost Onion Knight beside it.
+			 */
+			private static int dearestOf(List<CardData> hand, List<Integer> eligible) {
+				int best = eligible.get(0);
+				for (int i : eligible) if (hand.get(i).cost() > hand.get(best).cost()) best = i;
+				return best;
 			}
 
 			/** Whether a play-from-hand under these filters may take {@code card} — see {@link #playCharacterFromHandFor}. */
@@ -4604,10 +4618,10 @@ final class GameContextImpl implements GameContext {
 					logEntry((forP1 ? "" : "[P2] ") + "No eligible cards in hand to play.");
 					return null;
 				}
-				// Cancelling the chooser is how "may" is declined. The AI plays the first eligible card.
+				// Cancelling the chooser is how "may" is declined. The AI plays the dearest eligible card.
 				int handIdx = pickOneOwnHandCard(forP1, hand, eligible, "play onto the field",
 						candidates -> mw.showCardImageChooser(candidates, "Play a card onto the field", true, false),
-						() -> eligible.get(0));
+						() -> dearestOf(hand, eligible));
 				if (handIdx < 0) return null;
 				Point origin = mw.handCardOrigin(forP1, handIdx);
 				CardData card = hand.remove(handIdx);
