@@ -38,6 +38,23 @@ public class CpPaymentUtils {
 	}
 
 	/**
+	 * The CP of each Element a cast owes: 1 for each of the card's own {@code baseElems}, plus 1 for
+	 * every entry of {@code extraElems} — a fixed extra cost's named tokens, one entry per token.
+	 * Fina 8-060L (Wind) with her 《Wind》《Wind》《Wind》 surcharge owes 4 Wind.
+	 */
+	public static Map<String, Integer> requiredCpByElement(String[] baseElems, String[] extraElems) {
+		Map<String, Integer> need = new java.util.LinkedHashMap<>();
+		for (String e : baseElems) need.put(e, 1);
+		if (extraElems != null) for (String e : extraElems) need.merge(e, 1, Integer::sum);
+		return need;
+	}
+
+	/** Whether {@code paid} has at least the CP of every Element {@code need} asks for. */
+	public static boolean requiredCpMet(Map<String, Integer> paid, Map<String, Integer> need) {
+		return need.entrySet().stream().allMatch(e -> paid.getOrDefault(e.getKey(), 0) >= e.getValue());
+	}
+
+	/**
 	 * Whether dulling {@code backups} (1 CP each) and discarding {@code discards} (2 CP each) meets
 	 * every per-element minimum in {@code needs} — the element half of a cost like 《Fire》, which a
 	 * total alone cannot check. Each card is credited to whichever of its elements is still most

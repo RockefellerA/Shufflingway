@@ -11003,14 +11003,9 @@ public class MainWindow {
 				if (result != JOptionPane.OK_OPTION) return;
 				showPaymentDialog(card, handIdx, ExtraPayment.cpX((int) spinner.getValue()));
 			}
-			case CP_FIXED -> {
-				// Fixed, non-negotiable amount — just confirm, no selection needed.
-				int result = JOptionPane.showConfirmDialog(frame,
-						"Pay " + ec.description() + " to cast " + card.name() + " with its extra cost?",
-						"Extra Cost: " + card.name(), JOptionPane.OK_CANCEL_OPTION);
-				if (result != JOptionPane.OK_OPTION) return;
-				showPaymentDialog(card, handIdx, ExtraPayment.cpFixed());
-			}
+			// Fixed amount, nothing to choose: the menu item already said what it costs, and the
+			// payment dialog asks for it.
+			case CP_FIXED -> showPaymentDialog(card, handIdx, ExtraPayment.cpFixed());
 			case CRYSTAL -> {
 				// Crystals are not CP, so the payment dialog below never sees them: confirm here,
 				// then pay the printed cost as usual and spend the Crystals with it.
@@ -12299,17 +12294,17 @@ public class MainWindow {
 	 */
 	void showPaymentDialog(CardData card, int handIdx, ExtraPayment extra) {
 		ExtraCost ec = extra == null ? null : card.extraCost();
-		// Only the generic half of a surcharge is added to the number the dialog asks for; its
-		// named Elements go in as extraElems, which the dialog folds in itself.
+		// The whole surcharge is added to the total the dialog asks for, and its named Elements go
+		// in as extraElems, one entry per token, each owing one more CP of that Element.
 		List<String> surcharge = ec != null && extra.type() == ExtraCost.Type.CP_FIXED
 				? ec.cpElements() : List.of();
-		int cost = effectiveCastCost(card) + (ec == null ? 0 : extra.extraGenericCp(ec));
+		int cost = effectiveCastCost(card) + (ec == null ? 0 : extra.extraCp(ec));
 		if (cost <= 0) {
 			executePlay(card, handIdx, List.of(), List.of(), Map.of(), Map.of(), extra);
 			return;
 		}
 		String[] extraElems = surcharge.isEmpty() ? null
-				: surcharge.stream().filter(e -> !e.isEmpty()).distinct().toArray(String[]::new);
+				: surcharge.stream().filter(e -> !e.isEmpty()).toArray(String[]::new);
 		new StandardPaymentDialog(frame, card, handIdx, cost,
 				gameState.getP1Hand(), cpPayableBackupCards(true), p1BackupStates, p1BackupUrls,
 				this::showZoomAt, this::hideZoom,

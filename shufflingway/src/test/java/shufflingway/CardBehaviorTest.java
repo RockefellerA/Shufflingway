@@ -4330,6 +4330,111 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Fina 8-060L: "If you pay the cost to play Fina onto the field, you may pay an extra
+    // 《Wind》《Wind》《Wind》. / When Fina enters the field, select 1 of the 2 following actions. If
+    // you paid the extra cost, select 2 of the 2 following actions instead. / "Deal 5000 damage to
+    // all the Forwards opponent controls." / "Activate all the Characters you control.""
+    //
+    // The surcharge's named Wind is CP like any other: the cast with it costs 9, 4 of them Wind.
+    // The payment dialog was asked for 6 with "at least 1 Wind", and the paid upgrade never reached
+    // the inline select shape, which read the printed "select 1" whether or not it was paid.
+    // =========================================================================================
+
+    private static final String FINA_TEXT =
+            "If you pay the cost to play Fina onto the field, you may pay an extra 《Wind》《Wind》《Wind》.[[br]]"
+            + " When Fina enters the field, select 1 of the 2 following actions. If you paid the extra cost,"
+            + " select 2 of the 2 following actions instead.[[br]]"
+            + " \"Deal 5000 damage to all the Forwards opponent controls.\"[[br]]"
+            + " \"Activate all the Characters you control.\"";
+
+    private static CardData makeFina() {
+        return makeForwardWithText("Fina", "Wind", 6, 9000, FINA_TEXT);
+    }
+
+    @Test
+    void finasExtraCostAddsItsThreeWindToTheCastCost() {
+        CardData fina = makeFina();
+        assertEquals(3, ExtraPayment.cpFixed().extraCp(fina.extraCost()), "every token is CP, named or not");
+        assertEquals(Map.of("Wind", 4),
+                CpPaymentUtils.requiredCpByElement(fina.elements(), new String[]{ "Wind", "Wind", "Wind" }),
+                "her own 1 Wind plus the surcharge's 3");
+        Map<String, Integer> need = Map.of("Wind", 4);
+        assertFalse(CpPaymentUtils.requiredCpMet(Map.of("Wind", 3), need));
+        assertTrue(CpPaymentUtils.requiredCpMet(Map.of("Wind", 4), need));
+    }
+
+    /** P1 holding {@code fina} and the cards in {@code hand}, with {@code windBackups} active Wind Backups. */
+    private static MainWindow boardToCastFina(CardData fina, int windBackups, CardData... hand) {
+        MainWindow mw = new MainWindow();
+        mw.gameState.getP1Hand().add(fina);
+        for (CardData c : hand) mw.gameState.getP1Hand().add(c);
+        for (int i = 0; i < windBackups; i++) {
+            mw.p1BackupCards[i]  = makePlainBackup("Wind Backup " + i, "Wind", 2);
+            mw.p1BackupStates[i] = CardState.ACTIVE;
+        }
+        return mw;
+    }
+
+    @Test
+    void finasExtraCostIsUnaffordableWithoutFourWind() {
+        CardData fina = makeFina();
+        // 3 Wind Backups and 6 CP of Fire discards: 9 CP, but only 3 of it Wind.
+        MainWindow mw = boardToCastFina(fina, 3,
+                makeForward("F1", "Fire", 2, 5000), makeForward("F2", "Fire", 2, 5000),
+                makeForward("F3", "Fire", 2, 5000));
+        assertTrue(mw.costs.canAffordCard(fina, 0), "the printed 6 is payable");
+        assertFalse(mw.costs.canAffordExtraCost(fina, 0, fina.extraCost()), "the surcharge needs a 4th Wind");
+    }
+
+    @Test
+    void finasExtraCostIsAffordableWithFourWindAmongNine() {
+        CardData fina = makeFina();
+        // 3 Wind Backups, a Wind discard (2 more Wind) and 4 CP of Fire discards: 5 Wind among 11.
+        MainWindow mw = boardToCastFina(fina, 3,
+                makeForward("W1", "Wind", 2, 5000), makeForward("F1", "Fire", 2, 5000),
+                makeForward("F2", "Fire", 2, 5000));
+        assertTrue(mw.costs.canAffordExtraCost(fina, 0, fina.extraCost()));
+    }
+
+    @Test
+    void finasModalOptionsSurviveBothExtraCostRewrites() {
+        String effect = makeFina().autoAbilities().get(0).effectText();
+        assertEquals("Select 2 of the 2 following actions. \"Deal 5000 damage to all the Forwards opponent"
+                + " controls.\" \"Activate all the Characters you control.\"",
+                ActionResolver.applyExtraCostPaid(effect));
+        assertEquals("select 1 of the 2 following actions. \"Deal 5000 damage to all the Forwards opponent"
+                + " controls.\" \"Activate all the Characters you control.\"",
+                ActionResolver.stripExtraCostClause(effect));
+    }
+
+    /** P2's Fina enters over a dull P2 Forward, facing a 9000 P1 Forward; the AI makes her selection. */
+    private static MainWindow finaEnters(boolean paidExtraCost) {
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, makeForward("Target", "Fire", 3, 9000));
+        placeP2Forward(mw, makeForward("Ally", "Wind", 3, 7000));
+        mw.p2ForwardStates.set(0, CardState.DULL);
+        CardData fina = makeFina();
+        mw.gameState.getIdentity().put(fina, false);
+        mw.placeP2CardInForwardZone(fina, paidExtraCost);
+        return mw;
+    }
+
+    @Test
+    void finaWithHerExtraCostPaidResolvesBothActions() {
+        MainWindow mw = finaEnters(true);
+        assertEquals(5000, mw.p1ForwardDamage.get(0), "the 5000 sweep resolved");
+        assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0), "and so did the activation");
+    }
+
+    @Test
+    void finaWithoutHerExtraCostResolvesExactlyOneAction() {
+        MainWindow mw = finaEnters(false);
+        boolean swept     = mw.p1ForwardDamage.get(0) == 5000;
+        boolean activated = mw.p2ForwardStates.get(0) == CardState.ACTIVE;
+        assertTrue(swept ^ activated, "one of the two, not both and not neither");
+    }
+
+    // =========================================================================================
     // Mont Leonis 22-113L: "When Mont Leonis enters the field, choose 1 Fire Forward of cost 3 or
     // less in your Break Zone and 1 Fire Forward of cost 5 or less in your Break Zone. If you
     // control 5 or more Fire Backups, play them onto the field. They gain Haste until the end of

@@ -10,6 +10,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -633,10 +634,11 @@ class CostCalculator {
 	}
 
 	/**
-	 * Like {@link #canAffordCard(CardData, int)} but adds {@code extraGenericCost} to the CP
-	 * total needed and {@code extraRequiredElems} to the set of elements that must have at
-	 * least one available source — used to pre-check a fixed-CP extra cost (e.g. "pay 《Wind》《2》
-	 * as an extra cost") on top of the card's own casting cost.
+	 * Like {@link #canAffordCard(CardData, int)} but on top of the card's own casting cost — used to
+	 * pre-check a fixed-CP extra cost (e.g. "pay 《Wind》《2》 as an extra cost"). The surcharge's
+	 * {@code extraGenericCost} and its named {@code extraRequiredElems}, one entry per token, are
+	 * both added to the CP total, and each named token owes one more CP of its Element: Fina
+	 * 8-060L's 《Wind》《Wind》《Wind》 needs 4 Wind CP in all, counted as the payment dialog counts it.
 	 *
 	 * <p>Counts what {@code StandardPaymentDialog} will accept, so the hand's playable ring and the
 	 * dialog agree: every active Backup and every discardable card, the off-Element ones towards
@@ -658,7 +660,8 @@ class CostCalculator {
 		List<CardData> hand  = mw.gameState.getP1Hand();
 		Set<String> ldGrants = mw.lightDarkDiscardGrants(true);
 		int totalGenerate = 0;
-		int totalCostNeeded = effectiveCastCost(card) + extraGenericCost;
+		int totalCostNeeded = effectiveCastCost(card) + extraGenericCost
+				+ (extraRequiredElems == null ? 0 : extraRequiredElems.length);
 
 		// A cost reduced to nothing is paid with nothing: the cast opens no payment, so the
 		// per-Element minimum below, which is a rule about a payment, asks for no source. It had
@@ -696,6 +699,7 @@ class CostCalculator {
 			if (ex == 0) unbanked.add(e);
 		}
 		List<Set<String>> sources = new ArrayList<>();
+		List<Integer> sourceCp = new ArrayList<>();   // what each of sources produces
 		for (int i = 0; i < hand.size() && discardsPay; i++) {
 			if (i == excludeHandIdx) continue;
 			CardData h = hand.get(i);
@@ -704,6 +708,7 @@ class CostCalculator {
 			if (producible.isEmpty() && !offElementPays) continue;
 			totalGenerate += 2;
 			sources.add(producible);
+			sourceCp.add(2);
 		}
 		for (int i = 0; i < mw.p1BackupCards.length && !mw.backupCpSuppressed(true); i++) {
 			if (mw.p1BackupCards[i] != null && mw.p1BackupStates[i] == CardState.ACTIVE
@@ -719,6 +724,7 @@ class CostCalculator {
 				if (isAnyElem) {
 					totalGenerate += 1;
 					sources.add(elementsProducible(elems, e -> true));
+					sourceCp.add(1);
 				} else {
 					List<String> grantedSpecific = mw.getGrantedSpecificElementsCp(bkp);
 					Set<String> producible = elementsProducible(elems,
@@ -727,11 +733,22 @@ class CostCalculator {
 					if (!producible.isEmpty() || offElementPays) {
 						totalGenerate += 1;
 						sources.add(producible);
+						sourceCp.add(1);
 					}
 				}
 			}
 		}
 		if (!CpPaymentUtils.distinctSourcesCover(unbanked, sources)) return false;
+		// An Element owed more than 1 CP — only an extra cost's tokens make one — needs that much
+		// from what is banked in it and the sources able to make it.
+		for (Map.Entry<String, Integer> need
+				: CpPaymentUtils.requiredCpByElement(base, extraRequiredElems).entrySet()) {
+			if (need.getValue() <= 1) continue;
+			int available = mw.gameState.getP1CpForElement(need.getKey());
+			for (int s = 0; s < sources.size(); s++)
+				if (sources.get(s).contains(need.getKey())) available += sourceCp.get(s);
+			if (available < need.getValue()) return false;
+		}
 		return totalExisting + totalGenerate >= totalCostNeeded;
 	}
 
@@ -763,7 +780,7 @@ class CostCalculator {
 			case CRYSTAL      -> mw.playerCrystals(true) >= ec.count();
 			case CP_FIXED     -> {
 				String[] extraElems = ec.cpElements().stream().filter(e -> !e.isEmpty())
-						.distinct().toArray(String[]::new);
+						.toArray(String[]::new);
 				int extraGeneric = (int) ec.cpElements().stream().filter(String::isEmpty).count();
 				yield canAffordCard(card, handIdx, extraElems, extraGeneric);
 			}

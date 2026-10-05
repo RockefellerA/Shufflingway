@@ -108,6 +108,9 @@ public class ActionResolver {
      * </ul>
      */
     public static String applyExtraCostPaid(String text) {
+        Matcher opts = TRAILING_QUOTED_OPTIONS.matcher(text);
+        if (opts.matches() && IF_PAID_EXTRA_COST.matcher(opts.group("head")).find())
+            return applyExtraCostPaid(opts.group("head")) + " " + opts.group("opts").trim();
         java.util.regex.Matcher m = IF_PAID_EXTRA_COST.matcher(text);
         if (!m.find()) return text;
 
@@ -144,8 +147,26 @@ public class ActionResolver {
 
     /** Strips the "If you paid the extra cost, … ." clause (single- or multi-sentence) from the end of {@code text}. */
     public static String stripExtraCostClause(String text) {
+        Matcher opts = TRAILING_QUOTED_OPTIONS.matcher(text);
+        if (opts.matches() && IF_PAID_EXTRA_COST.matcher(opts.group("head")).find()) {
+            // Nothing left of the head means the whole ability was the condition; the options it
+            // listed go with it.
+            String head = stripExtraCostClause(opts.group("head"));
+            return head.isEmpty() ? "" : head + " " + opts.group("opts").trim();
+        }
         return text.replaceAll("(?i)\\s*If\\s+you\\s+paid\\s+the\\s+extra\\s+cost.*$", "").trim();
     }
+
+    /**
+     * A modal ability whose quoted options are printed after its extra-cost upgrade — Fina
+     * 8-060L's "select 1 of the 2 following actions. If you paid the extra cost, select 2 of the 2
+     * following actions instead. "…" "…"". The options belong to whichever count the branch
+     * leaves, so both rewrites above work on {@code head} and put {@code opts} back after it.
+     */
+    private static final Pattern TRAILING_QUOTED_OPTIONS = Pattern.compile(
+        "^(?<head>.*?[.!])(?<opts>(?:\\s*\"[^\"]+\")+)\\s*$",
+        Pattern.DOTALL
+    );
 
     private static String removeLastSentence(String text) {
         int last = text.lastIndexOf('.');

@@ -42,6 +42,8 @@ import static shufflingway.graphics.CardAnimation.CARD_H;
 import static shufflingway.graphics.CardAnimation.CARD_W;
 import static shufflingway.CpPaymentUtils.contributingElement;
 import static shufflingway.CpPaymentUtils.matchesAnyElement;
+import static shufflingway.CpPaymentUtils.requiredCpByElement;
+import static shufflingway.CpPaymentUtils.requiredCpMet;
 
 /** CP payment dialog for a standard (non-LB, non-alt-cost) card play. */
 public class StandardPaymentDialog {
@@ -107,9 +109,10 @@ public class StandardPaymentDialog {
     }
 
     /**
-     * @param extraRequiredElements additional elements (beyond the card's own) that must each
-     *     have at least 1 CP paid — used for a fixed-CP extra cost like "pay 《Wind》《2》 as an
-     *     extra cost" on top of the card's own casting cost. Nullable/empty when not applicable.
+     * @param extraRequiredElements a fixed-CP extra cost's named Element tokens, one entry per token,
+     *     each owing 1 more CP of that Element on top of the card's own casting cost — Fina 8-060L's
+     *     《Wind》《Wind》《Wind》 is three entries, taking her Wind requirement from 1 to 4. The
+     *     tokens are already counted in {@code cost}. Nullable/empty when not applicable.
      * @param ldDiscardGrants Light/Dark elements the player may discard from hand for CP via a
      *     field grant (see {@code MainWindow.lightDarkDiscardGrants}); empty when none apply.
      */
@@ -238,8 +241,9 @@ public class StandardPaymentDialog {
             }
         }
 
-        Map<String, Integer> costByElem = new LinkedHashMap<>();
-        if (!isLD) for (String e : elems) costByElem.put(e, 1);
+        Map<String, Integer> costByElem = isLD ? new LinkedHashMap<>()
+                : castElemOnly != null ? requiredCpByElement(elems, null)
+                : requiredCpByElement(card.elements(), extraRequiredElements);
 
         // An Element-locked cast pins every cell to that Element; a Light/Dark cast pins none.
         CpPaymentBar cpBar = new CpPaymentBar(cost,
@@ -303,7 +307,7 @@ public class StandardPaymentDialog {
             // minimums below constrain the payment.  CP produced beyond the cost is wasted.
             boolean canAddBkp  = true;
             canAddDiscard[0]   = !backupCpOnly;
-            boolean allElems   = isLD || cpByElem.values().stream().allMatch(v -> v >= 1);
+            boolean allElems   = isLD || requiredCpMet(cpByElem, costByElem);
             confirmBtn.setEnabled(total >= cost && allElems);
             cpBar.update(paid, total >= cost && allElems);
             if (elems.length == 1) {

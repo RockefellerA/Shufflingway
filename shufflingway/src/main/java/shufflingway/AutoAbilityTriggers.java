@@ -5119,16 +5119,11 @@ final class AutoAbilityTriggers {
 		// opponentMay effects run from the opponent's context
 		boolean effectIsP1 = fa.opponentMay() ? !isP1 : isP1;
 
-		// The "when you do so" family and its siblings resolve here and now rather than going on the
-		// Stack, so the ability source they run under has to be established here — the Stack route
-		// sets it from the entry (MainWindow's isAutoAbility() arm) and these never reach it.
-		if (withAbilitySource(source, () -> dispatchInlineAutoAbility(fa, source, isP1, effectIsP1)))
-			return;
-
 		// The text this ability will actually resolve, which is not always the text it prints: an
 		// "If you paid the extra cost, …" clause is rewritten into the branch that was taken. Worked
-		// out once here and reused at the push below, so the gate asks the same question resolution
-		// will answer.
+		// out once here, ahead of the inline shapes as well as the push below, so every route
+		// resolves the branch that was taken — Fina 8-060L's "select 2 of the 2" upgrade is read by
+		// the inline select shape, which on the printed text only ever offered 1.
 		String resolvedText = paidExtraCost
 				? ActionResolver.applyExtraCostPaid(fa.effectText())
 				: ActionResolver.stripExtraCostClause(fa.effectText());
@@ -5140,6 +5135,13 @@ final class AutoAbilityTriggers {
 			mw.logEntry("[AutoAbility] " + source.name() + " — extra cost not paid, no effect");
 			return;
 		}
+		AutoAbility resolvedFa = resolvedText.equals(fa.effectText()) ? fa : fa.withEffectText(resolvedText);
+
+		// The "when you do so" family and its siblings resolve here and now rather than going on the
+		// Stack, so the ability source they run under has to be established here — the Stack route
+		// sets it from the entry (MainWindow's isAutoAbility() arm) and these never reach it.
+		if (withAbilitySource(source, () -> dispatchInlineAutoAbility(resolvedFa, source, isP1, effectIsP1)))
+			return;
 
 		// Verify the effect is parseable before putting it on the stack. Asked of the resolved text
 		// rather than the printed text: Summoner's prints as "if you paid the extra cost, your

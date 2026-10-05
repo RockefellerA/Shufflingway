@@ -73,11 +73,14 @@ public record ExtraPayment(ExtraCost.Type type, int crystals, int xValue,
         };
     }
 
-    /** The extra generic CP this surcharge adds to the cost the payment dialog asks for. */
-    public int extraGenericCp(ExtraCost cost) {
+    /**
+     * The CP this surcharge adds to the total the payment dialog asks for — every token of a fixed
+     * surcharge, named Elements included: Fina 8-060L's 《Wind》《Wind》《Wind》 takes her 6 to 9.
+     */
+    public int extraCp(ExtraCost cost) {
         return switch (type) {
             case CP_X     -> xValue;
-            case CP_FIXED -> (int) cost.cpElements().stream().filter(String::isEmpty).count();
+            case CP_FIXED -> cost.cpElements().size();
             default       -> 0;
         };
     }
