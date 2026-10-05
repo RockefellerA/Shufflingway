@@ -177,9 +177,9 @@ public class WarpPaymentDialog {
                 eligibleBackupSlots.add(i);
         }
 
-        JLabel  cpLabel    = new JLabel();
-        cpLabel.setFont(FontLoader.loadPixelFont(11));
-        cpLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        // The cost's Element requirements pin their cells; under an any-element grant there are
+        // none, so every cell is generic.
+        CpPaymentBar cpBar = new CpPaymentBar(totalCost, costByElem);
         JButton confirmBtn = new JButton("Confirm Warp");
         confirmBtn.setFont(FontLoader.loadPixelFont(11));
 
@@ -195,23 +195,32 @@ public class WarpPaymentDialog {
         Runnable updateAll = () -> {
             Map<String, Integer> cpByElem = new LinkedHashMap<>(bankCpByElem);
             int extraCp = 0;
+            // The Element each source's CP is drawn in on the gauge; the accounting is unaffected.
+            List<CpPaymentBar.Contribution> paid = new ArrayList<>();
             for (int slot : selectedBackups) {
+                String produced = backupElementOverrides.getOrDefault(slot, backupCards[slot].element());
                 if (backupElementOverrides.containsKey(slot)) {
-                    String overElem = backupElementOverrides.get(slot);
-                    if (cpByElem.containsKey(overElem)) cpByElem.merge(overElem, 1, Integer::sum);
+                    if (cpByElem.containsKey(produced)) cpByElem.merge(produced, 1, Integer::sum);
                     else extraCp++;
                 } else if (matchesAnyElement(backupCards[slot], elems)) {
-                    cpByElem.merge(contributingElement(backupCards[slot], elems, cpByElem, costByElem), 1, Integer::sum);
+                    produced = contributingElement(backupCards[slot], elems, cpByElem, costByElem);
+                    cpByElem.merge(produced, 1, Integer::sum);
                 } else {
                     extraCp++;
                 }
+                paid.add(new CpPaymentBar.Contribution("b" + slot, produced, 1));
             }
             for (int idx : selectedDiscards) {
-                if (matchesAnyElement(hand.get(idx), elems))
-                    cpByElem.merge(contributingElement(hand.get(idx), elems, cpByElem, costByElem), 2, Integer::sum);
-                else extraCp += 2;
+                String produced = hand.get(idx).element();
+                if (matchesAnyElement(hand.get(idx), elems)) {
+                    produced = contributingElement(hand.get(idx), elems, cpByElem, costByElem);
+                    cpByElem.merge(produced, 2, Integer::sum);
+                } else extraCp += 2;
+                paid.add(new CpPaymentBar.Contribution("d" + idx, produced, 2));
             }
             extraCp += breaks.contribute(cpByElem, null);
+            breaks.forEachChoice((slot, picked, amount) ->
+                    paid.add(new CpPaymentBar.Contribution("x" + slot, picked, amount)));
             breaks.refresh();
             int total       = cpByElem.values().stream().mapToInt(Integer::intValue).sum() + extraCp;
             // Any amount of CP may be produced when paying a cost; excess beyond the cost is wasted.
@@ -220,6 +229,7 @@ public class WarpPaymentDialog {
             boolean satisfied = cpByElem.entrySet().stream()
                     .allMatch(e -> e.getValue() >= costByElem.getOrDefault(e.getKey(), 0));
             confirmBtn.setEnabled(total >= totalCost && satisfied);
+            cpBar.update(paid, total >= totalCost && satisfied);
 
             StringBuilder sb = new StringBuilder("Warp CP: " + total + " / " + totalCost + "  (");
             boolean first = true;
@@ -234,7 +244,7 @@ public class WarpPaymentDialog {
                 first = false;
             }
             if (first) sb.append("free");
-            cpLabel.setText(sb.append(")").toString());
+            cpBar.setToolTipText(sb.append(")").toString());
 
             for (int i = 0; i < backupLbls.size(); i++) {
                 JLabel lbl = backupLbls.get(i); boolean sel = selectedBackups.contains(backupSlots.get(i));
@@ -383,7 +393,7 @@ public class WarpPaymentDialog {
         JPanel topPanel = new JPanel(new java.awt.BorderLayout(0, 4));
         topPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
         topPanel.add(titleLabel, java.awt.BorderLayout.NORTH);
-        topPanel.add(cpLabel,    java.awt.BorderLayout.CENTER);
+        topPanel.add(cpBar,      java.awt.BorderLayout.CENTER);
         if (anyElement) {
             JLabel grantNote = new JLabel(
                     "Your Warp cost can be paid with CP of any Element.", SwingConstants.CENTER);
