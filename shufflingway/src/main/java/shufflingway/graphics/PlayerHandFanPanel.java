@@ -456,16 +456,17 @@ public class PlayerHandFanPanel extends JComponent {
 	}
 
 	/**
-	 * An eye on the card's left edge, just under the cost: the opponent knows this card is in your
-	 * hand. Placed where a seated card still shows it — the top of a card is what peeks out of the
-	 * hand, and each card's right side lies under its neighbour.
+	 * An eye centred on the card's top edge, half over the card and half above it: the opponent
+	 * knows this card is in your hand. The top is what peeks out of the hand, and the centre is
+	 * clear of the right-hand neighbour that covers each card's right side. The panel's overhang
+	 * above the seated cards is what the upper half draws into.
 	 */
 	private static void drawShownBadge(Graphics2D g0) {
 		Graphics2D g = (Graphics2D) g0.create();
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 		double d  = CardAnimation.CARD_W * 0.17;
-		double cx = d / 2 + CardAnimation.CARD_W * 0.05;
-		double cy = HandFanLayout.peekHeight() - d / 2 - CardAnimation.CARD_W * 0.03;
+		double cx = CardAnimation.CARD_W / 2.0;
+		double cy = 0;
 
 		g.setColor(SHOWN_DISC);
 		g.fill(new Ellipse2D.Double(cx - d / 2, cy - d / 2, d, d));
