@@ -189,7 +189,24 @@ final class GameContextImpl implements GameContext {
 						"their hand holds " + hand.size() + " cards here"));
 		List<CardData> shown = new ArrayList<>();
 		for (int i : picked) if (i >= 0 && i < hand.size()) shown.add(hand.get(i));
+		mw.noteShownInHand(isP1, shown);
 		return shown;
+	}
+
+	/**
+	 * Runs {@code body}, then records as shown each of {@code revealed} it put into this player's
+	 * hand — both players watched it go in. For the reveal-then-choose dialogs, which add to the hand
+	 * themselves; matched by identity against the hand as it stood before.
+	 */
+	private void revealedIntoHand(List<CardData> revealed, Runnable body) {
+		List<CardData> hand   = mw.playerHand(isP1);
+		List<CardData> before = new ArrayList<>(hand);
+		body.run();
+		List<CardData> arrived = new ArrayList<>();
+		for (CardData c : hand)
+			if (MainWindow.identityIndexOf(before, c) < 0 && MainWindow.identityIndexOf(revealed, c) >= 0)
+				arrived.add(c);
+		mw.noteShownInHand(isP1, arrived);
 	}
 
 	/** A card's Elements, lowercased — one entry per Element a multi-Element card prints. */
@@ -3881,17 +3898,21 @@ final class GameContextImpl implements GameContext {
 	// Reveal effects driven by a dialog
 	// =========================================================================================
 			@Override public void revealOpponentHand() {
-				List<CardData> hand = mw.gameState.getP2Hand();
+				List<CardData> hand = mw.playerHand(!isP1);
 				if (hand.isEmpty()) {
 					logEntry("Opponent's hand is empty.");
 					return;
 				}
-				StringBuilder sb = new StringBuilder("Opponent's hand revealed: ");
+				StringBuilder sb = new StringBuilder((isP1 ? "" : "[P2] ") + "Opponent's hand revealed: ");
 				for (int i = 0; i < hand.size(); i++) {
 					if (i > 0) sb.append(", ");
 					sb.append(hand.get(i).name());
 				}
 				logEntry(sb.toString());
+				mw.noteShownInHand(!isP1, hand);
+				// The window is for the player looking. When P2 resolves this it is P1's own hand
+				// being shown, which P1 already holds — the eyes on their fan say what P2 now knows.
+				if (!isP1) return;
 
 				JDialog dlg = new JDialog(mw.frame, "Opponent's Hand (" + hand.size() + " cards)", false);
 				dlg.setResizable(false);
@@ -4127,6 +4148,7 @@ final class GameContextImpl implements GameContext {
 									mw.gameState.getP2Hand().add(card);
 									mw.refreshP2HandCountLabel();
 								}
+								mw.noteShownInHand(isP1, List.of(card));
 								logEntry(p + card.name() + " added to hand from reveal");
 							}
 							case "putToBreakZone" -> {
@@ -4246,6 +4268,7 @@ final class GameContextImpl implements GameContext {
 					mw.gameState.getP2Hand().add(card);
 					mw.refreshP2HandCountLabel();
 				}
+				mw.noteShownInHand(isP1, List.of(card));
 				logEntry((isP1 ? "" : "[P2] ") + card.name() + " added to hand from reveal");
 			}
 
@@ -4482,6 +4505,7 @@ final class GameContextImpl implements GameContext {
 					mw.gameState.getP2Hand().add(card);
 					mw.refreshP2HandCountLabel();
 				}
+				mw.noteShownInHand(isP1, List.of(card));
 				logEntry((isP1 ? "" : "[P2] ") + card.name() + " added to hand");
 			}
 
@@ -4853,6 +4877,7 @@ final class GameContextImpl implements GameContext {
 				CardData revealed = hand.get(idx);
 				// A revealed card is public, so it is named for both players whoever revealed it.
 				logEntry((isP1 ? "" : "[P2] ") + "Randomly revealed: " + revealed.name());
+				mw.noteShownInHand(isP1, List.of(revealed));
 				if (!revealed.isSummon()) {
 					logEntry(revealed.name() + " is not a Summon — no cast");
 					return;
@@ -5139,6 +5164,7 @@ final class GameContextImpl implements GameContext {
 						for (java.util.Iterator<CardData> it = deck.iterator(); it.hasNext(); )
 							if (it.next() == pick) { it.remove(); break; }
 						mw.playerHand(seatIsP1).add(pick);
+						mw.noteShownInHand(seatIsP1, List.of(pick));
 						logEntry((seatIsP1 ? "" : "[P2] ") + pick.name() + " → hand (search)");
 						if (seatIsP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
 						mw.animateCardDraw(seatIsP1, 1);
@@ -6581,6 +6607,7 @@ final class GameContextImpl implements GameContext {
 						revealed.stream().map(CardData::name).collect(Collectors.joining(", ")) +
 						" (total CP=" + totalCp + ")");
 				hand.addAll(revealed);
+				mw.noteShownInHand(isP1, revealed);
 				if (isP1) { mw.refreshP1DeckLabel(); mw.refreshP1HandLabel(); }
 				else       { mw.refreshP2DeckLabel(); mw.refreshP2HandCountLabel(); }
 				return totalCp;
@@ -7483,7 +7510,17 @@ final class GameContextImpl implements GameContext {
 	// Look at / reveal the top of the deck
 	// =========================================================================================
 			@Override public void lookAtTopDeck(LookConfig config) {
-				lastLookAddedToHand = mw.lookDialogs().show(config, isP1, mw.isP2Cpu());
+				// A private look adds a card nobody else saw; only a reveal makes it known.
+				if (!config.reveal() || config.opponentDeck()) {
+					lastLookAddedToHand = mw.lookDialogs().show(config, isP1, mw.isP2Cpu());
+					return;
+				}
+				List<CardData> top = new ArrayList<>();
+				for (CardData c : isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()) {
+					if (top.size() >= config.count()) break;
+					top.add(c);
+				}
+				revealedIntoHand(top, () -> lastLookAddedToHand = mw.lookDialogs().show(config, isP1, mw.isP2Cpu()));
 			}
 
 			@Override public void revealTopAddToHandIfType(String cardType) {
@@ -7500,6 +7537,7 @@ final class GameContextImpl implements GameContext {
 				deck.pollFirst();
 				if (isP1) { mw.gameState.getP1Hand().add(top); mw.refreshP1HandLabel();      mw.refreshP1DeckLabel(); }
 				else      { mw.gameState.getP2Hand().add(top); mw.refreshP2HandCountLabel(); mw.refreshP2DeckLabel(); }
+				mw.noteShownInHand(isP1, List.of(top));
 				logEntry("Reveal top card: " + top.name() + " — a " + cardType + " → hand");
 			}
 
@@ -8096,6 +8134,8 @@ final class GameContextImpl implements GameContext {
 			 */
 			private List<CardData> pickFromOpponentHand(List<CardData> hand, Predicate<CardData> eligible,
 					int count, String verbPhrase, String buttonLabel) {
+				// The whole hand is in view, so all of it is known whichever cards are taken.
+				mw.noteShownInHand(!isP1, hand);
 				List<Integer> idxs = new ArrayList<>();
 				for (int i = 0; i < hand.size(); i++) if (eligible == null || eligible.test(hand.get(i))) idxs.add(i);
 				List<Integer> picks = mw.selectOpponentHandCards(isP1, idxs, count,
@@ -8191,11 +8231,14 @@ final class GameContextImpl implements GameContext {
 				if (revealed.isEmpty()) return;
 
 				StringBuilder shown = new StringBuilder();
+				List<CardData> shownCards = new ArrayList<>();
 				for (int i : revealed) {
 					if (shown.length() > 0) shown.append(", ");
 					shown.append(oppHand.get(i).name());
+					shownCards.add(oppHand.get(i));
 				}
 				logEntry("[Opponent] Randomly reveals " + revealed.size() + " card(s) from hand: " + shown);
+				mw.noteShownInHand(!isP1, shownCards);
 
 				// A multi-Element card is a card of each of its Elements, so containsElement is
 				// the test rather than an equality on the printed string.
@@ -8335,6 +8378,7 @@ final class GameContextImpl implements GameContext {
 			 * {@code hand}, or none; the AI takes the costliest. Crosses as a position in the hand.
 			 */
 			private CardData pickOptionallyFromRevealedHand(List<CardData> hand, List<CardData> choices) {
+				mw.noteShownInHand(!isP1, hand);
 				List<Integer> idxs = new ArrayList<>();
 				for (CardData c : choices) {
 					int i = indexByIdentity(hand, c);
@@ -9190,14 +9234,24 @@ final class GameContextImpl implements GameContext {
 			@Override public void mayRevealCardByElementFromHand(String element) {
 				List<CardData> hand = mw.playerHand(isP1);
 				if (hand.stream().noneMatch(c -> c.containsElement(element))) { markEffectFizzled(); return; }
-				// Only whether a card was shown matters to the effect, so that is what crosses.
-				// The AI always shows one.
-				boolean revealed = mw.decideYesNo(isP1,
-						"Waiting for your opponent to decide whether to reveal a card...",
-						() -> mw.showRevealByElementFromHandDialog(element),
-						() -> true);
-				if (!revealed) { markEffectFizzled(); return; }
-				if (!isP1) logEntry("[P2] Reveals a " + element + " card from hand");
+				List<Integer> eligible = new ArrayList<>();
+				for (int i = 0; i < hand.size(); i++) if (hand.get(i).containsElement(element)) eligible.add(i);
+				// Only whether a card was shown matters to the effect, but which one crosses too: the
+				// card is public once shown, and both fans draw it. Nothing chosen is a pass. The AI
+				// always shows one.
+				List<Integer> shown = mw.decide(PlayerChoice.by(isP1, ChoiceKind.REVEAL_HAND)
+						.prompting("Waiting for your opponent to decide whether to reveal a card...")
+						.locally(() -> {
+							int i = mw.showRevealByElementFromHandDialog(element);
+							return i < 0 ? List.of() : List.of(i);
+						})
+						.byCpu(() -> List.of(eligible.get(0)))
+						.legalWhen(a -> a.size() <= 1 && eligible.containsAll(a),
+								"only one " + element + " card in their hand can be revealed here"));
+				if (shown.isEmpty()) { markEffectFizzled(); return; }
+				CardData card = hand.get(shown.get(0));
+				logEntry((isP1 ? "" : "[P2] ") + "Reveals " + card.name() + " (" + element + ") from hand");
+				mw.noteShownInHand(isP1, List.of(card));
 			}
 
 
@@ -9582,6 +9636,7 @@ final class GameContextImpl implements GameContext {
 						() -> 0);
 				CardData toReveal = eligible.get(Math.max(0, pick));
 				logEntry("[Effect] Reveals " + toReveal.name() + " from hand");
+				mw.noteShownInHand(isP1, List.of(toReveal));
 				drawCards(drawCount);
 			}
 
@@ -10641,6 +10696,7 @@ final class GameContextImpl implements GameContext {
 				bz.remove(picked);
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				hand.add(picked);
+				mw.noteShownInHand(isP1, List.of(picked));
 				logEntry(picked.name() + " → " + (isP1 ? "P1" : "P2") + " hand from Break Zone");
 				if (isP1) { mw.refreshP1BreakLabel(); mw.refreshP1HandLabel(); }
 				else       { mw.refreshP2BreakLabel(); mw.refreshP2HandCountLabel(); }
@@ -10702,6 +10758,7 @@ final class GameContextImpl implements GameContext {
 				bz.remove(kept);
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				hand.add(kept);
+				mw.noteShownInHand(isP1, List.of(kept));
 				logEntry((isP1 ? "" : "[P2] ") + kept.name() + " → hand from Break Zone");
 				// Remove the rest from the game
 				for (CardData c : pool) {
@@ -11732,6 +11789,8 @@ final class GameContextImpl implements GameContext {
 
 				CardData taken = dz.remove(dzIdx);
 				hand.add(taken);
+				// The Damage Zone is face up, so the card it gives up is known in hand.
+				mw.noteShownInHand(isP1, List.of(taken));
 				logEntry((isP1 ? "" : "[P2] ") + "Adds " + taken.name() + " from Damage Zone to hand");
 				mw.refreshDamageZoneSlots(isP1);
 				if (isP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
@@ -11991,8 +12050,8 @@ final class GameContextImpl implements GameContext {
 				logEntry("Reveal top " + n + " card(s): " +
 					peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
 				// maxAdd is n because every revealed card may match; mandatoryAll makes the take forced.
-				mw.lookDialogs().revealAddUpToMatchingRestBottom(peeked, deck, isP1, n,
-					jobFilter, categoryFilter, cardNameFilter, typeFilter, -1, null, null, true);
+				revealedIntoHand(peeked, () -> mw.lookDialogs().revealAddUpToMatchingRestBottom(peeked, deck, isP1, n,
+					jobFilter, categoryFilter, cardNameFilter, typeFilter, -1, null, null, true));
 			}
 
 			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
@@ -12009,9 +12068,9 @@ final class GameContextImpl implements GameContext {
 				// is a Category XII Character". Found by identity among the revealed cards.
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				List<CardData> handBefore = new ArrayList<>(hand);
-				mw.lookDialogs().revealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd,
+				revealedIntoHand(peeked, () -> mw.lookDialogs().revealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd,
 						jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost,
-						elementFilter, orElementFilter, false, mustAdd);
+						elementFilter, orElementFilter, false, mustAdd));
 				lastLookAddedToHand = null;
 				for (CardData c : hand) {
 					boolean isNew = handBefore.stream().noneMatch(b -> b == c);
@@ -12028,8 +12087,8 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
-				mw.lookDialogs().revealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd,
-						null, null, null, typeFilter, -1, minCost, null, null, false, mustAdd);
+				revealedIntoHand(peeked, () -> mw.lookDialogs().revealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd,
+						null, null, null, typeFilter, -1, minCost, null, null, false, mustAdd));
 			}
 
 			@Override public void revealTopNRemoveOneFromGameCastableThisTurnRestBottom(
@@ -12063,7 +12122,8 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
-				mw.lookDialogs().revealAddUpToExcludingNameRestBz(peeked, deck, isP1, maxAdd, excludeName);
+				revealedIntoHand(peeked, () ->
+						mw.lookDialogs().revealAddUpToExcludingNameRestBz(peeked, deck, isP1, maxAdd, excludeName));
 			}
 
 			@Override public void revealTopAddUpToMatchingRestBz(int reveal, int maxAdd,
@@ -12075,8 +12135,8 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
-				mw.lookDialogs().revealAddUpToMatchingRestBz(peeked, deck, isP1, maxAdd,
-						categoryFilter, typeFilter);
+				revealedIntoHand(peeked, () -> mw.lookDialogs().revealAddUpToMatchingRestBz(peeked, deck, isP1, maxAdd,
+						categoryFilter, typeFilter));
 			}
 
 			@Override public void revealTopAddAllMatchingRestBz(int reveal, Predicate<CardData> matches,
@@ -12089,7 +12149,7 @@ final class GameContextImpl implements GameContext {
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", "))
 						+ " — all " + matchDesc + " to hand, the rest to the Break Zone");
-				mw.lookDialogs().revealAddAllMatchingRestBz(peeked, deck, isP1, matches);
+				revealedIntoHand(peeked, () -> mw.lookDialogs().revealAddAllMatchingRestBz(peeked, deck, isP1, matches));
 			}
 
 			@Override public void revealTopAddUpToMatchingRestShuffledBottom(int reveal, int maxAdd,
@@ -12101,8 +12161,8 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
-				mw.lookDialogs().revealAddUpToMatchingRestShuffledBottom(peeked, deck, isP1, maxAdd,
-						jobFilter, categoryFilter, typeFilter, excludeName);
+				revealedIntoHand(peeked, () -> mw.lookDialogs().revealAddUpToMatchingRestShuffledBottom(peeked, deck,
+						isP1, maxAdd, jobFilter, categoryFilter, typeFilter, excludeName));
 			}
 
 			@Override public void revealTopNPlayCategoryTypeRestShuffledBottomGrantElementJob(
@@ -12157,7 +12217,7 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
-				mw.lookDialogs().revealAddOnePerTypeToHandRestBz(peeked, deck, isP1, types);
+				revealedIntoHand(peeked, () -> mw.lookDialogs().revealAddOnePerTypeToHandRestBz(peeked, deck, isP1, types));
 			}
 
 			@Override public void revealTopAddPerElementQuota(int reveal, List<RevealQuota> quotas,
@@ -12169,7 +12229,8 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
-				mw.lookDialogs().revealAddPerElementQuota(peeked, deck, isP1, quotas, restToBreakZone);
+				revealedIntoHand(peeked, () ->
+						mw.lookDialogs().revealAddPerElementQuota(peeked, deck, isP1, quotas, restToBreakZone));
 			}
 
 			@Override public void flipUntilCharactersPlayOntoFieldRestShuffleBottom(int count,
@@ -12370,8 +12431,8 @@ final class GameContextImpl implements GameContext {
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
 				Consumer<CardData> playOntoField = revealPlacement();
-				mw.lookDialogs().revealAddToHandOrPlayOntoField(
-						peeked, deck, isP1, hand, field, rest, playOntoField);
+				revealedIntoHand(peeked, () -> mw.lookDialogs().revealAddToHandOrPlayOntoField(
+						peeked, deck, isP1, hand, field, rest, playOntoField));
 			}
 
 			@Override public void revealTopNPlayOntoFieldAndAddToHand(
@@ -12383,8 +12444,8 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
-				mw.lookDialogs().revealAddToHandOrPlayOntoField(
-						peeked, deck, isP1, hand, field, rest, true, revealPlacement());
+				revealedIntoHand(peeked, () -> mw.lookDialogs().revealAddToHandOrPlayOntoField(
+						peeked, deck, isP1, hand, field, rest, true, revealPlacement()));
 			}
 
 			@Override public void revealTopNPlayNamedOntoFieldRestBottom(int reveal, String cardName) {
@@ -12428,6 +12489,7 @@ final class GameContextImpl implements GameContext {
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				if (found != null) {
 					hand.add(found);
+					mw.noteShownInHand(isP1, List.of(found));
 					logEntry(found.name() + " → hand");
 					if (isP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
 				} else {
@@ -12465,6 +12527,7 @@ final class GameContextImpl implements GameContext {
 				if (found != null) {
 					List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 					hand.add(found);
+					mw.noteShownInHand(isP1, List.of(found));
 					logEntry(found.name() + " → hand");
 					if (isP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
 				} else {

@@ -5962,6 +5962,7 @@ final class AutoAbilityTriggers {
 						"only Summons in their hand can be revealed here"));
 		List<CardData> revealed = new ArrayList<>(shown.size());
 		for (int i : shown) revealed.add(hand.get(i));
+		mw.noteShownInHand(revealerIsP1, revealed);
 		mw.logEntry("[AutoAbility] " + (revealerIsP1 ? "" : "[P2] ") + source.name() + " — reveals "
 				+ revealed.size() + " Summon(s)"
 				+ (revealed.isEmpty() ? "" : ": " + revealed.stream().map(CardData::name)

@@ -434,6 +434,15 @@ public class MainWindow {
 	 * that left a hand for some other zone does not carry the mark to the field later.
 	 */
 	final Set<CardData> leftHandAwaitingArrival = Collections.newSetFromMap(new IdentityHashMap<>());
+
+	/**
+	 * Cards in each hand that the hand's owner has shown their opponent — revealed from the hand, or
+	 * revealed on the way into it — in the order they were shown. Held by identity: two copies of a
+	 * card are equal, and only the one shown is known. A card stays here until it leaves the hand.
+	 * See {@link #noteShownInHand}.
+	 */
+	private final List<CardData> p1ShownInHand = new ArrayList<>();
+	private final List<CardData> p2ShownInHand = new ArrayList<>();
 	/**
 	 * Cards on either side that entered the field this turn other than from a player's hand —
 	 * 28-064H Cactuar. Cleared at both turn boundaries: "this turn" is the current turn whoever's
@@ -1902,7 +1911,10 @@ public class MainWindow {
 			autoAbilityTriggers.triggerAutoAbilitiesForRemovedFromGame(c);
 		});
 		gameState.setBreakZoneLeftListener(autoAbilityTriggers::triggerAutoAbilitiesForBreakZoneLeft);
-		gameState.setHandLeftListener((c, p1) -> leftHandAwaitingArrival.add(c));
+		gameState.setHandLeftListener((c, p1) -> {
+			leftHandAwaitingArrival.add(c);
+			forgetShownInHand(c, p1);
+		});
 		gameState.setStackTargetLookup(this::fieldCardDataOrNull);
 		initialize();
 	}
@@ -2095,6 +2107,7 @@ public class MainWindow {
 		JScrollPane p2ForwardZone = buildForwardZonePanel(false);
 
 		p2HandFan = new HandFanPanel(false, this::loadCardbackImage);
+		p2HandFan.setPreview(this::showZoomAt, this::hideZoom);
 
 		// The fan claims the top of the band, pushing the backups down away from the screen edge.
 		// Its height is paid for out of the forward zone's spare seating — see buildForwardZonePanel.
@@ -3610,7 +3623,8 @@ public class MainWindow {
 		if (handIdx < 0 || handIdx >= hand.size()) return PlayerHandFanPanel.State.UNKNOWN;
 		CardData card = hand.get(handIdx);
 		return new PlayerHandFanPanel.State(
-				card.cost(), effectiveCastCost(card), canCastFromHand(card, handIdx));
+				card.cost(), effectiveCastCost(card), canCastFromHand(card, handIdx),
+				identityIndexOf(p1ShownInHand, card) >= 0);
 	}
 
 	/**
@@ -3927,12 +3941,56 @@ public class MainWindow {
 	}
 
 	/**
-	 * Refreshes P2's fanned hand — one card back per card held, plus the count tooltip. Named for
-	 * the label it used to drive; kept that way because ~80 call sites across six files reference it.
+	 * Refreshes P2's fanned hand — one card per card held, face up for those P2 has shown and a back
+	 * for the rest, plus the count tooltip. Named for the label it used to drive; kept that way
+	 * because ~80 call sites across six files reference it.
 	 */
 	void refreshP2HandCountLabel() {
 		if (p2HandFan == null) return;
-		p2HandFan.setCount(gameState.getP2Hand().size());
+		List<CardData> hand = gameState.getP2Hand();
+		List<HandFanPanel.Shown> shown = new ArrayList<>();
+		for (CardData c : shownInHand(false))
+			shown.add(new HandFanPanel.Shown(identityIndexOf(hand, c), c.imageUrl()));
+		p2HandFan.setHand(hand.size(), shown);
+	}
+
+	/**
+	 * Records that {@code ownerIsP1} has shown their opponent {@code cards} from their hand — a
+	 * reveal from the hand, a whole hand revealed, or a card revealed on its way in. Cards not in
+	 * that hand are ignored, so a caller may pass every card it revealed and let the hand decide
+	 * which of them stayed. Both clients reach this off the same reveal, so it needs no sync.
+	 */
+	void noteShownInHand(boolean ownerIsP1, Collection<CardData> cards) {
+		List<CardData> hand  = playerHand(ownerIsP1);
+		List<CardData> shown = ownerIsP1 ? p1ShownInHand : p2ShownInHand;
+		boolean changed = false;
+		for (CardData c : cards) {
+			if (c == null || identityIndexOf(hand, c) < 0 || identityIndexOf(shown, c) >= 0) continue;
+			shown.add(c);
+			changed = true;
+		}
+		if (!changed) return;
+		if (ownerIsP1) { if (p1HandFan != null) p1HandFan.repaint(); }
+		else           refreshP2HandCountLabel();
+	}
+
+	/** A card leaving a hand is no longer known to be in it. */
+	private void forgetShownInHand(CardData card, boolean ownerIsP1) {
+		List<CardData> shown = ownerIsP1 ? p1ShownInHand : p2ShownInHand;
+		int i = identityIndexOf(shown, card);
+		if (i >= 0) shown.remove(i);
+	}
+
+	/**
+	 * The cards {@code ownerIsP1} has shown that are still in their hand, oldest first. Pruned
+	 * against the hand as well as by {@link #forgetShownInHand}, because a new game empties the
+	 * hands without reporting any card as leaving.
+	 */
+	List<CardData> shownInHand(boolean ownerIsP1) {
+		List<CardData> hand  = playerHand(ownerIsP1);
+		List<CardData> shown = ownerIsP1 ? p1ShownInHand : p2ShownInHand;
+		shown.removeIf(c -> identityIndexOf(hand, c) < 0);
+		return shown;
 	}
 
 	// -------------------------------------------------------------------------
@@ -6741,6 +6799,8 @@ public class MainWindow {
 			switch (destination) {
 				case "hand" -> {
 					playerHand(isP1).add(card);
+					// A searched card is revealed before it goes to hand.
+					noteShownInHand(isP1, List.of(card));
 					logEntry((isP1 ? "" : "[P2] ") + card.name() + " → hand (search)");
 					if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 					animateCardDraw(isP1, 1);
@@ -6863,6 +6923,7 @@ public class MainWindow {
 		for (CardData pick : picks) {
 			removeByIdentity(deck, pick);
 			playerHand(isP1).add(pick);
+			noteShownInHand(isP1, List.of(pick));
 			logEntry((isP1 ? "" : "[P2] ") + pick.name() + " → hand (search)");
 			if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 			animateCardDraw(isP1, 1);
@@ -6897,6 +6958,7 @@ public class MainWindow {
 		for (CardData card : chosen) {
 			removeByIdentity(deck, card);
 			playerHand(isP1).add(card);
+			noteShownInHand(isP1, List.of(card));
 			logEntry((isP1 ? "" : "[P2] ") + card.name() + " → hand (search)");
 			if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 			animateCardDraw(isP1, 1);
@@ -6926,6 +6988,7 @@ public class MainWindow {
 		for (CardData card : chosen) {
 			removeByIdentity(deck, card);
 			playerHand(isP1).add(card);
+			noteShownInHand(isP1, List.of(card));
 			logEntry((isP1 ? "" : "[P2] ") + card.name() + " → hand (search)");
 			if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 			animateCardDraw(isP1, 1);
@@ -7004,6 +7067,7 @@ public class MainWindow {
 			if (i == denied) continue;
 			CardData keep = chosen.get(i);
 			playerHand(isP1).add(keep);
+			noteShownInHand(isP1, List.of(keep));
 			logEntry((isP1 ? "" : "[P2] ") + keep.name() + " → hand (search)");
 			if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 			animateCardDraw(isP1, 1);
@@ -7074,6 +7138,8 @@ public class MainWindow {
 			logEntry(topCard.name() + " → Removed From Play");
 		}
 		zone.add(card);
+		// It left the field face up, so both players know it is in that hand.
+		noteShownInHand(player1, List.of(card));
 		logEntry(card.name() + " → returned to hand");
 
 		removeP1ForwardSlotState(idx);
@@ -7137,6 +7203,7 @@ public class MainWindow {
 			logEntry("[P2] " + topCard.name() + " → Removed From Play");
 		}
 		zone.add(card);
+		noteShownInHand(player1, List.of(card));
 		logEntry("[P2] " + card.name() + " → returned to hand");
 
 		removeP2ForwardSlotState(idx);
@@ -7183,6 +7250,7 @@ public class MainWindow {
 		// Before the slot is torn down: the slide reads its start point off the live label.
 		animateCardReturnToHand(p1BackupLabels[idx], c, player1);
 		zone.add(c);
+		noteShownInHand(player1, List.of(c));
 
 		logEntry(c.name() + " → returned to hand");
 		p1BackupTempForwardPower.remove(c); p1BackupForwardBoost.remove(c);
@@ -7208,6 +7276,7 @@ public class MainWindow {
 		// Before the slot is torn down: the slide reads its start point off the live label.
 		animateCardReturnToHand(p2BackupLabels[idx], c, player1);
 		zone.add(c);
+		noteShownInHand(player1, List.of(c));
 
 		logEntry("[P2] " + c.name() + " → returned to hand");
 		p2BackupTempForwardPower.remove(c); p2BackupForwardBoost.remove(c);
@@ -7234,6 +7303,7 @@ public class MainWindow {
 		animateCardReturnToHand(idx < p1MonsterLabels.size() ? p1MonsterLabels.get(idx) : null,
 				c, player1);
 		zone.add(c);
+		noteShownInHand(player1, List.of(c));
 
 		logEntry(c.name() + " → returned to hand");
 		p1MonsterTempForwardPower.remove(c);
@@ -7259,6 +7329,7 @@ public class MainWindow {
 		animateCardReturnToHand(idx < p2MonsterLabels.size() ? p2MonsterLabels.get(idx) : null,
 				c, player1);
 		zone.add(c);
+		noteShownInHand(player1, List.of(c));
 
 		logEntry("[P2] " + c.name() + " → returned to hand");
 		p2MonsterTempForwardPower.remove(c);
@@ -8584,19 +8655,18 @@ public class MainWindow {
 
 	/**
 	 * Lets P1 optionally reveal 1 card of {@code element} from hand (card stays in hand).
-	 * Returns {@code true} if the player revealed one, {@code false} if they passed or had no eligible cards.
+	 * Returns the hand index of the card revealed, or {@code -1} if they passed or had no
+	 * eligible cards.
 	 */
-	boolean showRevealByElementFromHandDialog(String element) {
+	int showRevealByElementFromHandDialog(String element) {
 		List<CardData> hand = gameState.getP1Hand();
 		List<Integer> eligible = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
 			if (hand.get(i).containsElement(element)) eligible.add(i);
 		}
-		if (eligible.isEmpty()) return false;
-		boolean revealed = HandPickDialog.showRevealByElement(frame, hand, eligible, element,
+		if (eligible.isEmpty()) return -1;
+		return HandPickDialog.showRevealByElement(frame, hand, eligible, element,
 				this::showZoomAt, this::hideZoom);
-		if (revealed) logEntry("Reveals a " + element + " card from hand");
-		return revealed;
 	}
 
 	/**
@@ -9182,19 +9252,34 @@ public class MainWindow {
 		if (shown.isEmpty()) return 0;
 		int best = 0;
 		StringBuilder names = new StringBuilder();
+		List<CardData> shownCards = new ArrayList<>();
 		for (int i : shown) {
 			CardData c = hand.get(i);
+			shownCards.add(c);
 			best = Math.max(best, c.power());
 			if (names.length() > 0) names.append(", ");
 			names.append(c.name());
 		}
+		noteShownInHand(isP1, shownCards);
 		// A revealed card is public, so it is named in the log whoever revealed it.
 		logEntry((isP1 ? "" : "[P2] ") + "Revealed " + names + " from hand (cost)");
 		return best;
 	}
 
+	/**
+	 * {@code revealerIsP1} reveals {@code count} cards from their hand, chosen by them; returns their
+	 * hand indices, which are recorded as shown.
+	 */
 	List<Integer> revealHandCards(boolean revealerIsP1, int count) {
 		List<CardData> hand = revealerIsP1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		List<Integer> revealed = chooseHandCardsToReveal(revealerIsP1, hand, count);
+		List<CardData> shown = new ArrayList<>();
+		for (int i : revealed) if (i >= 0 && i < hand.size()) shown.add(hand.get(i));
+		noteShownInHand(revealerIsP1, shown);
+		return revealed;
+	}
+
+	private List<Integer> chooseHandCardsToReveal(boolean revealerIsP1, List<CardData> hand, int count) {
 		if (hand.isEmpty()) return List.of();
 		if (hand.size() <= count) {
 			List<Integer> all = new ArrayList<>();
@@ -13902,6 +13987,8 @@ public class MainWindow {
 						gameState.getP2Hand().add(entry.source());
 						refreshP2HandCountLabel();
 					}
+					// Cast face up, so it is known in the hand it goes back to.
+					noteShownInHand(pendingSummonReturnToP1Hand, List.of(entry.source()));
 					logEntry("\"" + entry.source().name() + "\" → Hand");
 					pendingSummonReturnToP1Hand = null;
 				} else if (returnToHandAfterUseSummons.remove(entry.source())) {
@@ -13912,6 +13999,7 @@ public class MainWindow {
 						gameState.getP2Hand().add(entry.source());
 						refreshP2HandCountLabel();
 					}
+					noteShownInHand(entry.isP1(), List.of(entry.source()));
 					logEntry("\"" + entry.source().name() + "\" → Hand (after use)");
 				} else if (rfgAfterUseSummons.remove(entry.source())) {
 					// Borrowed Summon cast under "remove from the game after use" — never reaches the Break Zone.
@@ -15119,6 +15207,8 @@ public class MainWindow {
 	 * the other player's hand fires nothing.
 	 */
 	void noteAddedToHand(CardData card, boolean handOwnerIsP1, boolean fromBreakZone) {
+		// A Break Zone is public, so the card is known in the hand it went to — whoever owns it.
+		if (fromBreakZone) noteShownInHand(handOwnerIsP1, List.of(card));
 		Boolean owner = gameState.getIdentity().get(card);
 		if (owner == null || owner != handOwnerIsP1) return;
 		autoAbilityTriggers.triggerAutoAbilitiesForAddedToHand(card, handOwnerIsP1, fromBreakZone);

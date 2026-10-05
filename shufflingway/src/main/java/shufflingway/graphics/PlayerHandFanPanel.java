@@ -1,5 +1,6 @@
 package shufflingway.graphics;
 
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
@@ -13,6 +14,8 @@ import java.awt.Shape;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.AffineTransform;
+import java.awt.geom.Ellipse2D;
+import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -105,10 +108,15 @@ public class PlayerHandFanPanel extends JComponent {
 	/** A cost that an effect has brought down, and one an effect has pushed up. */
 	private static final Color COST_DOWN = new Color(0x44EE44);
 	private static final Color COST_UP   = new Color(0xFF8844);
+	/** The badge on a card the opponent has seen: a dark disc, so the eye reads on any art. */
+	private static final Color SHOWN_DISC = new Color(20, 20, 28, 210);
+	private static final Color SHOWN_RIM  = new Color(255, 255, 255, 150);
+	private static final Color SHOWN_IRIS = new Color(70, 140, 230);
 
 	/**
 	 * What the rules currently say about a card in hand: what it would cost to cast right now
-	 * against what is printed on it, and whether it can be cast at all.
+	 * against what is printed on it, whether it can be cast at all, and whether the opponent has
+	 * seen it — revealed from the hand, or revealed on its way in — which draws an eye on it.
 	 *
 	 * <p>Every judgement here is the window's to make — affordability, timing, name conflicts — so
 	 * the panel is handed the answers rather than the rules.
@@ -119,9 +127,9 @@ public class PlayerHandFanPanel extends JComponent {
 	 * would keep showing whatever was true when the hand last gained or lost a card — which is
 	 * during the Draw phase, when nothing is castable at all.
 	 */
-	public record State(int baseCost, int effectiveCost, boolean playable) {
+	public record State(int baseCost, int effectiveCost, boolean playable, boolean shown) {
 		/** What an index outside the hand reports, so a stale repaint draws nothing alarming. */
-		public static final State UNKNOWN = new State(0, 0, false);
+		public static final State UNKNOWN = new State(0, 0, false, false);
 	}
 
 	private final Consumer<Integer>               onHoverChanged;
@@ -422,6 +430,7 @@ public class PlayerHandFanPanel extends JComponent {
 		gc.transform(tx);
 		int delta = state.baseCost() - state.effectiveCost();
 		if (delta != 0) drawCostPill(gc, state.effectiveCost(), delta);
+		if (state.shown()) drawShownBadge(gc);
 		if (state.playable())
 			CardAnimation.drawRoundedGlow(gc, PLAYABLE_GLOW, 0, 0,
 					CardAnimation.CARD_W, CardAnimation.CARD_H);
@@ -444,6 +453,43 @@ public class PlayerHandFanPanel extends JComponent {
 		g.drawString(text, x + 2, y + 2);
 		g.setColor(delta > 0 ? COST_DOWN : COST_UP);
 		g.drawString(text, x, y);
+	}
+
+	/**
+	 * An eye on the card's left edge, just under the cost: the opponent knows this card is in your
+	 * hand. Placed where a seated card still shows it — the top of a card is what peeks out of the
+	 * hand, and each card's right side lies under its neighbour.
+	 */
+	private static void drawShownBadge(Graphics2D g0) {
+		Graphics2D g = (Graphics2D) g0.create();
+		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		double d  = CardAnimation.CARD_W * 0.17;
+		double cx = d / 2 + CardAnimation.CARD_W * 0.05;
+		double cy = HandFanLayout.peekHeight() - d / 2 - CardAnimation.CARD_W * 0.03;
+
+		g.setColor(SHOWN_DISC);
+		g.fill(new Ellipse2D.Double(cx - d / 2, cy - d / 2, d, d));
+		g.setColor(SHOWN_RIM);
+		g.setStroke(new BasicStroke((float) (d * 0.06)));
+		g.draw(new Ellipse2D.Double(cx - d / 2, cy - d / 2, d, d));
+
+		// Almond: two arcs meeting at the corners of the eye.
+		double ew = d * 0.68, eh = d * 0.42;
+		Path2D.Double almond = new Path2D.Double();
+		almond.moveTo(cx - ew / 2, cy);
+		almond.quadTo(cx, cy - eh, cx + ew / 2, cy);
+		almond.quadTo(cx, cy + eh, cx - ew / 2, cy);
+		almond.closePath();
+		g.setColor(Color.WHITE);
+		g.fill(almond);
+
+		double iris = d * 0.26;
+		g.setColor(SHOWN_IRIS);
+		g.fill(new Ellipse2D.Double(cx - iris / 2, cy - iris / 2, iris, iris));
+		double pupil = iris * 0.45;
+		g.setColor(Color.BLACK);
+		g.fill(new Ellipse2D.Double(cx - pupil / 2, cy - pupil / 2, pupil, pupil));
+		g.dispose();
 	}
 
 	/**

@@ -284,16 +284,16 @@ public class HandPickDialog {
     /**
      * Shows a dialog for P1 to optionally reveal 1 card of {@code element} from hand.
      * The card is not moved — it stays in the player's hand after being revealed.
-     * Returns {@code true} if the player revealed a card, {@code false} if they passed.
+     * Returns the hand index of the card revealed, or {@code -1} if they passed.
      */
-    public static boolean showRevealByElement(JFrame owner, List<CardData> hand, List<Integer> eligible,
-                                              String element,
-                                              Consumer<String> onZoom, Runnable onZoomHide) {
+    public static int showRevealByElement(JFrame owner, List<CardData> hand, List<Integer> eligible,
+                                          String element,
+                                          Consumer<String> onZoom, Runnable onZoomHide) {
         JDialog dlg = new JDialog(owner, "Reveal 1 " + element + " Card", true);
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
-        boolean[] result = { false };
+        int[] result = { -1 };
         int[] selectedIdx = { -1 };
 
         JLabel statusLabel = new JLabel("Select 1 " + element + " card to reveal — or Pass.", SwingConstants.CENTER);
@@ -351,7 +351,7 @@ public class HandPickDialog {
 
         confirmBtn.addActionListener(ae -> {
             onZoomHide.run();
-            if (selectedIdx[0] >= 0) result[0] = true;
+            result[0] = selectedIdx[0];
             dlg.dispose();
         });
         passBtn.addActionListener(ae -> { onZoomHide.run(); dlg.dispose(); });

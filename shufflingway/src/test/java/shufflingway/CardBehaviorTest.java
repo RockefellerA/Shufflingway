@@ -13200,6 +13200,129 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Shown hand cards — what each player knows is in the other's hand
+	// A card revealed from a hand, or revealed on its way into one, is drawn face up in the
+	// opponent's fan (and with an eye in its owner's) until it leaves the hand.
+	// =========================================================================================
+
+	@Test
+	void revealedHandCardsStayShownUntilTheyLeaveTheHand() {
+		MainWindow mw = new MainWindow();
+		CardData a = makeForward("A", "Fire", 1, 3000);
+		CardData b = makeForward("B", "Fire", 2, 4000);
+		mw.gameState.getP2Hand().addAll(List.of(a, b));
+		mw.revealHandCards(false, 3);
+		assertEquals(List.of(a, b), mw.shownInHand(false));
+		mw.gameState.getP2Hand().remove(0);
+		assertEquals(List.of(b), mw.shownInHand(false));
+	}
+
+	// Two copies of one printing are equal records; only the copy that was shown is known.
+	@Test
+	void onlyTheCopyShownIsKnownNotItsTwin() {
+		MainWindow mw = new MainWindow();
+		CardData shown = makeForward("Twin", "Fire", 1, 3000);
+		CardData twin  = makeForward("Twin", "Fire", 1, 3000);
+		mw.gameState.getP2Hand().addAll(List.of(shown, twin));
+		mw.noteShownInHand(false, List.of(shown));
+		assertEquals(1, mw.shownInHand(false).size());
+		assertSame(shown, mw.shownInHand(false).get(0));
+		mw.gameState.getP2Hand().remove(0);
+		assertTrue(mw.shownInHand(false).isEmpty(),
+				"the twin still in hand was never shown");
+	}
+
+	// Leaving the hand forgets the card, so coming back to it is coming back unseen.
+	@Test
+	void aShownCardThatLeavesAndReturnsIsNoLongerShown() {
+		MainWindow mw = new MainWindow();
+		CardData c = makeForward("Bounced", "Fire", 1, 3000);
+		mw.gameState.getP2Hand().add(c);
+		mw.noteShownInHand(false, List.of(c));
+		mw.gameState.getP2Hand().remove(0);
+		mw.gameState.getP2Hand().add(c);
+		assertTrue(mw.shownInHand(false).isEmpty());
+	}
+
+	@Test
+	void aCardRevealedFromTheDeckIntoTheHandIsShown() {
+		MainWindow mw = new MainWindow();
+		CardData top = makeForward("Top", "Fire", 1, 3000);
+		mw.gameState.getP2MainDeck().addFirst(top);
+		mw.buildGameContext(false).revealTopAddToHandIfType("Forward");
+		assertSame(top, mw.gameState.getP2Hand().get(mw.gameState.getP2Hand().size() - 1));
+		assertEquals(List.of(top), mw.shownInHand(false));
+	}
+
+	// "Your opponent reveals their hand" reveals the resolving player's opponent — P1's hand when P2
+	// resolves it, not P2's own.
+	@Test
+	void revealOpponentHandResolvedByP2RevealsP1sHand() {
+		MainWindow mw = new MainWindow();
+		CardData x = makeForward("X", "Fire", 1, 3000);
+		CardData y = makeForward("Y", "Water", 2, 4000);
+		CardData own = makeForward("Own", "Ice", 3, 5000);
+		mw.gameState.getP1Hand().addAll(List.of(x, y));
+		mw.gameState.getP2Hand().add(own);
+		mw.buildGameContext(false).revealOpponentHand();
+		assertEquals(List.of(x, y), mw.shownInHand(true));
+		assertTrue(mw.shownInHand(false).isEmpty(), "P2 revealed nothing of its own");
+	}
+
+	// A searched card is revealed before it goes to hand.
+	@Test
+	void aSearchedCardAddedToHandIsShown() {
+		MainWindow mw = new MainWindow();
+		CardData found = makeForward("Found", "Fire", 2, 5000);
+		mw.gameState.getP2MainDeck().add(found);
+		mw.searchDeckForCard(false, true, false, false, false, -1, null,
+				null, null, null, null, null, null, "hand", 1, false, null);
+		assertEquals(List.of(found), mw.shownInHand(false));
+	}
+
+	// "Reveal 1 [Element] card": the card shown crosses, not just that one was, so it is known.
+	@Test
+	void theCardRevealedByElementIsShown() {
+		MainWindow mw = new MainWindow();
+		CardData water = makeForward("Water", "Water", 1, 3000);
+		CardData fire  = makeForward("Fire",  "Fire",  2, 4000);
+		mw.gameState.getP2Hand().addAll(List.of(water, fire));
+		mw.buildGameContext(false).mayRevealCardByElementFromHand("Fire");
+		assertEquals(List.of(fire), mw.shownInHand(false));
+	}
+
+	@Test
+	void aCardSalvagedFromTheBreakZoneIsShown() {
+		MainWindow mw = new MainWindow();
+		CardData salvaged = makeForward("Salvaged", "Fire", 2, 5000);
+		mw.gameState.getIdentity().put(salvaged, false);
+		mw.gameState.getP2BreakZone().add(salvaged);
+		mw.buildGameContext(false).salvageCharacterFromOwnBreakZone(1, true, false, false);
+		assertSame(salvaged, mw.gameState.getP2Hand().get(0));
+		assertEquals(List.of(salvaged), mw.shownInHand(false));
+	}
+
+	@Test
+	void aForwardReturnedFromTheFieldIsShown() {
+		MainWindow mw = new MainWindow();
+		CardData bounced = makeForward("Bounced", "Water", 2, 5000);
+		mw.gameState.getIdentity().put(bounced, false);
+		mw.placeP2CardInForwardZone(bounced);
+		mw.returnP2ForwardToHand(0);
+		assertEquals(List.of(bounced), mw.shownInHand(false));
+	}
+
+	// A plain draw is the one way in that shows nothing.
+	@Test
+	void aDrawnCardIsNotShown() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2MainDeck().add(makeForward("Drawn", "Fire", 2, 5000));
+		mw.buildGameContext(false).drawCards(1);
+		assertEquals(1, mw.gameState.getP2Hand().size());
+		assertTrue(mw.shownInHand(false).isEmpty());
+	}
+
+	// =========================================================================================
 	// "Choose 1 … in your Break Zone. Put it on top of your deck."
 	// The choose header was recognised but this followup was not, so the whole
 	// ability resolved to a "followup not yet implemented" log line and did nothing.
