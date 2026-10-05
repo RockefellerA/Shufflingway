@@ -1,8 +1,10 @@
 package shufflingway;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -30,6 +32,9 @@ class DamageResolver {
 	 * {@code fromAbility} is true when the damage source is an effect/summon, false for combat.
 	 * {@code unreduced} bypasses all reductions: one-shot shields are still consumed but
 	 * their reduction is not applied; persistent shields stay up and also do not reduce.
+	 *
+	 * <p>{@link #protections} reads the same sources to draw the damage trait tabs; a shield added
+	 * here wants a line there, or the tab will not show it.
 	 */
 	int modifyIncomingDamage(boolean isP1, int idx, int rawAmount, boolean fromAbility, boolean unreduced) {
 		return modifyIncomingDamage(isP1, ForwardTarget.CardZone.FORWARD, idx, rawAmount, fromAbility, unreduced);
@@ -400,6 +405,236 @@ class DamageResolver {
 		}
 
 		return amount;
+	}
+
+	/**
+	 * The incoming-damage protections standing on one combatant, as tooltip lines, split the way
+	 * the trait tabs split them: {@code zeroed} for every "the damage becomes 0" and {@code reduced}
+	 * for every "reduce the damage by N" (and the other ways of making a hit smaller).
+	 */
+	record DamageProtections(List<String> zeroed, List<String> reduced) {}
+
+	/**
+	 * The protections {@link #modifyIncomingDamage} would apply to the combatant at {@code idx},
+	 * read from the same sources in the same order and spending nothing.
+	 *
+	 * <p>Conditions on the board are settled now, so a line appears only while its shield is up:
+	 * a "Damage N --" printing below its threshold, a "while dull" printing on an active card, a
+	 * party shield outside a party and a turn-window shield outside its window are all absent.
+	 * Conditions on the hit itself (what dealt it, how large it is) cannot be settled until a hit
+	 * arrives, so those stay in the line's wording. A side with damage reductions disabled reports
+	 * only the protections that sit ahead of that check.
+	 */
+	DamageProtections protections(boolean isP1, ForwardTarget.CardZone zone, int idx) {
+		Set<String> zeroed  = new LinkedHashSet<>();
+		Set<String> reduced = new LinkedHashSet<>();
+		CardData card = mw.fieldCombatant(isP1, zone, idx);
+		if (card == null) return new DamageProtections(List.of(), List.of());
+
+		if (mw.damageZeroedWhileDull(card)) zeroed.add("Damage becomes 0 while it is dull.");
+
+		if (mw.nullifyAbilityDmgSet.contains(card)) zeroed.add("Damage from Summons and abilities becomes 0 this turn.");
+		for (Predicate<CardData> f : mw.turn(isP1).nullifyAbilityDmgFilters)
+			if (f.test(card)) zeroed.add("Damage from Summons and abilities becomes 0 this turn.");
+		if (mw.nullifyAbilityOnlyDmgSet.contains(card)) zeroed.add("Damage from abilities becomes 0 this turn.");
+		if (mw.nullifySummonOnlyDmgSet.contains(card))  zeroed.add("Damage from Summons becomes 0 this turn.");
+		String nullifyElem = mw.nullifyElementDamageMap.get(card);
+		if (nullifyElem != null) zeroed.add("Damage from " + nullifyElem + " Summons and abilities becomes 0 this turn.");
+		String nullifyAbilityElem = mw.nullifyElementDamageAbilityOnlyMap.get(card);
+		if (nullifyAbilityElem != null) zeroed.add("Damage from " + nullifyAbilityElem + " abilities becomes 0 this turn.");
+		for (FieldAbility fa : card.fieldAbilities()) {
+			String text = fa.effectText();
+			if (namesSelf(AutoAbilityTriggers.FA_NULLIFY_SUMMON_DAMAGE.matcher(text), card)
+					|| namesSelf(AutoAbilityTriggers.FA_NULLIFY_ABILITY_DAMAGE.matcher(text), card)
+					|| namesSelf(AutoAbilityTriggers.FA_NULLIFY_OPPONENT_ABILITY_DAMAGE.matcher(text), card)
+					|| namesSelf(AutoAbilityTriggers.FA_NULLIFY_TRAIT_FORWARD_DAMAGE.matcher(text), card)) {
+				// Worded from the printed clause, so a printing FA_DAMAGE_MODIFIER also reads below
+				// comes out as the same line and is listed once.
+				Matcher clause = PRINTED_ZERO_CLAUSE.matcher(text);
+				zeroed.add("Damage" + (clause.find() ? sourceClausePhrase(clause.group("clause")) : "") + " becomes 0.");
+			}
+		}
+
+		if (mw.turn(isP1).dmgReductionDisabled) return new DamageProtections(List.copyOf(zeroed), List.copyOf(reduced));
+
+		if (mw.allIncomingDmgZeroThisTurnSet.contains(card)) zeroed.add("Damage becomes 0 this turn.");
+		if (mw.nextIncomingDmgZeroSet.contains(card))        zeroed.add("The next damage dealt to it becomes 0.");
+		if (mw.nextOppEffectDmgZeroSet.contains(card))
+			zeroed.add("The next damage dealt to it by opposing Summons or abilities becomes 0.");
+		Integer nextReduce = mw.nextIncomingDmgReduceMap.get(card);
+		if (nextReduce != null) reduced.add("The next damage dealt to it is reduced by " + nextReduce + ".");
+		Integer nextAbilityReduce = mw.nextAbilityDmgReduceMap.get(card);
+		if (nextAbilityReduce != null)
+			reduced.add("The next damage dealt to it by a Summon or an ability is reduced by " + nextAbilityReduce + ".");
+
+		int dmgInZone = (isP1 ? mw.gameState.getP1DamageZone() : mw.gameState.getP2DamageZone()).size();
+		for (FieldAbility fa : mw.effectiveFieldAbilities(card)) {
+			if (fa.damageThreshold() > 0 && dmgInZone < fa.damageThreshold()) continue;
+			Matcher fam = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText());
+			if (namesSelf(fam, card)) {
+				describeDamageModifier(fam, isP1, card, "", zeroed, reduced);
+				continue;
+			}
+			String grantText = mw.fieldGrantCalculator.openSelfGateRemainder(fa.effectText(), card, isP1, true);
+			if (grantText == null) continue;
+			CardData.SelfGainsQuotedGrant sgq = CardData.parseSelfGainsQuotedGrant(grantText, card.name());
+			if (sgq == null) continue;
+			for (String passive : sgq.passiveTexts()) {
+				Matcher pm = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(passive);
+				if (namesSelf(pm, card)) describeDamageModifier(pm, isP1, card, "", zeroed, reduced);
+			}
+		}
+
+		if (!mw.turn(isP1).firstOppEffectDamageZeroedThisTurn.contains(card)) {
+			for (FieldAbility fa : mw.effectiveFieldAbilities(card)) {
+				if (fa.damageThreshold() > 0 && dmgInZone < fa.damageThreshold()) continue;
+				Matcher m = AutoAbilityTriggers.FA_FIRST_OPP_EFFECT_DAMAGE_ZERO_EACH_TURN.matcher(fa.effectText().trim());
+				if (m.matches() && m.group("card").trim().equalsIgnoreCase(card.name()))
+					zeroed.add("The first damage dealt to it by opposing Summons or abilities each turn becomes 0.");
+			}
+		}
+
+		for (String granted : mw.counterGrantedAbilities(card, isP1)) {
+			Matcher fam = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(granted);
+			if (fam.find()) describeDamageModifier(fam, isP1, card, "", zeroed, reduced);
+		}
+
+		if (mw.fieldTargetState(new ForwardTarget(isP1, idx, zone)) == CardState.DULL) {
+			for (FieldAbility fa : card.fieldAbilities()) {
+				Matcher m = AutoAbilityTriggers.FA_DAMAGE_WHILE_DULL_REDUCTION.matcher(fa.effectText());
+				if (namesSelf(m, card)) reduced.add("Damage is reduced by " + m.group("amount") + " while it is dull.");
+			}
+		}
+
+		if (partyDamageNullified(card, isP1)) zeroed.add("Damage becomes 0 while it forms a party.");
+		for (CardData protector : mw.fieldCards(isP1)) {
+			if (mw.lostAbilitiesCards.contains(protector)) continue;
+			for (FieldAbility fa : mw.effectiveFieldAbilities(protector)) {
+				Matcher m = AutoAbilityTriggers.FA_SELF_OR_PARTY_DAMAGE_REDUCTION.matcher(fa.effectText());
+				if (!m.matches() || !m.group("card").trim().equalsIgnoreCase(protector.name())
+						|| !m.group("partner").trim().equalsIgnoreCase(protector.name())) continue;
+				if (protector != card && !(mw.isFormingParty(protector, isP1) && mw.isFormingParty(card, isP1))) continue;
+				reduced.add("Damage is reduced by " + m.group("amount")
+						+ (protector == card ? "." : " (" + protector.name() + ")."));
+			}
+		}
+
+		describeFieldWideDamageModifiers(card, isP1, zeroed, reduced);
+
+		int globalRed = mw.turn(isP1).globalDmgReduction;
+		if (globalRed > 0) reduced.add("Damage is reduced by " + globalRed + " this turn.");
+		if (mw.perCardNonLethalDmgSet.contains(card) || mw.turn(isP1).nonLethalProtection)
+			zeroed.add("Damage less than its power becomes 0 this turn.");
+
+		return new DamageProtections(List.copyOf(zeroed), List.copyOf(reduced));
+	}
+
+	/** The source clause of a printed "is dealt damage [clause], the damage becomes 0" sentence. */
+	private static final Pattern PRINTED_ZERO_CLAUSE = Pattern.compile(
+			"(?i)is\\s+dealt\\s+damage\\s+(?<clause>[^,]+?),\\s+the\\s+damage\\s+becomes\\s+0");
+
+	/** True when {@code m} finds a self-named printing whose {@code card} group names {@code card}. */
+	private static boolean namesSelf(Matcher m, CardData card) {
+		return m.find() && m.group("card").trim().equalsIgnoreCase(card.name());
+	}
+
+	/**
+	 * Adds the line for one matched {@link AutoAbilityTriggers#FA_DAMAGE_MODIFIER} to the set its
+	 * effect belongs in, or nothing when it is out of its turn window or makes the hit larger.
+	 * {@code via} names the card lending the shield, or is empty when it is the damaged card's own.
+	 */
+	private void describeDamageModifier(Matcher fam, boolean isP1, CardData card, String via,
+			Set<String> zeroed, Set<String> reduced) {
+		String turnScope = fam.group("turnpre") != null ? fam.group("turnpre") : fam.group("turnpost");
+		boolean oppTurnOnly = turnScope != null && turnScope.toLowerCase().contains("opponent");
+		if (turnScope != null) {
+			boolean ownTurn = (mw.gameState.getCurrentPlayer() == GameState.Player.P1) == isP1;
+			if (ownTurn == oppTurnOnly) return;
+		}
+		StringBuilder subject = new StringBuilder("Damage");
+		String thresh = fam.group("threshold");
+		if (thresh != null) subject.append(" of ").append(thresh).append(" or ").append(fam.group("threshcmp").toLowerCase());
+		subject.append(sourceClausePhrase(fam.group("sourceclause")));
+		if (turnScope != null) subject.append(oppTurnOnly ? " during the opposing turn" : " during its controller's turn");
+
+		String rmCount = fam.group("rmcount");
+		String cost = rmCount == null ? "" : " by removing " + rmCount + " " + fam.group("rmcounter").trim()
+				+ " Counter" + ("1".equals(rmCount) ? "" : "s");
+		String reduceBy = fam.group("reduceby");
+		String setsTo   = fam.group("setsto");
+		if (reduceBy != null)               reduced.add(subject + " is reduced by " + reduceBy + cost + via + ".");
+		else if ("0".equals(setsTo))        zeroed.add(subject + " becomes 0" + cost + via + ".");
+		else if (setsTo != null)            reduced.add(subject + " becomes " + setsTo + cost + via + ".");
+		else if (fam.group("half") != null) reduced.add(subject + " is halved, rounded up to 1000" + cost + via + ".");
+	}
+
+	/**
+	 * A printed source clause ("by your opponent's Summons or abilities", "less than her power")
+	 * reworded for a tooltip that either player may be reading: "your opponent's" becomes
+	 * "opposing", "by" becomes "from" and the possessive becomes "its". Empty for no clause.
+	 */
+	private static String sourceClausePhrase(String clause) {
+		if (clause == null || clause.isBlank()) return "";
+		String s = clause.trim()
+				.replaceFirst("(?i)^(?:by|from)\\s+", "from ")
+				.replaceAll("(?i)your\\s+opponent's", "opposing")
+				.replaceAll("(?i)less\\s+than\\s+(?:his|her|[^,]+?'s)\\s+power", "less than its power");
+		return " " + s;
+	}
+
+	/**
+	 * The lines {@link #applyFieldWideDamageModifiers} would contribute for {@code damaged}: the
+	 * shields its own side's cards lend it. Each names its lender, since the shield moves with it.
+	 */
+	private void describeFieldWideDamageModifiers(CardData damaged, boolean isP1,
+			Set<String> zeroed, Set<String> reduced) {
+		for (CardData protector : mw.fieldCards(isP1)) {
+			if (mw.lostAbilitiesCards.contains(protector)) continue;
+			String via = " (" + protector.name() + ")";
+			for (FieldAbility fa : mw.effectiveFieldAbilities(protector)) {
+				Matcher red = AutoAbilityTriggers.FA_REDUCE_DAMAGE_TO_FILTER.matcher(fa.effectText().trim());
+				if (red.matches()) {
+					String rc = red.group("category");
+					String rj = red.group("job");
+					String re = red.group("element");
+					String rt = red.group("types");
+					if (rc != null && !CardFilters.meetsCategoryFilter(damaged, rc)) continue;
+					if (rj != null && !mw.meetsJobFilterEffective(damaged, rj))      continue;
+					if (re != null && !mw.effectiveElements(damaged).contains(re))   continue;
+					if (rt != null && rt.toLowerCase().startsWith("forward") && !damaged.isForward()) continue;
+					reduced.add("Damage is reduced by " + red.group("amount") + via + ".");
+					continue;
+				}
+				Matcher m = AutoAbilityTriggers.FA_FIELD_DAMAGE_MODIFIER
+						.matcher(CardData.fieldDamageRiderText(fa.effectText()));
+				if (!m.find()) continue;
+				String category = m.group("category");
+				String job      = AutoAbilityTriggers.fieldDamageModifierJob(m);
+				String element  = m.group("element");
+				String costStr  = m.group("cost");
+				String except   = m.group("except1") != null ? m.group("except1").trim()
+				                                             : (m.group("except2") != null ? m.group("except2").trim() : null);
+				if (category != null && !CardFilters.meetsCategoryFilter(damaged, category)) continue;
+				if (job      != null && !mw.meetsJobFilterEffective(damaged, job))            continue;
+				if (element  != null && !mw.effectiveElements(damaged).contains(element))        continue;
+				if (costStr  != null) {
+					int costVal = Integer.parseInt(costStr);
+					boolean orMore = "more".equalsIgnoreCase(m.group("costcmp"));
+					if (orMore ? damaged.cost() < costVal : damaged.cost() > costVal) continue;
+				}
+				if (except != null && except.equalsIgnoreCase(damaged.name())) continue;
+				String subject = "Damage" + sourceClausePhrase(m.group("sourceclause"));
+				String reduceBy = m.group("reduceby");
+				String setsTo   = m.group("setsto");
+				if (reduceBy != null)        reduced.add(subject + " is reduced by " + reduceBy + via + ".");
+				else if ("0".equals(setsTo)) zeroed.add(subject + " becomes 0" + via + ".");
+				else if (setsTo != null)     reduced.add(subject + " becomes " + setsTo + via + ".");
+			}
+			for (FieldAbility fa : protector.fieldAbilities()) {
+				Matcher m = AutoAbilityTriggers.FA_FIELD_DAMAGE_EXACT_NULLIFY.matcher(fa.effectText());
+				if (m.find()) zeroed.add("Exactly " + m.group("amount") + " damage becomes 0" + via + ".");
+			}
+		}
 	}
 
 	/**

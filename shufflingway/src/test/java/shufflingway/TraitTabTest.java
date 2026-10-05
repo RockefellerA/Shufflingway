@@ -12,6 +12,7 @@ import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -330,6 +331,174 @@ class TraitTabTest {
 		String tip = mw.fieldSlotTooltipAt(slot, p[0], p[1]);
 		assertEquals("<html><b>Cannot Block</b><br>Cannot block Forwards forming a party.<br>"
 				+ "Forwards of cost 5 or more cannot block (Edea &amp; Co).</html>", tip);
+	}
+
+	// ---- the protection shields ------------------------------------------------------------
+
+	// One outline, three marks — the gem, the 0 and the −X — so no two may render alike.
+	@Test
+	void theThreeProtectionShieldsAreAllDistinct() {
+		List<CardData.Trait> shields = List.of(CardData.Trait.CANNOT_BE_BROKEN,
+				CardData.Trait.DAMAGE_BECOMES_ZERO, CardData.Trait.DAMAGE_REDUCED);
+		List<int[]> renders = new ArrayList<>();
+		for (CardData.Trait t : shields) {
+			assertTrue(TraitTab.hasGlyph(t), t + " should have a tab");
+			BufferedImage canvas = new BufferedImage(
+					CardAnimation.CARD_H, CardAnimation.CARD_H, BufferedImage.TYPE_INT_ARGB);
+			TraitTab.renderTraitTabs(canvas, CardState.ACTIVE, List.of(t), false);
+			assertTrue(maxChroma(canvas) > 60, t + " should draw its coloured mark");
+			renders.add(canvas.getRGB(0, 0, canvas.getWidth(), canvas.getHeight(), null, 0, canvas.getWidth()));
+		}
+		for (int i = 0; i < renders.size(); i++)
+			for (int j = i + 1; j < renders.size(); j++)
+				assertFalse(Arrays.equals(renders.get(i), renders.get(j)),
+						shields.get(i) + " and " + shields.get(j) + " render identically");
+		assertEquals("Damage Becomes 0", TraitTab.displayName(CardData.Trait.DAMAGE_BECOMES_ZERO, false));
+	}
+
+	/** A plain 5000-power Forward with the given printed traits and field abilities. */
+	private static CardData shieldedForward(String name, Set<CardData.Trait> traits,
+			List<FieldAbility> fieldAbilities) {
+		return shieldedCard("Forward", name, traits, fieldAbilities);
+	}
+
+	private static CardData shieldedCard(String type, String name, Set<CardData.Trait> traits,
+			List<FieldAbility> fieldAbilities) {
+		return new CardData(null, name, "Fire", 3, 5000, type, false, 0, false, false,
+				traits, 0, List.of(), null, List.of(),
+				List.of(), List.of(), fieldAbilities,
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, "");
+	}
+
+	// The tab reads the shield the damage pipeline spends, so a hit that uses it up takes the line
+	// down with it — and leaves the other shield, which that hit never reached, standing.
+	@Test
+	void damageTabsFollowTheShieldsTheEngineSpends() {
+		MainWindow mw = new MainWindow();
+		CardData f = TestCards.makeForward("Shield Tester", "Fire", 3, 5000);
+		TestCards.placeP1Forward(mw, f);
+		assertEquals(Map.of(), mw.forwardStatusDetails(true, 0), "a plain Forward is under no protection");
+
+		mw.nextIncomingDmgZeroSet.add(f);
+		mw.nextIncomingDmgReduceMap.put(f, 2000);
+		assertEquals(Map.of(
+				CardData.Trait.DAMAGE_BECOMES_ZERO, List.of("The next damage dealt to it becomes 0."),
+				CardData.Trait.DAMAGE_REDUCED,      List.of("The next damage dealt to it is reduced by 2000.")),
+				mw.forwardStatusDetails(true, 0));
+
+		assertEquals(0, mw.damageResolver.modifyIncomingDamage(true, 0, 7000, false, false));
+		assertEquals(Map.of(
+				CardData.Trait.DAMAGE_REDUCED, List.of("The next damage dealt to it is reduced by 2000.")),
+				mw.forwardStatusDetails(true, 0));
+	}
+
+	// A printing's source clause stays in its line, reworded for whichever player is reading: the
+	// tooltip shows on both sides of the board, so "your opponent's" would point the wrong way.
+	@Test
+	void printedDamageShieldsSayWhatTheyStop() {
+		MainWindow mw = new MainWindow();
+		CardData f = shieldedForward("Ward", Set.of(), List.of(
+				new FieldAbility("If Ward is dealt damage less than his power, the damage becomes 0 instead.", 0),
+				new FieldAbility("If Ward is dealt damage by your opponent's abilities, the damage becomes 0 instead.", 0),
+				new FieldAbility("If Ward is dealt damage by a Forward, reduce the damage by 3000 instead.", 0)));
+		TestCards.placeP1Forward(mw, f);
+
+		Map<CardData.Trait, List<String>> details = mw.forwardStatusDetails(true, 0);
+		// The opposing-abilities printing is read by two patterns; it is still one line.
+		assertEquals(List.of("Damage from opposing abilities becomes 0.", "Damage less than its power becomes 0."),
+				details.get(CardData.Trait.DAMAGE_BECOMES_ZERO));
+		assertEquals(List.of("Damage from a Forward is reduced by 3000."),
+				details.get(CardData.Trait.DAMAGE_REDUCED));
+	}
+
+	@Test
+	void aLentDamageShieldNamesItsLender() {
+		MainWindow mw = new MainWindow();
+		CardData warden = shieldedForward("Warden", Set.of(), List.of(new FieldAbility(
+				"If a Forward you control is dealt damage less than its power, the damage becomes 0 instead.", 0)));
+		CardData ward = TestCards.makeForward("Ward", "Fire", 3, 5000);
+		TestCards.placeP1Forward(mw, warden);
+		TestCards.placeP1Forward(mw, ward);
+
+		assertEquals(List.of("Damage less than its power becomes 0 (Warden)."),
+				mw.forwardStatusDetails(true, 1).get(CardData.Trait.DAMAGE_BECOMES_ZERO));
+		// Only the lender's own side is covered.
+		assertEquals(Map.of(), mw.forwardStatusDetails(false, 0));
+	}
+
+	// "Damage 3 --" is a condition on the board, so the tab waits for it rather than describing it.
+	@Test
+	void aDamageGatedShieldShowsOnceItsThresholdIsMet() {
+		MainWindow mw = new MainWindow();
+		CardData f = shieldedForward("Siren Stand-in", Set.of(), List.of(new FieldAbility(
+				"If Siren Stand-in is dealt damage, reduce the damage by 1000 instead.", 3)));
+		TestCards.placeP1Forward(mw, f);
+		assertEquals(Map.of(), mw.forwardStatusDetails(true, 0));
+
+		for (int i = 0; i < 3; i++) mw.gameState.getP1DamageZone().add(TestCards.makeForward("Hit", "Fire", 1, 1000));
+		assertEquals(List.of("Damage is reduced by 1000."),
+				mw.forwardStatusDetails(true, 0).get(CardData.Trait.DAMAGE_REDUCED));
+	}
+
+	// The narrow form has no glyph of its own; it borrows the gem shield, saying what gets through.
+	@Test
+	void theNarrowCannotBeBrokenSharesTheGemShield() {
+		MainWindow mw = new MainWindow();
+		TestCards.placeP1Forward(mw, shieldedForward("Narrow",
+				Set.of(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG), List.of()));
+		assertEquals(Map.of(CardData.Trait.CANNOT_BE_BROKEN, List.of(
+				"Cannot be broken by opposing Summons or abilities that don't deal damage.",
+				"Damage still breaks it.")), mw.forwardStatusDetails(true, 0));
+
+		// The plain form covers the narrow one, and its own generic text says the rest.
+		TestCards.placeP1Forward(mw, shieldedForward("Both", EnumSet.of(
+				CardData.Trait.CANNOT_BE_BROKEN, CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG), List.of()));
+		assertEquals(Map.of(), mw.forwardStatusDetails(true, 1));
+	}
+
+	// A Backup that cannot fight shows only the gem shield — a printed Haste means nothing on it.
+	@Test
+	void anOrdinaryBackupShowsOnlyTheGemShield() {
+		MainWindow mw = new MainWindow();
+		TestCards.placeP1Backup(mw, shieldedCard("Backup", "Cid Stand-in",
+				EnumSet.of(CardData.Trait.CANNOT_BE_BROKEN, CardData.Trait.HASTE), List.of()));
+		Map<CardData.Trait, List<String>> details = mw.backupStatusDetails(true, 0);
+		assertEquals(Map.of(), details);
+		assertEquals(List.of(CardData.Trait.CANNOT_BE_BROKEN), mw.visibleBackupTraitTabs(true, 0, details));
+	}
+
+	// Auron 1-002R's grant reaches a Backup only through the break path's conditional grants, which
+	// the tab has to read too. No damage reaches an ordinary Backup, so the line does not mention it.
+	@Test
+	void aGrantedBackupShieldShowsTheNarrowLine() {
+		MainWindow mw = new MainWindow();
+		TestCards.placeP1Forward(mw, shieldedForward("Auron Stand-in", Set.of(), List.of(new FieldAbility(
+				"The Backups you control cannot be broken by your opponent's Summons or abilities.", 0))));
+		TestCards.placeP1Backup(mw, shieldedCard("Backup", "Guarded", Set.of(), List.of()));
+
+		Map<CardData.Trait, List<String>> details = mw.backupStatusDetails(true, 0);
+		assertEquals(Map.of(CardData.Trait.CANNOT_BE_BROKEN, List.of(
+				"Cannot be broken by opposing Summons or abilities that don't deal damage.")), details);
+		assertEquals(List.of(CardData.Trait.CANNOT_BE_BROKEN), mw.visibleBackupTraitTabs(true, 0, details));
+	}
+
+	// Acting as a Forward, a Backup can fight and be dealt damage, so it shows everything a Forward does.
+	@Test
+	void aBackupActingAsAForwardShowsEveryTab() {
+		MainWindow mw = new MainWindow();
+		CardData b = shieldedCard("Backup", "Mobilised", EnumSet.of(CardData.Trait.HASTE), List.of());
+		TestCards.placeP1Backup(mw, b);
+		mw.p1BackupTempForwardPower.put(b, 6000);
+		mw.nextIncomingDmgZeroSet.add(b);
+		mw.p1CannotBlock.add(b);
+
+		Map<CardData.Trait, List<String>> details = mw.backupStatusDetails(true, 0);
+		assertEquals(List.of("The next damage dealt to it becomes 0."), details.get(CardData.Trait.DAMAGE_BECOMES_ZERO));
+		assertEquals(List.of(CardData.Trait.HASTE, CardData.Trait.DAMAGE_BECOMES_ZERO, CardData.Trait.CANNOT_BLOCK),
+				mw.visibleBackupTraitTabs(true, 0, details));
+		assertEquals(Map.of(), mw.backupStatusDetails(true, 1), "an empty slot is under nothing");
 	}
 
 	// ---- the slot tooltip that sits on top of the geometry above --------------------------

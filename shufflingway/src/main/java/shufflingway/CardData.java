@@ -74,7 +74,10 @@ public record CardData(
         CANNOT_LEAVE_FIELD_BY_OPP,
         POWER_CANNOT_BE_DECREASED_BY_OPP,
         // Board statuses rather than printed keywords: no card's trait set ever holds these. They
-        // exist so a TraitTab can show them, and MainWindow.combatStatusDetails decides when one applies.
+        // exist so a TraitTab can show them. DamageResolver.protections decides when one of the two
+        // damage statuses applies, and MainWindow.combatStatusDetails when one of the four combat ones does.
+        DAMAGE_BECOMES_ZERO,
+        DAMAGE_REDUCED,
         MUST_ATTACK,
         MUST_BLOCK,
         CANNOT_ATTACK,

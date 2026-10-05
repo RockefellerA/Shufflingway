@@ -7391,8 +7391,8 @@ public class MainWindow {
 	 * Returns the traits the forward at {@code idx} should show a {@link TraitTab} for, in a
 	 * stable display order. Only traits {@link TraitTab#hasGlyph} can draw are considered, and
 	 * each is resolved through {@code effectiveHasTrait} so granted, temporary and suppressed
-	 * traits all show correctly. The attack/block statuses are the keys of {@code statusDetails},
-	 * from {@link #forwardStatusDetails}.
+	 * traits all show correctly. The attack/block and damage statuses, and the narrow "cannot be
+	 * broken", are the keys of {@code statusDetails}, from {@link #forwardStatusDetails}.
 	 */
 	private List<CardData.Trait> visibleTraitTabs(boolean isP1, int idx,
 			Map<CardData.Trait, List<String>> statusDetails) {
@@ -7403,20 +7403,111 @@ public class MainWindow {
 		return out;
 	}
 
-	/** {@link #combatStatusDetails} for the Forward at {@code idx}; empty for an empty slot. */
-	private Map<CardData.Trait, List<String>> forwardStatusDetails(boolean isP1, int idx) {
+	/**
+	 * {@link #combatStatusDetails} and {@link #putProtectionDetails} for the Forward at {@code idx};
+	 * empty for an empty slot.
+	 */
+	Map<CardData.Trait, List<String>> forwardStatusDetails(boolean isP1, int idx) {
 		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-		return combatStatusDetails(isP1, idx >= 0 && idx < fwds.size() ? fwds.get(idx) : null);
+		boolean present = idx >= 0 && idx < fwds.size();
+		Map<CardData.Trait, List<String>> out = combatStatusDetails(isP1, present ? fwds.get(idx) : null);
+		if (present) putProtectionDetails(out, isP1, ForwardTarget.CardZone.FORWARD, idx,
+				t -> effectiveHasTrait(isP1, idx, t));
+		return out;
 	}
 
 	/**
-	 * {@link #combatStatusDetails} for the Monster at {@code idx} — empty unless it is acting as a
-	 * Forward, since that is the only time it can attack or block at all.
+	 * {@link #forwardStatusDetails} for the Monster at {@code idx} — empty unless it is acting as a
+	 * Forward, since that is the only time it can attack, block or be dealt damage at all.
 	 */
 	private Map<CardData.Trait, List<String>> monsterStatusDetails(boolean isP1, int idx) {
 		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
 		boolean asForward = isP1 ? isP1MonsterTemporarilyForward(idx) : isP2MonsterTemporarilyForward(idx);
-		return combatStatusDetails(isP1, asForward ? mons.get(idx) : null);
+		Map<CardData.Trait, List<String>> out = combatStatusDetails(isP1, asForward ? mons.get(idx) : null);
+		if (asForward) putProtectionDetails(out, isP1, ForwardTarget.CardZone.MONSTER, idx,
+				t -> effectiveMonsterHasTrait(isP1, idx, t));
+		return out;
+	}
+
+	/**
+	 * Adds the protection tabs' lines to {@code out}: the two damage statuses from
+	 * {@link DamageResolver#protections}, and the narrow "cannot be broken" that the gem shield
+	 * shows alongside the plain one.
+	 *
+	 * <p>The plain {@link CardData.Trait#CANNOT_BE_BROKEN} needs no entry — the trait itself puts
+	 * the tab up and its generic description is the whole story. The narrow form gets an entry so
+	 * the same tab appears for it, saying that damage still gets through; when a card has both,
+	 * the plain form covers the narrow one and the narrow line is left out.
+	 *
+	 * @param hasTrait the card's effective traits, resolved for whichever zone it is in
+	 */
+	private void putProtectionDetails(Map<CardData.Trait, List<String>> out, boolean isP1,
+			ForwardTarget.CardZone zone, int idx, Predicate<CardData.Trait> hasTrait) {
+		putNarrowCannotBeBroken(out, hasTrait, true);
+		DamageResolver.DamageProtections p = damageResolver.protections(isP1, zone, idx);
+		if (!p.zeroed().isEmpty())  out.put(CardData.Trait.DAMAGE_BECOMES_ZERO, p.zeroed());
+		if (!p.reduced().isEmpty()) out.put(CardData.Trait.DAMAGE_REDUCED, p.reduced());
+	}
+
+	/**
+	 * Puts the gem shield's lines for a card that has only the narrow "cannot be broken" — absent
+	 * when it has neither form, or the plain one, which covers the narrow one. {@code canBeDealtDamage}
+	 * adds that damage still gets through, which is only worth saying of a card damage can reach.
+	 */
+	private static void putNarrowCannotBeBroken(Map<CardData.Trait, List<String>> out,
+			Predicate<CardData.Trait> hasTrait, boolean canBeDealtDamage) {
+		if (hasTrait.test(CardData.Trait.CANNOT_BE_BROKEN) || !hasTrait.test(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG)) return;
+		String narrow = "Cannot be broken by opposing Summons or abilities that don't deal damage.";
+		out.put(CardData.Trait.CANNOT_BE_BROKEN,
+				canBeDealtDamage ? List.of(narrow, "Damage still breaks it.") : List.of(narrow));
+	}
+
+	/**
+	 * The status lines for the Backup at {@code idx}. One acting as a Forward is under everything a
+	 * Forward is, so it gets the combat and damage statuses too; an ordinary Backup can neither fight
+	 * nor be dealt damage, and only the gem shield applies to it. Empty for an empty slot.
+	 */
+	Map<CardData.Trait, List<String>> backupStatusDetails(boolean isP1, int idx) {
+		CardData[] backs = isP1 ? p1BackupCards : p2BackupCards;
+		if (idx < 0 || idx >= backs.length || backs[idx] == null) return new EnumMap<>(CardData.Trait.class);
+		boolean asForward = isP1 ? isP1BackupTemporarilyForward(idx) : isP2BackupTemporarilyForward(idx);
+		Map<CardData.Trait, List<String>> out = combatStatusDetails(isP1, asForward ? backs[idx] : null);
+		Predicate<CardData.Trait> has = t -> backupTabHasTrait(isP1, idx, t);
+		if (asForward) putProtectionDetails(out, isP1, ForwardTarget.CardZone.BACKUP, idx, has);
+		else           putNarrowCannotBeBroken(out, has, false);
+		return out;
+	}
+
+	/**
+	 * {@link #visibleTraitTabs} for the Backup at {@code idx}: every drawable trait while it acts as
+	 * a Forward, and otherwise only {@link CardData.Trait#CANNOT_BE_BROKEN}, the one tab that means
+	 * anything for a card that cannot fight.
+	 */
+	List<CardData.Trait> visibleBackupTraitTabs(boolean isP1, int idx,
+			Map<CardData.Trait, List<String>> statusDetails) {
+		boolean asForward = isP1 ? isP1BackupTemporarilyForward(idx) : isP2BackupTemporarilyForward(idx);
+		List<CardData.Trait> out = new ArrayList<>();
+		for (CardData.Trait t : CardData.Trait.values()) {
+			if (!TraitTab.hasGlyph(t)) continue;
+			boolean shows = statusDetails.containsKey(t)
+					|| ((asForward || t == CardData.Trait.CANNOT_BE_BROKEN) && backupTabHasTrait(isP1, idx, t));
+			if (shows) out.add(t);
+		}
+		return out;
+	}
+
+	/**
+	 * Whether the Backup at {@code idx} has {@code trait} by either of the routes the engine reads
+	 * for one. {@link #effectiveBackupHasTrait} is what the damage and combat paths consult; a break
+	 * by an effect also honours the conditional grants other cards hand out (Auron 1-002R's "The
+	 * Backups you control cannot be broken…"), so those count for the two "cannot be broken"
+	 * traits — and only for them, since nothing reads a granted Haste or Brave off a Backup.
+	 */
+	private boolean backupTabHasTrait(boolean isP1, int idx, CardData.Trait trait) {
+		if (effectiveBackupHasTrait(isP1, idx, trait)) return true;
+		if (trait != CardData.Trait.CANNOT_BE_BROKEN && trait != CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG) return false;
+		CardData c = (isP1 ? p1BackupCards : p2BackupCards)[idx];
+		return fieldGrantCalculator.computeConditionalTraitsForTarget(c, isP1).contains(trait);
 	}
 
 	/**
@@ -14436,8 +14527,8 @@ public class MainWindow {
 	 * it ahead of the manager's in the dispatch order, so a tooltip that is already showing sees
 	 * the text for the tab the pointer just moved onto rather than the one it left.
 	 *
-	 * @param statusDetails per-card lines for the attack/block status tabs, from
-	 *                      {@link #combatStatusDetails}; a tab with lines here lists them in place
+	 * @param statusDetails per-card lines for the status tabs, from {@link #forwardStatusDetails}
+	 *                      or {@link #monsterStatusDetails}; a tab with lines here lists them in place
 	 *                      of its generic {@link TraitTab#description}
 	 */
 	void applyFieldSlotTooltip(JLabel slot, CardState state, List<CardData.Trait> traitTabs,
@@ -14532,6 +14623,8 @@ public class MainWindow {
 		int damage   = card != null ? p1BackupForwardDamage.getOrDefault(card, 0) : 0;
 		Map<String, Integer> countersMap = card != null ? gameState.getCountersMap(card) : Map.of();
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
+		Map<CardData.Trait, List<String>> statusDetails = backupStatusDetails(true, idx);
+		List<CardData.Trait> traitTabs = visibleBackupTraitTabs(true, idx, statusDetails);
 		if (slot.getIcon() == null) slot.setIcon(new FieldCardIcon(CardAnimation.renderPlaceholder(state), state));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
@@ -14539,6 +14632,7 @@ public class MainWindow {
 				if (raw == null) return new FieldCardIcon(CardAnimation.renderPlaceholder(state), state);
 				BufferedImage canvas = CardAnimation.renderBackupCard(
 						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack || canBlock, selected, p1BackupFrozen[idx]);
+				TraitTab.renderTraitTabs(canvas, state, traitTabs, false);
 				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
@@ -14550,7 +14644,7 @@ public class MainWindow {
 				try {
 					ImageIcon icon = get();
 					if (icon != null && p1BackupUrls[idx] != null) { slot.setIcon(icon); slot.setText(null); }
-					slot.setToolTipText(buildCounterTooltip(countersMap));
+					applyFieldSlotTooltip(slot, state, traitTabs, false, statusDetails, countersMap);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -23060,6 +23154,8 @@ public class MainWindow {
 		int damage   = card != null ? p2BackupForwardDamage.getOrDefault(card, 0) : 0;
 		Map<String, Integer> countersMap = card != null ? gameState.getCountersMap(card) : Map.of();
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
+		Map<CardData.Trait, List<String>> statusDetails = backupStatusDetails(false, idx);
+		List<CardData.Trait> traitTabs = visibleBackupTraitTabs(false, idx, statusDetails);
 		if (slot.getIcon() == null) slot.setIcon(new FieldCardIcon(CardAnimation.renderPlaceholder(state), state));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
@@ -23067,6 +23163,7 @@ public class MainWindow {
 				if (raw == null) return new FieldCardIcon(CardAnimation.renderPlaceholder(state), state);
 				BufferedImage canvas = CardAnimation.renderBackupCard(
 						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, false, false, p2BackupFrozen[idx]);
+				TraitTab.renderTraitTabs(canvas, state, traitTabs, false);
 				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
@@ -23078,7 +23175,7 @@ public class MainWindow {
 				try {
 					ImageIcon icon = get();
 					if (icon != null && p2BackupUrls[idx] != null) { slot.setIcon(icon); slot.setText(null); }
-					slot.setToolTipText(buildCounterTooltip(countersMap));
+					applyFieldSlotTooltip(slot, state, traitTabs, false, statusDetails, countersMap);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();

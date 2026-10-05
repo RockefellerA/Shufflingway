@@ -26,7 +26,8 @@ import static shufflingway.graphics.CardAnimation.CARD_W;
 /**
  * Small rectangular tabs that peek out from behind a field card, one per trait the card
  * currently has, each carrying a vector-drawn glyph (Haste, Brave, First Strike, Cannot Be
- * Broken, Priming), plus the Must/Cannot Attack/Block statuses the card is under.
+ * Broken, Priming), plus the statuses the card is under: Must/Cannot Attack/Block, and the two
+ * damage protections, "damage becomes 0" and "damage is reduced".
  *
  * <p>Tabs are composited onto the square {@code CARD_H x CARD_H} field-card canvas built by
  * {@link CardAnimation#renderBackupCard}, the same way the damage, power and counter overlays
@@ -74,6 +75,8 @@ public final class TraitTab {
     private static final Color SLASH_EDGE   = new Color(0x8a, 0x60, 0x00);
     private static final Color SLASH_GLOW   = new Color(0xff, 0xd2, 0x3f, 70);
     private static final Color GEM_FILL     = new Color(0xe8, 0xb4, 0x4a);
+    private static final Color MARK_FILL    = new Color(0x5b, 0xc8, 0xe8);
+    private static final Color MARK_EDGE    = Color.BLACK;
     private static final Color PRIMED_FILL  = new Color(0x3d, 0xd9, 0x4a);
     private static final Color PRIMED_LINE  = new Color(0x0d, 0x3f, 0x14);
     private static final Color PRIMED_GLOW  = new Color(0xff, 0x8c, 0x1a);
@@ -105,6 +108,8 @@ public final class TraitTab {
             || trait == CardData.Trait.FIRST_STRIKE
             || trait == CardData.Trait.CANNOT_BE_BROKEN
             || trait == CardData.Trait.PRIMING
+            || trait == CardData.Trait.DAMAGE_BECOMES_ZERO
+            || trait == CardData.Trait.DAMAGE_REDUCED
             || trait == CardData.Trait.MUST_ATTACK
             || trait == CardData.Trait.MUST_BLOCK
             || trait == CardData.Trait.CANNOT_ATTACK
@@ -119,9 +124,10 @@ public final class TraitTab {
      * Strike here resolves inside one atomic combat step, with no priority window between the
      * first blow and the return strike, so the text promises only what the engine delivers.
      *
-     * <p>The four attack/block statuses get only a generic line here. On the board each tab's
+     * <p>The attack/block and damage statuses get only a generic line here. On the board each tab's
      * tooltip lists the specific rules binding that card instead ("Cannot block a Forward with
-     * higher power than its own.", "Must block Garland if able."), which MainWindow supplies.
+     * higher power than its own.", "Damage from opposing abilities becomes 0."), which MainWindow
+     * supplies. So does Cannot Be Broken when the card has only the narrow form of it.
      *
      * @param primed whether the card has actually been primed, which {@link CardData.Trait#PRIMING}
      *               reads two ways — the others ignore it
@@ -141,6 +147,8 @@ public final class TraitTab {
                                    + "this Forward answers to both card names."
                                    : "Can be primed: pay the Priming cost to pull its named card "
                                    + "out of the deck and stack it on top.";
+            case DAMAGE_BECOMES_ZERO -> "Some or all damage dealt to it becomes 0.";
+            case DAMAGE_REDUCED   -> "Damage dealt to it is reduced.";
             case MUST_ATTACK      -> "Must attack if it is able to.";
             case MUST_BLOCK       -> "Must block if it is able to.";
             case CANNOT_ATTACK    -> "Cannot attack.";
@@ -149,9 +157,16 @@ public final class TraitTab {
         };
     }
 
-    /** The trait's own name for the tooltip heading — Priming reads as its state once it has one. */
+    /**
+     * The trait's own name for the tooltip heading — Priming reads as its state once it has one,
+     * and the damage statuses as the effect they print.
+     */
     public static String displayName(CardData.Trait trait, boolean primed) {
-        return trait == CardData.Trait.PRIMING && primed ? "Primed" : trait.displayName();
+        return switch (trait) {
+            case PRIMING             -> primed ? "Primed" : trait.displayName();
+            case DAMAGE_BECOMES_ZERO -> "Damage Becomes 0";
+            default                  -> trait.displayName();
+        };
     }
 
     /**
@@ -290,6 +305,8 @@ public final class TraitTab {
             case FIRST_STRIKE     -> drawFirstStrikeIcon(g, x, y, size);
             case CANNOT_BE_BROKEN -> drawCannotBeBrokenIcon(g, x, y, size);
             case PRIMING          -> drawPrimingIcon(g, x, y, size, primed);
+            case DAMAGE_BECOMES_ZERO -> drawDamageBecomesZeroIcon(g, x, y, size);
+            case DAMAGE_REDUCED   -> drawDamageReducedIcon(g, x, y, size);
             case MUST_ATTACK      -> drawMustAttackIcon(g, x, y, size);
             case MUST_BLOCK       -> drawMustBlockIcon(g, x, y, size);
             case CANNOT_ATTACK    -> drawCannotAttackIcon(g, x, y, size);
@@ -357,42 +374,46 @@ public final class TraitTab {
     }
 
     /**
-     * Draws the "Brave" glyph — a chestplate outline with a heart at its center — into the box
+     * Draws the "Brave" glyph — an up arrow outline with a heart at its center — into the box
      * {@code [x, y, x + size, y + size]}. Same 24x24 logical grid as {@link #drawHasteIcon}.
+     *
+     * <p>The arrow is a squat block arrow, with a shaft wide enough to seat a full-size heart where
+     * the head meets it; the heart straddles that join, so it reads as the arrow's centre rather
+     * than as sitting in either half.
+     *
+     * <p>The glyph is nudged (by under half a pixel) so its vertical axis lands on a pixel boundary.
+     * At tab size the heart is only a few pixels wide, and from an arbitrary fractional origin its
+     * two lobes rasterize to visibly different shapes; on a boundary they come out as mirror images.
      */
     public static void drawBraveIcon(Graphics2D g0, float x, float y, float size) {
         Graphics2D g = (Graphics2D) g0.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         float s = size / 24f;
-        g.translate(x, y);
+        float axis = x + 12 * s;
+        g.translate(x + (Math.round(axis) - axis), y);
         g.scale(s, s);
 
-        Path2D.Float plate = new Path2D.Float();
-        plate.moveTo(12, 5);
-        plate.lineTo(8, 3);
-        plate.lineTo(4, 4);
-        plate.lineTo(3, 8);
-        plate.lineTo(5, 10);
-        plate.lineTo(4, 16);
-        plate.lineTo(12, 22);
-        plate.lineTo(20, 16);
-        plate.lineTo(19, 10);
-        plate.lineTo(21, 8);
-        plate.lineTo(20, 4);
-        plate.lineTo(16, 3);
-        plate.closePath();
+        Path2D.Float arrow = new Path2D.Float();
+        arrow.moveTo(12, 3.4f);
+        arrow.lineTo(22.2f, 12.2f);
+        arrow.lineTo(17.8f, 12.2f);
+        arrow.lineTo(17.8f, 20.6f);
+        arrow.lineTo(6.2f, 20.6f);
+        arrow.lineTo(6.2f, 12.2f);
+        arrow.lineTo(1.8f, 12.2f);
+        arrow.closePath();
         g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         g.setColor(ICON_LINE);
-        g.draw(plate);
+        g.draw(arrow);
 
         Path2D.Float heart = new Path2D.Float();
-        heart.moveTo(12, 16.5f);
-        heart.curveTo(9, 14, 8, 12, 8, 10.3f);
-        heart.curveTo(8, 8.9f, 9.1f, 8, 10.3f, 8);
-        heart.curveTo(11.2f, 8, 12, 8.8f, 12, 9.6f);
-        heart.curveTo(12, 8.8f, 12.8f, 8, 13.7f, 8);
-        heart.curveTo(14.9f, 8, 16, 8.9f, 16, 10.3f);
-        heart.curveTo(16, 12, 15, 14, 12, 16.5f);
+        heart.moveTo(12, 18.1f);
+        heart.curveTo(9, 15.6f, 8, 13.6f, 8, 11.9f);
+        heart.curveTo(8, 10.5f, 9.1f, 9.6f, 10.3f, 9.6f);
+        heart.curveTo(11.2f, 9.6f, 12, 10.4f, 12, 11.2f);
+        heart.curveTo(12, 10.4f, 12.8f, 9.6f, 13.7f, 9.6f);
+        heart.curveTo(14.9f, 9.6f, 16, 10.5f, 16, 11.9f);
+        heart.curveTo(16, 13.6f, 15, 15.6f, 12, 18.1f);
         heart.closePath();
         g.setColor(HEART_FILL);
         g.fill(heart);
@@ -419,18 +440,7 @@ public final class TraitTab {
         g.translate(x, y);
         g.scale(s, s);
 
-        // Heater shield: flat shoulders, straight sides, curving to a point at the bottom.
-        Path2D.Float shield = new Path2D.Float();
-        shield.moveTo(12, 3.2f);
-        shield.lineTo(20, 5.8f);
-        shield.lineTo(20, 12);
-        shield.curveTo(20, 17, 16.2f, 20.2f, 12, 21.6f);
-        shield.curveTo(7.8f, 20.2f, 4, 17, 4, 12);
-        shield.lineTo(4, 5.8f);
-        shield.closePath();
-        g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        g.setColor(ICON_LINE);
-        g.draw(shield);
+        drawShieldOutline(g);
 
         // Cut gem, centred on the shield's visual mass rather than its bounding box.
         Path2D.Float gem = new Path2D.Float();
@@ -454,11 +464,87 @@ public final class TraitTab {
     }
 
     /**
+     * Draws the "Damage Becomes 0" glyph — the {@link #drawCannotBeBrokenIcon} shield with a 0
+     * where the gem would be — into the box {@code [x, y, x + size, y + size]}.
+     *
+     * <p>The three shields share one outline so they read as one family of protection, and the
+     * mark inside says which: the gem for "cannot be broken", 0 for a hit wiped out, −X for a
+     * hit made smaller. Both marks are blue with a black edge, set apart from the gold gem.
+     */
+    public static void drawDamageBecomesZeroIcon(Graphics2D g0, float x, float y, float size) {
+        Graphics2D g = (Graphics2D) g0.create();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        float s = size / 24f;
+        g.translate(x, y);
+        g.scale(s, s);
+
+        drawShieldOutline(g);
+        drawMark(g, new Ellipse2D.Float(9.2f, 7.6f, 5.6f, 8.6f));
+
+        g.dispose();
+    }
+
+    /**
+     * Draws the "Damage Reduced" glyph — the {@link #drawCannotBeBrokenIcon} shield with a −X in
+     * it — into the box {@code [x, y, x + size, y + size]}. See {@link #drawDamageBecomesZeroIcon}.
+     *
+     * <p>The X stands for "some amount": the amount differs from card to card and can stack from
+     * several sources, so the tooltip carries the figures and the glyph only the kind of effect.
+     */
+    public static void drawDamageReducedIcon(Graphics2D g0, float x, float y, float size) {
+        Graphics2D g = (Graphics2D) g0.create();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        float s = size / 24f;
+        g.translate(x, y);
+        g.scale(s, s);
+
+        drawShieldOutline(g);
+        Path2D.Float mark = new Path2D.Float();
+        mark.append(new Line2D.Float(7.0f, 12f, 9.6f, 12f), false);          // minus
+        mark.append(new Line2D.Float(11.4f, 9.2f, 16.6f, 14.8f), false);     // X
+        mark.append(new Line2D.Float(16.6f, 9.2f, 11.4f, 14.8f), false);
+        drawMark(g, mark);
+
+        g.dispose();
+    }
+
+    /**
+     * The heater shield shared by the three protection glyphs — flat shoulders, straight sides,
+     * curving to a point at the bottom — stroked in white line art on the 24x24 grid.
+     */
+    private static void drawShieldOutline(Graphics2D g) {
+        Path2D.Float shield = new Path2D.Float();
+        shield.moveTo(12, 3.2f);
+        shield.lineTo(20, 5.8f);
+        shield.lineTo(20, 12);
+        shield.curveTo(20, 17, 16.2f, 20.2f, 12, 21.6f);
+        shield.curveTo(7.8f, 20.2f, 4, 17, 4, 12);
+        shield.lineTo(4, 5.8f);
+        shield.closePath();
+        g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(ICON_LINE);
+        g.draw(shield);
+    }
+
+    /**
+     * Strokes a damage shield's mark: a black edge first, then the blue line over it, so the mark
+     * holds its shape against the shield's white outline and the dark tab alike.
+     */
+    private static void drawMark(Graphics2D g, Shape mark) {
+        g.setStroke(new BasicStroke(3.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(MARK_EDGE);
+        g.draw(mark);
+        g.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(MARK_FILL);
+        g.draw(mark);
+    }
+
+    /**
      * Draws the "Priming" glyph — a bold letter P — into the box {@code [x, y, x + size, y + size]}.
      * Same 24x24 logical grid as {@link #drawHasteIcon}.
      *
      * <p>Two states, because the trait is a capability before it is a fact. Unprimed it is white
-     * line art like the Haste ring and the Brave chestplate: the card <em>can</em> prime, and the
+     * line art like the Haste ring and the Brave arrow: the card <em>can</em> prime, and the
      * tab is there so a player can see that without reading the card. Primed, the same outline is
      * filled green and haloed in orange — the charge is the colour, so the change reads at a glance
      * across a board where the tab was already sitting.

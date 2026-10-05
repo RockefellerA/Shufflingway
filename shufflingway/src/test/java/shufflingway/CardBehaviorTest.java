@@ -8470,8 +8470,8 @@ public class CardBehaviorTest {
                 "Ardyn cannot be broken.");
         assertTrue(ardyn.hasTrait(CardData.Trait.CANNOT_BE_BROKEN));
 
-        // The damage-only variant is a separate trait and deliberately has no glyph yet — it must
-        // not borrow this one, which would overstate the protection on the card.
+        // The damage-only variant is a separate trait with no glyph of its own. It shows on this
+        // tab only through MainWindow's status lines, which say that damage still breaks it.
         assertFalse(shufflingway.graphics.TraitTab.hasGlyph(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG));
     }
 
