@@ -4,6 +4,7 @@ import shufflingway.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
@@ -33,24 +34,22 @@ public class RemovedFromPlayDialog {
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
-        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        List<Component> cells = new ArrayList<>();
 
         for (GameState.WarpEntry entry : warpZone) {
             JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-            wrapper.setBackground(cardsPanel.getBackground());
             JLabel lbl = makeRfpCardLabel(entry.card.imageUrl(), onZoom, onZoomHide);
             JLabel info = new JLabel(entry.card.name() + "  [" + entry.counters + "]", SwingConstants.CENTER);
             info.setFont(FontLoader.loadPixelFont(9));
             info.setPreferredSize(new Dimension(CARD_W, 18));
             wrapper.add(lbl,  BorderLayout.CENTER);
             wrapper.add(info, BorderLayout.SOUTH);
-            cardsPanel.add(wrapper);
+            cells.add(wrapper);
         }
 
         for (CardData card : permZone) {
             boolean faceDown = hidden != null && hidden.test(card);
             JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-            wrapper.setBackground(cardsPanel.getBackground());
             // A hidden card gets no url at all rather than a suppressed one: the hover zoom reads
             // whatever it is handed, so the only safe thing to hand it is nothing.
             JLabel lbl = faceDown ? makeCardbackLabel(cardback)
@@ -61,10 +60,10 @@ public class RemovedFromPlayDialog {
             info.setPreferredSize(new Dimension(CARD_W, 18));
             wrapper.add(lbl,  BorderLayout.CENTER);
             wrapper.add(info, BorderLayout.SOUTH);
-            cardsPanel.add(wrapper);
+            cells.add(wrapper);
         }
 
-        dlg.getContentPane().add(new JScrollPane(cardsPanel));
+        dlg.getContentPane().add(CardGridPane.of(cells));
         dlg.pack();
         dlg.setLocationRelativeTo(owner);
         dlg.setVisible(true);

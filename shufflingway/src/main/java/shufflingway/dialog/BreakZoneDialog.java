@@ -5,6 +5,7 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
@@ -36,7 +37,7 @@ public class BreakZoneDialog {
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
-        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        List<Component> cells = new ArrayList<>();
 
         for (CardData cd : zone) {
             final boolean hasBzAbility = cb.hasBzAbility(cd);
@@ -47,7 +48,6 @@ public class BreakZoneDialog {
             final boolean interactive  = hasBzAbility || hasBzPlay;
 
             JPanel cardWrapper = new JPanel(new BorderLayout(0, 4));
-            cardWrapper.setBackground(cardsPanel.getBackground());
 
             JLabel lbl = new JLabel("...", SwingConstants.CENTER);
             lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
@@ -134,15 +134,10 @@ public class BreakZoneDialog {
 
             cardWrapper.add(lbl,       BorderLayout.CENTER);
             cardWrapper.add(nameLabel, BorderLayout.SOUTH);
-            cardsPanel.add(cardWrapper);
+            cells.add(cardWrapper);
         }
 
-        JScrollPane scrollPane = new JScrollPane(cardsPanel,
-                JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-                JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        scrollPane.setPreferredSize(new Dimension(
-                Math.min(zone.size() * (CARD_W + 16) + 16, 900),
-                CARD_H + 60));
+        JScrollPane scrollPane = CardGridPane.of(cells);
 
         JButton closeBtn = new JButton("Close");
         closeBtn.setFont(FontLoader.loadPixelFont(11));
@@ -176,7 +171,7 @@ public class BreakZoneDialog {
         confirmBtn.setFont(FontLoader.loadPixelFont(11));
         confirmBtn.setEnabled(false);
 
-        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        List<Component> cells = new ArrayList<>();
         JLabel[] cardLabels = new JLabel[candidates.size()];
 
         for (int i = 0; i < candidates.size(); i++) {
@@ -223,18 +218,12 @@ public class BreakZoneDialog {
             nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
 
             JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-            wrapper.setBackground(cardsPanel.getBackground());
             wrapper.add(lbl,       BorderLayout.CENTER);
             wrapper.add(nameLabel, BorderLayout.SOUTH);
-            cardsPanel.add(wrapper);
+            cells.add(wrapper);
         }
 
-        JScrollPane scrollPane = new JScrollPane(cardsPanel,
-                JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-                JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        scrollPane.setPreferredSize(new Dimension(
-                Math.min(candidates.size() * (CARD_W + 16) + 16, 900),
-                CARD_H + 60));
+        JScrollPane scrollPane = CardGridPane.of(cells);
 
         confirmBtn.addActionListener(ae -> { onZoomHide.run(); dlg.dispose(); });
 
