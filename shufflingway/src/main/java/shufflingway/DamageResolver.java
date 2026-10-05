@@ -869,21 +869,49 @@ class DamageResolver {
 	int modifyOutgoingCombatDamage(boolean isP1, ForwardTarget.CardZone zone, int idx, int rawAmount, CardData target) {
 		CardData card = mw.fieldCombatant(isP1, zone, idx);
 		if (card == null) return rawAmount;
+		if (outgoingCombatDamageBecomesZero(card)) return 0;
+		return boostOutgoingCombatDamage(card, isP1, rawAmount, takeNextOutgoingDoubler(card), target);
+	}
+
+	/**
+	 * The replacement half of {@link #modifyOutgoingCombatDamage}: whether the battle damage
+	 * {@code card} is about to deal "becomes 0 instead". Spends a one-shot "next damage it deals
+	 * becomes 0" (Archer 4-070C) when that is what answers.
+	 *
+	 * <p>A blocker's damage to a party is one blow before it is spread, so this is asked once for
+	 * the whole blow there: once it is 0 there is nothing to spread and nothing for a boost to
+	 * increase.
+	 */
+	boolean outgoingCombatDamageBecomesZero(CardData card) {
 		// For the rest of the turn: every damage this card deals = 0 (23-024R Shiva). Read before
 		// the one-shot below and without removing, so a Forward carrying both does not spend the
 		// single-use shield on a hit this one was already going to stop — the ordering the
 		// incoming twin uses in modifyIncomingDamage, and for the same reason.
-		if (mw.allOutgoingDmgZeroThisTurnSet.contains(card)) return 0;
-		if (mw.nextOutgoingDmgZeroSet.remove(card)) return 0;
-		if (mw.dealsNoCombatDamageSet.contains(card)) return 0;   // deals no damage for the whole battle
+		if (mw.allOutgoingDmgZeroThisTurnSet.contains(card)) return true;
+		if (mw.nextOutgoingDmgZeroSet.remove(card)) return true;
+		if (mw.dealsNoCombatDamageSet.contains(card)) return true;   // deals no damage for the whole battle
 		// "If [card] deals damage … while dull, the damage becomes 0 instead" — Cagnazzo dulls
 		// itself when it blocks, so this can flip mid-battle.
 		if (mw.damageZeroedWhileDull(card)) {
 			mw.logEntry(card.name() + " is dull — outgoing damage becomes 0");
-			return 0;
+			return true;
 		}
-		int mult = mw.outgoingDmgMultiplierMap.getOrDefault(card, 1);
-		if (mw.nextOutgoingDmgDoublerSet.remove(card)) mult *= 2;
+		return false;
+	}
+
+	/** Spends {@code card}'s one-shot "next damage it deals is doubled": 2 when it had one, else 1. */
+	int takeNextOutgoingDoubler(CardData card) {
+		return mw.nextOutgoingDmgDoublerSet.remove(card) ? 2 : 1;
+	}
+
+	/**
+	 * The boost half of {@link #modifyOutgoingCombatDamage}: {@code rawAmount} of battle damage
+	 * {@code card} deals to {@code target}, with its multipliers and flat increases applied.
+	 * {@code blowMult} is a multiplier already settled for the whole blow — a spent one-shot
+	 * doubler — so a blow spread across a party doubles every share off one use.
+	 */
+	int boostOutgoingCombatDamage(CardData card, boolean isP1, int rawAmount, int blowMult, CardData target) {
+		int mult = mw.outgoingDmgMultiplierMap.getOrDefault(card, 1) * blowMult;
 		if (target != null) mult *= mw.fieldAbilityCombatOutgoingMult(card, target);
 		int flat = (target != null) ? mw.outgoingDmgFlatBoostMap.getOrDefault(card, 0) : 0;
 

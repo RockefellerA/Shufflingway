@@ -21685,39 +21685,14 @@ public class MainWindow {
 			ForwardTarget blockerSlot = chosenCode != null ? ForwardTarget.fromSlotCode(false, chosenCode) : null;
 			CardData      blocker     = blockerSlot != null ? fieldCardDataOrNull(blockerSlot) : null;
 			if (blocker != null) {
-				final ForwardTarget.CardZone blkZone = blockerSlot.zone();
-				final int blkIdx       = blockerSlot.idx();
-				final int blockerPower = fieldForwardPower(false, blkZone, blkIdx);
 				logEntry("[P2] " + blocker.name() + " blocks the party!");
 				// Both players may respond to the block before damage is worked out.
 				combatPriorityRound(true, null, () -> {
 					setAttackSubStep(3);
-					// Party has First Strike only if every attacker has it and the blocker does not
-					boolean partyFirst = attackerIndices.stream()
-							.allMatch(i -> partyMemberHasTrait(true, i, CardData.Trait.FIRST_STRIKE))
-							&& !fieldForwardTrait(false, blkZone, blkIdx, CardData.Trait.FIRST_STRIKE);
-					boolean blockerBroken = combinedPower >= blockerPower;
-					// See resolveP1BlockVsP2Party — the combined power is one instance of damage.
-					if (combinedPower > 0) autoAbilityTriggers.fireIsDealtDamageTriggers(blocker, false, combinedPower,
-							partyDealer(attackerIndices, true));
-					// Every member of the party dealt part of that one instance, so each is a damager
-					// of the blocker. Recorded before the break, as everywhere damage lands.
-					List<CardData> members = partyMemberBaseCards(true, attackerIndices);
-					if (combinedPower > 0)
-						for (CardData m : members) recordDamagedBy(blocker, m);
-					if (combinedPower > 0)
-						for (CardData m : members) autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToForward(m, true);
-					if (blockerBroken) breakFieldCard(false, blkZone, blkIdx);
-					if (!partyFirst || !blockerBroken) {
-						// How the blocker spreads its damage is the opponent's call.
-						opponent.requestPartyBlockerDamage(attackerIndices, blockerPower, damageMap -> {
-							applyBlockerDamageToParty(true, damageMap, blocker);
-							if (onDone != null) onDone.run();
-						});
-					} else {
-						logEntry("First Strike — party takes no return damage");
-						if (onDone != null) onDone.run();
-					}
+					// How the blocker spreads its damage is the opponent's call.
+					resolvePartyBlockDamage(true, attackerIndices, combinedPower, blocker, blockerSlot,
+							opponent::requestPartyBlockerDamage,
+							spread -> { if (onDone != null) onDone.run(); });
 				});
 			} else {
 				logEntry("[P2] declares no blocker.");
@@ -21799,35 +21774,213 @@ public class MainWindow {
 	}
 
 	/**
-	 * Applies a blocker's damage spread onto {@code partyIsP1}'s attacking party — keyed by slot
-	 * code — and breaks the members it finishes. {@code blocker} is the opposing Forward whose power
-	 * was spread across them, the damager of record for every entry in the map.
+	 * Asks the blocker's controller how to spread {@code blockerPower} over the party members still
+	 * on the field, by slot code; calls {@code onSpread} back exactly once.
 	 */
-	private void applyBlockerDamageToParty(boolean partyIsP1, Map<Integer, Integer> damageMap, CardData blocker) {
-		if (damageMap.isEmpty()) return;
-		Set<Integer> partySet = damageMap.keySet();
-		for (Map.Entry<Integer, Integer> entry : damageMap.entrySet()) {
-			int code = entry.getKey(), dmg = entry.getValue();
+	interface PartySpreadRequest {
+		void ask(List<Integer> liveCodes, int blockerPower, Consumer<Map<Integer, Integer>> onSpread);
+	}
+
+	/**
+	 * Resolves the battle damage between {@code partyIsP1}'s blocked party and the {@code blocker}
+	 * in {@code blkSlot}. Battle damage is simultaneous, so both sides are worked out and dealt while
+	 * everyone is still on the field, and only then does anything break:
+	 * <ol>
+	 *   <li>The party's combined power is one blow to the blocker, through the blocker's incoming
+	 *       modifiers, and breaks it when that and the damage it already carries reach its power.</li>
+	 *   <li>A party with First Strike throughout that breaks the blocker takes nothing back.</li>
+	 *   <li>The blocker's blow is dealt to the party as one Forward, so a "becomes 0 instead"
+	 *       replacement (Archer 4-070C) answers it whole, before it is spread: there is then
+	 *       nothing to spread and nothing for an increase to increase. A one-shot doubler is spent
+	 *       once here as well, and doubles every share.</li>
+	 *   <li>Otherwise the blocker's controller spreads its power, and each share is damage dealt
+	 *       to a Forward in its own right: the blocker's increases apply to every share (Gladiolus
+	 *       18-135S's +2000 lands on each), then the member's own reductions (Yuzuki 13-125R).</li>
+	 * </ol>
+	 *
+	 * <p>A blocker with First Strike against a party without it (the party has First Strike only
+	 * when every member does) is the exception to simultaneity — see
+	 * {@link #resolveBlockerFirstStrikeVsParty}.
+	 *
+	 * @param onDone handed the spread once everything has landed — empty when no damage came back
+	 */
+	void resolvePartyBlockDamage(boolean partyIsP1, List<Integer> attackerIndices, int combinedPower,
+			CardData blocker, ForwardTarget blkSlot, PartySpreadRequest requestSpread,
+			Consumer<Map<Integer, Integer>> onDone) {
+		boolean blkP1 = !partyIsP1;
+		boolean partyFs = attackerIndices.stream()
+				.allMatch(i -> partyMemberHasTrait(partyIsP1, i, CardData.Trait.FIRST_STRIKE));
+		boolean blockerFs = fieldForwardTrait(blkP1, blkSlot.zone(), blkSlot.idx(), CardData.Trait.FIRST_STRIKE);
+		boolean partyFirst = partyFs && !blockerFs;
+		int blockerPower = fieldForwardPower(blkP1, blkSlot.zone(), blkSlot.idx());
+		if (blockerFs && !partyFs) {
+			resolveBlockerFirstStrikeVsParty(partyIsP1, attackerIndices, blocker, blkSlot, blockerPower,
+					requestSpread, onDone);
+			return;
+		}
+		int toBlocker = partyDamageToBlocker(partyIsP1, attackerIndices, combinedPower, blkSlot);
+		logEntry((partyIsP1 ? "" : "[P2] ") + "Party deals " + toBlocker + " damage to " + blocker.name());
+		boolean blockerBroken = toBlocker > 0
+				&& fieldCombatDamage(blkP1, blkSlot.zone(), blkSlot.idx()) + toBlocker >= blockerPower;
+
+		boolean noReturn = false;
+		if (partyFirst && blockerBroken) {
+			logEntry("First Strike — party takes no return damage");
+			noReturn = true;
+		} else if (damageResolver.outgoingCombatDamageBecomesZero(blocker)) {
+			logEntry(blocker.name() + " — damage to the party becomes 0");
+			noReturn = true;
+		}
+		if (noReturn) {
+			dealPartyDamageToBlocker(partyIsP1, attackerIndices, blocker, toBlocker);
+			landPartyBlockBreaks(partyIsP1, Map.of(), blkSlot, toBlocker, blockerBroken);
+			onDone.accept(Map.of());
+			return;
+		}
+		int blowMult = damageResolver.takeNextOutgoingDoubler(blocker);
+		List<Integer> live = new ArrayList<>();
+		for (int code : attackerIndices)
+			if (partyMemberBaseCard(partyIsP1, code) != null) live.add(code);
+		requestSpread.ask(live, blockerPower, spread -> {
+			dealPartyDamageToBlocker(partyIsP1, attackerIndices, blocker, toBlocker);
+			dealBlockerSpread(partyIsP1, spread, blocker, blkSlot, blowMult);
+			landPartyBlockBreaks(partyIsP1, spread, blkSlot, toBlocker, blockerBroken);
+			onDone.accept(spread);
+		});
+	}
+
+	/**
+	 * A blocker with First Strike against a party without it: the blocker's blow is spread and
+	 * lands first, and the members it breaks are gone before the party strikes back. The blocker's
+	 * controller picks the spread knowing that, so they can aim it to remove a member. The party
+	 * then deals only its survivors' combined power, read afresh — nothing at all when none
+	 * survive.
+	 */
+	private void resolveBlockerFirstStrikeVsParty(boolean partyIsP1, List<Integer> attackerIndices,
+			CardData blocker, ForwardTarget blkSlot, int blockerPower, PartySpreadRequest requestSpread,
+			Consumer<Map<Integer, Integer>> onDone) {
+		// Held by card rather than slot code: breaking a member shifts the slots of those after it.
+		List<CardData> members = partyMemberBaseCards(partyIsP1, attackerIndices);
+		logEntry("First Strike — " + blocker.name() + " deals its damage to the party first");
+		if (damageResolver.outgoingCombatDamageBecomesZero(blocker)) {
+			logEntry(blocker.name() + " — damage to the party becomes 0");
+			survivingPartyStrikesBlocker(partyIsP1, members, blocker, blkSlot);
+			onDone.accept(Map.of());
+			return;
+		}
+		int blowMult = damageResolver.takeNextOutgoingDoubler(blocker);
+		List<Integer> live = new ArrayList<>();
+		for (int code : attackerIndices)
+			if (partyMemberBaseCard(partyIsP1, code) != null) live.add(code);
+		requestSpread.ask(live, blockerPower, spread -> {
+			dealBlockerSpread(partyIsP1, spread, blocker, blkSlot, blowMult);
+			landPartyBlockBreaks(partyIsP1, spread, blkSlot, 0, false);
+			survivingPartyStrikesBlocker(partyIsP1, members, blocker, blkSlot);
+			onDone.accept(spread);
+		});
+	}
+
+	/** The second strike of {@link #resolveBlockerFirstStrikeVsParty}: whichever {@code members} are still on the field hit the blocker. */
+	private void survivingPartyStrikesBlocker(boolean partyIsP1, List<CardData> members, CardData blocker,
+			ForwardTarget blkSlot) {
+		List<Integer> survivors = new ArrayList<>();
+		for (CardData m : members) {
+			ForwardTarget t = currentFieldTargetOf(m, partyIsP1, -1);
+			if (t != null) survivors.add(t.slotCode());
+		}
+		if (survivors.isEmpty()) {
+			logEntry("No party member survives to deal damage to " + blocker.name());
+			return;
+		}
+		boolean blkP1 = !partyIsP1;
+		int toBlocker = partyDamageToBlocker(partyIsP1, survivors, partyPower(partyIsP1, survivors), blkSlot);
+		logEntry((partyIsP1 ? "" : "[P2] ") + "Party deals " + toBlocker + " damage to " + blocker.name());
+		boolean blockerBroken = toBlocker > 0
+				&& fieldCombatDamage(blkP1, blkSlot.zone(), blkSlot.idx()) + toBlocker
+						>= fieldForwardPower(blkP1, blkSlot.zone(), blkSlot.idx());
+		dealPartyDamageToBlocker(partyIsP1, survivors, blocker, toBlocker);
+		landPartyBlockBreaks(partyIsP1, Map.of(), blkSlot, toBlocker, blockerBroken);
+	}
+
+	/**
+	 * The party's combined power as it reaches the blocker: one instance of battle damage through
+	 * {@link #modifyIncomingDamage}. The first member still on the field stands in as the battle
+	 * opponent those readers inspect, the same member {@link #partyDealer} names.
+	 */
+	private int partyDamageToBlocker(boolean partyIsP1, List<Integer> attackerIndices, int combinedPower,
+			ForwardTarget blkSlot) {
+		if (combinedPower <= 0) return 0;
+		for (int code : attackerIndices) {
+			if (partyMemberBaseCard(partyIsP1, code) == null) continue;
+			ForwardTarget mt = partyMember(partyIsP1, code);
+			currentBattleAttacker = partyMemberBaseCard(partyIsP1, code); currentBattleAttackerIsP1 = partyIsP1;
+			currentBattleAttackerIdx = mt.idx(); currentBattleAttackerZone = mt.zone();
+			break;
+		}
+		int dmg = modifyIncomingDamage(!partyIsP1, blkSlot.zone(), blkSlot.idx(), combinedPower, false, false);
+		currentBattleAttacker = null;
+		return dmg;
+	}
+
+	/** The triggers and records of the party's blow to the blocker — the damage itself lands in {@link #landPartyBlockBreaks}. */
+	private void dealPartyDamageToBlocker(boolean partyIsP1, List<Integer> attackerIndices, CardData blocker, int dmg) {
+		if (dmg <= 0) return;
+		autoAbilityTriggers.fireIsDealtDamageTriggers(blocker, !partyIsP1, dmg,
+				partyDealer(attackerIndices, partyIsP1));
+		// Each member dealt part of the one instance, so each is a damager of the blocker.
+		List<CardData> members = partyMemberBaseCards(partyIsP1, attackerIndices);
+		for (CardData m : members) recordDamagedBy(blocker, m);
+		for (CardData m : members) autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToForward(m, partyIsP1);
+	}
+
+	/**
+	 * Deals each share of the blocker's {@code spread} to its party member: the blocker's
+	 * increases first, with {@code blowMult} settled once for the whole blow, then the member's own
+	 * reductions. A share of 0 is no damage at all, so nothing increases it.
+	 */
+	private void dealBlockerSpread(boolean partyIsP1, Map<Integer, Integer> spread, CardData blocker,
+			ForwardTarget blkSlot, int blowMult) {
+		boolean blkP1 = !partyIsP1;
+		Set<Integer> partySet = spread.keySet();
+		currentBattleAttacker = blocker; currentBattleAttackerIsP1 = blkP1;
+		currentBattleAttackerIdx = blkSlot.idx(); currentBattleAttackerZone = blkSlot.zone();
+		for (Map.Entry<Integer, Integer> entry : spread.entrySet()) {
+			int code = entry.getKey();
 			CardData member = partyMemberBaseCard(partyIsP1, code);
-			if (member == null) continue;
+			if (member == null || entry.getValue() <= 0) continue;
 			if (partySet.size() >= 2 && partyProtectionApplies(partySet, code, partyIsP1)) {
 				logEntry(member.name() + " — party damage nullified");
 				continue;
 			}
 			ForwardTarget t = partyMember(partyIsP1, code);
-			addFieldCombatDamage(partyIsP1, t.zone(), t.idx(), dmg);
+			int out = damageResolver.boostOutgoingCombatDamage(blocker, blkP1, entry.getValue(), blowMult, member);
+			int dmg = modifyIncomingDamage(partyIsP1, t.zone(), t.idx(), out, false, false);
 			logEntry((partyIsP1 ? "[P2] " : "") + "Deals " + dmg + " damage to " + member.name());
+			if (dmg <= 0) continue;
+			addFieldCombatDamage(partyIsP1, t.zone(), t.idx(), dmg);
 			// One instance of damage per party member the blocker's power was spread across, each
 			// firing "is dealt damage" triggers in its own right — see resolveCombat.
 			autoAbilityTriggers.fireIsDealtDamageTriggers(member, partyIsP1, dmg,
-					new AutoAbilityTriggers.DamageDealer(blocker, !partyIsP1, false));
-			if (dmg > 0) recordDamagedBy(member, blocker);
-			if (dmg > 0) autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToForward(blocker, !partyIsP1);
+					new AutoAbilityTriggers.DamageDealer(blocker, blkP1, false));
+			recordDamagedBy(member, blocker);
+			autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToForward(blocker, blkP1);
 		}
+		currentBattleAttacker = null;
+	}
+
+	/**
+	 * Lands the party's blow on the blocker — broken, or carrying the damage for the rest of the
+	 * turn — and breaks every member of the {@code spread} its share finished.
+	 */
+	private void landPartyBlockBreaks(boolean partyIsP1, Map<Integer, Integer> spread, ForwardTarget blkSlot,
+			int toBlocker, boolean blockerBroken) {
+		boolean blkP1 = !partyIsP1;
+		if (blockerBroken)     breakFieldCard(blkP1, blkSlot.zone(), blkSlot.idx());
+		else if (toBlocker > 0) addFieldCombatDamage(blkP1, blkSlot.zone(), blkSlot.idx(), toBlocker);
 		// Highest code first: within a zone that is the highest slot, so breaking one never shifts
 		// the index of another still waiting to break.
 		List<Integer> toBreak = new ArrayList<>();
-		for (int code : damageMap.keySet()) {
+		for (int code : spread.keySet()) {
 			if (partyMemberBaseCard(partyIsP1, code) != null
 					&& partyMemberDamage(partyIsP1, code) >= partyMemberPower(partyIsP1, code))
 				toBreak.add(code);
@@ -21848,47 +22001,21 @@ public class MainWindow {
 	 */
 	Map<Integer, Integer> resolveP1BlockVsP2Party(ForwardTarget blockerSlot, CardData blocker,
 			List<Integer> attackerIndices, int combinedPower) {
-		ForwardTarget.CardZone blkZone = blockerSlot.zone();
-		int                    blkIdx  = blockerSlot.idx();
-		// Party has First Strike only if every attacker has it and the blocker does not
-		boolean partyFirst = attackerIndices.stream()
-				.allMatch(i -> partyMemberHasTrait(false, i, CardData.Trait.FIRST_STRIKE))
-				&& !fieldForwardTrait(true, blkZone, blkIdx, CardData.Trait.FIRST_STRIKE);
-
-		int blockerPower = fieldForwardPower(true, blkZone, blkIdx);
-		logEntry("[P2] Party deals " + combinedPower + " damage to " + blocker.name());
-		boolean blockerBroken = combinedPower >= blockerPower;
-		// The party's combined power is one instance of damage to the blocker; triggers fire on it
-		// ahead of the break, as everywhere else damage lands.
-		if (combinedPower > 0) autoAbilityTriggers.fireIsDealtDamageTriggers(blocker, true, combinedPower,
-				partyDealer(attackerIndices, false));
-		// Each member dealt part of that instance, so each is a damager of the blocker.
-		List<CardData> members = partyMemberBaseCards(false, attackerIndices);
-		if (combinedPower > 0)
-			for (CardData m : members) recordDamagedBy(blocker, m);
-		if (combinedPower > 0)
-			for (CardData m : members) autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToForward(m, false);
-		if (blockerBroken) breakFieldCard(true, blkZone, blkIdx);
-
-		if (!partyFirst || !blockerBroken) {
-			List<Integer>  live          = new ArrayList<>();
-			List<CardData> attackerCards = new ArrayList<>();
-			for (int code : attackerIndices) {
-				CardData member = partyMemberBaseCard(false, code);
-				if (member == null) continue;
-				live.add(code);
-				attackerCards.add(member);
-			}
-			int[] effectivePowers = new int[live.size()];
-			for (int i = 0; i < live.size(); i++) effectivePowers[i] = partyMemberPower(false, live.get(i));
-			Map<Integer, Integer> damageMap = cardPickerDialog.assignPartyDamage(
-					live, attackerCards, effectivePowers, blockerPower);
-			if (damageMap.isEmpty()) damageMap = aiBuildPartyDamageMap(false, live, blockerPower);
-			applyBlockerDamageToParty(false, damageMap, blocker);
-			return damageMap;
-		}
-		logEntry("First Strike — party takes no return damage");
-		return Map.of();
+		List<Map<Integer, Integer>> result = new ArrayList<>(1);
+		resolvePartyBlockDamage(false, attackerIndices, combinedPower, blocker, blockerSlot,
+				(live, blockerPower, onSpread) -> {
+					List<CardData> attackerCards = new ArrayList<>();
+					int[] effectivePowers = new int[live.size()];
+					for (int i = 0; i < live.size(); i++) {
+						attackerCards.add(partyMemberBaseCard(false, live.get(i)));
+						effectivePowers[i] = partyMemberPower(false, live.get(i));
+					}
+					Map<Integer, Integer> damageMap = cardPickerDialog.assignPartyDamage(
+							live, attackerCards, effectivePowers, blockerPower);
+					onSpread.accept(damageMap.isEmpty() ? aiBuildPartyDamageMap(false, live, blockerPower) : damageMap);
+				},
+				result::add);
+		return result.isEmpty() ? Map.of() : result.get(0);
 	}
 
 	private static int roundToThousand(int value) {
