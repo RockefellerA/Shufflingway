@@ -132,6 +132,7 @@ import shufflingway.graphics.CardLimitBreakAnimator;
 import shufflingway.graphics.CardRfpAnimator;
 import shufflingway.graphics.CardSlideAnimator;
 import shufflingway.graphics.CrystalDisplay;
+import shufflingway.graphics.DamageNegateFlash;
 import shufflingway.graphics.ExBurstGlow;
 import shufflingway.graphics.FieldCardIcon;
 import shufflingway.graphics.FieldSlotLabel;
@@ -14496,6 +14497,16 @@ public class MainWindow {
 					() -> { if (isP1) refreshP1MonsterSlot(idx); else refreshP2MonsterSlot(idx); }, null);
 			default -> { }
 		}
+	}
+
+	/**
+	 * Plays the damage-negated flash over Forward {@code idx} ({@link DamageNegateFlash}). For an
+	 * effect that negates damage only; damage wearing off at end of turn plays nothing.
+	 */
+	void animateDamageNegated(boolean isP1, int idx) {
+		List<JLabel> labels = isP1 ? p1ForwardLabels : p2ForwardLabels;
+		if (idx >= 0 && idx < labels.size() && labels.get(idx) instanceof FieldSlotLabel f)
+			f.playDamageNegated();
 	}
 
 	private static String buildCounterTooltip(Map<String, Integer> countersMap) {

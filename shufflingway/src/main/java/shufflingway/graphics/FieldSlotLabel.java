@@ -14,6 +14,7 @@ import javax.swing.Icon;
 import javax.swing.JLabel;
 import javax.swing.JToolTip;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.ToolTipManager;
 
 import shufflingway.CardState;
@@ -29,7 +30,7 @@ import shufflingway.CardState;
  * still on it, like any button.
  *
  * <p>While {@link SlotLiftOverlay} has the slot raised, the label paints nothing and the overlay
- * paints both the icon and, through {@link #paintButtons}, the buttons.
+ * paints both the icon and, through {@link #paintOverlays}, the buttons.
  */
 public class FieldSlotLabel extends JLabel {
 
@@ -51,6 +52,10 @@ public class FieldSlotLabel extends JLabel {
 	private int tipButton = -1;
 	/** The tooltip manager's start delay while {@link #tipButton} has it borrowed, or -1. */
 	private int savedInitialDelay = -1;
+
+	/** When the running {@link DamageNegateFlash} started, in {@link System#nanoTime}, or -1. */
+	private long negateStartNs = -1;
+	private Timer negateTimer;
 
 	/**
 	 * @param lift the overlay that draws this slot while it is raised; read on each paint, since
@@ -92,8 +97,53 @@ public class FieldSlotLabel extends JLabel {
 		return getIcon() instanceof FieldCardIcon fi ? fi.state() : null;
 	}
 
-	/** Paints the buttons with the slot canvas's top-left at {@code (x, y)} on {@code g}. */
-	public void paintButtons(Graphics2D g, int x, int y) {
+	/**
+	 * Plays {@link DamageNegateFlash} over the card. Restarts it if one is already running, so two
+	 * negations in quick succession each read as a flash.
+	 */
+	public void playDamageNegated() {
+		negateStartNs = System.nanoTime();
+		if (negateTimer == null) {
+			negateTimer = new Timer(16, e -> {
+				if (negateProgress() >= 1) {
+					negateTimer.stop();
+					negateTimer = null;
+					negateStartNs = -1;
+				}
+				repaintSlot();
+			});
+			negateTimer.start();
+		}
+		repaintSlot();
+	}
+
+	private double negateProgress() {
+		return (System.nanoTime() - negateStartNs) / 1_000_000.0 / DamageNegateFlash.DURATION_MS;
+	}
+
+	/**
+	 * Paints what this slot draws over its card — a running {@link DamageNegateFlash}, then the
+	 * buttons — with the slot canvas's top-left at {@code (x, y)} on {@code g}.
+	 */
+	public void paintOverlays(Graphics2D g, int x, int y) {
+		paintNegateFlash(g, x, y);
+		paintButtons(g, x, y);
+	}
+
+	/**
+	 * Skipped over anything but a settled card, like the buttons: a rotation frame has no fixed
+	 * place for the pill to have been.
+	 */
+	private void paintNegateFlash(Graphics2D g, int x, int y) {
+		CardState state = buttonState();
+		if (negateStartNs < 0 || state == null) return;
+		Graphics2D g2 = (Graphics2D) g.create();
+		g2.translate(x, y);
+		DamageNegateFlash.paint(g2, state, negateProgress(), negateStartNs);
+		g2.dispose();
+	}
+
+	private void paintButtons(Graphics2D g, int x, int y) {
 		CardState state = buttonState();
 		if (state == null || buttons.isEmpty()) return;
 		Graphics2D g2 = (Graphics2D) g.create();
@@ -110,7 +160,7 @@ public class FieldSlotLabel extends JLabel {
 		Icon icon = getIcon();
 		if (icon == null) return;
 		Rectangle ir = iconBounds(this, icon);
-		paintButtons((Graphics2D) g, ir.x, ir.y);
+		paintOverlays((Graphics2D) g, ir.x, ir.y);
 	}
 
 	/** The index of the button under label point {@code (x, y)}, or -1. */

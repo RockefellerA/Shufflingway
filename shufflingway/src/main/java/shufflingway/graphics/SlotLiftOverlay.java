@@ -244,7 +244,7 @@ public class SlotLiftOverlay extends JComponent {
 				int y = p.y + ir.y - offset(l);
 				icon.paintIcon(slot, g2, x, y);
 				// The slot paints nothing of its own while raised, so its buttons come up with it.
-				if (slot instanceof FieldSlotLabel f) f.paintButtons(g2, x, y);
+				if (slot instanceof FieldSlotLabel f) f.paintOverlays(g2, x, y);
 				l.lastDrawn = new Rectangle(x, y, icon.getIconWidth(), icon.getIconHeight());
 			} finally {
 				g2.dispose();

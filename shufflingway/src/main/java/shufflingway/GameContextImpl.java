@@ -752,12 +752,14 @@ final class GameContextImpl implements GameContext {
 					logEntry(p1Forward(idx).name() + " — all damage negated");
 					mw.p1ForwardDamage.set(idx, 0);
 					mw.refreshP1ForwardSlot(idx);
+					mw.animateDamageNegated(true, idx);
 				} else {
 					int idx = t.idx();
 					if (idx < 0 || idx >= mw.p2ForwardCards.size() || mw.p2ForwardDamage.get(idx) == 0) return;
 					logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " — all damage negated");
 					mw.p2ForwardDamage.set(idx, 0);
 					mw.refreshP2ForwardSlot(idx);
+					mw.animateDamageNegated(false, idx);
 				}
 			}
 
@@ -769,6 +771,7 @@ final class GameContextImpl implements GameContext {
 					logEntry((isP1 ? "" : "[P2] ") + fwds.get(i).name() + " — all damage negated");
 					dmg.set(i, 0);
 					if (isP1) mw.refreshP1ForwardSlot(i); else mw.refreshP2ForwardSlot(i);
+					mw.animateDamageNegated(isP1, i);
 				}
 			}
 
