@@ -15,6 +15,7 @@ import org.json.JSONObject;
 import scraper.DeckDatabase;
 import shufflingway.AppSettings;
 import shufflingway.CounterColors;
+import shufflingway.DeckFormat;
 
 /**
  * The post-handshake half of the lobby: swapping decks and agreeing on the shuffle seed and
@@ -85,23 +86,37 @@ public final class LobbyExchange {
 	 * The host's lobby options.
 	 *
 	 * @param debug   whether the Debug menu will be usable during the match
-	 * @param banlist whether decks breaking the Standard banlist are refused, on both sides
-	 * @param resets  how many times the host has switched the banlist on; each one voids the deck
-	 *                either player had chosen, and a LOBBY_READY from before it is stale
+	 * @param banlist whether decks breaking the banlist are refused, on both sides
+	 * @param resets  how many times the host has tightened the deck rules — switched the banlist on
+	 *                or narrowed the format; each one voids the deck either player had chosen, and a
+	 *                LOBBY_READY from before it is stale
+	 * @param format  the format both decks must be legal in
 	 */
-	public record LobbySettings(boolean debug, boolean banlist, int resets) {}
+	public record LobbySettings(boolean debug, boolean banlist, int resets, DeckFormat format) {
+
+		/** Settings in Standard, from a host that sends no format. */
+		public LobbySettings(boolean debug, boolean banlist, int resets) {
+			this(debug, banlist, resets, DeckFormat.STANDARD);
+		}
+	}
 
 	public static GameAction lobbySettingsAction(LobbySettings s) {
 		return GameAction.of(ActionType.LOBBY_SETTINGS, new JSONObject()
 				.put("debug", s.debug())
 				.put("banlist", s.banlist())
-				.put("resets", s.resets()));
+				.put("resets", s.resets())
+				.put("format", s.format().id()));
 	}
 
 	public static LobbySettings settingsOf(GameAction action) {
 		JSONObject p = action.payload();
 		return new LobbySettings(p.optBoolean("debug", false), p.optBoolean("banlist", false),
-				p.optInt("resets", 0));
+				p.optInt("resets", 0), formatOf(p));
+	}
+
+	/** The format a payload names; one that names none — an older peer or server — is Standard. */
+	public static DeckFormat formatOf(JSONObject payload) {
+		return DeckFormat.parse(payload.optString("format", null));
 	}
 
 	/** Joiner → host: whether a deck is confirmed, as of the settings' {@code resets}. */
@@ -184,13 +199,14 @@ public final class LobbyExchange {
 
 	/** Host side: picks the seed and the coin flip, and tells the joiner along with the final settings. */
 	public static long sendGameSetup(GameConnection conn, boolean hostGoesFirst, boolean debugEnabled,
-			boolean banlistEnabled) {
+			boolean banlistEnabled, DeckFormat format) {
 		long seed = new Random().nextLong();
 		conn.send(GameAction.of(ActionType.GAME_SETUP, new JSONObject()
 				.put("seed", seed)
 				.put("hostGoesFirst", hostGoesFirst)
 				.put("debug", debugEnabled)
-				.put("banlist", banlistEnabled)));
+				.put("banlist", banlistEnabled)
+				.put("format", format.id())));
 		return seed;
 	}
 

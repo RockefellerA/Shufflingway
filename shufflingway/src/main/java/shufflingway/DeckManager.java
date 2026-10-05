@@ -1115,8 +1115,10 @@ public class DeckManager extends JFrame {
         // L3 / L6: all non-LB deck cards must be from the latest N sets or PR-. Deriving from
         // legalS applies the banlist only within each window: a deck that passes the set check
         // holds no card from outside it, so any banned or over-restricted card is inside it.
-        boolean legalL3 = legalS && isLimitedSetLegal(3, maxPrefix);
-        boolean legalL6 = legalS && isLimitedSetLegal(6, maxPrefix);
+        List<String> deckSerials = new ArrayList<>();
+        for (Object[] r : deckRows) deckSerials.add((String) r[1]);
+        boolean legalL3 = legalS && DeckFormat.L3.setsAllow(deckSerials, maxPrefix);
+        boolean legalL6 = legalS && DeckFormat.L6.setsAllow(deckSerials, maxPrefix);
 
         // Title: no LB cards, 50 main cards, 30+ from one non-excluded category
         boolean legalT = checkTitleLegal();
@@ -1127,44 +1129,14 @@ public class DeckManager extends JFrame {
         applyFormatState(formatT,   legalT,  FORMAT_T_COLOR);
     }
 
-    /** Extracts the numeric set prefix from a serial (e.g. "28-001C" → 28). Returns 0 for non-numeric prefixes (PR-, B-, etc.). */
-    private static int getSetPrefix(String serial) {
-        if (serial == null) return 0;
-        int dash = serial.indexOf('-');
-        if (dash <= 0) return 0;
-        try {
-            return Integer.parseInt(serial.substring(0, dash));
-        } catch (NumberFormatException e) {
-            return 0;
-        }
-    }
-
     /** Returns the highest numeric set prefix found in the card browser model (the global card pool). */
     private int computeMaxGlobalSetPrefix() {
         int max = 0;
         for (int i = 0; i < browserModel.getRowCount(); i++) {
-            int p = getSetPrefix((String) browserModel.getValueAt(i, 0));
+            int p = DeckFormat.latestSet((String) browserModel.getValueAt(i, 0));
             if (p > max) max = p;
         }
         return max;
-    }
-
-    /**
-     * Returns true if every card in the current deck belongs to the latest {@code setCount} sets or is a PR- promo.
-     * LB cards are included in the check — a Title-less LB card from an old set would make L3/L6 illegal.
-     */
-    private boolean isLimitedSetLegal(int setCount, int maxPrefix) {
-        if (maxPrefix == 0) return false;
-        int minPrefix = maxPrefix - setCount + 1;
-        for (List<Object[]> group : allDeckGroups()) {
-            for (Object[] r : group) {
-                String serial = (String) r[1];
-                if (serial.startsWith("PR-")) continue;
-                int prefix = getSetPrefix(serial);
-                if (prefix == 0 || prefix < minPrefix) return false;
-            }
-        }
-        return true;
     }
 
     /** Returns true if the deck satisfies Title format legality. */

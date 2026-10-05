@@ -11,6 +11,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import shufflingway.DeckFormat;
+
 /**
  * SQLite persistence layer for FFTCG saved decks.
  *
@@ -410,6 +412,21 @@ public class DeckDatabase implements AutoCloseable {
             while (rs.next()) result.add(rs.getString("serial"));
         }
         return result;
+    }
+
+    /**
+     * The highest numbered set in the card pool — 28 when the newest card is "28-…" — or 0 when
+     * there is none. Read over the same cards the browser shows, which is what the L3 and L6 set
+     * windows count back from.
+     */
+    public int getNewestSet() throws SQLException {
+        int newest = 0;
+        try (Statement s = conn.createStatement();
+             ResultSet rs = s.executeQuery("SELECT serial FROM cards "
+                     + "WHERE type_en != 'Crystal' AND serial NOT LIKE 'B%'")) {
+            while (rs.next()) newest = Math.max(newest, DeckFormat.latestSet(rs.getString(1)));
+        }
+        return newest;
     }
 
     /**

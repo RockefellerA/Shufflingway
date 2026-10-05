@@ -2,8 +2,10 @@ package shufflingway.server;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import shufflingway.DeckFormat;
 import shufflingway.net.ActionType;
 import shufflingway.net.GameAction;
+import shufflingway.net.LobbyExchange;
 import shufflingway.net.RemoteLobbyExchange;
 
 import java.io.BufferedInputStream;
@@ -240,8 +242,11 @@ final class ClientSession implements Runnable {
                 } else if (password.length() > RemoteLobbyExchange.PASSWORD_MAX_LENGTH) {
                     send(error("Passwords are at most " + RemoteLobbyExchange.PASSWORD_MAX_LENGTH + " characters"));
                 } else {
+                    // A format the clients cannot play yet is not one a lobby can be opened in.
+                    DeckFormat format = LobbyExchange.formatOf(p);
+                    if (!format.available()) format = DeckFormat.STANDARD;
                     send(registry.create(this, name, password,
-                            p.optBoolean("banlist", false), p.optBoolean("debug", false)));
+                            p.optBoolean("banlist", false), p.optBoolean("debug", false), format));
                 }
             }
             case LOBBY_JOIN -> {

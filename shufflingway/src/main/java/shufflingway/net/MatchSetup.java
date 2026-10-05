@@ -3,6 +3,8 @@ package shufflingway.net;
 import java.util.List;
 import java.util.Random;
 
+import shufflingway.DeckFormat;
+
 /**
  * Everything two clients must agree on before a networked game can start, as produced by the
  * lobby handshake and consumed by {@code MainWindow.startMultiplayerGame}.
@@ -19,19 +21,30 @@ import java.util.Random;
  * @param hostGoesFirst  whether the host takes the first turn (the host's coin flip)
  * @param debugEnabled   whether the host allowed the Debug menu for this match; when false it
  *                       is unusable on both clients for the whole game
- * @param banlistEnabled whether the host enforced the Standard banlist on both decks; a new game
- *                       on the same connection starts from this setting
+ * @param banlistEnabled whether the host enforced the banlist on both decks; a new game on the
+ *                       same connection starts from this setting
  * @param remoteCounterColor the opponent's counter color as "#rrggbb", or {@code null} when they
  *                       sent none; the counters on the opponent's Characters are drawn in it (see
  *                       {@code MainWindow.counterColorFor})
+ * @param format         the format both decks were chosen in; a new game on the same connection
+ *                       starts from it
  */
 public record MatchSetup(int localDeckId, List<String> remoteSerials, String remoteDeckName,
                          String remoteUsername, long seed, boolean localIsHost,
                          boolean hostGoesFirst, boolean debugEnabled, boolean banlistEnabled,
-                         String remoteCounterColor) {
+                         String remoteCounterColor, DeckFormat format) {
 
 	public MatchSetup {
 		remoteSerials = List.copyOf(remoteSerials);
+		if (format == null) format = DeckFormat.STANDARD;
+	}
+
+	/** A match in Standard. */
+	public MatchSetup(int localDeckId, List<String> remoteSerials, String remoteDeckName,
+	                  String remoteUsername, long seed, boolean localIsHost, boolean hostGoesFirst,
+	                  boolean debugEnabled, boolean banlistEnabled, String remoteCounterColor) {
+		this(localDeckId, remoteSerials, remoteDeckName, remoteUsername, seed, localIsHost,
+				hostGoesFirst, debugEnabled, banlistEnabled, remoteCounterColor, DeckFormat.STANDARD);
 	}
 
 	/** A match whose opponent sent no counter color. */

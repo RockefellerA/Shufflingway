@@ -295,30 +295,6 @@ public class PreferencesDialog extends JDialog {
 		counterSection.setAlignmentX(Component.LEFT_ALIGNMENT);
 		contentPanel.add(counterSection);
 
-		// ── Banlist ──────────────────────────────────────────────────────────
-		contentPanel.add(javax.swing.Box.createVerticalStrut(8));
-
-		JPanel banlistPanel = new JPanel();
-		banlistPanel.setLayout(new BoxLayout(banlistPanel, BoxLayout.Y_AXIS));
-		banlistPanel.setBorder(BorderFactory.createTitledBorder(
-				BorderFactory.createEtchedBorder(), "Banlist",
-				TitledBorder.LEFT, TitledBorder.TOP));
-
-		JCheckBox banlistAgainstCpuBox = new JCheckBox("Enable Banlist against CPU",
-				AppSettings.isBanlistAgainstCpu());
-		banlistAgainstCpuBox.setToolTipText(
-				"Decks that break the Standard banlist (a banned card, a restricted card over its limit, "
-				+ "or a conditional name limit) cannot be chosen for a game against the CPU.");
-		banlistAgainstCpuBox.addActionListener(e -> {
-			AppSettings.setBanlistAgainstCpu(banlistAgainstCpuBox.isSelected());
-			AppSettings.save();
-		});
-		banlistAgainstCpuBox.setAlignmentX(Component.LEFT_ALIGNMENT);
-		banlistPanel.add(banlistAgainstCpuBox);
-
-		banlistPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-		contentPanel.add(banlistPanel);
-
 		// ── Multiplayer ──────────────────────────────────────────────────────
 		contentPanel.add(javax.swing.Box.createVerticalStrut(8));
 

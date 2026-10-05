@@ -1,5 +1,6 @@
 package shufflingway.net;
 
+import shufflingway.DeckFormat;
 import shufflingway.dialog.DeckChooserPanel;
 
 import javax.swing.*;
@@ -145,7 +146,7 @@ public class LocalLobbyDialog extends JDialog {
 
     private void activate() {
         Role role = activeRole();
-        showNotices(false, false);
+        showNotices(null, false, false);
         role.activated();
         getRootPane().setDefaultButton(role.commitButton());
         refresh();
@@ -159,8 +160,9 @@ public class LocalLobbyDialog extends JDialog {
 
     void setStatus(String text) { statusLabel.setText(text); }
 
-    void showNotices(boolean banlist, boolean debug) {
-        banlistLabel.setText(banlist ? "Standard Banlist: Enabled" : " ");
+    /** Shows the host's settings; a {@code null} format means none are known yet. */
+    void showNotices(DeckFormat format, boolean banlist, boolean debug) {
+        banlistLabel.setText(format == null ? " " : DeckFormat.describe(format, banlist));
         debugLabel.setText(debug ? "Debug Mode: Enabled" : " ");
     }
 

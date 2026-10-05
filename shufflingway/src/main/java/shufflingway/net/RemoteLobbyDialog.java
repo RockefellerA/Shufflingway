@@ -3,8 +3,10 @@ package shufflingway.net;
 import scraper.AppPaths;
 import scraper.CardDatabase;
 import shufflingway.AppSettings;
+import shufflingway.DeckFormat;
 import shufflingway.UpdateChecker;
 import shufflingway.dialog.DeckChooserPanel;
+import shufflingway.dialog.FormatPicker;
 
 import javax.swing.*;
 import java.awt.*;
@@ -49,7 +51,8 @@ public class RemoteLobbyDialog extends JDialog {
     private final JButton joinBtn;
     private final JTextField lobbyNameField;
     private final JPasswordField createPasswordField;
-    private final JCheckBox banlistBox;
+    /** The new lobby's format and "Enable Banlist", fixed once it is created. */
+    private final FormatPicker createRules;
     private final JCheckBox debugBox;
     private final JButton createBtn;
 
@@ -104,6 +107,7 @@ public class RemoteLobbyDialog extends JDialog {
                     String creator = info.creator().isEmpty() ? "" : " — " + info.creator();
                     c.setText(info.name() + creator
                             + (info.hasPassword() ? "  [password]" : "")
+                            + (info.format() != DeckFormat.STANDARD ? "  [" + info.format().label() + "]" : "")
                             + (info.banlist() ? "  [banlist]" : "")
                             + (info.debug() ? "  [debug]" : ""));
                 }
@@ -136,7 +140,7 @@ public class RemoteLobbyDialog extends JDialog {
         lobbyNameField = new JTextField(username.isEmpty() ? "" : username + "'s lobby", 16);
         createPasswordField = new JPasswordField(16);
         createPasswordField.setToolTipText("Optional; leave blank for a lobby anyone can join");
-        banlistBox = new JCheckBox("Enforce Standard banlist");
+        createRules = new FormatPicker(DeckFormat.STANDARD, false);
         debugBox   = new JCheckBox("Allow Debug menu");
         createBtn  = new JButton("Create Lobby");
         createBtn.addActionListener(e -> createLobby());
@@ -149,7 +153,7 @@ public class RemoteLobbyDialog extends JDialog {
         addRow(createPanel, gc, 0, "Lobby name:", lobbyNameField);
         addRow(createPanel, gc, 1, "Password:", createPasswordField);
         gc.gridx = 1; gc.gridy = 2; gc.fill = GridBagConstraints.NONE;
-        createPanel.add(banlistBox, gc);
+        createPanel.add(createRules, gc);
         gc.gridy = 3;
         createPanel.add(debugBox, gc);
         gc.gridy = 4; gc.anchor = GridBagConstraints.EAST;
@@ -244,7 +248,7 @@ public class RemoteLobbyDialog extends JDialog {
         joinBtn.setEnabled(browsing && lobbyList.getSelectedValue() != null);
         lobbyNameField.setEnabled(browsing);
         createPasswordField.setEnabled(browsing);
-        banlistBox.setEnabled(browsing);
+        createRules.setEnabled(browsing);
         debugBox.setEnabled(browsing);
         createBtn.setEnabled(browsing);
 
@@ -310,7 +314,8 @@ public class RemoteLobbyDialog extends JDialog {
         awaitingReply = true;
         pendingLobbyName = name;
         statusLabel.setText("Creating \"" + name + "\"…");
-        conn.send(RemoteLobbyExchange.createAction(name, password, banlistBox.isSelected(), debugBox.isSelected()));
+        conn.send(RemoteLobbyExchange.createAction(name, password, createRules.banlist(), debugBox.isSelected(),
+                createRules.format()));
         refreshControls();
     }
 
@@ -333,8 +338,8 @@ public class RemoteLobbyDialog extends JDialog {
             pollTimer.stop();
         }
         debugLabel.setText(s.debug() ? "Debug Mode: Enabled" : " ");
-        banlistLabel.setText(s.banlist() ? "Standard Banlist: Enabled" : " ");
-        deckChooser.setBanlistEnforced(s.banlist());
+        banlistLabel.setText(DeckFormat.describe(s.format(), s.banlist()));
+        deckChooser.setRules(s.format(), s.banlist());
         boolean first = !settingsSeen;
         boolean reset = s.resets() != lastResets;
         settingsSeen = true;
@@ -347,7 +352,7 @@ public class RemoteLobbyDialog extends JDialog {
         } else if (reset) {
             unconfirm();
             deckChooser.clearSelection();
-            statusLabel.setText("The lobby enabled the Standard banlist. Choose a deck and confirm it.");
+            statusLabel.setText("The lobby's deck rules changed. Choose a deck and confirm it.");
         }
         refreshControls();
     }
@@ -469,7 +474,7 @@ public class RemoteLobbyDialog extends JDialog {
         lobbyModel.clear();
         debugLabel.setText(" ");
         banlistLabel.setText(" ");
-        deckChooser.setBanlistEnforced(false);
+        deckChooser.setRules(DeckFormat.STANDARD, false);
         statusLabel.setText(message);
         getRootPane().setDefaultButton(connectBtn);
         refreshControls();

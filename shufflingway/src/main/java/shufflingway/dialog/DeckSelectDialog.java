@@ -8,9 +8,8 @@ import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.awt.event.KeyEvent;
 import java.sql.SQLException;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -31,26 +30,35 @@ import javax.swing.SwingConstants;
 import scraper.DeckDatabase;
 import scraper.DeckDatabase.DeckSummary;
 import shufflingway.AppSettings;
-import shufflingway.Banlist;
+import shufflingway.DeckFormat;
 
+/**
+ * The New Game dialog for a game against the CPU: the game's format and banlist, and a deck for
+ * each side. Both rules are remembered for the next game, and every change re-filters the decks.
+ */
 public class DeckSelectDialog extends JDialog {
 
     private static final Color BANNED_FG = new Color(0xC6, 0x28, 0x28);
 
     private int playerDeckId = -1;
     private int cpuDeckId    = -1;
+    private DeckFormat format = AppSettings.getCpuFormat();
 
-    /** Decks refused for breaking the Standard banlist; empty unless it is enabled against the CPU. */
-    private final Set<Integer> banlistDeckIds = new HashSet<>();
+    /** Decks the chosen format and banlist refuse, with why. */
+    private Map<Integer, String> refused = Map.of();
+    private final List<DeckSummary> decks;
 
     public DeckSelectDialog(JFrame parent) {
         super(parent, "New Game – Choose Decks", true);
-        setSize(700, 460);
+        setSize(700, 500);
         setLocationRelativeTo(parent);
         setLayout(new BorderLayout(8, 8));
         getRootPane().setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        List<DeckSummary> decks = loadDecks();
+        decks = loadDecks();
+        FormatPicker rules = new FormatPicker(format, AppSettings.isBanlistAgainstCpu());
+        format = rules.format();   // a remembered format that is not playable falls back
+        applyRules(rules.format(), rules.banlist());
 
         DefaultListModel<DeckSummary> listModel = new DefaultListModel<>();
         for (DeckSummary d : decks) listModel.addElement(d);
@@ -91,6 +99,29 @@ public class DeckSelectDialog extends JDialog {
             }
         });
 
+        JLabel headerLabel = new JLabel();
+        headerLabel.setBorder(BorderFactory.createEmptyBorder(6, 0, 4, 0));
+        Runnable showHeader = () -> headerLabel.setText(rules.banlist() || format.hasSetWindow()
+                ? "Select a deck with exactly 50 main cards that is legal in " + format.label()
+                        + (rules.banlist() ? " and follows the banlist" : "") + " for each side:"
+                : "Select a deck with exactly 50 main cards for each side:");
+        showHeader.run();
+
+        // A change re-filters both lists; a deck the new rules refuse is deselected.
+        rules.setOnChange(() -> {
+            AppSettings.setCpuFormat(rules.format());
+            AppSettings.setBanlistAgainstCpu(rules.banlist());
+            AppSettings.save();
+            applyRules(rules.format(), rules.banlist());
+            for (JList<DeckSummary> l : List.of(playerList, cpuList)) {
+                DeckSummary sel = l.getSelectedValue();
+                if (sel != null && !isEligible(sel)) l.clearSelection();
+                l.repaint();
+            }
+            showHeader.run();
+            updateStart.run();
+        });
+
         startBtn.addActionListener(e -> {
             DeckSummary p = playerList.getSelectedValue();
             DeckSummary c = cpuList.getSelectedValue();
@@ -127,16 +158,15 @@ public class DeckSelectDialog extends JDialog {
         listsPanel.add(playerPanel);
         listsPanel.add(cpuPanel);
 
-        JLabel headerLabel = new JLabel(AppSettings.isBanlistAgainstCpu()
-                ? "Select a deck with exactly 50 main cards that follows the banlist for each side:"
-                : "Select a deck with exactly 50 main cards for each side:");
-        headerLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
-
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         btnPanel.add(startBtn);
         btnPanel.add(cancelBtn);
 
-        add(headerLabel, BorderLayout.NORTH);
+        JPanel north = new JPanel(new BorderLayout());
+        north.add(rules,       BorderLayout.NORTH);
+        north.add(headerLabel, BorderLayout.SOUTH);
+
+        add(north,       BorderLayout.NORTH);
         add(listsPanel,  BorderLayout.CENTER);
         add(btnPanel,    BorderLayout.SOUTH);
     }
@@ -151,17 +181,12 @@ public class DeckSelectDialog extends JDialog {
     @Deprecated
     public int getSelectedDeckId() { return playerDeckId; }
 
+    /** The format the game was set up in. */
+    public DeckFormat getFormat() { return format; }
+
     private List<DeckSummary> loadDecks() {
         try (DeckDatabase db = new DeckDatabase()) {
-            List<DeckSummary> decks = db.getDecksSummary();
-            if (AppSettings.isBanlistAgainstCpu()) {
-                Banlist banlist = Banlist.get();
-                for (DeckSummary d : decks) {
-                    if (!banlist.check(Banlist.STANDARD, Banlist.fromDeckRows(db.getDeckCards(d.id()))).isEmpty())
-                        banlistDeckIds.add(d.id());
-                }
-            }
-            return decks;
+            return db.getDecksSummary();
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, "Error loading decks:\n" + e.getMessage(),
                     "Database Error", JOptionPane.ERROR_MESSAGE);
@@ -169,8 +194,20 @@ public class DeckSelectDialog extends JDialog {
         }
     }
 
+    /** Re-reads which decks the format and banlist refuse. */
+    private void applyRules(DeckFormat newFormat, boolean banlist) {
+        format = newFormat;
+        try (DeckDatabase db = new DeckDatabase()) {
+            refused = DeckRules.refusals(db, decks, newFormat, banlist);
+        } catch (SQLException e) {
+            refused = Map.of();
+            JOptionPane.showMessageDialog(this, "Error checking decks against the format:\n"
+                    + e.getMessage(), "Database Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
     private boolean isEligible(DeckSummary d) {
-        return d.mainCardCount() == 50 && !banlistDeckIds.contains(d.id());
+        return d.mainCardCount() == 50 && !refused.containsKey(d.id());
     }
 
     private class DeckListRenderer extends DefaultListCellRenderer {
@@ -182,10 +219,11 @@ public class DeckSelectDialog extends JDialog {
             if (value instanceof DeckSummary d) {
                 setText(d.name() + "  (" + d.mainCardCount() + " / 50"
                         + (d.lbCardCount() > 0 ? " +" + d.lbCardCount() + " LB" : "") + ")");
-                if (banlistDeckIds.contains(d.id())) {
+                String why = refused.get(d.id());
+                if (why != null) {
                     setForeground(BANNED_FG);
                     setBackground(list.getBackground());
-                    setToolTipText("Breaks the Standard banlist");
+                    setToolTipText(why);
                 } else if (d.mainCardCount() != 50) {
                     setForeground(Color.GRAY);
                     setBackground(list.getBackground());

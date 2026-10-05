@@ -9,6 +9,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import shufflingway.AppSettings;
+import shufflingway.DeckFormat;
 
 /**
  * The client's half of a lobby on the relay server ({@code shufflingway.server.RelayServer}),
@@ -58,13 +59,23 @@ public final class RemoteLobbyExchange {
 		return GameAction.of(ActionType.LOBBY_LIST);
 	}
 
-	/** Client → server: opens a lobby; {@code password} may be blank for an open one. */
-	public static GameAction createAction(String name, String password, boolean banlist, boolean debug) {
+	/**
+	 * Client → server: opens a lobby; {@code password} may be blank for an open one. The format
+	 * and banlist are fixed for the lobby's life.
+	 */
+	public static GameAction createAction(String name, String password, boolean banlist, boolean debug,
+			DeckFormat format) {
 		return GameAction.of(ActionType.LOBBY_CREATE, new JSONObject()
 				.put("name", name.trim())
 				.put("password", password)
 				.put("banlist", banlist)
-				.put("debug", debug));
+				.put("debug", debug)
+				.put("format", format.id()));
+	}
+
+	/** {@link #createAction(String, String, boolean, boolean, DeckFormat)} in Standard. */
+	public static GameAction createAction(String name, String password, boolean banlist, boolean debug) {
+		return createAction(name, password, banlist, debug, DeckFormat.STANDARD);
 	}
 
 	/** Client → server: takes the second seat in the lobby called {@code name}. */
@@ -100,8 +111,14 @@ public final class RemoteLobbyExchange {
 		}
 	}
 
-	/** One joinable lobby, as the server lists it. */
-	public record LobbyInfo(String name, String creator, boolean hasPassword, boolean banlist, boolean debug) {}
+	/** One joinable lobby, as the server lists it; a server that sends no format means Standard. */
+	public record LobbyInfo(String name, String creator, boolean hasPassword, boolean banlist, boolean debug,
+			DeckFormat format) {
+
+		public LobbyInfo(String name, String creator, boolean hasPassword, boolean banlist, boolean debug) {
+			this(name, creator, hasPassword, banlist, debug, DeckFormat.STANDARD);
+		}
+	}
 
 	public static List<LobbyInfo> lobbiesOf(GameAction action) {
 		JSONArray arr = action.payload().optJSONArray("lobbies");
@@ -111,7 +128,8 @@ public final class RemoteLobbyExchange {
 			JSONObject o = arr.optJSONObject(i);
 			if (o == null) continue;
 			out.add(new LobbyInfo(o.optString("name"), o.optString("creator"),
-					o.optBoolean("password"), o.optBoolean("banlist"), o.optBoolean("debug")));
+					o.optBoolean("password"), o.optBoolean("banlist"), o.optBoolean("debug"),
+					LobbyExchange.formatOf(o)));
 		}
 		return out;
 	}
@@ -137,7 +155,8 @@ public final class RemoteLobbyExchange {
 					p.getBoolean("hostGoesFirst"),
 					p.optBoolean("debug", false),
 					p.optBoolean("banlist", false),
-					opponent.counterColor());
+					opponent.counterColor(),
+					LobbyExchange.formatOf(p));
 		}
 
 		/** The server's id for this game, for its logs; {@code ""} if it sent none. */

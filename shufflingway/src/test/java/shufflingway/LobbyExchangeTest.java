@@ -115,13 +115,26 @@ class LobbyExchangeTest {
     @Test
     void gameSetupCarriesTheFinalDebugSettingPastALateUpdate() throws IOException {
         host.send(settings(false, false, 0));   // still in flight when Start is pressed
-        LobbyExchange.sendGameSetup(host, true, true, true);
+        LobbyExchange.sendGameSetup(host, true, true, true, DeckFormat.L3);
 
         GameAction setup = LobbyExchange.awaitGameSetup(joiner);
         assertEquals(ActionType.GAME_SETUP, setup.type());
         assertTrue(setup.payload().getBoolean("debug"), "GAME_SETUP is the final word");
         assertTrue(setup.payload().getBoolean("banlist"), "and carries the banlist into the match");
+        assertEquals(DeckFormat.L3, LobbyExchange.formatOf(setup.payload()), "and the format");
         assertTrue(setup.payload().getBoolean("hostGoesFirst"));
+    }
+
+    @Test
+    void settingsCarryTheFormat() {
+        LobbySettings sent = new LobbySettings(false, true, 2, DeckFormat.L6);
+        assertEquals(sent, LobbyExchange.settingsOf(LobbyExchange.lobbySettingsAction(sent)));
+    }
+
+    @Test
+    void settingsFromAnOlderHostReadAsStandard() {
+        GameAction old = GameAction.of(ActionType.LOBBY_SETTINGS, new JSONObject().put("banlist", true));
+        assertEquals(DeckFormat.STANDARD, LobbyExchange.settingsOf(old).format());
     }
 
     @Test

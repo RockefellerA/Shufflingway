@@ -3,6 +3,7 @@ package shufflingway.net;
 import org.json.JSONObject;
 import scraper.AppPaths;
 import scraper.CardDatabase;
+import shufflingway.DeckFormat;
 import shufflingway.UpdateChecker;
 
 import javax.swing.*;
@@ -21,9 +22,9 @@ import java.util.List;
  *
  * <p>Joining needs a deck chosen; it is confirmed once the host's settings arrive and allow it.
  * The dialog then stays open, showing "waiting for host", until the host presses Start, when the
- * decks are swapped and the host's seed and coin flip arrive. If the host switches on the
- * Standard banlist meanwhile, the deck is deselected and has to be confirmed again with
- * Confirm Deck.
+ * decks are swapped and the host's seed and coin flip arrive. If the host tightens the deck
+ * rules meanwhile — switches the banlist on, or narrows the format — the deck is deselected and
+ * has to be confirmed again with Confirm Deck.
  */
 final class LocalJoinPanel extends LocalLobbyDialog.Role {
 
@@ -123,7 +124,7 @@ final class LocalJoinPanel extends LocalLobbyDialog.Role {
     }
 
     @Override void activated() {
-        lobby.deckChooser().setBanlistEnforced(false);   // until a host's settings say otherwise
+        lobby.deckChooser().setRules(DeckFormat.STANDARD, false);   // until a host's settings say otherwise
         lobby.setStatus("Choose a deck, then pick a host on your network or enter its address.");
     }
 
@@ -165,21 +166,22 @@ final class LocalJoinPanel extends LocalLobbyDialog.Role {
 
     /** Applies the host's lobby options, in wire order. */
     private void applySettings(LobbyExchange.LobbySettings s) {
-        lobby.showNotices(s.banlist(), s.debug());
-        lobby.deckChooser().setBanlistEnforced(s.banlist());
+        lobby.showNotices(s.format(), s.banlist(), s.debug());
+        lobby.deckChooser().setRules(s.format(), s.banlist());
         boolean first = !settingsSeen;
         boolean reset = s.resets() != lastResets;
         settingsSeen = true;
         lastResets   = s.resets();
         if (first) {
             // The deck was chosen before the host's settings were known; it stands if they allow
-            // it. The banlist, if on, has already deselected one it refuses.
+            // it. The format and banlist have already deselected one they refuse.
             if (lobby.deckChooser().getSelectedDeckId() >= 0) confirmDeck();
-            else lobby.setStatus("Your deck breaks the Standard banlist. Choose another and confirm it.");
+            else lobby.setStatus("Your deck is not allowed in this game ("
+                    + DeckFormat.describe(s.format(), s.banlist()) + "). Choose another and confirm it.");
         } else if (reset) {
             unconfirm();
             lobby.deckChooser().clearSelection();
-            lobby.setStatus("The host enabled the Standard banlist. Choose a deck and confirm it.");
+            lobby.setStatus("The host changed the deck rules. Choose a deck and confirm it.");
         }
         lobby.refresh();
     }
@@ -315,7 +317,8 @@ final class LocalJoinPanel extends LocalLobbyDialog.Role {
                         setupAction.payload().getBoolean("hostGoesFirst"),
                         setupAction.payload().optBoolean("debug", false),
                         setupAction.payload().optBoolean("banlist", false),
-                        remote.counterColor());
+                        remote.counterColor(),
+                        LobbyExchange.formatOf(setupAction.payload()));
                 SwingUtilities.invokeLater(() -> lobby.finish(conn, setup));
             } catch (IOException | SQLException | RuntimeException ex) {
                 GameConnection conn = connection;
@@ -332,8 +335,8 @@ final class LocalJoinPanel extends LocalLobbyDialog.Role {
         lastResets   = 0;
         starting     = false;
         unconfirm();
-        lobby.showNotices(false, false);
-        lobby.deckChooser().setBanlistEnforced(false);
+        lobby.showNotices(null, false, false);
+        lobby.deckChooser().setRules(DeckFormat.STANDARD, false);
         lobby.setStatus(message);
         lobby.uncommit();
     }

@@ -2,6 +2,7 @@ package shufflingway.server;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import shufflingway.DeckFormat;
 import shufflingway.net.ActionType;
 import shufflingway.net.GameAction;
 import shufflingway.net.LobbyExchange;
@@ -38,21 +39,24 @@ final class LobbyRegistry {
         final String password;
         final boolean banlist;
         final boolean debug;
+        final DeckFormat format;
         final ClientSession creator;
         ClientSession joiner;
         JSONObject creatorDeck;
         JSONObject joinerDeck;
 
-        Lobby(String name, String password, boolean banlist, boolean debug, ClientSession creator) {
+        Lobby(String name, String password, boolean banlist, boolean debug, DeckFormat format,
+              ClientSession creator) {
             this.name = name;
             this.password = password;
             this.banlist = banlist;
             this.debug = debug;
+            this.format = format;
             this.creator = creator;
         }
 
         GameAction settings() {
-            return LobbyExchange.lobbySettingsAction(new LobbyExchange.LobbySettings(debug, banlist, 0));
+            return LobbyExchange.lobbySettingsAction(new LobbyExchange.LobbySettings(debug, banlist, 0, format));
         }
     }
 
@@ -109,7 +113,8 @@ final class LobbyRegistry {
                             .put("creator", l.creator.username())
                             .put("password", !l.password.isEmpty())
                             .put("banlist", l.banlist)
-                            .put("debug", l.debug)));
+                            .put("debug", l.debug)
+                            .put("format", l.format.id())));
         }
         return GameAction.of(ActionType.LOBBY_LIST, new JSONObject().put("lobbies", out));
     }
@@ -118,14 +123,20 @@ final class LobbyRegistry {
         return lobbyOf.containsKey(s);
     }
 
-    /** Opens a lobby with {@code s} in its first seat; answers LOBBY_SETTINGS or LOBBY_ERROR. */
+    /** {@link #create(ClientSession, String, String, boolean, boolean, DeckFormat)} in Standard. */
     GameAction create(ClientSession s, String name, String password, boolean banlist, boolean debug) {
+        return create(s, name, password, banlist, debug, DeckFormat.STANDARD);
+    }
+
+    /** Opens a lobby with {@code s} in its first seat; answers LOBBY_SETTINGS or LOBBY_ERROR. */
+    GameAction create(ClientSession s, String name, String password, boolean banlist, boolean debug,
+                      DeckFormat format) {
         Lobby lobby;
         synchronized (this) {
             if (lobbyOf.containsKey(s) || matchOf.containsKey(s)) return error("You are already in a lobby");
             if (lobbies.containsKey(key(name))) return error("A lobby called \"" + name + "\" already exists");
             if (lobbies.size() >= MAX_LOBBIES) return error("The server has too many open lobbies; try again later");
-            lobby = new Lobby(name, password, banlist, debug, s);
+            lobby = new Lobby(name, password, banlist, debug, format, s);
             lobbies.put(key(name), lobby);
             lobbyOf.put(s, lobby);
         }
@@ -224,6 +235,7 @@ final class LobbyRegistry {
                 .put("hostGoesFirst", hostGoesFirst)
                 .put("debug", lobby.debug)
                 .put("banlist", lobby.banlist)
+                .put("format", lobby.format.id())
                 .put("seat", seat)
                 .put("matchId", m.id().toString()));
     }

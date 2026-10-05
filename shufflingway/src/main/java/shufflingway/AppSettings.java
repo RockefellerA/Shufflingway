@@ -247,9 +247,9 @@ public final class AppSettings {
     }
 
     /**
-     * Whether decks that break the Standard {@link Banlist} — a banned card, a restricted card over
-     * its limit, or a conditional name limit — are refused when choosing decks for a game against
-     * the CPU. Defaults to {@code false}.
+     * Whether decks that break the {@link Banlist} — a banned card, a restricted card over its
+     * limit, or a conditional name limit — are refused when choosing decks for a game against the
+     * CPU. Set from the New Game dialog, which remembers it. Defaults to {@code false}.
      */
     public static boolean isBanlistAgainstCpu() {
         return Boolean.parseBoolean(props.getProperty("gameplay.banlist.against.cpu", "false"));
@@ -258,6 +258,19 @@ public final class AppSettings {
     /** Sets the banlist-against-CPU flag (call {@link #save()} to persist). */
     public static void setBanlistAgainstCpu(boolean enabled) {
         props.setProperty("gameplay.banlist.against.cpu", Boolean.toString(enabled));
+    }
+
+    /**
+     * The format last chosen for a game against the CPU, which decides the decks that may be
+     * picked for it. Defaults to {@link DeckFormat#STANDARD}.
+     */
+    public static DeckFormat getCpuFormat() {
+        return DeckFormat.parse(props.getProperty("gameplay.format.cpu", DeckFormat.STANDARD.id()));
+    }
+
+    /** Sets the CPU game's format (call {@link #save()} to persist). */
+    public static void setCpuFormat(DeckFormat format) {
+        props.setProperty("gameplay.format.cpu", format.id());
     }
 
     /** Whether the Welcome dialog opens at launch. Defaults to {@code true}. */

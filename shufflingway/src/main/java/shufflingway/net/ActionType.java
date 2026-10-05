@@ -15,10 +15,11 @@ public enum ActionType {
                     //   their Characters; a receiver that gets none draws them in the inverse of
                     //   its own.
     GAME_SETUP,     // payload: { "seed": <long>, "hostGoesFirst": <bool>, "debug": <bool>,
-                    //            "banlist": <bool> }
+                    //            "banlist": <bool>, "format": "STANDARD" | "L3" | "L6" | "TITLE" }
                     //   Host-authored. The seed drives both decks' shuffles on both clients;
                     //   "debug" is whether the Debug menu is usable during the match; "banlist"
-                    //   whether the Standard banlist was enforced, kept for the next new game.
+                    //   whether the banlist was enforced and "format" the format the decks were
+                    //   chosen in, both kept for the next new game. No "format" means Standard.
                     //   From a relay server it also carries "seat": "host" | "joiner", which
                     //   client plays the host's part, and "matchId", the server's name for the game.
     DEBUG,          // payload: { "op": "spawn" | "hand" | "clearHand" | "zone" | "clearZone"
@@ -34,27 +35,31 @@ public enum ActionType {
                     //   Ready from before the latest reset is stale and ignored.
     NEW_GAME_CANCEL,// payload: {} — the sender backed out; both return to the game in progress.
                     //   Once both sides are Ready the host starts the new game with GAME_SETUP.
-    NEW_GAME_SETTINGS, // payload: { "banlist": <bool>, "resets": <int> }
-                    //   Host → joiner while both pick decks for a new game: the host switched the
-                    //   Standard banlist. "resets" counts the times it was switched on; each one
-                    //   voids both players' decks and Ready.
-    LOBBY_SETTINGS, // payload: { "debug": <bool>, "banlist": <bool>, "resets": <int> }
+    NEW_GAME_SETTINGS, // payload: { "banlist": <bool>, "format": "...", "resets": <int> }
+                    //   Host → joiner while both pick decks for a new game: the host changed the
+                    //   banlist or the format. "resets" counts the times the rules were tightened
+                    //   (banlist on, or a narrower format); each one voids both players' decks
+                    //   and Ready.
+    LOBBY_SETTINGS, // payload: { "debug": <bool>, "banlist": <bool>, "resets": <int>, "format": "..." }
                     //   Host → joiner while both wait in the lobby: the host's current match
                     //   options, sent on connect and again whenever one changes, so the joiner
                     //   can show them before Start. GAME_SETUP carries the final values.
-                    //   "banlist" is whether decks breaking the Standard banlist are refused.
-                    //   "resets" counts the times the host has switched it on; each one voids
-                    //   the deck either player had chosen.
+                    //   "banlist" is whether decks breaking the banlist are refused; "format" the
+                    //   format both decks must be legal in (none means Standard). "resets" counts
+                    //   the times the host has tightened them; each one voids the deck either
+                    //   player had chosen.
     LOBBY_READY,    // payload: { "resets": <int>, "ready": <bool> }
                     //   Joiner → host: whether the joiner has a deck confirmed, as of the
                     //   LOBBY_SETTINGS "resets" it last saw — the host ignores a stale one.
                     //   "ready": false also answers a host DECK_LIST (Start) with no deck.
     LOBBY_LIST,     // client → server: {}
                     // server → client: { "lobbies": [{ "name": "...", "creator": "...",
-                    //                    "password": <bool>, "banlist": <bool>, "debug": <bool> }] }
+                    //                    "password": <bool>, "banlist": <bool>, "debug": <bool>,
+                    //                    "format": "..." }] }
                     //   Relay server only. The open lobbies this client could join: those still
                     //   waiting for a second player, on the same version and card database.
-    LOBBY_CREATE,   // payload: { "name": "...", "password": "...", "banlist": <bool>, "debug": <bool> }
+    LOBBY_CREATE,   // payload: { "name": "...", "password": "...", "banlist": <bool>, "debug": <bool>,
+                    //            "format": "..." }
                     //   Relay server only: open a lobby and wait in it. Answered with
                     //   LOBBY_SETTINGS on success, LOBBY_ERROR otherwise. "password" may be "".
     LOBBY_JOIN,     // payload: { "name": "...", "password": "..." }

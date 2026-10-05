@@ -4,7 +4,9 @@ import org.json.JSONObject;
 import scraper.AppPaths;
 import scraper.CardDatabase;
 import shufflingway.AppSettings;
+import shufflingway.DeckFormat;
 import shufflingway.UpdateChecker;
+import shufflingway.dialog.FormatPicker;
 
 import javax.swing.*;
 import java.awt.*;
@@ -28,8 +30,8 @@ import java.util.Random;
  * the shuffle seed and flips for first turn — and the dialog closes with the resulting
  * {@link MatchSetup}. If the opponent leaves first, hosting ends and the tab can host again.
  *
- * <p>Switching on "Enable Standard Banlist" deselects both players' decks; each has to choose
- * again from the decks the banlist allows.
+ * <p>Tightening the deck rules — switching on "Enable Banlist", or narrowing the format —
+ * deselects both players' decks; each has to choose again from the decks the rules allow.
  */
 final class LocalHostPanel extends LocalLobbyDialog.Role {
 
@@ -47,12 +49,15 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
      * Offered only to a host who has the Debug menu at all; otherwise the match runs without it.
      */
     private final JCheckBox debugBox;
-    /** "Enable Standard Banlist": decks that break it cannot be chosen, by either player. */
-    private final JCheckBox banlistBox;
+    /** The format and "Enable Banlist": decks they refuse cannot be chosen, by either player. */
+    private final FormatPicker rules;
+    /** The rules as last applied, to tell a tightening change from a loosening one. EDT only. */
+    private DeckFormat appliedFormat = DeckFormat.STANDARD;
+    private boolean    appliedBanlist;
 
     /** Host was pressed and has not ended since. EDT only. */
     private boolean hosting;
-    /** Times the banlist has been switched on; sent with the settings to void older LOBBY_READYs. */
+    /** Times the rules have been tightened; sent with the settings to void older LOBBY_READYs. */
     private int banlistResets;
     /** Whether the joiner has a deck confirmed under the current settings. EDT only. */
     private boolean opponentReady;
@@ -66,6 +71,7 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
     private volatile boolean matchHostGoesFirst;
     private volatile boolean matchDebug;
     private volatile boolean matchBanlist;
+    private volatile DeckFormat matchFormat = DeckFormat.STANDARD;
 
     LocalHostPanel(LocalLobbyDialog lobby) {
         super(lobby, new BorderLayout(0, 6));
@@ -85,10 +91,8 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
         debugBox.setToolTipText("Let both players use the Debug menu during this game.");
         debugBox.addActionListener(e -> sendLobbySettings());
 
-        banlistBox = new JCheckBox("Enable Standard Banlist", false);
-        banlistBox.setToolTipText(
-                "Decks that break the Standard banlist cannot be chosen, by either player.");
-        banlistBox.addActionListener(e -> onBanlistToggled());
+        rules = new FormatPicker(DeckFormat.STANDARD, false);
+        rules.setOnChange(this::onRulesChanged);
 
         hostBtn = new JButton("Host");
         hostBtn.addActionListener(e -> startHosting());
@@ -98,7 +102,7 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
         GridBagConstraints gc = new GridBagConstraints();
         gc.gridx = 0; gc.gridy = 0; gc.weightx = 1; gc.anchor = GridBagConstraints.WEST;
         gc.insets = new Insets(0, 0, 2, 0);
-        options.add(banlistBox, gc);
+        options.add(rules, gc);
         if (AppSettings.isDebugEnabled()) { gc.gridy++; options.add(debugBox, gc); }
         gc.gridy++; gc.weighty = 1; gc.anchor = GridBagConstraints.SOUTHEAST;
         options.add(hostBtn, gc);
@@ -124,7 +128,7 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
     @Override void refreshControls() { hostBtn.setEnabled(!hosting); }
 
     @Override void activated() {
-        lobby.deckChooser().setBanlistEnforced(banlistBox.isSelected());
+        lobby.deckChooser().setRules(rules.format(), rules.banlist());
         lobby.setStatus("Choose your options, then press Host to wait for an opponent.");
     }
 
@@ -148,17 +152,22 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
     private void sendLobbySettings() {
         GameConnection conn = connection;
         if (conn != null) conn.send(LobbyExchange.lobbySettingsAction(new LobbyExchange.LobbySettings(
-                debugEnabled(), banlistBox.isSelected(), banlistResets)));
+                debugEnabled(), rules.banlist(), banlistResets, rules.format())));
     }
 
     /**
-     * Switching the banlist on voids both players' decks: the host's is deselected here, and the
-     * joiner, told by the settings that follow, drops theirs and has to confirm one again.
+     * Tightening the rules — the banlist on, or a narrower format — voids both players' decks:
+     * the host's is deselected here, and the joiner, told by the settings that follow, drops
+     * theirs and has to confirm one again. Loosening them leaves both decks standing.
      */
-    private void onBanlistToggled() {
-        boolean on = banlistBox.isSelected();
-        lobby.deckChooser().setBanlistEnforced(on);
-        if (on) {
+    private void onRulesChanged() {
+        DeckFormat format = rules.format();
+        boolean    on     = rules.banlist();
+        boolean tightened = DeckFormat.tightens(appliedFormat, appliedBanlist, format, on);
+        appliedFormat  = format;
+        appliedBanlist = on;
+        lobby.deckChooser().setRules(format, on);
+        if (tightened) {
             banlistResets++;
             lobby.deckChooser().clearSelection();
             opponentReady = false;
@@ -190,7 +199,8 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
         matchDeckId        = deckId;
         matchHostGoesFirst = new Random().nextBoolean();
         matchDebug         = debugEnabled();
-        matchBanlist       = banlistBox.isSelected();
+        matchBanlist       = rules.banlist();
+        matchFormat        = rules.format();
         lobby.setStatus("Exchanging decks…");
         lobby.refresh();
 
@@ -207,7 +217,7 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
     private void lockSettings(boolean locked) {
         lobby.setCancelEnabled(!locked);
         debugBox.setEnabled(!locked);
-        banlistBox.setEnabled(!locked);
+        rules.setEnabled(!locked);
         lobby.deckChooser().setEnabled(!locked);
     }
 
@@ -234,9 +244,10 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
                 boolean hostGoesFirst = matchHostGoesFirst;
                 boolean debug         = matchDebug;
                 boolean banlist       = matchBanlist;
-                long    seed          = LobbyExchange.sendGameSetup(conn, hostGoesFirst, debug, banlist);
+                DeckFormat format     = matchFormat;
+                long    seed          = LobbyExchange.sendGameSetup(conn, hostGoesFirst, debug, banlist, format);
                 MatchSetup setup = new MatchSetup(matchDeckId, remote.serials(), remote.name(), remote.username(),
-                        seed, true, hostGoesFirst, debug, banlist, remote.counterColor());
+                        seed, true, hostGoesFirst, debug, banlist, remote.counterColor(), format);
                 SwingUtilities.invokeLater(() -> lobby.finish(conn, setup));
             } catch (IOException ex) {
                 if (closed) return;

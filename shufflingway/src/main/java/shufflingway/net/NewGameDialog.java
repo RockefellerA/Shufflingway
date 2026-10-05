@@ -15,7 +15,6 @@ import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
-import javax.swing.JCheckBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -24,7 +23,9 @@ import javax.swing.SwingConstants;
 
 import org.json.JSONObject;
 
+import shufflingway.DeckFormat;
 import shufflingway.dialog.DeckChooserPanel;
+import shufflingway.dialog.FormatPicker;
 
 /**
  * Starting a new game on a multiplayer connection that is already open, without going back
@@ -35,14 +36,15 @@ import shufflingway.dialog.DeckChooserPanel;
  * {@link #onAction} rather than a blocking read):
  * <pre>
  *   either → other : NEW_GAME_REQUEST  (the asker opens this dialog as it sends)
- *   host   → joiner: NEW_GAME_SETTINGS (the host switched the banlist; on, it voids both decks)
+ *   host   → joiner: NEW_GAME_SETTINGS (the host changed the format or banlist; tightening them
+ *                                       voids both decks)
  *   each   → other : NEW_GAME_READY    (that player's deck, sent on Ready)
- *   host   → joiner: GAME_SETUP        (seed + coin flip + debug and banlist, on Start Game)
+ *   host   → joiner: GAME_SETUP        (seed + coin flip + debug, banlist and format, on Start Game)
  *   either → other : NEW_GAME_CANCEL   (at any point before Start; both go back to the game)
  * </pre>
  *
- * <p>The Standard banlist starts as the match being replaced had it. Only the host can change
- * it; switching it on deselects both players' decks and drops both Readys, as in the lobby.
+ * <p>The format and banlist start as the match being replaced had them. Only the host can change
+ * them; tightening them deselects both players' decks and drops both Readys, as in the lobby.
  *
  * <p>Either player may be the one asking; the host is always the one who starts, exactly as in
  * the lobby, because the host authors the seed and the coin flip.
@@ -61,15 +63,17 @@ public class NewGameDialog extends JDialog {
 	private final DeckChooserPanel deckChooser;
 	private final JLabel           statusLabel;
 	private final JButton          readyBtn;
-	/** Host only: "Enable Standard Banlist", starting from the match being replaced. */
-	private final JCheckBox        banlistBox;
-	/** Joiner only: "Standard Banlist: Enabled" while the host has it on. */
+	/** Host only: the format and "Enable Banlist", starting from the match being replaced. */
+	private final FormatPicker     rules;
+	/** Joiner only: the host's format, and the banlist while the host has it on. */
 	private final JLabel           banlistLabel;
 
-	/** Whether the new game enforces the Standard banlist on both decks. */
+	/** Whether the new game enforces the banlist on both decks. */
 	private boolean banlist;
+	/** The format both decks must be legal in. */
+	private DeckFormat format;
 	/**
-	 * Times the host has switched the banlist on in this negotiation. Each one voids both decks,
+	 * Times the host has tightened the deck rules in this negotiation. Each one voids both decks,
 	 * so a Ready carrying an older count is stale.
 	 */
 	private int resets;
@@ -117,22 +121,20 @@ public class NewGameDialog extends JDialog {
 		statusLabel = new JLabel(" ", SwingConstants.CENTER);
 		statusLabel.setFont(new Font("Dialog", Font.PLAIN, 12));
 
-		// The banlist carries over from the match being replaced; only the host can change it.
+		// The rules carry over from the match being replaced; only the host can change them.
 		banlist = current.banlistEnabled();
-		deckChooser.setBanlistEnforced(banlist);
-		banlistBox = new JCheckBox("Enable Standard Banlist", banlist);
-		banlistBox.setToolTipText(
-				"Decks that break the Standard banlist cannot be chosen, by either player.");
-		banlistBox.addActionListener(e -> onBanlistToggled());
-		// Blank rather than hidden while off, so the dialog (not resizable) keeps room for it.
+		format  = current.format();
+		deckChooser.setRules(format, banlist);
+		rules = new FormatPicker(format, banlist);
+		rules.setOnChange(this::onRulesChanged);
 		banlistLabel = new JLabel(" ", SwingConstants.CENTER);
 		banlistLabel.setFont(new Font("Dialog", Font.BOLD, 12));
 		banlistLabel.setForeground(new Color(0xc0392b));
-		showBanlist(banlist);
+		showRules();
 
 		JPanel south = new JPanel(new BorderLayout(0, 4));
 		south.add(statusLabel, BorderLayout.CENTER);
-		south.add(current.localIsHost() ? banlistBox : banlistLabel, BorderLayout.SOUTH);
+		south.add(current.localIsHost() ? rules : banlistLabel, BorderLayout.SOUTH);
 
 		JPanel centre = new JPanel(new BorderLayout(0, 6));
 		centre.add(deckChooser, BorderLayout.CENTER);
@@ -187,7 +189,7 @@ public class NewGameDialog extends JDialog {
 			case NEW_GAME_SETTINGS -> {
 				if (finished || current.localIsHost()) return true;
 				JSONObject p = action.payload();
-				applyBanlist(p.optBoolean("banlist", false), p.optInt("resets", 0));
+				applyRules(LobbyExchange.formatOf(p), p.optBoolean("banlist", false), p.optInt("resets", 0));
 			}
 			case GAME_SETUP -> {
 				if (finished || current.localIsHost() || localDeckId < 0 || remoteDeck == null) return true;
@@ -195,7 +197,8 @@ public class NewGameDialog extends JDialog {
 				finish(new MatchSetup(localDeckId, remoteDeck.serials(), remoteDeck.name(),
 						remoteDeck.username(), p.getLong("seed"), false,
 						p.getBoolean("hostGoesFirst"), p.optBoolean("debug", false),
-						p.optBoolean("banlist", false), remoteDeck.counterColor()));
+						p.optBoolean("banlist", false), remoteDeck.counterColor(),
+						LobbyExchange.formatOf(p)));
 			}
 			default -> { return false; }
 		}
@@ -244,30 +247,38 @@ public class NewGameDialog extends JDialog {
 				.put("seed", seed)
 				.put("hostGoesFirst", hostGoesFirst)
 				.put("debug", debug)
-				.put("banlist", banlist)));
+				.put("banlist", banlist)
+				.put("format", format.id())));
 		finish(new MatchSetup(localDeckId, remoteDeck.serials(), remoteDeck.name(),
-				remoteDeck.username(), seed, true, hostGoesFirst, debug, banlist, remoteDeck.counterColor()));
-	}
-
-	/** Host: the checkbox changed. Tells the joiner, then applies it here the same way. */
-	private void onBanlistToggled() {
-		if (finished) return;
-		boolean on = banlistBox.isSelected();
-		int newResets = on ? resets + 1 : resets;
-		send.accept(GameAction.of(ActionType.NEW_GAME_SETTINGS, new JSONObject()
-				.put("banlist", on)
-				.put("resets", newResets)));
-		applyBanlist(on, newResets);
+				remoteDeck.username(), seed, true, hostGoesFirst, debug, banlist, remoteDeck.counterColor(),
+				format));
 	}
 
 	/**
-	 * Takes the banlist setting. Switching it on (a new reset count) voids both players' decks:
+	 * Host: the format or banlist changed. Tells the joiner, then applies it here the same way;
+	 * a change that tightens the rules counts as a reset.
+	 */
+	private void onRulesChanged() {
+		if (finished) return;
+		DeckFormat newFormat = rules.format();
+		boolean    on        = rules.banlist();
+		int newResets = DeckFormat.tightens(format, banlist, newFormat, on) ? resets + 1 : resets;
+		send.accept(GameAction.of(ActionType.NEW_GAME_SETTINGS, new JSONObject()
+				.put("banlist", on)
+				.put("format", newFormat.id())
+				.put("resets", newResets)));
+		applyRules(newFormat, on, newResets);
+	}
+
+	/**
+	 * Takes the format and banlist. Tightening them (a new reset count) voids both players' decks:
 	 * this side's selection and Ready are dropped, and so is the opponent's Ready.
 	 */
-	private void applyBanlist(boolean on, int newResets) {
+	private void applyRules(DeckFormat newFormat, boolean on, int newResets) {
+		format  = newFormat;
 		banlist = on;
-		showBanlist(on);
-		deckChooser.setBanlistEnforced(on);
+		showRules();
+		deckChooser.setRules(newFormat, on);
 		if (newResets == resets) {
 			refresh();
 			return;
@@ -278,12 +289,12 @@ public class NewGameDialog extends JDialog {
 		deckChooser.clearSelection();
 		refresh();
 		statusLabel.setText(current.localIsHost()
-				? "Standard banlist enabled. Choose a deck and click 'Ready'."
-				: "The host enabled the Standard banlist. Choose a deck and click 'Ready'.");
+				? "Deck rules changed. Choose a deck and click 'Ready'."
+				: "The host changed the deck rules. Choose a deck and click 'Ready'.");
 	}
 
-	private void showBanlist(boolean on) {
-		banlistLabel.setText(on ? "Standard Banlist: Enabled" : " ");
+	private void showRules() {
+		banlistLabel.setText(DeckFormat.describe(format, banlist));
 	}
 
 	private void finish(MatchSetup setup) {
@@ -324,7 +335,8 @@ public class NewGameDialog extends JDialog {
 	}
 
 	/** Test hooks. */
-	void    setBanlistAsHost(boolean on) { banlistBox.setSelected(on); onBanlistToggled(); }
+	void    setBanlistAsHost(boolean on) { rules.setValues(rules.format(), on); onRulesChanged(); }
+	void    setFormatAsHost(DeckFormat f) { rules.setValues(f, rules.banlist()); onRulesChanged(); }
 	boolean isFinished()   { return finished; }
 	String  readyLabel()   { return readyBtn.getText(); }
 	boolean readyEnabled() { return readyBtn.isEnabled(); }
