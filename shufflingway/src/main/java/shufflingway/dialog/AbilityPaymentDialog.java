@@ -170,6 +170,9 @@ public class AbilityPaymentDialog {
             eligibleBackupSlots.add(i);
         }
 
+        // The gauge shows the fixed part of the cost; CP paid beyond it is X, which the label under
+        // it reads out. With no fixed CP there are no cells to draw, and the label carries it all.
+        CpPaymentBar cpBar = totalCost > 0 ? new CpPaymentBar(totalCost, costByElem) : null;
         JLabel  cpLabel    = new JLabel();
         cpLabel.setFont(FontLoader.loadPixelFont(11));
         cpLabel.setHorizontalAlignment(SwingConstants.CENTER);
@@ -199,21 +202,30 @@ public class AbilityPaymentDialog {
         Runnable updateAll = () -> {
             Map<String, Integer> cpByElem = new LinkedHashMap<>(bankCpByElem);
             int extraCp = 0;
+            // The Element each source's CP is drawn in on the gauge; the accounting is unaffected.
+            List<CpPaymentBar.Contribution> paid = new ArrayList<>();
             for (int slot : selectedBackups) {
+                String produced = backupElementOverrides.getOrDefault(slot, backupCards[slot].element());
                 if (backupElementOverrides.containsKey(slot)) {
-                    String overElem = backupElementOverrides.get(slot);
-                    if (cpByElem.containsKey(overElem)) cpByElem.merge(overElem, 1, Integer::sum);
+                    if (cpByElem.containsKey(produced)) cpByElem.merge(produced, 1, Integer::sum);
                     else extraCp++;
-                } else if (matchesAnyElement(backupCards[slot], elems))
-                    cpByElem.merge(contributingElement(backupCards[slot], elems, cpByElem, costByElem), 1, Integer::sum);
-                else extraCp++;
+                } else if (matchesAnyElement(backupCards[slot], elems)) {
+                    produced = contributingElement(backupCards[slot], elems, cpByElem, costByElem);
+                    cpByElem.merge(produced, 1, Integer::sum);
+                } else extraCp++;
+                paid.add(new CpPaymentBar.Contribution("b" + slot, produced, 1));
             }
             for (int idx : selectedDiscards) {
-                if (matchesAnyElement(hand.get(idx), elems))
-                    cpByElem.merge(contributingElement(hand.get(idx), elems, cpByElem, costByElem), 2, Integer::sum);
-                else extraCp += 2;
+                String produced = hand.get(idx).element();
+                if (matchesAnyElement(hand.get(idx), elems)) {
+                    produced = contributingElement(hand.get(idx), elems, cpByElem, costByElem);
+                    cpByElem.merge(produced, 2, Integer::sum);
+                } else extraCp += 2;
+                paid.add(new CpPaymentBar.Contribution("d" + idx, produced, 2));
             }
             extraCp += breaks.contribute(cpByElem, null);
+            breaks.forEachChoice((slot, picked, amount) ->
+                    paid.add(new CpPaymentBar.Contribution("x" + slot, picked, amount)));
             breaks.refresh();
             int total       = cpByElem.values().stream().mapToInt(Integer::intValue).sum() + extraCp;
             boolean satisfied = cpByElem.entrySet().stream()
@@ -224,12 +236,10 @@ public class AbilityPaymentDialog {
             boolean sSlotOk = !ability.isSpecial() || sCostIdx[0] != -1 || sCostCrystal[0];
             canAddBackup[0]  = true;
             canAddDiscard[0] = true;
-            if (ability.hasXCost()) {
-                xValueHolder[0]  = Math.max(0, total - totalCost);
-                confirmBtn.setEnabled(satisfied && sSlotOk);
-            } else {
-                confirmBtn.setEnabled(total >= totalCost && satisfied && sSlotOk);
-            }
+            // X is whatever is paid beyond the fixed cost, so the fixed part has to be covered first:
+            // 《1》《X》 (Golbez 25-118H) cannot be confirmed with nothing paid.
+            if (ability.hasXCost()) xValueHolder[0] = Math.max(0, total - totalCost);
+            confirmBtn.setEnabled(total >= totalCost && satisfied && sSlotOk);
 
             StringBuilder sb = new StringBuilder("CP: " + total + " / " + totalCost + "  (");
             boolean first = true;
@@ -246,7 +256,14 @@ public class AbilityPaymentDialog {
             }
             if (ability.hasXCost()) { if (!first) sb.append(", "); sb.append("X = ").append(xValueHolder[0]); first = false; }
             if (first) sb.append("free");
-            cpLabel.setText(sb.append(")").toString());
+            String breakdown = sb.append(")").toString();
+            if (cpBar != null) {
+                cpBar.update(paid, confirmBtn.isEnabled());
+                cpBar.setToolTipText(breakdown);
+                cpLabel.setText("X = " + xValueHolder[0]);
+            } else {
+                cpLabel.setText(breakdown);
+            }
 
             for (int i = 0; i < backupLbls.size(); i++) {
                 JLabel lbl = backupLbls.get(i); boolean sel = selectedBackups.contains(backupSlots.get(i));
@@ -549,7 +566,12 @@ public class AbilityPaymentDialog {
         JPanel topPanel = new JPanel(new java.awt.BorderLayout(0, 4));
         topPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
         topPanel.add(titleLabel, java.awt.BorderLayout.NORTH);
-        topPanel.add(cpLabel,    java.awt.BorderLayout.CENTER);
+        if (cpBar != null) {
+            topPanel.add(cpBar, java.awt.BorderLayout.CENTER);
+            if (ability.hasXCost()) topPanel.add(cpLabel, java.awt.BorderLayout.SOUTH);
+        } else {
+            topPanel.add(cpLabel, java.awt.BorderLayout.CENTER);
+        }
 
         JPanel mainPanel = new JPanel(new java.awt.BorderLayout(0, 4));
         mainPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
