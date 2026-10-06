@@ -11,8 +11,8 @@ Includes a deck manager, full card browser, game board and CPU opponent.
 
 Links to rules and guides are found in the Help menu.
 
-<img width="2454" height="1380" alt="Shufflingway3" src="https://github.com/user-attachments/assets/6812a0e8-fc2d-4611-a354-51a535824db3" />
-<img width="2456" height="1381" alt="Shufflingway4" src="https://github.com/user-attachments/assets/1d94f988-22f2-4806-9a99-6edd1c367d8a" />
+<img width="2456" height="1380" alt="Deck Manager" src="https://github.com/user-attachments/assets/87c0fcc9-7fec-4128-a8c5-b26aa17f0c3e" />
+<img width="2456" height="1384" alt="Game Board" src="https://github.com/user-attachments/assets/be915f5b-1443-40fb-ae8c-41c745a2adc8" />
 
 Shufflingway allows you to play against a CPU or a friend with the application facilitating the flow of the game, tracking the game state and resolving card interactions.
 
@@ -37,7 +37,4 @@ Once the application has been installed, you can update to any new releases from
 # Notes:
 
 * Opus 29 is now live! Cards can be fetched via the Card Browser card update button. New overpayment rules have been implemented.
-* Next features (aside from parsing additions and bugfixes):
-  1. Additional animations for better gameplay context
-  2. Title format support
-  3. More trait icons for various card states (Shielded, etc.)
+* Remote play and Title format have now been added.
