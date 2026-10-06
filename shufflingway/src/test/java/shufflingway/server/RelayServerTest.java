@@ -6,6 +6,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import shufflingway.DeckFormat;
 import shufflingway.net.ActionType;
 import shufflingway.net.GameAction;
 import shufflingway.net.GameConnection;
@@ -147,6 +148,25 @@ class RelayServerTest {
 
         // Both seats taken: no longer advertised.
         assertEquals(List.of(), list(connect("Carol")));
+    }
+
+    // The format a lobby is created in reaches both players and the match: the creator's settings,
+    // the lobby list, the joiner's settings, and the GAME_SETUP that starts the game.
+    @Test
+    void aTitleLobbyCarriesItsFormatThroughToTheMatch() throws IOException {
+        GameConnection alice = connect("Alice");
+        alice.send(RemoteLobbyExchange.createAction("Den", "", false, false, DeckFormat.TITLE));
+        assertEquals(DeckFormat.TITLE, LobbyExchange.settingsOf(alice.receiveSync()).format());
+
+        GameConnection bob = connect("Bob");
+        assertEquals(DeckFormat.TITLE, list(bob).get(0).format());
+        bob.send(RemoteLobbyExchange.joinAction("Den", ""));
+        assertEquals(DeckFormat.TITLE, LobbyExchange.settingsOf(bob.receiveSync()).format());
+
+        alice.send(deck("deck-a", "1-001H"));
+        bob.send(deck("deck-b", "2-002R"));
+        assertEquals(DeckFormat.TITLE, RemoteLobbyExchange.awaitMatch(alice, IGNORE).toSetup(1).format());
+        assertEquals(DeckFormat.TITLE, RemoteLobbyExchange.awaitMatch(bob, IGNORE).toSetup(1).format());
     }
 
     @Test
