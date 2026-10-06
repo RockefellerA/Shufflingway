@@ -11,7 +11,9 @@ import java.util.Locale;
  *   <li>{@link #STANDARD} — any legal 50-card deck.
  *   <li>{@link #L3}, {@link #L6} — every card, Limit Break cards included, from the latest 3 or 6
  *       sets, or a PR- promo.
- *   <li>{@link #TITLE} — one title's cards; offered but not yet playable.
+ *   <li>{@link #TITLE} — one category's cards; see {@link TitleRules}. A Title game also plays
+ *       by its own rules: a cast needs no CP of the card's Element, and the uniqueness rule is
+ *       by card number rather than by name.
  * </ul>
  */
 public enum DeckFormat {
@@ -33,8 +35,14 @@ public enum DeckFormat {
     /** The name shown in the UI. */
     public String label() { return label; }
 
-    /** Whether the format can be chosen for a game yet. Title is offered but not playable. */
-    public boolean available() { return this != TITLE; }
+    /** Whether the format can be chosen for a game. */
+    public boolean available() { return true; }
+
+    /**
+     * The {@link Banlist} section this format plays under: each its own, named as the format is.
+     * An empty section — L3 and L6 have nothing in theirs — bans nothing, as a missing one would.
+     */
+    public String banlistName() { return label; }
 
     /** Whether the format limits which sets a deck may draw from. */
     public boolean hasSetWindow() { return setWindow > 0; }
@@ -57,7 +65,7 @@ public enum DeckFormat {
 
     /**
      * The numbered set one printing belongs to — "28-001C" is set 28 — or 0 for a PR- promo or
-     * any other unnumbered prefix. For a reprint's combined serial ("6-022R/27-004C") this reads
+     * any other unnumbered prefix. For a reprint's combined serial ("13-071R/2-101H") this reads
      * only the first printing; {@link #latestSet} reads them all.
      */
     public static int setPrefix(String serial) {
@@ -71,7 +79,7 @@ public enum DeckFormat {
         }
     }
 
-    /** The newest numbered set among a serial's printings — 27 for "6-022R/27-004C" — or 0. */
+    /** The newest numbered set among a serial's printings — 13 for "13-071R/2-101H" — or 0. */
     public static int latestSet(String serial) {
         if (serial == null) return 0;
         int latest = 0;

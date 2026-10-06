@@ -28,7 +28,6 @@ import javax.swing.JScrollPane;
 import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
 
-import static shufflingway.CardFilters.cardNamesOverlap;
 import static shufflingway.CpPaymentUtils.contributingElement;
 import static shufflingway.CpPaymentUtils.matchesAnyElement;
 import static shufflingway.graphics.CardAnimation.CARD_H;
@@ -67,49 +66,66 @@ class Priming {
 
 	/**
 	 * Returns true if priming {@code targetName} onto {@code isP1}'s field would immediately
-	 * violate the uniqueness rule — i.e. that player already controls a Forward, or a primed top
-	 * card, of that name.
+	 * violate the uniqueness rule — that is, if no version of the target in the deck could arrive
+	 * without clashing with a Forward, or a primed top card, that player already controls.
+	 *
+	 * <p>Every version is asked, not the first one found. Versions of one name can disagree: in
+	 * Title the clash is by card number, so Cloud 11-083R may arrive beside Cloud 1-182S while a
+	 * second 1-182S may not; and in any format one version may be a multicard, or carry an "is
+	 * also Card Name X" alias, that another lacks. Whichever version the deck happened to list
+	 * first used to decide for all of them. {@link #primableVersions} is the same question asked
+	 * per version, and the chooser offers only those.
 	 *
 	 * <p>Only the priming player's own side is inspected. The uniqueness rule is per player, not
 	 * per board: both players may control a copy of the same Character at once, and the rule
 	 * process this mirrors ({@code MainWindow.sendToBreakZoneByUniquenessRule}) walks one side's
 	 * zones only. Scanning both fields blocked a legal prime whenever the <em>opponent</em>
-	 * happened to control the target.
-	 *
-	 * <p>Name overlap goes through {@link CardFilters#cardNamesOverlap} for the same reason: the
-	 * rule process resolves "is also Card Name X" aliases, so a check that compared printed names
-	 * alone would green-light a prime the rule then broke on arrival.
+	 * happened to control the target. The clash itself is {@link MainWindow#uniquenessClash}, the
+	 * rule process's own test, so this cannot green-light a prime the rule then breaks on arrival.
 	 */
 	boolean primingTargetOnField(String targetName, boolean isP1) {
-		CardData target = deckTarget(targetName, isP1);
-		// A multicard is exempt from the uniqueness rule, so it can never be blocked by it.
-		if (target != null && target.multicard()) return false;
-
-		List<CardData> bases = isP1 ? mw.p1ForwardCards      : mw.p2ForwardCards;
-		List<CardData> tops  = isP1 ? mw.p1ForwardPrimedTop  : mw.p2ForwardPrimedTop;
-		for (int i = 0; i < bases.size(); i++) {
-			if (conflicts(target, targetName, bases.get(i))) return true;
-			CardData top = tops.get(i);
-			if (top != null && conflicts(target, targetName, top)) return true;
-		}
+		List<CardData> versions = deckVersions(targetName, isP1);
+		if (!versions.isEmpty()) return primableVersions(versions, isP1).isEmpty();
+		// Not in the deck: the prime will find nothing anyway, and the printed name is all there is
+		// to compare. Title clashes by number, which a name alone cannot say, so nothing clashes there.
+		if (mw.gameFormat() == DeckFormat.TITLE) return false;
+		for (CardData onField : fieldCards(isP1))
+			if (onField.name().equalsIgnoreCase(targetName)) return true;
 		return false;
 	}
 
-	/**
-	 * The card the prime would actually pull, so the uniqueness check can see its aliases and
-	 * whether it is a multicard. Null when the target is not in the deck — in which case the
-	 * prime will find nothing anyway and the printed name is all there is to compare.
-	 */
-	private CardData deckTarget(String targetName, boolean isP1) {
-		List<CardData> matches = isP1
+	/** Each distinct version of {@code targetName} in {@code isP1}'s main deck, one per printing. */
+	private List<CardData> deckVersions(String targetName, boolean isP1) {
+		return MainWindow.distinctVersions(isP1
 				? mw.gameState.findMatchingNamesInP1MainDeck(targetName)
-				: mw.gameState.findMatchingNamesInP2MainDeck(targetName);
-		return matches.isEmpty() ? null : matches.get(0);
+				: mw.gameState.findMatchingNamesInP2MainDeck(targetName));
 	}
 
-	private static boolean conflicts(CardData target, String targetName, CardData onField) {
-		return target != null ? cardNamesOverlap(target, onField)
-				: onField.name().equalsIgnoreCase(targetName);
+	/**
+	 * The versions among {@code versions} that could be primed onto {@code isP1}'s field without
+	 * breaking the uniqueness rule: a multicard always, any other only if it clashes with nothing
+	 * that player controls.
+	 */
+	private List<CardData> primableVersions(List<CardData> versions, boolean isP1) {
+		List<CardData> fieldCards = fieldCards(isP1);
+		List<CardData> out = new ArrayList<>();
+		for (CardData v : versions) {
+			boolean clashes = false;
+			if (!v.multicard())
+				for (CardData onField : fieldCards)
+					if (mw.uniquenessClash(v, onField)) { clashes = true; break; }
+			if (!clashes) out.add(v);
+		}
+		return out;
+	}
+
+	/** {@code isP1}'s Forwards and the primed top cards on them — what a primed card could clash with. */
+	private List<CardData> fieldCards(boolean isP1) {
+		List<CardData> bases = isP1 ? mw.p1ForwardCards     : mw.p2ForwardCards;
+		List<CardData> tops  = isP1 ? mw.p1ForwardPrimedTop : mw.p2ForwardPrimedTop;
+		List<CardData> out = new ArrayList<>(bases);
+		for (CardData top : tops) if (top != null) out.add(top);
+		return out;
 	}
 
 	/** @see CostCalculator#canAffordPrimingCost */
@@ -384,9 +400,13 @@ class Priming {
 		payPrimingCost(true, card, discardIndices, backupDullIndices);
 
 		// Search deck — find all versions of the target card.  Multiple copies of the same
-		// printing are one choice, not several, so only distinct versions reach the dialog.
-		String target = card.primingTarget();
-		List<CardData> matches = MainWindow.distinctVersions(mw.gameState.findMatchingNamesInP1MainDeck(target));
+		// printing are one choice, not several, so only distinct versions reach the dialog, and
+		// only those that could arrive without breaking the uniqueness rule. Should the board have
+		// moved since the option was offered so that none can, every version is offered as before
+		// and the rule process settles it on arrival.
+		List<CardData> versions = deckVersions(card.primingTarget(), true);
+		List<CardData> primable = primableVersions(versions, true);
+		List<CardData> matches  = primable.isEmpty() ? versions : primable;
 
 		if (matches.size() <= 1) {
 			finishLocalPriming(card, slotIdx, matches.isEmpty() ? null : matches.get(0), sent);

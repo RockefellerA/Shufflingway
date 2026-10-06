@@ -5,11 +5,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import scraper.DeckDatabase;
 import scraper.DeckDatabase.DeckSummary;
 import shufflingway.Banlist;
 import shufflingway.DeckFormat;
+import shufflingway.TitleRules;
 
 /**
  * Which decks a game's rules refuse, and why — the one place the deck pickers ask, so the CPU
@@ -17,8 +19,9 @@ import shufflingway.DeckFormat;
  * pickers' own check and is not repeated here.
  *
  * <p>The format comes first and the banlist second: a deck outside L3's sets is reported as that,
- * whatever else is wrong with it. The banlist is the Standard one for every format that has a set
- * window, as in the Deck Manager.
+ * whatever else is wrong with it. Each format plays under its own banlist section
+ * ({@link DeckFormat#banlistName()}); an empty section, as L3's and L6's are, bans nothing
+ * even with the banlist enabled.
  */
 final class DeckRules {
 
@@ -31,10 +34,22 @@ final class DeckRules {
     static Map<Integer, String> refusals(DeckDatabase db, List<DeckSummary> decks,
             DeckFormat format, boolean banlist) throws SQLException {
         Map<Integer, String> out = new HashMap<>();
+        Banlist list = Banlist.get();
+        if (format == DeckFormat.TITLE) {
+            Set<String> lb = db.getLbSerials();
+            for (DeckSummary d : decks) {
+                List<Object[]> rows = db.getDeckCards(d.id());
+                TitleRules.Verdict v = TitleRules.check(TitleRules.fromDeckRows(rows, lb));
+                if (!v.legal())
+                    out.put(d.id(), "Not legal in Title: " + v.reason());
+                else if (banlist && !list.check(format.banlistName(), Banlist.fromDeckRows(rows)).isEmpty())
+                    out.put(d.id(), "Breaks the Title banlist");
+            }
+            return out;
+        }
         boolean checksSets = format.hasSetWindow();
         if (!checksSets && !banlist) return out;
         int newest = checksSets ? db.getNewestSet() : 0;
-        Banlist list = Banlist.get();
         for (DeckSummary d : decks) {
             List<Object[]> rows = db.getDeckCards(d.id());
             if (checksSets) {
@@ -45,7 +60,7 @@ final class DeckRules {
                     continue;
                 }
             }
-            if (banlist && !list.check(Banlist.STANDARD, Banlist.fromDeckRows(rows)).isEmpty())
+            if (banlist && !list.check(format.banlistName(), Banlist.fromDeckRows(rows)).isEmpty())
                 out.put(d.id(), "Breaks the banlist");
         }
         return out;

@@ -5,6 +5,8 @@ import java.awt.event.KeyEvent;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 
+import shufflingway.DeckFormat;
+
 import javax.swing.JFrame;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
@@ -22,12 +24,18 @@ import shufflingway.dialog.PreferencesDialog;
  */
 public class FileMenu extends JMenu {
 
+    /** Starts a game against the CPU with the two decks and the format the New Game dialog chose. */
+    @FunctionalInterface
+    public interface CpuGameStarter {
+        void start(int playerDeckId, int cpuDeckId, DeckFormat format);
+    }
+
     /**
      * @param inMultiplayer       whether a multiplayer connection is open right now
      * @param multiplayerNewGame  New Game while connected: asks the opponent instead of picking
      *                            a CPU deck
      */
-    public FileMenu(JFrame owner, BiConsumer<Integer, Integer> startGame, Runnable onLayoutChanged,
+    public FileMenu(JFrame owner, CpuGameStarter startGame, Runnable onLayoutChanged,
             BiConsumer<Boolean, String> onBoardColorChanged,
             BooleanSupplier inMultiplayer, Runnable multiplayerNewGame) {
         super("File");
@@ -43,7 +51,7 @@ public class FileMenu extends JMenu {
             dialog.setVisible(true);
             int p1Id = dialog.getPlayerDeckId();
             int p2Id = dialog.getCpuDeckId();
-            if (p1Id >= 0 && p2Id >= 0) startGame.accept(p1Id, p2Id);
+            if (p1Id >= 0 && p2Id >= 0) startGame.start(p1Id, p2Id, dialog.getFormat());
         });
 
         JMenuItem deckManager = new JMenuItem("Deck Manager");

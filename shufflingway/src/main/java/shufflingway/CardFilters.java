@@ -387,4 +387,31 @@ public final class CardFilters {
                 if (aa.equalsIgnoreCase(ba)) return true;
         return false;
     }
+
+    /**
+     * The number {@code card} is printed with — "11-130L" — read off its image, whose file is
+     * named for it ("11-130L_FL_eg.jpg"). Every copy of a card shares one image, a reprint's
+     * printings included, so this tells copies of one card from other cards of the same name.
+     * Null when the card has no image to read.
+     */
+    public static String cardNumber(CardData card) {
+        String url = card.imageUrl();
+        if (url == null || url.isBlank()) return null;
+        String file = url.substring(url.lastIndexOf('/') + 1);
+        int cut = file.indexOf('_');
+        if (cut < 0) cut = file.indexOf('.');
+        String number = cut < 0 ? file : file.substring(0, cut);
+        return number.isBlank() ? null : number;
+    }
+
+    /**
+     * Whether {@code a} and {@code b} are copies of the same card number — Title's uniqueness
+     * rule, under which two cards of one name but different numbers may share a field. Cards with
+     * no image to read a number from compare as the same card when they are equal.
+     */
+    public static boolean sameCardNumber(CardData a, CardData b) {
+        String na = cardNumber(a), nb = cardNumber(b);
+        if (na == null || nb == null) return a.equals(b);
+        return na.equalsIgnoreCase(nb);
+    }
 }

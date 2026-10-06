@@ -129,9 +129,6 @@ public class DeckManager extends JFrame {
     private static final Color BANNED_FG  = new Color(0xC6, 0x28, 0x28);
     private static final Color LIMITED_FG = new Color(0xE6, 0x51, 0x00);
 
-    private static final Set<String> TITLE_EXCLUDED_CATEGORIES =
-            Set.of("Special", "Anniversary", "FFRK", "MQ");
-
     /** Sorts serials numerically on the set prefix (e.g. "9-001C" before "10-001H"). */
     private static final java.util.Comparator<Object> SERIAL_ORDER = (a, b) -> {
         String sa = a == null ? "" : a.toString();
@@ -1112,16 +1109,23 @@ public class DeckManager extends JFrame {
         // Find the highest numeric set prefix across the entire card pool
         int maxPrefix = computeMaxGlobalSetPrefix();
 
-        // L3 / L6: all non-LB deck cards must be from the latest N sets or PR-. Deriving from
-        // legalS applies the banlist only within each window: a deck that passes the set check
-        // holds no card from outside it, so any banned or over-restricted card is inside it.
+        // L3 / L6: every card from the latest N sets or PR-, under each format's own banlist
+        // section — not Standard's. Both are empty today, so neither bans anything.
         List<String> deckSerials = new ArrayList<>();
         for (Object[] r : deckRows) deckSerials.add((String) r[1]);
-        boolean legalL3 = legalS && DeckFormat.L3.setsAllow(deckSerials, maxPrefix);
-        boolean legalL6 = legalS && DeckFormat.L6.setsAllow(deckSerials, maxPrefix);
+        List<Banlist.DeckCard> deckCards = Banlist.fromDeckRows(deckRows);
+        boolean legalL3 = mainTotal == MAX_DECK_SIZE && DeckFormat.L3.setsAllow(deckSerials, maxPrefix)
+                && banlist.check(DeckFormat.L3.banlistName(), deckCards).isEmpty();
+        boolean legalL6 = mainTotal == MAX_DECK_SIZE && DeckFormat.L6.setsAllow(deckSerials, maxPrefix)
+                && banlist.check(DeckFormat.L6.banlistName(), deckCards).isEmpty();
 
-        // Title: no LB cards, 50 main cards, 30+ from one non-excluded category
-        boolean legalT = checkTitleLegal();
+        // Title: its own construction rules and its own banlist section, over a 50-card main deck.
+        TitleRules.Verdict title = TitleRules.check(TitleRules.fromDeckRows(deckRows, lbSerials));
+        boolean titleBanned = !banlist.check(DeckFormat.TITLE.banlistName(), deckCards).isEmpty();
+        boolean legalT = mainTotal == MAX_DECK_SIZE && title.legal() && !titleBanned;
+        formatT.setToolTipText(legalT ? "Title — category " + title.category()
+                : "Title: " + (mainTotal != MAX_DECK_SIZE ? "needs exactly 50 main deck cards"
+                        : !title.legal() ? title.reason() : "breaks the Title banlist"));
 
         applyFormatState(formatS,   legalS,  FORMAT_S_COLOR);
         applyFormatState(formatL3,  legalL3, FORMAT_L3_COLOR);
@@ -1137,35 +1141,6 @@ public class DeckManager extends JFrame {
             if (p > max) max = p;
         }
         return max;
-    }
-
-    /** Returns true if the deck satisfies Title format legality. */
-    private boolean checkTitleLegal() {
-        // No LB cards allowed in Title
-        if (getLbDeckTotal() > 0) return false;
-        // Must have a full 50-card main deck
-        if (getMainDeckTotal() != MAX_DECK_SIZE) return false;
-
-        try {
-            Map<String, Integer> catCounts = new HashMap<>();
-            for (Object[] row : db.getDeckCardsWithCategories(selectedDeckId)) {
-                String serial = (String) row[0];
-                if (lbSerials.contains(serial)) continue;
-                String cat1 = (String) row[1];
-                String cat2 = (String) row[2];
-                int qty = (Integer) row[3];
-                // Use a set so a card with cat1==cat2 doesn't double-count
-                Set<String> cats = new HashSet<>();
-                if (cat1 != null && !cat1.isBlank()) cats.add(cat1);
-                if (cat2 != null && !cat2.isBlank()) cats.add(cat2);
-                for (String cat : cats) catCounts.merge(cat, qty, Integer::sum);
-            }
-            for (Map.Entry<String, Integer> entry : catCounts.entrySet()) {
-                if (!TITLE_EXCLUDED_CATEGORIES.contains(entry.getKey()) && entry.getValue() >= 30)
-                    return true;
-            }
-        } catch (SQLException ignored) {}
-        return false;
     }
 
     /**

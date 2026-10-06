@@ -1,4 +1,4 @@
-Last updated 9/29/2026
+Last updated 10/5/2026
 
 **Standard**
 
@@ -28,14 +28,22 @@ Conditional [Name Limit 3]
 [23-117L] Chaos (Chaos, Feral Chaos)
 
 
+**L3**
+
+Banned
+
+
+**L6**
+
+Banned
+
+
 **Title**
 
 Banned
-[6-062R] 
-[10-098L]
-[12-110L]
-[13-048H]
-[15-042R]
-[16-100L] 
-[19-138S] 
-[20-075L] 
+[4-082C] Jessie
+[10-098L] Feolthanos
+[12-110L] Neo Exdeath
+[15-042R] Locke
+[16-100L] Y'shtola
+[20-031R] Celes

@@ -8113,6 +8113,49 @@ public class CardBehaviorTest {
                 "and it is no constraint at all on the opponent");
     }
 
+    // Every version of the target in the deck is asked, not just the first one listed: versions
+    // of one name can disagree about whether they clash.
+
+    /** A Forward printed as {@code number}, a multicard or not. */
+    private static CardData primingVersion(String name, String number, boolean multicard) {
+        return new CardData("https://fftcg.cdn.sewest.net/images/cards/full/" + number + "_eg.jpg",
+                name, "Ice", 5, 9000, "Forward", false, 0, false, multicard,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                null, null, null, "");
+    }
+
+    @Test
+    void inTitleALaterVersionWithAnotherNumberStillAllowsPriming() {
+        MainWindow mw = new MainWindow();
+        mw.setGameFormat(DeckFormat.TITLE);
+        placeP1Forward(mw, primingVersion("Cloud", "1-182S", false));
+        mw.gameState.getP1MainDeck().addLast(primingVersion("Cloud", "1-182S", false));   // listed first, clashes
+        mw.gameState.getP1MainDeck().addLast(primingVersion("Cloud", "11-083R", false));  // a different number
+        assertFalse(mw.priming.primingTargetOnField("Cloud", true),
+                "11-083R can arrive beside 1-182S, so the first version listed must not decide");
+    }
+
+    @Test
+    void inTitleOnlyClashingVersionsBlockPriming() {
+        MainWindow mw = new MainWindow();
+        mw.setGameFormat(DeckFormat.TITLE);
+        placeP1Forward(mw, primingVersion("Cloud", "1-182S", false));
+        mw.gameState.getP1MainDeck().addLast(primingVersion("Cloud", "1-182S", false));
+        assertTrue(mw.priming.primingTargetOnField("Cloud", true));
+    }
+
+    @Test
+    void aMulticardVersionAllowsPrimingWhereverItIsListed() {
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, primingVersion("Moogle", "2-001C", false));
+        mw.gameState.getP1MainDeck().addLast(primingVersion("Moogle", "2-001C", false));   // clashes by name
+        mw.gameState.getP1MainDeck().addLast(primingVersion("Moogle", "9-050C", true));    // exempt
+        assertFalse(mw.priming.primingTargetOnField("Moogle", true),
+                "the multicard version is exempt from the rule, so priming into it is legal");
+    }
+
     // =========================================================================================
     // Priming is a Main Phase action: its controller's own Main Phase, Stack empty. The gate used
     // to read the phase alone, and the phase belongs to the game rather than to a player — P2's
@@ -13320,6 +13363,68 @@ public class CardBehaviorTest {
 		mw.buildGameContext(false).drawCards(1);
 		assertEquals(1, mw.gameState.getP2Hand().size());
 		assertTrue(mw.shownInHand(false).isEmpty());
+	}
+
+	// =========================================================================================
+	// Title format: Special Rules
+	// A Title game casts without the card's Element, and its uniqueness rule is by card number:
+	// two Characters of one name may share a field when their numbers differ, and two copies of one
+	// number may not. The ordinary rules hold in every other format.
+	// =========================================================================================
+
+	/** A Forward printed as card {@code number}, which Title's uniqueness rule reads off its image. */
+	private static CardData numberedForward(String name, String number) {
+		return new CardData("https://fftcg.cdn.sewest.net/images/cards/full/" + number + "_eg.jpg",
+				name, "Fire", 3, 7000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, "");
+	}
+
+	@Test
+	void inTitleTwoCloudsOfDifferentNumbersShareAField() {
+		MainWindow mw = new MainWindow();
+		mw.setGameFormat(DeckFormat.TITLE);
+		placeP2Forward(mw, numberedForward("Cloud", "1-182S"));
+		placeP2Forward(mw, numberedForward("Cloud", "11-083R"));
+		assertEquals(2, mw.p2ForwardCards.size(), "same name, different numbers: both stay");
+	}
+
+	@Test
+	void inTitleTwoCopiesOfOneNumberBothGo() {
+		MainWindow mw = new MainWindow();
+		mw.setGameFormat(DeckFormat.TITLE);
+		placeP2Forward(mw, numberedForward("Cloud", "1-182S"));
+		placeP2Forward(mw, numberedForward("Cloud", "1-182S"));
+		assertEquals(0, mw.p2ForwardCards.size(), "same number: both go to the Break Zone");
+	}
+
+	@Test
+	void outsideTitleTwoCloudsStillClashByName() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, numberedForward("Cloud", "1-182S"));
+		placeP2Forward(mw, numberedForward("Cloud", "11-083R"));
+		assertEquals(0, mw.p2ForwardCards.size(), "Standard play keeps the name rule");
+	}
+
+	@Test
+	void inTitleASecondCopyOfOneNumberCannotBePlayed() {
+		MainWindow mw = new MainWindow();
+		mw.setGameFormat(DeckFormat.TITLE);
+		placeP2Forward(mw, numberedForward("Cloud", "1-182S"));
+		assertTrue(mw.hasUniquenessClashOnField(numberedForward("Cloud", "1-182S"), false));
+		assertFalse(mw.hasUniquenessClashOnField(numberedForward("Cloud", "11-083R"), false));
+	}
+
+	@Test
+	void inTitleEveryCastMayBePaidWithAnyElement() {
+		MainWindow mw = new MainWindow();
+		CardData fire = numberedForward("Cloud", "1-182S");
+		assertFalse(mw.isAnyElementCast(fire, true), "Standard play asks for the card's Element");
+		mw.setGameFormat(DeckFormat.TITLE);
+		assertTrue(mw.isAnyElementCast(fire, true));
+		assertTrue(mw.isAnyElementCast(fire, false), "for either player");
 	}
 
 	// =========================================================================================

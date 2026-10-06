@@ -35,20 +35,21 @@ class DeckFormatTest {
         assertTrue(DeckFormat.L3.setsAllow(List.of("PR-001", "27-001H"), NEWEST));
     }
 
-    // A reprint counts by its newest printing: first printed in set 6, reprinted in 27.
+    // A reprint counts by its newest printing: first printed in set 6, reprinted in 27. The card
+    // database lists the reprint first ("13-071R/2-101H"); the check does not depend on the order.
     @Test
     void aReprintInARecentSetIsInTheWindow() {
-        assertTrue(DeckFormat.L3.setsAllow(List.of("6-022R/27-004C"), NEWEST));
+        assertTrue(DeckFormat.L3.setsAllow(List.of("27-004C/6-022R"), NEWEST));
     }
 
     @Test
     void aReprintWithEveryPrintingOldIsNot() {
-        assertFalse(DeckFormat.L3.setsAllow(List.of("6-022R/20-004C"), NEWEST));
+        assertFalse(DeckFormat.L3.setsAllow(List.of("20-004C/6-022R"), NEWEST));
     }
 
     @Test
     void theNewestSetOfAReprintIsItsLatestPrinting() {
-        assertEquals(27, DeckFormat.latestSet("6-022R/27-004C"));
+        assertEquals(27, DeckFormat.latestSet("27-004C/6-022R"));
         assertEquals(0, DeckFormat.latestSet("PR-001"));
     }
 
@@ -65,9 +66,21 @@ class DeckFormatTest {
     }
 
     @Test
-    void titleIsListedButNotAvailable() {
-        assertFalse(DeckFormat.TITLE.available());
-        assertTrue(DeckFormat.L3.available());
+    void eachFormatPlaysUnderItsOwnBanlist() {
+        assertTrue(DeckFormat.TITLE.available());
+        assertEquals("Title", DeckFormat.TITLE.banlistName());
+        assertEquals(Banlist.STANDARD, DeckFormat.STANDARD.banlistName());
+        assertEquals("L3", DeckFormat.L3.banlistName());
+    }
+
+    // L3 and L6 have empty sections in the bundled banlist, so a card Standard bans is legal there.
+    @Test
+    void theStandardBanlistDoesNotReachL3OrL6() {
+        List<Banlist.DeckCard> deck = List.of(new Banlist.DeckCard("1-089H", "Rikku", 1));
+        Banlist banlist = Banlist.get();
+        assertFalse(banlist.check(DeckFormat.STANDARD.banlistName(), deck).isEmpty(), "banned in Standard");
+        assertTrue(banlist.check(DeckFormat.L3.banlistName(), deck).isEmpty());
+        assertTrue(banlist.check(DeckFormat.L6.banlistName(), deck).isEmpty());
     }
 
     // A lobby voids the chosen decks only when the new rules could refuse one the old allowed.

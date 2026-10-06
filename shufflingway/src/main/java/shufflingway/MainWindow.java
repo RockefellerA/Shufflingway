@@ -269,6 +269,12 @@ public class MainWindow {
 	private MultiplayerMenu multiplayerMenu;
 	// Non-null for the duration of a networked game; null for a game against the AI.
 	private MatchSetup matchSetup;
+	/**
+	 * The format the game in progress is played in. Title plays by its own rules — a cast needs
+	 * no CP of the card's Element ({@link #isAnyElementCast}), and the uniqueness rule is by card
+	 * number ({@link #uniquenessClash}); every other format plays by the ordinary ones.
+	 */
+	private DeckFormat gameFormat = DeckFormat.STANDARD;
 	// Opening-deal digests, ours and the opponent's, compared once both exist.
 	private String localDealChecksum;
 	private String remoteDealChecksum;
@@ -1939,7 +1945,7 @@ public class MainWindow {
 		// --- Menu Bar ---
 		JMenuBar menuBar = new JMenuBar();
 		frame.setJMenuBar(menuBar);
-		menuBar.add(new FileMenu(frame, (p1Id, p2Id) -> startGame(p1Id, p2Id),
+		menuBar.add(new FileMenu(frame, this::startGame,
 				() -> applySidePanelSide(AppSettings.getSidePanelSide()),
 				this::applyBoardColor,
 				this::multiplayerConnected, this::requestMultiplayerNewGame));
@@ -2663,8 +2669,9 @@ public class MainWindow {
 	// Game startup
 	// -------------------------------------------------------------------------
 
-	private void startGame(int deckId, int p2DeckId) {
+	private void startGame(int deckId, int p2DeckId, DeckFormat format) {
 		matchSetup = null;              // a local game against the AI
+		gameFormat = format;
 		refreshDebugMenuAvailability();
 		resetForNewGame();
 		applyTurnPillNames();
@@ -2681,6 +2688,7 @@ public class MainWindow {
 	 */
 	void startMultiplayerGame(MatchSetup setup) {
 		matchSetup         = setup;
+		gameFormat         = setup.format();
 		refreshDebugMenuAvailability();
 		localDealChecksum  = null;
 		remoteDealChecksum = null;
@@ -3653,7 +3661,7 @@ public class MainWindow {
 		boolean isCharacter = card.isForward() || card.isBackup() || card.isMonster();
 		if (!isCharacter) return false;
 		boolean nameConflict = !card.multicard()
-				&& hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name(), true);
+				&& hasUniquenessClashOnField(card, true) && !isMultiNameExceptionActive(card.name(), true);
 		return nameConflict || isLightDarkConflict(card);
 	}
 
@@ -3784,7 +3792,7 @@ public class MainWindow {
 	 */
 	private String borrowedCastBlockReason(CardData cd) {
 		boolean isCharacter   = cd.isForward() || cd.isBackup() || cd.isMonster();
-		boolean nameConflict  = isCharacter && !cd.multicard() && hasCharacterNameOnField(cd.name()) && !isMultiNameExceptionActive(cd.name(), true);
+		boolean nameConflict  = isCharacter && !cd.multicard() && hasUniquenessClashOnField(cd, true) && !isMultiNameExceptionActive(cd.name(), true);
 		boolean ldConflict    = isCharacter && isLightDarkConflict(cd);
 		boolean noSlot        = cd.isBackup() && !hasAvailableBackupSlot();
 		boolean summonBlocked = cd.isSummon() && summonCastingBanned(true);
@@ -4486,6 +4494,10 @@ public class MainWindow {
 			p1LimitButton.setText("LIMIT - " + playable);
 			p1LimitButton.setForeground(Color.BLACK);
 		}
+		// A Title deck holds no Limit Break cards, so there is nothing for the button to open.
+		boolean title = gameFormat == DeckFormat.TITLE;
+		p1LimitButton.setEnabled(!title);
+		p1LimitButton.setToolTipText(title ? "No Limit Break cards in Title" : "Player 1 LB Deck");
 	}
 
 
@@ -4500,6 +4512,9 @@ public class MainWindow {
 			p2LimitButton.setText("LIMIT - " + playable);
 			p2LimitButton.setForeground(Color.BLACK);
 		}
+		boolean title = gameFormat == DeckFormat.TITLE;
+		p2LimitButton.setEnabled(!title);
+		p2LimitButton.setToolTipText(title ? "No Limit Break cards in Title" : "Player 2 LB Deck");
 	}
 
 	/** Shows P2's LB deck: cardback for unplayed cards, face-up for spent ones. */
@@ -5677,7 +5692,8 @@ public class MainWindow {
 		List<CardData> destCards = fromP1 ? p2ForwardCards : p1ForwardCards;
 		if (!card.multicard()) {
 			for (int i = 0; i < destCards.size(); i++) {
-				if (destCards.get(i).name().equalsIgnoreCase(card.name())) {
+				if (gameFormat == DeckFormat.TITLE ? CardFilters.sameCardNumber(destCards.get(i), card)
+						: destCards.get(i).name().equalsIgnoreCase(card.name())) {
 					logEntry(card.name() + " — uniqueness rule: both copies sent to their owner's Break Zone");
 					// Break the arriving copy first so the resident copy's index stays valid.
 					if (fromP1) { breakP1Forward(idx); breakP2Forward(i); }
@@ -12265,6 +12281,39 @@ public class MainWindow {
 	// Uniqueness and Light/Dark conflict rules
 	// -------------------------------------------------------------------------
 
+	/** The format the game in progress is played in. */
+	DeckFormat gameFormat() { return gameFormat; }
+
+	/** Sets the game's format outside a game start — for tests that build a board directly. */
+	void setGameFormat(DeckFormat format) { gameFormat = format; }
+
+	/**
+	 * Whether {@code a} and {@code b} cannot share a field under the uniqueness rule. Ordinarily
+	 * that is two cards of one name (aliases included); in Title it is two copies of one card
+	 * number, so differently numbered cards of the same name may share a field — as Forwards,
+	 * Backups or both. Multicards are exempt either way, and that is the caller's to check.
+	 */
+	boolean uniquenessClash(CardData a, CardData b) {
+		return gameFormat == DeckFormat.TITLE ? CardFilters.sameCardNumber(a, b) : cardNamesOverlap(a, b);
+	}
+
+	/**
+	 * Whether {@code isP1}'s field already holds a Character that {@code card} would clash with
+	 * under the uniqueness rule — the check a play makes before it is allowed. Multicards and
+	 * "You can play 2 or more" grants are the caller's to check.
+	 */
+	boolean hasUniquenessClashOnField(CardData card, boolean isP1) {
+		if (gameFormat != DeckFormat.TITLE)
+			return isP1 ? hasCharacterNameOnField(card.name()) : p2HasCharacterNameOnField(card.name());
+		for (CardData c : isP1 ? p1ForwardCards : p2ForwardCards)
+			if (CardFilters.sameCardNumber(card, c)) return true;
+		for (CardData c : isP1 ? p1BackupCards : p2BackupCards)
+			if (c != null && CardFilters.sameCardNumber(card, c)) return true;
+		for (CardData c : isP1 ? p1MonsterCards : p2MonsterCards)
+			if (CardFilters.sameCardNumber(card, c)) return true;
+		return false;
+	}
+
 	/** Whether P1 already has a Character of this name in play. */
 	boolean hasCharacterNameOnField(String name) {
 		for (CardData c : p1ForwardCards)
@@ -12704,6 +12753,10 @@ public class MainWindow {
 	 * payable with anything, and left a castable card unlit.
 	 */
 	boolean isAnyElementCast(CardData card, boolean casterIsP1) {
+		// Title: casting needs no CP of the card's own Element. A cost held to one kind of CP — "only
+		// Lightning CP", "only CP produced by Backups" (Emperor Xande 2-007L) — still holds; every
+		// caller checks those restrictions apart from this.
+		if (gameFormat == DeckFormat.TITLE) return true;
 		// The card's own printing comes first: Tifa 11-071L carries the permission on the card being
 		// played, which the board walk below cannot see — it is still in hand, not on the field.
 		if (selfGrantsAnyElement(card, casterIsP1)) return true;
@@ -18413,7 +18466,8 @@ public class MainWindow {
 
 	/**
 	 * Enforces the uniqueness rule after {@code incoming} has entered the field.
-	 * Every card on that side (including {@code incoming} itself) whose name overlaps
+	 * Every card on that side (including {@code incoming} itself) that clashes with it
+	 * ({@link #uniquenessClash} — the same name, or in Title the same card number)
 	 * is sent directly to the Break Zone — the rule takes both copies, it does not let
 	 * the owner keep one.  This does NOT count as "breaking", so
 	 * "cannot be broken" protection is bypassed and break-zone auto-abilities do not
@@ -18434,7 +18488,7 @@ public class MainWindow {
 			// P1 forwards
 			for (int i = p1ForwardCards.size() - 1; i >= 0; i--) {
 				CardData c = p1ForwardCards.get(i);
-				if (!cardNamesOverlap(incoming, c)) continue;
+				if (!uniquenessClash(incoming, c)) continue;
 				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
 				animateUniquenessSlide(p1ForwardLabels.get(i), true);
 				CardData top = p1ForwardPrimedTop.get(i);
@@ -18456,7 +18510,7 @@ public class MainWindow {
 			// P1 backups
 			for (int i = 0; i < p1BackupCards.length; i++) {
 				CardData c = p1BackupCards[i];
-				if (c == null || !cardNamesOverlap(incoming, c)) continue;
+				if (c == null || !uniquenessClash(incoming, c)) continue;
 				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
 				animateUniquenessSlide(p1BackupLabels[i], true);
 				addToBreakZone(c, true);
@@ -18467,7 +18521,7 @@ public class MainWindow {
 			// P1 monsters
 			for (int i = p1MonsterCards.size() - 1; i >= 0; i--) {
 				CardData c = p1MonsterCards.get(i);
-				if (!cardNamesOverlap(incoming, c)) continue;
+				if (!uniquenessClash(incoming, c)) continue;
 				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
 				addToBreakZone(c, true);
 				p1MonsterTempForwardPower.remove(c);
@@ -18485,7 +18539,7 @@ public class MainWindow {
 			// P2 forwards
 			for (int i = p2ForwardCards.size() - 1; i >= 0; i--) {
 				CardData c = p2ForwardCards.get(i);
-				if (!cardNamesOverlap(incoming, c)) continue;
+				if (!uniquenessClash(incoming, c)) continue;
 				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
 				animateUniquenessSlide(p2ForwardLabels.get(i), false);
 				addToBreakZone(c, true);
@@ -18497,7 +18551,7 @@ public class MainWindow {
 			// P2 backups
 			for (int i = 0; i < p2BackupCards.length; i++) {
 				CardData c = p2BackupCards[i];
-				if (c == null || !cardNamesOverlap(incoming, c)) continue;
+				if (c == null || !uniquenessClash(incoming, c)) continue;
 				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
 				animateUniquenessSlide(p2BackupLabels[i], false);
 				addToBreakZone(c, true);
@@ -18508,7 +18562,7 @@ public class MainWindow {
 			// P2 monsters
 			for (int i = p2MonsterCards.size() - 1; i >= 0; i--) {
 				CardData c = p2MonsterCards.get(i);
-				if (!cardNamesOverlap(incoming, c)) continue;
+				if (!uniquenessClash(incoming, c)) continue;
 				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
 				addToBreakZone(c, true);
 				p2MonsterTempForwardPower.remove(c);
@@ -18527,17 +18581,17 @@ public class MainWindow {
 	}
 
 	/**
-	 * Whether {@code isP1} already has a card sharing {@code incoming}'s name, {@code incoming}
-	 * itself excluded. Separate from the rule process because that process breaks every copy: once
+	 * Whether {@code isP1} already has a card that clashes with {@code incoming} ({@link #uniquenessClash}),
+	 * {@code incoming} itself excluded. Separate from the rule process because that process breaks every copy: once
 	 * it is running it has no way to distinguish the second copy from the first.
 	 */
 	private boolean hasUniquenessConflict(CardData incoming, boolean isP1) {
 		for (CardData c : isP1 ? p1ForwardCards : p2ForwardCards)
-			if (c != incoming && cardNamesOverlap(incoming, c)) return true;
+			if (c != incoming && uniquenessClash(incoming, c)) return true;
 		for (CardData c : isP1 ? p1BackupCards : p2BackupCards)
-			if (c != null && c != incoming && cardNamesOverlap(incoming, c)) return true;
+			if (c != null && c != incoming && uniquenessClash(incoming, c)) return true;
 		for (CardData c : isP1 ? p1MonsterCards : p2MonsterCards)
-			if (c != incoming && cardNamesOverlap(incoming, c)) return true;
+			if (c != incoming && uniquenessClash(incoming, c)) return true;
 		return false;
 	}
 

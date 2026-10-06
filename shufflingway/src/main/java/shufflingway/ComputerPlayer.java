@@ -606,7 +606,7 @@ class ComputerPlayer implements OpponentController {
 			if (mw.p2SpentLbIndices.contains(i)) continue;
 			CardData card = lbDeck.get(i);
 			if (card.isSummon()) continue; // skip summons — no simple board placement
-			if (!card.multicard() && mw.p2HasCharacterNameOnField(card.name())) continue;
+			if (!card.multicard() && mw.hasUniquenessClashOnField(card, false)) continue;
 			if (card.isLightOrDark() && p2HasLD) continue;
 			if (card.isBackup() && !mw.p2HasAvailableBackupSlot()) continue;
 			if (!mw.castRestrictionMet(card, false)) continue;
@@ -693,7 +693,7 @@ class ComputerPlayer implements OpponentController {
 		for (int i = 0; i < hand.size(); i++) {
 			CardData c = hand.get(i);
 			if (!c.isForward() && !c.isMonster()) continue;
-			if (!c.multicard() && mw.p2HasCharacterNameOnField(c.name())) continue;
+			if (!c.multicard() && mw.hasUniquenessClashOnField(c, false)) continue;
 			if (c.isLightOrDark() && p2HasLD) continue;
 			if (!mw.castRestrictionMet(c, false)) continue;
 			fieldCands.add(i);
@@ -727,7 +727,7 @@ class ComputerPlayer implements OpponentController {
 		for (int i = 0; i < hand.size(); i++) {
 			CardData c = hand.get(i);
 			if (!c.isBackup() || !mw.p2HasAvailableBackupSlot()) continue;
-			if (!c.multicard() && mw.p2HasCharacterNameOnField(c.name())) continue;
+			if (!c.multicard() && mw.hasUniquenessClashOnField(c, false)) continue;
 			if (c.isLightOrDark() && p2HasLD) continue;
 			if (!mw.castRestrictionMet(c, false)) continue;
 			backupCands.add(i);
@@ -970,7 +970,7 @@ class ComputerPlayer implements OpponentController {
 
 			// Respect uniqueness / Light-Dark / backup-slot legality so borrowed casts can't create field collisions.
 			boolean isChar = card.isForward() || card.isBackup() || card.isMonster();
-			if (isChar && !card.multicard() && mw.p2HasCharacterNameOnField(card.name())) continue;
+			if (isChar && !card.multicard() && mw.hasUniquenessClashOnField(card, false)) continue;
 			if (isChar && mw.isP2LightDarkConflict(card)) continue;
 			if (card.isBackup() && !mw.p2HasAvailableBackupSlot()) continue;
 			if (mw.summonCastBlocked(card, false)) continue;

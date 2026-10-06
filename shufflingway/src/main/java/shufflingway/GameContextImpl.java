@@ -4346,9 +4346,7 @@ final class GameContextImpl implements GameContext {
 			 * AI behaves the same way here as it does everywhere else.
 			 */
 			private boolean aiAvoidsDuplicate(boolean seatIsP1, CardData card) {
-				return !card.multicard() && (seatIsP1
-						? mw.hasCharacterNameOnField(card.name())
-						: mw.p2HasCharacterNameOnField(card.name()));
+				return !card.multicard() && mw.hasUniquenessClashOnField(card, seatIsP1);
 			}
 
 			/**

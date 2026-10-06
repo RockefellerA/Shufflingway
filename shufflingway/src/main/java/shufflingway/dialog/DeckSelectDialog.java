@@ -101,7 +101,7 @@ public class DeckSelectDialog extends JDialog {
 
         JLabel headerLabel = new JLabel();
         headerLabel.setBorder(BorderFactory.createEmptyBorder(6, 0, 4, 0));
-        Runnable showHeader = () -> headerLabel.setText(rules.banlist() || format.hasSetWindow()
+        Runnable showHeader = () -> headerLabel.setText(rules.banlist() || format != DeckFormat.STANDARD
                 ? "Select a deck with exactly 50 main cards that is legal in " + format.label()
                         + (rules.banlist() ? " and follows the banlist" : "") + " for each side:"
                 : "Select a deck with exactly 50 main cards for each side:");
