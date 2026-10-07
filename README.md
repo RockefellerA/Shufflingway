@@ -3,7 +3,7 @@
 </a>
 
 
-# <img width="64" height="62" alt="shufflingway icon" src="https://github.com/user-attachments/assets/16c919c4-2701-4751-b325-303133e9ff52" /> Shufflingway
+# <img width="64" height="64" alt="psaroeditor" src="https://github.com/user-attachments/assets/9c2d8225-de97-43d7-a49a-036943cb3784" /> Shufflingway
 
 Lightweight FFTCG client and fan project.
 
