@@ -14,12 +14,14 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -503,6 +505,178 @@ class WireProtocolTest {
                 "JSON escaping is what keeps a newline inside a value from ending the line");
         assertEquals(3, arrived.payload().getInt("handIdx"));
         assertTrue(inbox.isEmpty(), "one action was sent, so exactly one should have arrived");
+    }
+
+    // =========================================================================================
+    // The block step always answers the attacker.
+    //
+    // The attacking client parks on a BLOCK from the moment it declares, so every way out of the
+    // defender's block step has to send one — including the step that never opens because nothing
+    // can block, which used to send nothing and left the attacker waiting for good. And "nothing
+    // can block" has to mean nothing: a Monster or Backup an effect has made a Forward blocks like
+    // one, but only the Forward row was counted, so with one of those as the only blocker the step
+    // was skipped and the defender lost a legal block.
+    // =========================================================================================
+
+    /**
+     * A window defending on P2's turn, with a deck to take damage from and the opponent's half of
+     * both combat priority rounds already delivered, so a whole combat runs without parking.
+     */
+    private MainWindow defendingWindow() {
+        MainWindow mw = sendingWindow();
+        List<CardData> deck = new ArrayList<>();
+        for (int i = 0; i < 10; i++) deck.add(forward("Filler " + i));
+        mw.gameState.initializeDeck(deck, List.of(), new Random(1));
+        mw.gameState.startFirstTurn(GameState.Player.P2);
+        mw.gameState.advancePhase();   // DRAW
+        mw.gameState.advancePhase();   // MAIN_1
+        mw.gameState.advancePhase();   // ATTACK
+        RemoteOpponent remote = (RemoteOpponent) mw.opponent;
+        for (int i = 0; i < 2; i++)
+            remote.onActionReceived(RemoteOpponent.choiceAction(ChoiceKind.PRIORITY_PASS, List.of()));
+        return mw;
+    }
+
+    /** Seats {@code monster} as P1's first Monster, active and made a Forward by an effect. */
+    private static void seatP1MonsterAsForward(MainWindow mw, CardData monster) {
+        mw.placeCardInMonsterZone(monster);
+        mw.p1MonsterStates.set(0, CardState.ACTIVE);
+        mw.p1MonsterTempForwardPower.put(monster, 7000);
+    }
+
+    /**
+     * Every BLOCK this window has sent so far. The connection keeps order, so a marker sent behind
+     * them bounds the read — which is what lets a test say none went out, not just that none came.
+     */
+    private List<GameAction> blocksSent() throws InterruptedException {
+        host.send(GameAction.of(ActionType.CHAT, new JSONObject().put("msg", "marker")));
+        List<GameAction> blocks = new ArrayList<>();
+        for (GameAction a = next(); a.type() != ActionType.CHAT; a = next())
+            if (a.type() == ActionType.BLOCK) blocks.add(a);
+        return blocks;
+    }
+
+    private static GameAction onlyOne(List<GameAction> blocks) {
+        assertEquals(1, blocks.size(), "exactly one answer per attack: " + blocks);
+        return blocks.get(0);
+    }
+
+    @Test
+    void aBlockStepWithNothingToBlockStillAnswersTheAttacker() throws InterruptedException {
+        MainWindow mw = defendingWindow();
+        CardData attacker = forward("Attacker");
+        seatP2Forward(mw, attacker);
+        CardData tired = forward("Tired");
+        mw.placeCardInForwardZone(tired);
+        mw.p1ForwardStates.set(0, CardState.DULL);
+
+        mw.initP1BlockDeclaration(attacker, 0, () -> {});
+
+        assertFalse(onlyOne(blocksSent()).payload().getBoolean("blocked"),
+                "there was no choice to make, but the attacker is still waiting on the answer");
+        assertNull(mw.pendingP2Attacker, "and no block step was left open here");
+    }
+
+    @Test
+    void aPartyWithNothingToBlockItStillAnswersTheAttacker() throws InterruptedException {
+        MainWindow mw = defendingWindow();
+        seatP2Forward(mw, forward("Left"));
+        seatP2Forward(mw, forward("Right"));
+
+        mw.initP1BlockDeclarationVsParty(List.of(0, 1), 14000, () -> {});
+
+        assertFalse(onlyOne(blocksSent()).payload().getBoolean("blocked"));
+        assertNull(mw.pendingP2PartyIndices);
+    }
+
+    @Test
+    void aMonsterActingAsAForwardOpensTheBlockStepAndItsBlockCrosses() throws InterruptedException {
+        MainWindow mw = defendingWindow();
+        CardData attacker = forward("Attacker");
+        seatP2Forward(mw, attacker);
+        seatP1MonsterAsForward(mw, abilityCard("Chocobo", "Monster", ""));
+
+        mw.initP1BlockDeclaration(attacker, 0, () -> {});
+
+        assertTrue(blocksSent().isEmpty(),
+                "the Monster is the only blocker, so the step waits on a choice rather than declining");
+        assertTrue(mw.isMonsterBlockSelectable(0), "and the Monster is offered as that choice");
+
+        mw.p1BlockerMonsterIdx = 0;
+        mw.handleP1BlockAction();
+
+        GameAction block = onlyOne(blocksSent());
+        assertTrue(block.payload().getBoolean("blocked"));
+        assertEquals("MONSTER", block.payload().getString("zone"));
+        assertEquals(0, block.payload().getInt("idx"));
+    }
+
+    @Test
+    void aBackupActingAsAForwardOpensTheBlockStepAndItsBlockCrosses() throws InterruptedException {
+        MainWindow mw = defendingWindow();
+        CardData attacker = forward("Attacker");
+        seatP2Forward(mw, attacker);
+        CardData backup = abilityCard("Scholar", "Backup", "");
+        mw.gameState.getIdentity().put(backup, true);
+        mw.p1BackupCards[2]  = backup;
+        mw.p1BackupStates[2] = CardState.ACTIVE;
+        mw.p1BackupTempForwardPower.put(backup, 7000);
+
+        mw.initP1BlockDeclaration(attacker, 0, () -> {});
+
+        assertTrue(blocksSent().isEmpty(), "the Backup is a legal blocker, so nothing is declined for it");
+        assertTrue(mw.isBackupBlockSelectable(2));
+
+        mw.p1BlockerBackupIdx = 2;
+        mw.handleP1BlockAction();
+
+        GameAction block = onlyOne(blocksSent());
+        assertTrue(block.payload().getBoolean("blocked"));
+        assertEquals("BACKUP", block.payload().getString("zone"));
+        assertEquals(2, block.payload().getInt("idx"));
+    }
+
+    @Test
+    void aMonsterActingAsAForwardOpensTheBlockStepAgainstAParty() throws InterruptedException {
+        MainWindow mw = defendingWindow();
+        seatP2Forward(mw, forward("Left"));
+        seatP2Forward(mw, forward("Right"));
+        seatP1MonsterAsForward(mw, abilityCard("Chocobo", "Monster", ""));
+
+        mw.initP1BlockDeclarationVsParty(List.of(0, 1), 14000, () -> {});
+
+        assertTrue(blocksSent().isEmpty());
+        assertEquals(List.of(0, 1), mw.pendingP2PartyIndices, "the party block step is open");
+        assertTrue(mw.isMonsterBlockSelectable(0));
+    }
+
+    @Test
+    void aMonsterThatIsNotAForwardIsNoBlocker() throws InterruptedException {
+        MainWindow mw = defendingWindow();
+        CardData attacker = forward("Attacker");
+        seatP2Forward(mw, attacker);
+        CardData monster = abilityCard("Chocobo", "Monster", "");
+        mw.placeCardInMonsterZone(monster);
+        mw.p1MonsterStates.set(0, CardState.ACTIVE);
+
+        mw.initP1BlockDeclaration(attacker, 0, () -> {});
+
+        assertFalse(onlyOne(blocksSent()).payload().getBoolean("blocked"),
+                "widening the count to Monsters must not count every Monster");
+    }
+
+    @Test
+    void aMonsterActingAsAForwardThatCannotBlockIsNoBlocker() throws InterruptedException {
+        MainWindow mw = defendingWindow();
+        CardData attacker = forward("Attacker");
+        seatP2Forward(mw, attacker);
+        CardData monster = abilityCard("Chocobo", "Monster", "");
+        seatP1MonsterAsForward(mw, monster);
+        mw.p1CannotBlock.add(monster);
+
+        mw.initP1BlockDeclaration(attacker, 0, () -> {});
+
+        assertFalse(onlyOne(blocksSent()).payload().getBoolean("blocked"));
     }
 
     // =========================================================================================

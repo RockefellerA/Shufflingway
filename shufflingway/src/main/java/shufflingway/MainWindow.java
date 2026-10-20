@@ -8252,8 +8252,10 @@ public class MainWindow {
 
 			if (!hasEligibleP1Blocker()) {
 				// Nothing can block, so there is no choice to make — but the block step still passes
-				// through a priority round of its own before damage.
+				// through a priority round of its own before damage. The attacking client is still
+				// parked on a BLOCK answer, so the declined block has to go out as though chosen.
 				logEntry("No eligible blockers.");
+				sendToOpponent(RemoteOpponent.blockAction(null, -1, null));
 				combatPriorityRound(false, null, () -> {
 					setAttackSubStep(3);
 					dealCombatDamageToOpponent(attacker, false, () -> {
@@ -8378,16 +8380,32 @@ public class MainWindow {
 		}
 	}
 
-	/** True when P1 controls at least one Forward that is allowed to block right now. */
-	private boolean hasEligibleP1Blocker() {
-		for (int i = 0; i < p1ForwardStates.size(); i++) {
-			CardState s = p1ForwardStates.get(i);
-			CardData  c = p1ForwardCards.get(i);
-			if (s == CardState.ACTIVE
-					&& !p1CannotBlock.contains(c)
-					&& !p1CannotBlockPersistent.contains(c)) return true;
-		}
+	/**
+	 * True when P1 controls at least one character that might block right now — a Forward, or a
+	 * Monster or Backup acting as a Forward. Asked before the block step opens, so it reads only
+	 * the blocker's side; attacker-specific restrictions are left to the selection checks, where a
+	 * false positive costs a click on "Take Damage" and a false negative costs a legal block.
+	 */
+	boolean hasEligibleP1Blocker() {
+		for (int i = 0; i < p1ForwardStates.size(); i++)
+			if (p1ForwardStates.get(i) == CardState.ACTIVE && !p1BlockRestricted(p1ForwardCards.get(i)))
+				return true;
+		for (int i = 0; i < p1MonsterStates.size(); i++)
+			if (p1MonsterStates.get(i) == CardState.ACTIVE
+					&& !Boolean.TRUE.equals(p1MonsterFrozen.get(i))
+					&& isP1MonsterTemporarilyForward(i)
+					&& !p1BlockRestricted(p1MonsterCards.get(i))) return true;
+		for (int i = 0; i < p1BackupCards.length; i++)
+			if (p1BackupCards[i] != null
+					&& p1BackupStates[i] == CardState.ACTIVE
+					&& !p1BackupFrozen[i]
+					&& isP1BackupTemporarilyForward(i)
+					&& !p1BlockRestricted(p1BackupCards[i])) return true;
 		return false;
+	}
+
+	private boolean p1BlockRestricted(CardData c) {
+		return p1CannotBlock.contains(c) || p1CannotBlockPersistent.contains(c);
 	}
 
 	/** {@code attackerIndices} are P2's party as slot codes ({@link ForwardTarget#slotCode()}). */
@@ -8435,6 +8453,8 @@ public class MainWindow {
 
 		if (!hasEligibleP1Blocker()) {
 			logEntry("No eligible blockers.");
+			// As in initP1BlockDeclaration: the attacking client waits on a BLOCK either way.
+			sendToOpponent(RemoteOpponent.blockAction(null, -1, null));
 			combatPriorityRound(false, null, () -> {
 				setAttackSubStep(3);
 				setPlayerDamageSource(partyExBurstSuppressor(attackerIndices, false));
@@ -20442,7 +20462,7 @@ public class MainWindow {
 	}
 
 	/** True when a P1 backup acting as a Forward may be declared as a blocker. */
-	private boolean isBackupBlockSelectable(int idx) {
+	boolean isBackupBlockSelectable(int idx) {
 		if (!p1InBlockDeclaration()) return false;
 		if (idx < 0 || idx >= p1BackupCards.length || p1BackupCards[idx] == null) return false;
 		if (p1BackupFrozen[idx]) return false;
@@ -20494,7 +20514,7 @@ public class MainWindow {
 	// -------------------------------------------------------------------------
 
 	/** Called when P1 clicks the Attack/Block/Take-Damage button during block declaration. */
-	private void handleP1BlockAction() {
+	void handleP1BlockAction() {
 		if (pendingP2PartyIndices != null) { handleP1PartyBlockAction(); return; }
 		if (pendingP2Attacker == null) return;
 		CardData attacker      = pendingP2Attacker;
@@ -21013,9 +21033,6 @@ public class MainWindow {
 		phaseTracker.setHasPriority(false);
 		runWhenBoardSettled(() -> {
 			remote.awaitPriorityPass();
-			// The wait can end because the pass arrived — or because the peer vanished and the
-			// disconnect released it. Only the first means carry on with the battle.
-			if (gameState.isP1GameOver()) return;
 			// The wait can end because the pass arrived — or because the peer vanished and the
 			// disconnect released it. Only the first means carry on with the battle.
 			if (gameState.isP1GameOver()) return;
