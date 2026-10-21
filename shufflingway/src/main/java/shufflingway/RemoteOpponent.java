@@ -1,5 +1,7 @@
 package shufflingway;
 
+import java.awt.SecondaryLoop;
+import java.awt.Toolkit;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -73,7 +75,8 @@ class RemoteOpponent implements OpponentController {
 	 * strand the board mid-battle with the attacker dulled and the Attack Phase unable to end.
 	 *
 	 * <p>A choice being waited on is released for the same reason, and more urgently — that wait is
-	 * a modal dialog holding the EDT, so leaving it up would freeze the client outright.
+	 * a nested event loop holding the EDT with the board blocked, so leaving it up would freeze the
+	 * client outright.
 	 */
 	@Override
 	public void cancel() {
@@ -83,8 +86,8 @@ class RemoteOpponent implements OpponentController {
 		pendingBlock      = null;
 		pendingPartyBlock = null;
 		mw.setAwaitingRemoteBlock(false);
-		if (awaitedChoiceDialog != null) awaitedChoiceDialog.dispose();
-		for (StackWait w : stackWaits) { w.released = true; w.dialog.dispose(); }
+		for (StackWait w : stackWaits) w.released = true;
+		for (Parked p : parked) p.end();
 		if (block      != null) block.accept(null);
 		if (partyBlock != null) partyBlock.accept(null);
 	}
@@ -686,9 +689,27 @@ class RemoteOpponent implements OpponentController {
 	 * earlier one would silently drop it.
 	 */
 	private final Map<ChoiceKind, ArrayDeque<List<Integer>>> deliveredChoices = new EnumMap<>(ChoiceKind.class);
-	/** The kind {@link #awaitChoice} is parked on, and the dialog holding the EDT while it waits. */
-	private ChoiceKind awaitedChoiceKind;
-	private JDialog    awaitedChoiceDialog;
+
+	/**
+	 * One wait holding the EDT for the opponent: the kind of answer that ends it, the dialog saying
+	 * so, and the secondary loop that keeps the event queue pumping meanwhile.
+	 */
+	private static final class Parked {
+		final ChoiceKind    kind;
+		final JDialog       dialog;
+		final SecondaryLoop loop = Toolkit.getDefaultToolkit().getSystemEventQueue().createSecondaryLoop();
+		boolean             ended;
+		Parked(ChoiceKind kind, JDialog dialog) { this.kind = kind; this.dialog = dialog; }
+
+		void end() {
+			ended = true;
+			loop.exit();
+			dialog.setVisible(false);
+		}
+	}
+
+	/** The waits holding the EDT, innermost last. */
+	private final List<Parked> parked = new ArrayList<>();
 
 	/** The opponent answered a choice. Buffered by kind, then the waiter — if any — is released. */
 	private void applyChoice(JSONObject payload) {
@@ -701,7 +722,8 @@ class RemoteOpponent implements OpponentController {
 			return;
 		}
 		deliveredChoices.computeIfAbsent(kind, k -> new ArrayDeque<>()).addLast(indices(payload, "indices"));
-		if (kind == awaitedChoiceKind && awaitedChoiceDialog != null) awaitedChoiceDialog.dispose();
+		Parked innermost = parked.isEmpty() ? null : parked.get(parked.size() - 1);
+		if (innermost != null && innermost.kind == kind) innermost.end();
 	}
 
 	/** The oldest undelivered answer of {@code kind}, removed, or {@code null} when none is queued. */
@@ -716,8 +738,8 @@ class RemoteOpponent implements OpponentController {
 	 *
 	 * <p>Unlike a block, which parks a callback and returns, an effect mid-resolution has nowhere
 	 * to park: {@code GameContext} methods run to completion, and the rules that follow the choice
-	 * are the statements after the call.  So this waits in place, in a modal dialog whose nested
-	 * event loop keeps delivering inbound actions — including the one that disposes it.
+	 * are the statements after the call.  So this waits in place, in a nested event loop that keeps
+	 * delivering inbound actions — including the one that ends it (see {@link #parkUntilAnswered}).
 	 *
 	 * <p>The answer can also arrive <em>before</em> anyone waits, the sender firing as soon as
 	 * their own dialog closes.  {@link #deliveredChoices} is checked first for that reason; racing
@@ -735,33 +757,56 @@ class RemoteOpponent implements OpponentController {
 		if (cancelled) return List.of();
 		List<Integer> already = takeDelivered(kind);
 		if (already != null) return already;
-		parkUntilAnswered(kind, mw.buildWaitingForOpponentDialog(prompt));
+		parkUntilAnswered(new Parked(kind, mw.buildWaitingForOpponentDialog(prompt)));
 		List<Integer> answer = takeDelivered(kind);
 		return answer != null ? answer : List.of();
 	}
 
 	/**
-	 * Shows {@code dialog} until an answer of {@code kind} arrives or the dialog is released.
+	 * Holds the EDT in {@code wait}'s secondary loop until an answer of its kind arrives or the wait
+	 * is ended some other way.
 	 *
-	 * <p>Waits nest: one runs its modal loop, an inbound action inside it starts another, and the
-	 * inner one returns first. So the wait being replaced is saved and put back, rather than cleared
-	 * — clearing it left the outer dialog up with nothing able to take it down. And an answer the
-	 * outer wait wants may have landed while the inner one held the field, which disposed nothing;
-	 * it is checked for on the way out, so the outer wait ends as soon as control returns to it.
+	 * <p><b>Not a modal dialog, and that is the point.</b> A response the opponent makes arrives
+	 * inside the wait and hands this player priority on it, with a Stack window to answer and a board
+	 * to answer from. A modal dialog blocks both — the window is the frame's, not the dialog's — and
+	 * the two clients then wait on each other for good. So the dialog only says what is awaited, and
+	 * {@link MainWindow#refreshOpponentWaitBlock} does the blocking a modal did, standing it down
+	 * whenever this player has a decision of their own open inside the wait.
+	 *
+	 * <p>Waits nest: an inbound action inside one starts another, and the inner one returns first.
+	 * An answer the outer wait wants may land while the inner one held the field, which ended
+	 * nothing; it is checked for on the way out, so the outer wait ends as soon as control returns
+	 * to it.
 	 */
-	private void parkUntilAnswered(ChoiceKind kind, JDialog dialog) {
-		ChoiceKind outerKind   = awaitedChoiceKind;
-		JDialog    outerDialog = awaitedChoiceDialog;
-		awaitedChoiceKind   = kind;
-		awaitedChoiceDialog = dialog;
+	private void parkUntilAnswered(Parked wait) {
+		// A loop told to exit before it is entered blocks anyway, so an ended wait never enters.
+		if (cancelled || wait.ended || hasDelivered(wait.kind)) return;
+		parked.add(wait);
+		mw.refreshOpponentWaitBlock();
 		try {
-			dialog.setVisible(true);
+			wait.loop.enter();
 		} finally {
-			awaitedChoiceKind   = outerKind;
-			awaitedChoiceDialog = outerDialog;
-			// A cancel takes down every level, not just the one it found holding the field.
-			if (outerDialog != null && (cancelled || (outerKind != null && hasDelivered(outerKind))))
-				outerDialog.dispose();
+			parked.remove(wait);
+			wait.dialog.dispose();
+			for (Parked outer : parked)
+				if (cancelled || hasDelivered(outer.kind)) outer.end();
+			mw.refreshOpponentWaitBlock();
+		}
+	}
+
+	/** Whether a wait for the opponent is holding the EDT. */
+	boolean isParked() {
+		return !parked.isEmpty();
+	}
+
+	/**
+	 * Shows the innermost wait's dialog when {@code show}, and hides every one otherwise — outer
+	 * waits are stood behind the inner one, which says what is awaited right now.
+	 */
+	void showWaitDialog(boolean show) {
+		for (int i = 0; i < parked.size(); i++) {
+			Parked p = parked.get(i);
+			p.dialog.setVisible(show && !p.ended && i == parked.size() - 1);
 		}
 	}
 
@@ -777,9 +822,9 @@ class RemoteOpponent implements OpponentController {
 	/** One wait for the opponent's pass on {@code entry}; {@code released} when it ended without one. */
 	private static final class StackWait {
 		final StackEntry entry;
-		final JDialog    dialog;
+		final Parked     parked;
 		boolean          released;
-		StackWait(StackEntry entry, JDialog dialog) { this.entry = entry; this.dialog = dialog; }
+		StackWait(StackEntry entry, Parked parked) { this.entry = entry; this.parked = parked; }
 	}
 
 	/**
@@ -795,11 +840,12 @@ class RemoteOpponent implements OpponentController {
 	boolean awaitStackPass(StackEntry entry) {
 		if (cancelled) return false;
 		if (takeDelivered(ChoiceKind.STACK_PASS) != null) return true;
-		StackWait wait = new StackWait(entry, mw.buildWaitingForOpponentDialog(
-				"Waiting for your opponent to respond to " + entry.source().name() + "..."));
+		StackWait wait = new StackWait(entry, new Parked(ChoiceKind.STACK_PASS,
+				mw.buildWaitingForOpponentDialog(
+						"Waiting for your opponent to respond to " + entry.source().name() + "...")));
 		stackWaits.add(wait);
 		try {
-			parkUntilAnswered(ChoiceKind.STACK_PASS, wait.dialog);
+			parkUntilAnswered(wait.parked);
 		} finally {
 			stackWaits.remove(wait);
 		}
@@ -822,7 +868,7 @@ class RemoteOpponent implements OpponentController {
 		for (StackWait w : stackWaits) {
 			if (w.entry != entry) continue;
 			w.released = true;
-			w.dialog.dispose();
+			w.parked.end();
 		}
 	}
 
@@ -1053,7 +1099,7 @@ class RemoteOpponent implements OpponentController {
 	/**
 	 * Blocks until the opponent passes the combat priority window they are holding.
 	 *
-	 * <p>Waits in the same modal as any other answer, so inbound actions keep being delivered
+	 * <p>Waits in the same loop as any other answer, so inbound actions keep being delivered
 	 * while it holds — a Summon cast in response arrives and is applied here before the pass that
 	 * releases this wait.
 	 */

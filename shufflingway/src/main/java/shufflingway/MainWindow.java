@@ -18,6 +18,8 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.Insets;
+import java.awt.KeyEventDispatcher;
+import java.awt.KeyboardFocusManager;
 import java.awt.Point;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
@@ -2804,7 +2806,7 @@ public class MainWindow {
 		if (p2AutoPassTimer      != null) { p2AutoPassTimer.stop();         p2AutoPassTimer      = null; }
 		mainPhaseAutoAdvance.reset();
 		// Dispose any floating windows.
-		if (summonStackWindow    != null) { summonStackWindow.dispose();    summonStackWindow    = null; }
+		closeStackWindow();
 		if (openingHandPopup     != null) { openingHandPopup.dispose();     openingHandPopup     = null; }
 		// Reset stack-resolution flags so new abilities can reach the stack window.
 		isResolvingStack         = false;
@@ -9517,16 +9519,17 @@ public class MainWindow {
 	}
 
 	/**
-	 * Builds — but does not show — the modal dialog that parks this client while the opponent
-	 * makes a choice only they can make.
+	 * Builds — but does not show — the dialog that says what this client is parked on while the
+	 * opponent makes a choice only they can make.
 	 *
-	 * <p>Modal on purpose.  {@code setVisible(true)} starts a nested event loop, and inbound
-	 * actions already arrive on the EDT, so the answer this dialog is waiting for can still be
-	 * delivered while it is up — which is what disposes it.  It carries no buttons: there is
-	 * nothing for this player to decide, and dismissing it early would resume a rule mid-effect.
+	 * <p>Modeless, and never focused: the wait itself is {@code RemoteOpponent}'s secondary loop,
+	 * and {@link #refreshOpponentWaitBlock} blocks the board, so both can stand down while this
+	 * player answers a response made inside the wait. It carries no buttons: there is nothing for
+	 * this player to decide, and dismissing it early would resume a rule mid-effect.
 	 */
 	JDialog buildWaitingForOpponentDialog(String prompt) {
-		JDialog dialog = new JDialog(frame, "Waiting for opponent", true);
+		JDialog dialog = new JDialog(frame, "Waiting for opponent", false);
+		dialog.setFocusableWindowState(false);
 		dialog.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
 		JLabel label = new JLabel(prompt, SwingConstants.CENTER);
 		label.setBorder(BorderFactory.createEmptyBorder(
@@ -9535,6 +9538,45 @@ public class MainWindow {
 		dialog.pack();
 		dialog.setLocationRelativeTo(frame);
 		return dialog;
+	}
+
+	/** The frame's glass pane while a wait blocks the board; built on first use. */
+	private JComponent opponentWaitBlocker;
+	private boolean    opponentWaitBlocked;
+
+	/**
+	 * The keyboard half of the block: a focused button fires on Space, and Esc is Exit's
+	 * accelerator. Only keys bound for the frame — a dialog this player is answering keeps its own.
+	 */
+	private final KeyEventDispatcher opponentWaitKeyBlocker =
+			e -> e.getComponent() != null && SwingUtilities.getRoot(e.getComponent()) == frame;
+
+	/**
+	 * Blocks the board while this client waits on a decision that is the opponent's, as a modal
+	 * dialog would, and shows the wait's dialog with it.
+	 *
+	 * <p>Lifted while this player has a decision of their own open inside the wait: the Stack
+	 * window for a response the opponent made, with the board behind it for a counter-response, or
+	 * an in-place pick on the board. A modal cannot tell those apart, and blocking them leaves each
+	 * client waiting on the other. Called wherever one of those opens or closes, and wherever a
+	 * wait starts or ends.
+	 */
+	void refreshOpponentWaitBlock() {
+		boolean waiting = opponent instanceof RemoteOpponent remote && remote.isParked();
+		boolean blocked = waiting && summonStackWindow == null && !fieldTargetingActive;
+		if (opponent instanceof RemoteOpponent remote) remote.showWaitDialog(blocked);
+		if (blocked == opponentWaitBlocked) return;
+		opponentWaitBlocked = blocked;
+		if (opponentWaitBlocker == null) {
+			// Hover still reaches the cards, so one can be zoomed while the opponent decides, and the
+			// controls are painted faded, without touching their enabled state.
+			opponentWaitBlocker = new HoverOnlyGlassPane(frame.getLayeredPane());
+			frame.setGlassPane(opponentWaitBlocker);
+		}
+		opponentWaitBlocker.setVisible(blocked);
+		KeyboardFocusManager keys = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+		if (blocked) keys.addKeyEventDispatcher(opponentWaitKeyBlocker);
+		else         keys.removeKeyEventDispatcher(opponentWaitKeyBlocker);
 	}
 
 	/**
@@ -13754,11 +13796,19 @@ public class MainWindow {
 		return ActionResolver.resolveExBurstInstead(effectText, entry.source(), entry.isExBurstEntry());
 	}
 
+	/** Takes down the Stack window, if one is up; a wait for the opponent it stood over blocks again. */
+	private void closeStackWindow() {
+		if (summonStackWindow == null) return;
+		summonStackWindow.dispose();
+		summonStackWindow = null;
+		refreshOpponentWaitBlock();
+	}
+
 	void showStackWindow() {
 		StackEntry entry = gameState.peekStack();
 		if (entry == null) return;
 
-		if (summonStackWindow   != null) { summonStackWindow.dispose(); summonStackWindow = null; }
+		closeStackWindow();
 
 		// Already cancelled (e.g. by Amaterasu) — no response window needed. Checked first, and on
 		// both clients alike: the cancel was an effect both resolved, so neither opens a window or
@@ -13872,6 +13922,8 @@ public class MainWindow {
 		int wy = loc.y + (frame.getHeight() - summonStackWindow.getHeight()) / 2;
 		summonStackWindow.setLocation(wx, wy);
 		summonStackWindow.setVisible(true);
+		// This player holds priority now, even inside a wait of their own for the opponent.
+		refreshOpponentWaitBlock();
 
 		// Load card image asynchronously
 		new SwingWorker<ImageIcon, Void>() {
@@ -13950,7 +14002,7 @@ public class MainWindow {
 	 * if the stack is non-empty.
 	 */
 	private void resolveTopOfStack() {
-		if (summonStackWindow   != null) { summonStackWindow.dispose(); summonStackWindow = null; }
+		closeStackWindow();
 		p1IsRespondingToStack = false;
 
 		StackEntry entry = gameState.popStack();
@@ -18845,6 +18897,7 @@ public class MainWindow {
 				labels.get(i).removeMouseListener(listeners.get(i));
 			}
 			fieldTargetingActive = false;
+			refreshOpponentWaitBlock();
 			turnFlowGate.endChoice();
 			// The secondary loop below keeps pumping the event queue, so turn flow can run — and
 			// enable the Next button — while the player is still choosing (e.g. an EX Burst target
@@ -18859,6 +18912,7 @@ public class MainWindow {
 		};
 
 		fieldTargetingActive = true;
+		refreshOpponentWaitBlock();   // the pick is this player's, even inside a wait for the opponent
 		turnFlowGate.beginChoice();   // paired in finish, which is guarded to run exactly once
 		if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
 		for (int i = 0; i < eligible.size(); i++) {
