@@ -142,6 +142,7 @@ import shufflingway.graphics.GradientPanel;
 import shufflingway.graphics.GrayscaleLabel;
 import shufflingway.graphics.HandFanOverlapLayout;
 import shufflingway.graphics.HandFanPanel;
+import shufflingway.graphics.GameOverOverlay;
 import shufflingway.graphics.PlayerHandFanPanel;
 import shufflingway.graphics.ShieldIcon;
 import shufflingway.graphics.SlotLiftOverlay;
@@ -310,6 +311,8 @@ public class MainWindow {
 	CardLimitBreakAnimator    limitBreakAnimator;
 	/** Draws P1's attackers and blocker — Forwards, Monsters and Backups — raised out of their rows; see {@link #syncCombatLift}. */
 	private SlotLiftOverlay   slotLift;
+	/** "WINNER" / "GAME OVER" over the two halves of the board once a player loses; cleared by {@link #resetForNewGame}. */
+	private GameOverOverlay   gameOverOverlay;
 	/** How far a selected or attacking/blocking P1 Character rises out of its row. */
 	private static final int  COMBAT_LIFT = CARD_H / 12;
 	/** Non-null when the next startBreakAnim call should slide to the break zone instead of slashing. */
@@ -2609,6 +2612,7 @@ public class MainWindow {
 		breakAnimator     = CardBreakAnimator.install(frame);
 		rfpAnimator       = CardRfpAnimator.install(frame);
 		limitBreakAnimator = CardLimitBreakAnimator.install(frame);
+		gameOverOverlay   = GameOverOverlay.install(frame, mainArea, fieldDivider);
 	}
 
 	// -------------------------------------------------------------------------
@@ -2808,6 +2812,7 @@ public class MainWindow {
 		// Dispose any floating windows.
 		closeStackWindow();
 		if (openingHandPopup     != null) { openingHandPopup.dispose();     openingHandPopup     = null; }
+		if (gameOverOverlay      != null) gameOverOverlay.clear();
 		// Reset stack-resolution flags so new abilities can reach the stack window.
 		isResolvingStack         = false;
 		turnFlowGate.reset();
@@ -4836,6 +4841,7 @@ public class MainWindow {
 			return false;
 		}
 		triggerGameOver(reason);
+		if (gameOverOverlay != null) gameOverOverlay.showResult(!loserIsP1);
 		return true;
 	}
 
