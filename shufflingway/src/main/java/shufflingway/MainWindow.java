@@ -111,6 +111,8 @@ import static shufflingway.CardFilters.meetsElementFilter;
 import static shufflingway.CardFilters.meetsJobFilter;
 import static shufflingway.CpPaymentUtils.contributingElement;
 import static shufflingway.CpPaymentUtils.matchesAnyElement;
+import shufflingway.audio.Sound;
+import shufflingway.audio.SoundEffects;
 import shufflingway.dialog.AltCostPaymentDialog;
 import shufflingway.dialog.BreakZoneDialog;
 import shufflingway.dialog.DivideIntoGroupsDialog;
@@ -1899,6 +1901,7 @@ public class MainWindow {
 		Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
 				AppLogger.log("Uncaught exception in thread: " + thread.getName(), throwable));
 		Runtime.getRuntime().addShutdownHook(new Thread(ImageCache::shutdown));
+		SoundEffects.preload();
 		EventQueue.invokeLater(new Runnable() {
 			public void run() {
 				try {
@@ -2476,8 +2479,16 @@ public class MainWindow {
 			autoAdvanceGroup.add(b);
 		}
 		(AppSettings.isAutoAdvanceMainPhases() ? autoBtn : waitBtn).setSelected(true);
-		autoBtn.addActionListener(e -> { AppSettings.setAutoAdvanceMainPhases(true);  AppSettings.save(); });
-		waitBtn.addActionListener(e -> { AppSettings.setAutoAdvanceMainPhases(false); AppSettings.save(); });
+		autoBtn.addActionListener(e -> {
+			AppSettings.setAutoAdvanceMainPhases(true);
+			AppSettings.save();
+			SoundEffects.play(Sound.TICK);
+		});
+		waitBtn.addActionListener(e -> {
+			AppSettings.setAutoAdvanceMainPhases(false);
+			AppSettings.save();
+			SoundEffects.play(Sound.TICK);
+		});
 		autoAdvanceStack = new JPanel(new GridLayout(2, 1, 0, 2));
 		autoAdvanceStack.add(autoBtn);
 		autoAdvanceStack.add(waitBtn);

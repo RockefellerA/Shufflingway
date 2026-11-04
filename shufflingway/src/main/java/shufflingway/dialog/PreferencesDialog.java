@@ -27,6 +27,8 @@ import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JSlider;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.border.EmptyBorder;
@@ -42,6 +44,8 @@ import javax.swing.text.DocumentFilter;
 
 import shufflingway.AppSettings;
 import shufflingway.ElementColor;
+import shufflingway.audio.Sound;
+import shufflingway.audio.SoundEffects;
 import shufflingway.graphics.Counter;
 
 
@@ -376,9 +380,16 @@ public class PreferencesDialog extends JDialog {
 		closeButton.addActionListener(e -> dispose());
 		buttonPanel.add(closeButton);
 
+		// ── Tabs ─────────────────────────────────────────────────────────────
+		// Everything above is the General tab. The dialog packs to the tallest tab, so the
+		// shorter ones keep their content pinned to the top.
+		JTabbedPane tabs = new JTabbedPane();
+		tabs.addTab("General", contentPanel);
+		tabs.addTab("Audio", buildAudioTab());
+
 		getContentPane().setLayout(new BorderLayout());
-		getContentPane().add(contentPanel, BorderLayout.CENTER);
-		getContentPane().add(buttonPanel,  BorderLayout.SOUTH);
+		getContentPane().add(tabs,        BorderLayout.CENTER);
+		getContentPane().add(buttonPanel, BorderLayout.SOUTH);
 
 		getRootPane().registerKeyboardAction(
 			e -> dispose(),
@@ -388,6 +399,77 @@ public class PreferencesDialog extends JDialog {
 
 		pack();
 		setLocationRelativeTo(owner);
+	}
+
+	/**
+	 * Builds the Audio tab: the master Enable Audio switch and the sound-effect volume slider.
+	 * Both persist as they change. Turning audio on, or letting go of the slider, plays a tick at
+	 * the new level so the setting can be heard rather than guessed at.
+	 */
+	private static JComponent buildAudioTab() {
+		JPanel audioPanel = new JPanel();
+		audioPanel.setLayout(new BoxLayout(audioPanel, BoxLayout.Y_AXIS));
+		audioPanel.setBorder(new EmptyBorder(12, 16, 8, 16));
+
+		JCheckBox enableBox = new JCheckBox("Enable Audio", AppSettings.isAudioEnabled());
+		enableBox.setAlignmentX(Component.LEFT_ALIGNMENT);
+		audioPanel.add(enableBox);
+		audioPanel.add(javax.swing.Box.createVerticalStrut(8));
+
+		JPanel volumePanel = new JPanel();
+		volumePanel.setLayout(new BoxLayout(volumePanel, BoxLayout.Y_AXIS));
+		volumePanel.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createEtchedBorder(), "Volume",
+				TitledBorder.LEFT, TitledBorder.TOP));
+
+		JPanel sfxRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+		JLabel sfxLabel = new JLabel("Sound Effects:");
+		JSlider sfxSlider = new JSlider(0, AppSettings.SFX_VOLUME_MAX, AppSettings.getSfxVolume());
+		sfxSlider.setMajorTickSpacing(5);
+		sfxSlider.setMinorTickSpacing(1);
+		sfxSlider.setPaintTicks(true);
+		sfxSlider.setPaintLabels(true);
+		sfxSlider.setSnapToTicks(true);
+		JLabel sfxValue = new JLabel(String.valueOf(sfxSlider.getValue()));
+		// Wide enough for "10", so the row does not shift as the value crosses into two digits.
+		sfxValue.setPreferredSize(new Dimension(
+				sfxValue.getFontMetrics(sfxValue.getFont()).stringWidth("10") + 4,
+				sfxValue.getPreferredSize().height));
+		sfxSlider.addChangeListener(e -> {
+			sfxValue.setText(String.valueOf(sfxSlider.getValue()));
+			AppSettings.setSfxVolume(sfxSlider.getValue());
+			// Write the file once per gesture, not once per step of a drag.
+			if (!sfxSlider.getValueIsAdjusting()) {
+				AppSettings.save();
+				SoundEffects.play(Sound.TICK);
+			}
+		});
+		sfxRow.add(sfxLabel);
+		sfxRow.add(sfxSlider);
+		sfxRow.add(sfxValue);
+		sfxRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		volumePanel.add(sfxRow);
+
+		volumePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		audioPanel.add(volumePanel);
+
+		Runnable syncEnabled = () -> {
+			boolean on = enableBox.isSelected();
+			sfxLabel.setEnabled(on);
+			sfxSlider.setEnabled(on);
+			sfxValue.setEnabled(on);
+		};
+		syncEnabled.run();
+		enableBox.addActionListener(e -> {
+			AppSettings.setAudioEnabled(enableBox.isSelected());
+			AppSettings.save();
+			syncEnabled.run();
+			SoundEffects.play(Sound.TICK);
+		});
+
+		JPanel tab = new JPanel(new BorderLayout());
+		tab.add(audioPanel, BorderLayout.NORTH);
+		return tab;
 	}
 
 	/**

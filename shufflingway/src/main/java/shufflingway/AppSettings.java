@@ -283,6 +283,42 @@ public final class AppSettings {
         props.setProperty("startup.show.welcome", Boolean.toString(show));
     }
 
+    /** Master switch for every sound the app plays. Defaults to {@code true}. */
+    public static boolean isAudioEnabled() {
+        return Boolean.parseBoolean(props.getProperty("audio.enabled", "true"));
+    }
+
+    /** Sets the audio master switch (call {@link #save()} to persist). */
+    public static void setAudioEnabled(boolean enabled) {
+        props.setProperty("audio.enabled", Boolean.toString(enabled));
+    }
+
+    /** The top of the sound-effect volume scale; the scale runs from 0 (silent) to this. */
+    public static final int SFX_VOLUME_MAX = 10;
+
+    /** The sound-effect volume used when none has been chosen. */
+    public static final int DEFAULT_SFX_VOLUME = 7;
+
+    /**
+     * Returns the sound-effect volume, 0 to {@link #SFX_VOLUME_MAX}. An unset or unreadable value
+     * reads as {@link #DEFAULT_SFX_VOLUME}; an out-of-range one (a hand-edited file) is clamped.
+     */
+    public static int getSfxVolume() {
+        String v = props.getProperty("audio.sfx.volume");
+        if (v == null) return DEFAULT_SFX_VOLUME;
+        try { return clampSfxVolume(Integer.parseInt(v.trim())); }
+        catch (NumberFormatException e) { return DEFAULT_SFX_VOLUME; }
+    }
+
+    /** Sets the sound-effect volume, clamped to 0..{@link #SFX_VOLUME_MAX} (call {@link #save()} to persist). */
+    public static void setSfxVolume(int volume) {
+        props.setProperty("audio.sfx.volume", String.valueOf(clampSfxVolume(volume)));
+    }
+
+    private static int clampSfxVolume(int volume) {
+        return Math.max(0, Math.min(SFX_VOLUME_MAX, volume));
+    }
+
     /**
      * Master switch for the Debug section in the Preferences dialog. The Debug section (and any
      * individual debug toggles) are hidden unless {@code settings.ini} contains {@code debug=1}.
