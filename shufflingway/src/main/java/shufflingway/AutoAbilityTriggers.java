@@ -6582,9 +6582,12 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
-		int maxCount = (int) mw.lastCastActualPaymentElements.stream()
-				.filter(e -> !e.equalsIgnoreCase(excludeElem))
-				.count();
+		// The payment on record counts only if it was made for this copy: nothing clears it when a
+		// card reaches the field without being cast, and such a Fusoya was paid for by nothing.
+		int maxCount = mw.lastCastPaymentCard != source ? 0
+				: (int) mw.lastCastActualPaymentElements.stream()
+						.filter(e -> !e.equalsIgnoreCase(excludeElem))
+						.count();
 		maxCount = Math.min(maxCount, actions.size());
 		mw.logEntry("[AutoAbility] " + source.name() + " — " + maxCount
 				+ " non-" + excludeElem + " element(s) used, up to " + maxCount + " action(s) available");

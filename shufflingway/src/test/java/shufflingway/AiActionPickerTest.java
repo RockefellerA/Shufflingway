@@ -19,7 +19,7 @@ class AiActionPickerTest {
     private static AiActionPicker.Board board(int activeForwards, int dullForwards, int activeOthers,
             int oppHand, boolean ownSummon) {
         return new AiActionPicker.Board(true, activeForwards, dullForwards,
-                activeForwards + activeOthers, dullForwards, oppHand, ownSummon);
+                activeForwards + activeOthers, dullForwards, 0, oppHand, ownSummon);
     }
 
     // The game this came from: an active Shiva and no dull Forward. Breaking first found nothing;
@@ -68,9 +68,34 @@ class AiActionPickerTest {
         String remove = "Remove 1 card in your opponent's Break Zone from the game.";
         String draw = "Draw 1 card.";
         List<String> menu = List.of(draw, remove);
-        AiActionPicker.Board full = new AiActionPicker.Board(false, 0, 0, 0, 0, 0, false);
-        AiActionPicker.Board empty = new AiActionPicker.Board(true, 0, 0, 0, 0, 0, false);
+        AiActionPicker.Board full = new AiActionPicker.Board(false, 0, 0, 0, 0, 0, 0, false);
+        AiActionPicker.Board empty = new AiActionPicker.Board(true, 0, 0, 0, 0, 0, 0, false);
         assertEquals(List.of(remove), AiActionPicker.pick(menu, 1, true, full));
         assertEquals(List.of(draw), AiActionPicker.pick(menu, 1, true, empty));
+    }
+
+    // Tidus 22-122L: "select up to 3 of the 3 following actions." Each removal names no side, so
+    // with no opposing Character of its kind the AI's own would be the one taken off the field.
+    private static final String TIDUS_FORWARD = "Choose 1 Forward. Put it at the bottom of its owner's deck.";
+    private static final String TIDUS_BACKUP  = "Choose 1 Backup. Put it on top of its owner's deck.";
+    private static final String TIDUS_DRAW    = "Draw 2 cards.";
+    private static final List<String> TIDUS = List.of(TIDUS_FORWARD, TIDUS_BACKUP, TIDUS_DRAW);
+
+    @Test
+    void aRemovalIsTakenOnlyWhenTheOpponentHasSomethingOfThatKind() {
+        AiActionPicker.Board both = new AiActionPicker.Board(true, 1, 0, 2, 0, 1, 0, false);
+        AiActionPicker.Board noBackup = new AiActionPicker.Board(true, 1, 0, 1, 0, 0, 0, false);
+        AiActionPicker.Board nothing = new AiActionPicker.Board(true, 0, 0, 0, 0, 0, 0, false);
+        assertEquals(TIDUS, AiActionPicker.pick(TIDUS, 3, true, both));
+        assertEquals(List.of(TIDUS_FORWARD, TIDUS_DRAW), AiActionPicker.pick(TIDUS, 3, true, noBackup));
+        assertEquals(List.of(TIDUS_DRAW), AiActionPicker.pick(TIDUS, 3, true, nothing));
+    }
+
+    // Live options first, then the dead ones the count still demands.
+    @Test
+    void anExactCountStillTakesADeadRemoval() {
+        AiActionPicker.Board nothing = new AiActionPicker.Board(true, 0, 0, 0, 0, 0, 0, false);
+        assertEquals(List.of(TIDUS_DRAW, TIDUS_FORWARD, TIDUS_BACKUP),
+                AiActionPicker.pick(TIDUS, 3, false, nothing));
     }
 }

@@ -4435,6 +4435,13 @@ public interface GameContext {
     /** Removes P2's forward at {@code idx} from the field and places it on top of P2's deck. */
     void returnP2ForwardToDeckTop(int idx);
 
+    /**
+     * Removes the Backup {@code t} names from the field and puts it on the top, or with
+     * {@code toBottom} the bottom, of its owner's deck — 22-122L Tidus's "Choose 1 Backup. Put it
+     * on top of its owner's deck." The Backup counterpart of {@link #returnP1ForwardToDeckTop}.
+     */
+    void putBackupTargetOnDeck(ForwardTarget t, boolean toBottom);
+
     /** Removes P1's forward at {@code idx} from the field and places it {@code position} cards from the top of P1's deck. */
     void returnP1ForwardUnderDeckTop(int idx, int position);
 

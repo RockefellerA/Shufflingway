@@ -6766,6 +6766,8 @@ final class ActionResolverChoose {
                 sortedByIdxDesc(ts, false)
                         .filter(t -> t.zone() == ForwardTarget.CardZone.FORWARD)
                         .forEach(t -> ctx.returnP2ForwardToDeckBottom(t.idx()));
+                for (ForwardTarget t : ts)
+                    if (t.zone() == ForwardTarget.CardZone.BACKUP) ctx.putBackupTargetOnDeck(t, true);
                 if (secondary != null) secondary.accept(ctx);
             };
         }
@@ -6893,6 +6895,7 @@ final class ActionResolverChoose {
                         opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 for (ForwardTarget t : ts) {
+                    if (t.zone() == ForwardTarget.CardZone.BACKUP) { ctx.putBackupTargetOnDeck(t, false); continue; }
                     if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
                     if (t.isP1()) ctx.returnP1ForwardToDeckTop(t.idx());
                     else          ctx.returnP2ForwardToDeckTop(t.idx());

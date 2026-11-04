@@ -6256,24 +6256,44 @@ public class MainWindow {
 		autoAbilityTriggers.triggerAutoAbilitiesForPutIntoDeck(card);
 	}
 
+	/**
+	 * Puts the Backup in {@code side}'s slot {@code idx} on the top or bottom of its owner's deck —
+	 * the Backup counterpart of {@link #returnP1ForwardToDeck}. Backup slots are fixed, so unlike a
+	 * Forward's removal this one shifts nothing.
+	 */
+	void returnBackupToDeck(boolean side, int idx, boolean toBottom) {
+		CardData[] backups = side ? p1BackupCards : p2BackupCards;
+		if (idx < 0 || idx >= backups.length || backups[idx] == null) return;
+		CardData card = backups[idx];
+
+		boolean player1 = gameState.getIdentity().get(card);
+		Deque<CardData> deck = player1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+		if (toBottom) deck.addLast(card);
+		else          deck.addFirst(card);
+		logEntry((side ? "" : "[P2] ") + card.name() + " → " + (toBottom ? "bottom" : "top") + " of deck");
+
+		clearBackupSlotState(idx, side);
+		if (player1) refreshP1DeckLabel(); else refreshP2DeckLabel();
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, side);
+		autoAbilityTriggers.triggerAutoAbilitiesForPutIntoDeck(card);
+	}
+
+	/**
+	 * Puts P1's Forward in slot {@code idx} under the top {@code position} cards of its owner's deck
+	 * — 14-049H Typhon's "Put it under the top four cards of its owner's deck." A deck with fewer
+	 * cards than that takes it at the bottom.
+	 */
 	void returnP1ForwardUnderDeckTop(int idx, int position) {
 		if (idx < 0 || idx >= p1ForwardCards.size()) return;
 		CardData card    = p1ForwardCards.get(idx);
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 
 		boolean player1 = gameState.getIdentity().get(card);
-		Deque<CardData> zone = player1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
-		zone.add(card);
-
 		if (topCard != null) {
 			gameState.addToPermanentRfp(topCard);
 			logEntry(topCard.name() + " → Removed From Play");
 		}
-		Deque<CardData> deck = gameState.getP1MainDeck();
-		List<CardData> preserved = new ArrayList<>();
-		for (int i = 0; i < position && !deck.isEmpty(); i++) preserved.add(deck.pollFirst());
-		deck.addFirst(card);
-		for (int i = preserved.size() - 1; i >= 0; i--) deck.addFirst(preserved.get(i));
+		insertUnderTop(player1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck(), card, position);
 		logEntry(card.name() + " → under top " + position + " card(s) of deck");
 
 		removeP1ForwardSlotState(idx);
@@ -6318,24 +6338,18 @@ public class MainWindow {
 		autoAbilityTriggers.triggerAutoAbilitiesForPutIntoDeck(card);
 	}
 
+	/** The P2 counterpart of {@link #returnP1ForwardUnderDeckTop}. */
 	void returnP2ForwardUnderDeckTop(int idx, int position) {
 		if (idx < 0 || idx >= p2ForwardCards.size()) return;
 		CardData card    = p2ForwardCards.get(idx);
 		CardData topCard = p2ForwardPrimedTop.get(idx);
 
 		boolean player1 = gameState.getIdentity().get(card);
-		Deque<CardData> zone = player1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
-		zone.add(card);
-
 		if (topCard != null) {
 			gameState.addToPermanentRfp(topCard);
 			logEntry("[P2] " + topCard.name() + " → Removed From Play");
 		}
-		Deque<CardData> deck = gameState.getP2MainDeck();
-		List<CardData> preserved = new ArrayList<>();
-		for (int i = 0; i < position && !deck.isEmpty(); i++) preserved.add(deck.pollFirst());
-		deck.addFirst(card);
-		for (int i = preserved.size() - 1; i >= 0; i--) deck.addFirst(preserved.get(i));
+		insertUnderTop(player1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck(), card, position);
 		logEntry("[P2] " + card.name() + " → under top " + position + " card(s) of deck");
 
 		removeP2ForwardSlotState(idx);
@@ -6367,6 +6381,14 @@ public class MainWindow {
 		if (player1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, false);
 		autoAbilityTriggers.triggerAutoAbilitiesForPutIntoDeck(card);
+	}
+
+	/** Inserts {@code card} beneath the top {@code position} cards of {@code deck}, or at its bottom. */
+	private static void insertUnderTop(Deque<CardData> deck, CardData card, int position) {
+		List<CardData> preserved = new ArrayList<>();
+		for (int i = 0; i < position && !deck.isEmpty(); i++) preserved.add(deck.pollFirst());
+		deck.addFirst(card);
+		for (int i = preserved.size() - 1; i >= 0; i--) deck.addFirst(preserved.get(i));
 	}
 
 	// -------------------------------------------------------------------------

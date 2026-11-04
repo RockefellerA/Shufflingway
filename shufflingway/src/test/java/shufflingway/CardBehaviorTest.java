@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.HashSet;
@@ -72385,6 +72386,263 @@ public class CardBehaviorTest {
 
 		assertEquals(0, mw.gameState.stackSize(), "it used to cast it for nothing");
 		assertEquals(1, mw.gameState.getP2Hand().size());
+	}
+
+	// =========================================================================================
+	// Fusoya 16-119H and Tidus 22-122L — two enters-the-field abilities dispatch() has no site
+	// for. The characterization file shows both as "parsed (null) (null)": the trigger layer reads
+	// them through its own inline shapes (SelectFollowingActionsDynamicElements and
+	// ConditionGateMay), so the golden file says nothing about what they do. These pin each half
+	// of each card on a real board. Driven as P2, where the AI takes every action it is offered.
+	//
+	// Fusoya counts the Elements other than Water in the CP paid to cast him, and that count is
+	// what he paid for — so a Fusoya put onto the field by an effect was paid for by nothing.
+	// =========================================================================================
+
+	private static final String FUSOYA_16_119H = "When Fusoya enters the field, select the following "
+			+ "actions from top to bottom up to the same number of Elements other than Water as the cost "
+			+ "you paid to cast Fusoya.[[br]]   \"Draw 1 card.\"[[br]]   \"Choose 1 Summon in your Break "
+			+ "Zone. Add it to your hand.\"[[br]]   \"Choose 1 Character opponent controls. Return it to "
+			+ "its owner's hand.\"[[br]]   \"Choose 1 Forward. Put it on top of its owner's deck.\"";
+
+	/** A P2 Fusoya and one target for each of his four actions. */
+	private record FusoyaBoard(MainWindow mw, CardData fusoya, CardData summon, CardData cecil,
+			CardData kain) {
+		void enter() { mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(fusoya, false); }
+	}
+
+	/**
+	 * Fusoya on P2's field with three cards in P2's deck to draw, a Summon in P2's Break Zone and
+	 * two Forwards on P1's side, one for each of the last two actions. The payment record holds
+	 * CP of {@code paid}, recorded against Fusoya when {@code paidForFusoya}, and otherwise
+	 * against another card cast before him.
+	 */
+	private static FusoyaBoard fusoyaBoard(boolean paidForFusoya, String... paid) {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP1MainDeck().clear();
+		mw.gameState.getP2MainDeck().clear();
+		for (int i = 0; i < 3; i++) {
+			CardData d = makeForward("Deck" + i, "Water", 1, 1000);
+			mw.gameState.getIdentity().put(d, false);
+			mw.gameState.getP2MainDeck().add(d);
+		}
+		CardData summon = makeSummon("Leviathan", "Water", 4, "");
+		mw.gameState.getIdentity().put(summon, false);
+		mw.gameState.getP2BreakZone().add(summon);
+		CardData cecil = makeForward("Cecil", "Lightning", 5, 9000);
+		CardData kain  = makeForward("Kain", "Wind", 3, 7000);
+		placeP1Forward(mw, cecil);
+		placeP1Forward(mw, kain);
+		CardData fusoya = makeTextCard("Fusoya", "Water", "Forward", 5, 8000, "Lunarian", FUSOYA_16_119H);
+		placeP2Forward(mw, fusoya);
+		CardData payer = paidForFusoya ? fusoya : makeForward("Somebody Else", "Fire", 5, 9000);
+		Set<String> elements = Set.of(paid);
+		new CastPaymentRecord(payer, elements.size(), elements, elements, 0, 0, List.of(), false, List.of())
+				.restore(mw);
+		return new FusoyaBoard(mw, fusoya, summon, cecil, kain);
+	}
+
+	@Test
+	void fusoyaPaidForWithWaterAloneTakesNoAction() {
+		FusoyaBoard b = fusoyaBoard(true, "Water");
+
+		b.enter();
+
+		assertTrue(b.mw().gameState.getP2Hand().isEmpty(), "Water is the one Element that does not count");
+		assertTrue(b.mw().gameState.getP2BreakZone().contains(b.summon()));
+	}
+
+	@Test
+	void fusoyaTakesTheTopTwoActionsForTwoOtherElements() {
+		FusoyaBoard b = fusoyaBoard(true, "Water", "Fire", "Ice");
+
+		b.enter();
+
+		List<CardData> hand = b.mw().gameState.getP2Hand();
+		assertEquals(2, hand.size(), "one card drawn and the Summon: " + hand);
+		assertTrue(hand.contains(b.summon()), "the second action took the Summon from the Break Zone");
+		assertTrue(b.mw().p1ForwardCards.containsAll(List.of(b.cecil(), b.kain())),
+				"the third and fourth actions are past the count");
+	}
+
+	@Test
+	void fusoyaWithThreeOtherElementsStopsAboveTheFourthAction() {
+		FusoyaBoard b = fusoyaBoard(true, "Water", "Fire", "Ice", "Wind");
+
+		b.enter();
+
+		assertEquals(2, b.mw().gameState.getP2Hand().size());
+		List<CardData> returned = b.mw().gameState.getP1Hand();
+		assertEquals(1, returned.size(), "the third action returned one of P1's Forwards: " + returned);
+		CardData stayed = returned.contains(b.cecil()) ? b.kain() : b.cecil();
+		assertTrue(b.mw().p1ForwardCards.contains(stayed), "the fourth action is past the count");
+		assertTrue(b.mw().gameState.getP1MainDeck().isEmpty());
+	}
+
+	@Test
+	void fusoyaWithFourOtherElementsTakesAllFour() {
+		FusoyaBoard b = fusoyaBoard(true, "Water", "Fire", "Ice", "Wind", "Earth");
+
+		b.enter();
+
+		assertEquals(2, b.mw().gameState.getP2Hand().size());
+		assertTrue(b.mw().gameState.getP2Hand().contains(b.summon()));
+		List<CardData> returned = b.mw().gameState.getP1Hand();
+		assertEquals(1, returned.size(), "one Forward returned to its owner's hand: " + returned);
+		CardData other = returned.contains(b.cecil()) ? b.kain() : b.cecil();
+		assertFalse(b.mw().p1ForwardCards.contains(other));
+		assertEquals(other, b.mw().gameState.getP1MainDeck().peekFirst(),
+				"and the other put on top of its owner's deck");
+	}
+
+	@Test
+	void aFusoyaNobodyPaidForInheritsNoActionsFromTheLastCast() {
+		// Put onto the field by an effect, while the payment record still holds the four Elements
+		// spent on the card cast before him.
+		FusoyaBoard b = fusoyaBoard(false, "Water", "Fire", "Ice", "Wind", "Earth");
+
+		b.enter();
+
+		assertTrue(b.mw().gameState.getP2Hand().isEmpty(),
+				"the payment on record bought a different card, so it bought Fusoya nothing");
+		assertTrue(b.mw().p1ForwardCards.containsAll(List.of(b.cecil(), b.kain())));
+	}
+
+	@Test
+	void tidusRunsAllThreeActions() {
+		CardData tidus = makeTextCard("Tidus", "Water", "Forward", 5, 9000, null, TIDUS_22_122L);
+		MainWindow mw = tidusBoard(tidus, 5);        // 5 Backups + 3 Forwards = 8
+		CardData seymour = mw.p1ForwardCards.get(0);
+		CardData p1Backup = makePlainBackup("Guado Retainer", "Earth", 2);
+		mw.gameState.getIdentity().put(p1Backup, true);
+		mw.placeCardInFirstBackupSlot(p1Backup);
+		mw.gameState.getP1MainDeck().clear();
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(tidus, false);
+
+		assertEquals(seymour, mw.gameState.getP1MainDeck().peekLast(),
+				"the Forward went to the bottom of its owner's deck");
+		assertEquals(p1Backup, mw.gameState.getP1MainDeck().peekFirst(),
+				"the Backup to the top of its owner's deck");
+		assertFalse(Arrays.asList(mw.p1BackupCards).contains(p1Backup), "and off the field");
+		assertEquals(2, mw.gameState.getP2Hand().size(), "and Tidus's controller drew 2");
+	}
+
+	@Test
+	void tidusDoesNotCountAMonsterTowardHisEight() {
+		CardData tidus = makeTextCard("Tidus", "Water", "Forward", 5, 9000, null, TIDUS_22_122L);
+		MainWindow mw = tidusBoard(tidus, 4);        // 4 Backups + 3 Forwards = 7
+		CardData monster = makeTextCard("Flan", "Water", "Monster", 2, 0, null, "");
+		mw.gameState.getIdentity().put(monster, false);
+		mw.placeP2CardInMonsterZone(monster);
+		assertTrue(mw.p2MonsterCards.contains(monster), "the Monster is on the field to be counted");
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(tidus, false);
+
+		assertEquals(0, dullP2Backups(mw), "a Monster is neither a Forward nor a Backup");
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+	}
+
+	@Test
+	void tidusWhoCannotPayTheWaterTakesNoAction() {
+		CardData tidus = makeTextCard("Tidus", "Water", "Forward", 5, 9000, null, TIDUS_22_122L);
+		MainWindow mw = tidusBoard(tidus, 5);        // 8, but every Backup is already dull
+		Arrays.fill(mw.p2BackupStates, CardState.DULL);
+		CardData seymour = mw.p1ForwardCards.get(0);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(tidus, false);
+
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "no draw without the payment");
+		assertTrue(mw.p1ForwardCards.contains(seymour), "and no Forward put into the deck");
+	}
+
+	// =========================================================================================
+	// Typhon 14-049H: "When Typhon enters the field, choose 1 Forward. Put it under the top four
+	// cards of its owner's deck." The only card in the corpus that puts a card under the top N. The
+	// move used to put the Forward in twice — once at the bottom of its owner's deck, again under
+	// the top four of the deck on its controller's side — so a deck grew by two, and a Forward
+	// taken from its owner landed in the wrong player's deck.
+	// =========================================================================================
+
+	private static final String TYPHON_14_049H = "If you control 3 or more Wind Backups, Typhon also "
+			+ "becomes a Forward with 8000 power.[[br]]   When Typhon enters the field, choose 1 Forward. "
+			+ "Put it under the top four cards of its owner's deck.";
+
+	/** {@code count} distinct cards, owned by {@code player1}'s side, as that side's whole deck. */
+	private static void fillDeck(MainWindow mw, boolean player1, String prefix, int count) {
+		Deque<CardData> deck = player1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+		deck.clear();
+		for (int i = 0; i < count; i++) {
+			CardData d = makeForward(prefix + i, "Fire", 1, 1000);
+			mw.gameState.getIdentity().put(d, player1);
+			deck.addLast(d);
+		}
+	}
+
+	private static long copiesOf(Deque<CardData> deck, CardData card) {
+		return deck.stream().filter(c -> c == card).count();
+	}
+
+	/** A P2 Typhon enters the field; with no Forward of P2's own, its choice is P1's one Forward. */
+	private static void typhonEnters(MainWindow mw) {
+		CardData typhon = makeTextCard("Typhon", "Wind", "Monster", 3, 8000, "Typhon", TYPHON_14_049H);
+		mw.gameState.getIdentity().put(typhon, false);
+		mw.placeP2CardInMonsterZone(typhon);
+		fireAndResolve(mw, () -> mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(typhon, false));
+	}
+
+	@Test
+	void typhonPutsTheForwardUnderTheTopFourCardsOfItsOwnersDeck() {
+		MainWindow mw = new MainWindow();
+		fillDeck(mw, true, "P1Deck", 6);
+		fillDeck(mw, false, "P2Deck", 6);
+		CardData cloud = makeForward("Cloud", "Wind", 5, 9000);
+		placeP1Forward(mw, cloud);
+
+		typhonEnters(mw);
+
+		Deque<CardData> deck = mw.gameState.getP1MainDeck();
+		assertFalse(mw.p1ForwardCards.contains(cloud), "off the field");
+		assertEquals(1, copiesOf(deck, cloud), "in the deck once, not also at the bottom: " + deck);
+		assertEquals(7, deck.size());
+		assertEquals(4, new ArrayList<>(deck).indexOf(cloud), "beneath the top four: " + deck);
+		assertEquals(6, mw.gameState.getP2MainDeck().size());
+	}
+
+	@Test
+	void aForwardTakenFromItsOwnerGoesUnderItsOwnersDeckNotItsControllers() {
+		MainWindow mw = new MainWindow();
+		fillDeck(mw, true, "P1Deck", 6);
+		fillDeck(mw, false, "P2Deck", 6);
+		// P2's Forward, now controlled by P1.
+		CardData borrowed = makeForward("Borrowed", "Wind", 5, 9000);
+		mw.gameState.getIdentity().put(borrowed, false);
+		mw.placeCardInForwardZone(borrowed);
+		assertTrue(mw.p1ForwardCards.contains(borrowed));
+
+		typhonEnters(mw);
+
+		Deque<CardData> owners = mw.gameState.getP2MainDeck();
+		assertFalse(mw.p1ForwardCards.contains(borrowed), "off the field");
+		assertEquals(0, copiesOf(mw.gameState.getP1MainDeck(), borrowed),
+				"its controller's deck is not where it goes");
+		assertEquals(6, mw.gameState.getP1MainDeck().size());
+		assertEquals(1, copiesOf(owners, borrowed), "once, in its owner's deck: " + owners);
+		assertEquals(4, new ArrayList<>(owners).indexOf(borrowed), "beneath the top four: " + owners);
+	}
+
+	@Test
+	void aDeckShorterThanFourTakesTheForwardAtTheBottom() {
+		MainWindow mw = new MainWindow();
+		fillDeck(mw, true, "P1Deck", 2);
+		CardData cloud = makeForward("Cloud", "Wind", 5, 9000);
+		placeP1Forward(mw, cloud);
+
+		typhonEnters(mw);
+
+		Deque<CardData> deck = mw.gameState.getP1MainDeck();
+		assertEquals(3, deck.size(), "" + deck);
+		assertEquals(cloud, deck.peekLast());
 	}
 
 }

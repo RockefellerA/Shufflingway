@@ -22,6 +22,9 @@ import java.util.regex.Pattern;
  *   <li>"… your next Summon is reduced …" needs a Summon in the AI's own hand.</li>
  *   <li>Removing from the opponent's Break Zone is preferred when it holds cards and dropped when
  *       it is empty, since then it could only hit the AI's own.</li>
+ *   <li>Taking a chosen Character off the field — "Choose 1 Backup. Put it on top of its owner's
+ *       deck." (22-122L Tidus), or returned, broken, removed from the game — needs an opposing
+ *       Character of the kind it names. With none, the only target left is the AI's own.</li>
  * </ul>
  * Anything else is taken at face value. Live options keep their printed order; dead ones are taken
  * only when the menu demands an exact count.
@@ -37,9 +40,10 @@ final class AiActionPicker {
      * @param oppDullForwards     dull Forwards the opponent controls
      * @param oppActiveCharacters active Characters (Forwards, Backups, Monsters) the opponent controls
      * @param oppDullCharacters   dull Characters the opponent controls
+     * @param oppBackups          Backups the opponent controls, active or dull
      */
     record Board(boolean oppBreakZoneEmpty, int oppActiveForwards, int oppDullForwards,
-                 int oppActiveCharacters, int oppDullCharacters, int oppHandSize,
+                 int oppActiveCharacters, int oppDullCharacters, int oppBackups, int oppHandSize,
                  boolean ownHandHasSummon) {}
 
     /** "Choose 1 dull Forward." — group {@code kind} is Forward or Character. */
@@ -50,12 +54,25 @@ final class AiActionPicker {
     private static final Pattern DULLS = Pattern.compile(
             "(?i)^Choose\\b(?<what>[^.]*)\\.\\s*Dull\\s+(?:them|it)\\b");
 
+    /**
+     * "Choose 1 Backup. Put it on top of its owner's deck." — a chosen Character taken off the field.
+     * Group {@code kind} is Forward, Backup or Character.
+     */
+    private static final Pattern REMOVES = Pattern.compile(
+            "(?i)^Choose\\s+(?:up\\s+to\\s+)?\\d+\\s+(?<kind>Forward|Backup|Character)s?"
+            + "(?:\\s+(?:your\\s+)?opponent\\s+controls)?\\.\\s*"
+            + "(?:Put\\s+(?:it|them)\\s+(?:on\\s+top|at\\s+the\\s+bottom)\\s+of\\s+(?:its|their)\\s+owner"
+            + "|Return\\s+(?:it|them)\\s+to\\s+(?:its|their)\\s+owner"
+            + "|Break\\s+(?:it|them)\\b"
+            + "|Remove\\s+(?:it|them)\\s+from\\s+the\\s+game)");
+
     private static final Pattern OPP_DISCARDS = Pattern.compile("(?i)^Your\\s+opponent\\s+discards\\b");
 
     private static final Pattern SUMMON_DISCOUNT = Pattern.compile(
             "(?i)\\bcost\\s+required\\s+to\\s+cast\\s+your\\s+next\\s+Summon\\s+is\\s+reduced\\b");
 
     private enum Kind { NEEDS_DULL_FORWARD, NEEDS_DULL_CHARACTER, DULLS_FORWARD, DULLS_CHARACTER,
+                        REMOVES_FORWARD, REMOVES_BACKUP, REMOVES_CHARACTER,
                         OPP_DISCARDS, SUMMON_DISCOUNT, OTHER }
 
     /**
@@ -115,6 +132,9 @@ final class AiActionPicker {
             case NEEDS_DULL_CHARACTER -> board.oppDullCharacters() > 0;
             case DULLS_FORWARD        -> board.oppActiveForwards() > 0;
             case DULLS_CHARACTER      -> board.oppActiveCharacters() > 0;
+            case REMOVES_FORWARD      -> board.oppActiveForwards() + board.oppDullForwards() > 0;
+            case REMOVES_BACKUP       -> board.oppBackups() > 0;
+            case REMOVES_CHARACTER    -> board.oppActiveCharacters() + board.oppDullCharacters() > 0;
             case OPP_DISCARDS         -> board.oppHandSize() > 0;
             case SUMMON_DISCOUNT      -> board.ownHandHasSummon();
             case OTHER                -> true;
@@ -158,6 +178,13 @@ final class AiActionPicker {
             if (what.contains("forward"))   return Kind.DULLS_FORWARD;
             return Kind.OTHER;
         }
+        m = REMOVES.matcher(a);
+        if (m.find())
+            return switch (m.group("kind").toLowerCase(Locale.ROOT)) {
+                case "forward" -> Kind.REMOVES_FORWARD;
+                case "backup"  -> Kind.REMOVES_BACKUP;
+                default        -> Kind.REMOVES_CHARACTER;
+            };
         if (OPP_DISCARDS.matcher(a).find())    return Kind.OPP_DISCARDS;
         if (SUMMON_DISCOUNT.matcher(a).find()) return Kind.SUMMON_DISCOUNT;
         return Kind.OTHER;

@@ -2643,6 +2643,9 @@ final class GameContextImpl implements GameContext {
 			@Override public void returnP2ForwardToDeckBottom(int idx)   { if (!divertedToRfg(false, idx)) mw.returnP2ForwardToDeck(idx, true);  }
 			@Override public void returnP1ForwardToDeckTop(int idx)      { if (!divertedToRfg(true, idx))  mw.returnP1ForwardToDeck(idx, false); }
 			@Override public void returnP2ForwardToDeckTop(int idx)      { if (!divertedToRfg(false, idx)) mw.returnP2ForwardToDeck(idx, false); }
+			@Override public void putBackupTargetOnDeck(ForwardTarget t, boolean toBottom) {
+				mw.returnBackupToDeck(t.isP1(), t.idx(), toBottom);
+			}
 			@Override public void returnP1ForwardUnderDeckTop(int idx, int position) { if (!divertedToRfg(true, idx))  mw.returnP1ForwardUnderDeckTop(idx, position); }
 			@Override public void returnP2ForwardUnderDeckTop(int idx, int position) { if (!divertedToRfg(false, idx)) mw.returnP2ForwardUnderDeckTop(idx, position); }
 
@@ -7819,7 +7822,7 @@ final class GameContextImpl implements GameContext {
 				List<CardState> oppMonsterStates = oppIsP1 ? mw.p1MonsterStates : mw.p2MonsterStates;
 				CardData[]  oppBackupCards  = oppIsP1 ? mw.p1BackupCards  : mw.p2BackupCards;
 				CardState[] oppBackupStates = oppIsP1 ? mw.p1BackupStates : mw.p2BackupStates;
-				int activeForwards = 0, dullForwards = 0, activeOthers = 0, dullOthers = 0;
+				int activeForwards = 0, dullForwards = 0, activeOthers = 0, dullOthers = 0, backups = 0;
 				for (CardState s : oppForwardStates) {
 					if (s == CardState.DULL) dullForwards++; else activeForwards++;
 				}
@@ -7828,13 +7831,14 @@ final class GameContextImpl implements GameContext {
 				}
 				for (int i = 0; i < oppBackupCards.length; i++) {
 					if (oppBackupCards[i] == null) continue;
+					backups++;
 					if (oppBackupStates[i] == CardState.DULL) dullOthers++; else activeOthers++;
 				}
 				List<CardData> ownHand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				AiActionPicker.Board board = new AiActionPicker.Board(
 						(oppIsP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone()).isEmpty(),
 						activeForwards, dullForwards, activeForwards + activeOthers, dullForwards + dullOthers,
-						(oppIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand()).size(),
+						backups, (oppIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand()).size(),
 						ownHand.stream().anyMatch(CardData::isSummon));
 				return AiActionPicker.pick(actions, selectCount, upTo, board);
 			}
