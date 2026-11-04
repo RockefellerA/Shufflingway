@@ -11203,7 +11203,7 @@ public record CardData(
     private static final Pattern SELF_COND_CONTROL_N_CATEGORY_TYPE = Pattern.compile(
         "(?i)^you\\s+control\\s+(?<n>\\d+)\\s+or\\s+more\\s+Category\\s+(?<cat>\\S+)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)$"
     );
-    private static final Pattern SELF_COND_OWN_JOB_BROKEN = Pattern.compile(
+    private static final Pattern SELF_COND_OWN_JOB_PUT_INTO_BZ = Pattern.compile(
         "(?i)^a\\s+Job\\s+(?<job>.+?)\\s+you\\s+controlled\\s+has\\s+been\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone$"
     );
     private static final Pattern SELF_COND_CONTROL_NONE_OF_TYPE = Pattern.compile(
@@ -11295,7 +11295,7 @@ public record CardData(
     private static final Pattern SELF_COND_NAME_IN_RFP = Pattern.compile(
         "(?i)^any\\s+Card\\s+Name\\s+(?<name>.+?)\\s+you\\s+own\\s+(?:are|is)\\s+removed\\s+from\\s+the\\s+game$"
     );
-    private static final Pattern SELF_COND_OWN_ELEMENT_OR_CATEGORY_BROKEN = Pattern.compile(
+    private static final Pattern SELF_COND_OWN_ELEMENT_OR_CATEGORY_PUT_INTO_BZ = Pattern.compile(
         "(?i)^a\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Characters?\\s+or\\s+Category\\s+(?<cat>\\S+)\\s+Characters?\\s+you\\s+controlled\\s+has\\s+been\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone\\s+this\\s+turn$"
     );
     private static final Pattern SELF_COND_CONTROL_A_ELEMENT_TYPE = Pattern.compile(
@@ -11516,10 +11516,10 @@ public record CardData(
                     }
                 }
                 if (mod == null) {
-                    cm = SELF_COND_OWN_JOB_BROKEN.matcher(condRaw.trim());
+                    cm = SELF_COND_OWN_JOB_PUT_INTO_BZ.matcher(condRaw.trim());
                     if (cm.find()) {
                         mod = new SelfCostModifier(amount, minCost, isIncrease,
-                                SelfCostModifier.ScalingType.IF_OWN_JOB_BROKEN_THIS_TURN,
+                                SelfCostModifier.ScalingType.IF_OWN_JOB_PUT_INTO_BZ_THIS_TURN,
                                 cm.group("job").trim(), null);
                     }
                 }
@@ -11666,10 +11666,10 @@ public record CardData(
                     }
                 }
                 if (mod == null) {
-                    cm = SELF_COND_OWN_ELEMENT_OR_CATEGORY_BROKEN.matcher(condRaw.trim());
+                    cm = SELF_COND_OWN_ELEMENT_OR_CATEGORY_PUT_INTO_BZ.matcher(condRaw.trim());
                     if (cm.find()) {
                         mod = new SelfCostModifier(amount, minCost, isIncrease,
-                                SelfCostModifier.ScalingType.IF_OWN_ELEMENT_OR_CATEGORY_BROKEN_THIS_TURN,
+                                SelfCostModifier.ScalingType.IF_OWN_ELEMENT_OR_CATEGORY_PUT_INTO_BZ_THIS_TURN,
                                 cm.group("element").trim(), cm.group("cat").trim());
                     }
                 }

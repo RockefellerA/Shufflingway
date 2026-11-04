@@ -100,8 +100,11 @@ public record SelfCostModifier(
         IF_RECEIVED_N_DAMAGE_OR_MORE,
         /** Flat delta (×1) if a Forward the opponent controlled was broken this turn; 0 otherwise. */
         IF_OPPONENT_FORWARD_BROKEN_THIS_TURN,
-        /** Flat delta (×1) if a card with job {@code param1} the controller controlled was broken this turn; 0 otherwise. */
-        IF_OWN_JOB_BROKEN_THIS_TURN,
+        /**
+         * Flat delta (×1) if a Character with job {@code param1} the controller controlled was put
+         * from the field into the Break Zone this turn, broken or not; 0 otherwise.
+         */
+        IF_OWN_JOB_PUT_INTO_BZ_THIS_TURN,
         /** Flat delta (×1) if the controller controls zero cards of the type in {@code param1}; 0 otherwise.
          *  param1: singular type ("Forward", "Backup", "Monster", "Character"). */
         IF_CONTROL_NONE_OF_TYPE,
@@ -176,10 +179,11 @@ public record SelfCostModifier(
         /** Scales by the number of cards the controller has drawn this turn. */
         EACH_CARD_DRAWN_THIS_TURN,
         /**
-         * Flat delta (×1) if a card the controller controlled with element {@code param1} OR
-         * category {@code param2} was put from the field into the Break Zone this turn; 0 otherwise.
+         * Flat delta (×1) if a Character the controller controlled with element {@code param1} OR
+         * category {@code param2} was put from the field into the Break Zone this turn, broken or
+         * not; 0 otherwise.
          */
-        IF_OWN_ELEMENT_OR_CATEGORY_BROKEN_THIS_TURN,
+        IF_OWN_ELEMENT_OR_CATEGORY_PUT_INTO_BZ_THIS_TURN,
         /**
          * Flat delta (×1) if the total count of cards with category {@code param2} in the controller's
          * Break Zone plus their permanent Remove-From-Play zone is ≥ {@code Integer.parseInt(param1)}.

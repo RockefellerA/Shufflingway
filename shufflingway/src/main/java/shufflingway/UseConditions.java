@@ -72,7 +72,8 @@ final class UseConditions {
 		if (ability.requiresSelfReceivedDamageThisTurn() && !turn.receivedDamageThisTurn) return false;
 		if (ability.requiresForwardPutToBZThisTurn() && !turn.forwardPutToBZThisTurn) return false;
 		if (ability.requiresJobPutToBZThisTurn() != null
-				&& !turn.brokenJobsThisTurn.contains(ability.requiresJobPutToBZThisTurn())) return false;
+				&& !turn.characterPutFromFieldToBzThisTurn(
+						c -> CardFilters.meetsJobFilter(c, ability.requiresJobPutToBZThisTurn()))) return false;
 		if (ability.requiresElementForwardEnteredThisTurn() != null
 				&& !turn.elementForwardsEnteredThisTurn.contains(ability.requiresElementForwardEnteredThisTurn()))
 			return false;

@@ -34,9 +34,6 @@ class TurnPhases {
 		mw.p2Turn.receivedDamageThisTurn = false;
 		mw.p2Turn.resetCastTracking();
 		mw.p2Turn.turnOpponentFwdBroken = false;
-		mw.p2Turn.brokenJobsThisTurn.clear();
-		mw.p2Turn.brokenElementsThisTurn.clear();
-		mw.p2Turn.brokenCategoriesThisTurn.clear();
 		mw.p2Turn.cardsDrawnThisTurn = 0;
 		mw.p2Turn.discardedByEffectThisTurn = false;
 		mw.p2Turn.causedOpponentDiscardThisTurn = false;
@@ -128,9 +125,6 @@ class TurnPhases {
 		// priority during the opponent's turn belonged to that turn, not to the one starting now.
 		mw.p1Turn.resetCastTracking();
 		mw.p1Turn.turnOpponentFwdBroken = false;
-		mw.p1Turn.brokenJobsThisTurn.clear();
-		mw.p1Turn.brokenElementsThisTurn.clear();
-		mw.p1Turn.brokenCategoriesThisTurn.clear();
 		mw.p1Turn.cardsDrawnThisTurn = 0;
 		mw.p1Turn.discardedByEffectThisTurn = false;
 		mw.p1Turn.causedOpponentDiscardThisTurn = false;

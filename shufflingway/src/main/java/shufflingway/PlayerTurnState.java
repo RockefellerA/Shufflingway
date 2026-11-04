@@ -97,6 +97,21 @@ class PlayerTurnState {
 	final Set<CardData> putToBzFromFieldThisTurn = Collections.newSetFromMap(new IdentityHashMap<>());
 
 	/**
+	 * Whether a Character matching {@code test} has been put from the field into this player's Break
+	 * Zone this turn: broken or merely put there, Forward, Backup or Monster alike. "If a Lightning
+	 * Character or Category XV Character you controlled has been put from the field into the Break
+	 * Zone this turn" (Nyx 23-127R), and the Job spelling of the same question (Ravus 14-094R,
+	 * Barret 15-133S).
+	 *
+	 * <p>Read off {@link #putToBzFromFieldThisTurn}, which is kept by Break Zone owner. That is the
+	 * controller the card text means except for a card under a change of control.
+	 */
+	boolean characterPutFromFieldToBzThisTurn(Predicate<CardData> test) {
+		for (CardData c : putToBzFromFieldThisTurn) if (test.test(c)) return true;
+		return false;
+	}
+
+	/**
 	 * Cards whose "you can cast [what] removed by [self]'s abilities" permission this player has
 	 * already used this turn. Only a printing that caps itself at once per turn reads it (Setzer
 	 * 21-031H does, Rinoa 21-038R does not), and it is keyed by the remover so that spending one
@@ -124,9 +139,6 @@ class PlayerTurnState {
 	final Map<String, Integer> castCountByNameThisTurn = new HashMap<>();
 
 	boolean turnOpponentFwdBroken = false;
-	final Set<String> brokenJobsThisTurn = new HashSet<>();
-	final Set<String> brokenElementsThisTurn = new HashSet<>();
-	final Set<String> brokenCategoriesThisTurn = new HashSet<>();
 
 	int cardsDrawnThisTurn = 0;
 	boolean discardedByEffectThisTurn = false;

@@ -5371,9 +5371,8 @@ public class MainWindow {
 	 * zone" and "leaves the field" auto-abilities, {@code forwardsLeftFieldThisTurn}, and the
 	 * {@code forwardPutToBZThisTurn} flag Nox Suzaku 15-130H reads — that one is worded "put from
 	 * the field into the Break Zone" precisely because it covers both routes. What a put must not
-	 * feed are the trackers that answer "was a Forward <em>broken</em> this turn"
-	 * ({@code turnOpponentFwdBroken} and the broken job/element/category sets), and that is the
-	 * whole of the difference below.
+	 * feed is the tracker that answers "was a Forward <em>broken</em> this turn"
+	 * ({@code turnOpponentFwdBroken}), and that is the whole of the difference below.
 	 */
 	void putP1ForwardIntoBreakZone(int idx) { p1ForwardToBreakZone(idx, false); }
 
@@ -5456,13 +5455,7 @@ public class MainWindow {
 		}
 		if (hadGrants) for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
 		if (hadCostReduces) refreshHandCardStates();
-		if (isBreak) {
-			p2Turn.turnOpponentFwdBroken = true;
-			for (String j : card.jobs()) p1Turn.brokenJobsThisTurn.add(j.toLowerCase());
-			if (card.element() != null && !card.element().isBlank()) p1Turn.brokenElementsThisTurn.add(card.element().toLowerCase());
-			if (card.category1() != null && !card.category1().isBlank()) p1Turn.brokenCategoriesThisTurn.add(card.category1().toLowerCase());
-			if (card.category2() != null && !card.category2().isBlank()) p1Turn.brokenCategoriesThisTurn.add(card.category2().toLowerCase());
-		}
+		if (isBreak) p2Turn.turnOpponentFwdBroken = true;
 		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1Turn.forwardsLeftFieldThisTurn++;
 		else p2Turn.forwardsLeftFieldThisTurn++;
 		if (!toRfg) p1Turn.forwardPutToBZThisTurn = true;
@@ -5553,13 +5546,7 @@ public class MainWindow {
 		}
 		if (hadGrants) for (int i = 0; i < p2MonsterCards.size(); i++) refreshP2MonsterSlot(i);
 		if (hadCostReduces) refreshHandCardStates();
-		if (isBreak) {
-			p1Turn.turnOpponentFwdBroken = true;
-			for (String j : card.jobs()) p2Turn.brokenJobsThisTurn.add(j.toLowerCase());
-			if (card.element() != null && !card.element().isBlank()) p2Turn.brokenElementsThisTurn.add(card.element().toLowerCase());
-			if (card.category1() != null && !card.category1().isBlank()) p2Turn.brokenCategoriesThisTurn.add(card.category1().toLowerCase());
-			if (card.category2() != null && !card.category2().isBlank()) p2Turn.brokenCategoriesThisTurn.add(card.category2().toLowerCase());
-		}
+		if (isBreak) p1Turn.turnOpponentFwdBroken = true;
 		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1Turn.forwardsLeftFieldThisTurn++;
 		else p2Turn.forwardsLeftFieldThisTurn++;
 		if (!toRfg) p2Turn.forwardPutToBZThisTurn = true;

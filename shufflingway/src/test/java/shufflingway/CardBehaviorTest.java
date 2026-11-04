@@ -3600,9 +3600,15 @@ public class CardBehaviorTest {
         placeP2Forward(mw, makeForward("Victim", "Fire", 3, 7000));
 
         assertFalse(mw.canActivateAbility(ability, false, CardState.ACTIVE, 0, source, true),
-                "must not be usable when no Job AVALANCHE Operative has broken this turn");
+                "must not be usable when no Job AVALANCHE Operative has gone to the BZ this turn");
 
-        mw.p1Turn.brokenJobsThisTurn.add("avalanche operative");
+        // A Backup: the printing asks for a Character, broken or not, and as many AVALANCHE
+        // Operatives are Backups as are Forwards.
+        CardData jessie = makeJobCard("Jessie", "Water", "Backup", "AVALANCHE Operative");
+        mw.gameState.getIdentity().put(jessie, true);
+        mw.p1BackupCards[0] = jessie;
+        mw.autoAbilityTriggers.breakP1BackupSlot(0);
+        assertTrue(mw.gameState.getP1BreakZone().contains(jessie));
         assertTrue(mw.canActivateAbility(ability, false, CardState.ACTIVE, 0, source, true),
                 "must be usable once a Job AVALANCHE Operative was put from the field into the BZ this turn");
     }
@@ -28008,10 +28014,11 @@ public class CardBehaviorTest {
 				"\"put from the field into the Break Zone this turn\" is worded to cover this route "
 				+ "(Nox Suzaku 15-130H)");
 
+		assertTrue(mw.p1Turn.characterPutFromFieldToBzThisTurn(c -> c == paid),
+				"and so is \"a Fire Character you controlled has been put from the field into the "
+				+ "Break Zone\" (Nyx 23-127R's spelling)");
+
 		assertFalse(mw.p2Turn.turnOpponentFwdBroken, "but P2 broke nothing");
-		assertTrue(mw.p1Turn.brokenElementsThisTurn.isEmpty(), "and no Fire Forward was broken");
-		assertTrue(mw.p1Turn.brokenCategoriesThisTurn.isEmpty());
-		assertTrue(mw.p1Turn.brokenJobsThisTurn.isEmpty());
 	}
 
 	@Test
@@ -28024,7 +28031,6 @@ public class CardBehaviorTest {
 		mw.breakP1Forward(0);
 
 		assertTrue(mw.p2Turn.turnOpponentFwdBroken);
-		assertTrue(mw.p1Turn.brokenElementsThisTurn.contains("fire"));
 		assertTrue(mw.p1Turn.forwardPutToBZThisTurn, "a break is also a departure to the Break Zone");
 	}
 
@@ -28081,7 +28087,6 @@ public class CardBehaviorTest {
 		assertTrue(mw.p1ForwardCards.isEmpty(), "0 power: the rule process takes him");
 		assertTrue(mw.gameState.getP1BreakZone().contains(wol));
 		assertFalse(mw.p2Turn.turnOpponentFwdBroken, "a rule-process put is not a break");
-		assertTrue(mw.p1Turn.brokenElementsThisTurn.isEmpty());
 	}
 
 	@Test
@@ -71872,6 +71877,63 @@ public class CardBehaviorTest {
 		assertEquals(squall.power(), mw.effectiveP2ForwardPower(s));
 		assertFalse(mw.effectiveP2HasTrait(s, CardData.Trait.HASTE));
 		assertFalse(mw.effectiveP2HasTrait(s, CardData.Trait.FIRST_STRIKE));
+	}
+
+	// =========================================================================================
+	// "Put from the field into the Break Zone this turn", the Job spelling: Ravus 14-094R, "During
+	// this turn, if a Job Captain you controlled has been put from the field into the Break Zone,
+	// the cost required to cast Ravus is reduced by 4." (Board behaviour.)
+	//
+	// A destination, not a break: a Captain broken or merely put there counts, a Backup as well as
+	// a Forward. Read off PlayerTurnState.putToBzFromFieldThisTurn, as Barret 15-133S's use
+	// condition and Nyx 23-127R's Element and Category spelling (in LimitBehaviorTest) are.
+	// =========================================================================================
+
+	private static final String RAVUS_14_094R = "During this turn, if a Job Captain you controlled has been put "
+			+ "from the field into the Break Zone, the cost required to cast Ravus is reduced by 4.";
+
+	/** Ravus with only his cost modifier parsed: the cost under test. */
+	private static int ravusCost(MainWindow mw) {
+		CardData ravus = new CardData(null, "Ravus", "Lightning", 5, 9000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				CardData.parseSelfCostModifiers(RAVUS_14_094R),
+				List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				"Captain", "XV", null, RAVUS_14_094R);
+		return mw.castCostFor(ravus, true);
+	}
+
+	@Test
+	void ravusCostsFiveUntilACaptainGoes() {
+		MainWindow mw = new MainWindow();
+		assertEquals(5, ravusCost(mw));
+
+		placeP1Forward(mw, makeJobCard("Glauca", "Lightning", "Forward", "Emperor"));
+		mw.breakP1Forward(0);
+		assertEquals(5, ravusCost(mw), "another Job");
+	}
+
+	@Test
+	void aCaptainForwardPutIntoTheBreakZoneTakesFourOffRavus() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeJobCard("Cor", "Lightning", "Forward", "Captain"));
+
+		mw.putP1ForwardIntoBreakZone(0);
+
+		assertEquals(1, ravusCost(mw), "put there, not broken");
+	}
+
+	@Test
+	void aCaptainBackupPutIntoTheBreakZoneTakesFourOffRavus() {
+		MainWindow mw = new MainWindow();
+		CardData captain = makeJobCard("Cor", "Lightning", "Backup", "Captain");
+		mw.gameState.getIdentity().put(captain, true);
+		mw.p1BackupCards[0] = captain;
+
+		mw.autoAbilityTriggers.breakP1BackupSlot(0);
+
+		assertEquals(1, ravusCost(mw), "a Job Captain, not only a Forward");
 	}
 
 }

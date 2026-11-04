@@ -218,9 +218,9 @@ class CostCalculator {
 			}
 		case EACH_CARD_CAST_THIS_TURN ->
 				mw.turn(isP1).cardsCastThisTurn;
-		case IF_OWN_JOB_BROKEN_THIS_TURN ->
-				(mw.turn(isP1).brokenJobsThisTurn)
-						.contains(mod.param1().toLowerCase()) ? 1 : 0;
+		case IF_OWN_JOB_PUT_INTO_BZ_THIS_TURN ->
+				mw.turn(isP1).characterPutFromFieldToBzThisTurn(
+						c -> CardFilters.meetsJobFilter(c, mod.param1())) ? 1 : 0;
 		case IF_CONTROL_NONE_OF_TYPE -> {
 				String type = mod.param1() == null ? "Forward" : mod.param1();
 				long fwdCount = 0, bkpCount = 0, monCount = 0;
@@ -491,13 +491,12 @@ class CostCalculator {
 				List<CardData> rfp = isP1 ? mw.gameState.getP1RemovedFromGame() : mw.gameState.getP2RemovedFromGame();
 				yield rfp.stream().anyMatch(c -> name.equalsIgnoreCase(c.name())) ? 1 : 0;
 			}
-		case IF_OWN_ELEMENT_OR_CATEGORY_BROKEN_THIS_TURN -> {
+		case IF_OWN_ELEMENT_OR_CATEGORY_PUT_INTO_BZ_THIS_TURN -> {
 				String elem = mod.param1();
 				String cat  = mod.param2();
-				Set<String> elems = mw.turn(isP1).brokenElementsThisTurn;
-				Set<String> cats  = mw.turn(isP1).brokenCategoriesThisTurn;
-				yield (elem != null && elems.contains(elem.toLowerCase()))
-					|| (cat  != null && cats.contains(cat.toLowerCase())) ? 1 : 0;
+				yield mw.turn(isP1).characterPutFromFieldToBzThisTurn(
+						c -> (elem != null && c.containsElement(elem))
+							|| (cat != null && CardFilters.meetsCategoryFilter(c, cat))) ? 1 : 0;
 			}
 		case IF_OPPONENT_CONTROLS_N_MORE_THAN_ME -> {
 				int n = Integer.parseInt(mod.param1());
