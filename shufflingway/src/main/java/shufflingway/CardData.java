@@ -5642,11 +5642,12 @@ public record CardData(
     );
 
     /**
-     * "If your opponent has N cards or less in his/her hand, [target] gains [effects]."
-     * Groups: {@code count}, {@code target}, {@code effects}.
+     * "If your opponent has N cards or less in his/her hand, [target] gains [effects]." and the
+     * threshold-0 spelling, "has no cards" (Viktora 22-114H, Squall 6-033H).
+     * Groups: {@code count} (absent for "no cards"), {@code target}, {@code effects}.
      */
     private static final Pattern IF_OPP_HAND_BOOST = Pattern.compile(
-        "(?i)^If\\s+your\\s+opponent\\s+has\\s+(?<count>\\d+)\\s+cards?\\s+or\\s+less\\s+in\\s+" +
+        "(?i)^If\\s+your\\s+opponent\\s+has\\s+(?:no\\s+cards?|(?<count>\\d+)\\s+cards?\\s+or\\s+less)\\s+in\\s+" +
         "(?:his/her|their)\\s+hand,\\s+(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
     );
 
@@ -6581,7 +6582,8 @@ public record CardData(
             // "If your opponent has N cards or less in his/her hand, [target] gains [effects]."
             Matcher oppHandM = IF_OPP_HAND_BOOST.matcher(seg);
             if (oppHandM.find()) {
-                int maxHand       = Integer.parseInt(oppHandM.group("count"));
+                int maxHand       = oppHandM.group("count") != null
+                        ? Integer.parseInt(oppHandM.group("count")) : IfControlBoost.OPPONENT_HAND_EMPTY;
                 String targetName = oppHandM.group("target").trim();
                 String effectsStr = oppHandM.group("effects").trim();
                 Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);

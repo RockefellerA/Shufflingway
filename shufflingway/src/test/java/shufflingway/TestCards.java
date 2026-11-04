@@ -49,6 +49,39 @@ final class TestCards {
 				null, category, null, "");
 	}
 
+	/** Builds a Forward carrying the given innate traits (e.g. CANNOT_BE_BROKEN). */
+	static CardData makeForwardWithTraits(String name, String element, int power,
+			Set<CardData.Trait> traits) {
+		return new CardData(null, name, element, 3, power, "Forward", false, 0, false, false,
+				traits, 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, "");
+	}
+
+	/** A card of any type whose abilities are parsed from {@code text}, as the database would. */
+	static CardData makeTextCard(String name, String element, String type, int cost, int power,
+			String job, String text) {
+		return new CardData(null, name, element, cost, power, type, false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				CardData.parseActionAbilities(text), CardData.parseAutoAbilities(text),
+				CardData.parseFieldAbilities(text, type),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				job, null, null, text);
+	}
+
+	/** Builds a card whose field abilities and IfControlBoosts are both parsed from {@code text}. */
+	static CardData makeIcbCard(String name, String element, String type, String text) {
+		return new CardData(null, name, element, 3, 7000, type, false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), CardData.parseFieldAbilities(text, type),
+				CardData.parseIfControlBoosts(text, type),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, text);
+	}
+
 	static CardData makeMonster(String name, String element, int cost) {
 		return new CardData(null, name, element, cost, 0, "Monster", false, 0, false, false,
 				Set.of(), 0, List.of(), null, List.of(),

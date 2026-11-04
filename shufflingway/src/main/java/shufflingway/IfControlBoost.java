@@ -36,7 +36,7 @@ public record IfControlBoost(
         int       minRemovedFromGame,         // 0 = unused; >0 = condition requires this many cards total in both RFP zones
         int       minDamageReceived,          // 0 = unused; >0 = condition requires the controlling player to have taken this many damage points
         boolean   instead,                    // true = this effect replaces (rather than stacks with) the base field effect
-        int       maxOpponentHandSize,        // 0 = unused; >0 = condition requires opponent hand size to be ≤ this value
+        int       maxOpponentHandSize,        // 0 = unused; >0 = condition requires opponent hand size to be ≤ this value; OPPONENT_HAND_EMPTY = "no cards"
         int       minOpponentForwards,        // 0 = unused; >0 = condition requires opponent to control this many Forwards
         int       maxOwnHandSize,            // 0 = unused; >0 = condition requires own hand size to be ≤ this value
         boolean   allBackupsDifferentElements, // true = condition requires all controlled Backups to be different Elements
@@ -46,6 +46,12 @@ public record IfControlBoost(
         String    chosenImmunitySourceType, // null = any source; else the card type whose abilities the immunity covers ("Backup")
         int       chosenImmunitySourceCost  // 0 = any cost; >0 = the immunity covers only sources of exactly this cost ("Summons of cost 1")
 ) {
+    /**
+     * {@link #maxOpponentHandSize} for "If your opponent has no cards in their hand" (Viktora
+     * 22-114H, Squall 6-033H). The limit is 0, but 0 in that component already means no limit.
+     */
+    public static final int OPPONENT_HAND_EMPTY = -1;
+
     public IfControlBoost {
         conditions    = List.copyOf(conditions);
         EnumSet<CardData.Trait> traitSet = EnumSet.noneOf(CardData.Trait.class);
@@ -337,7 +343,7 @@ public record IfControlBoost(
             sb.append(" not-blocked-cost").append(cannotBeBlockedByCost[0])
               .append(cannotBeBlockedByCost[1] == 1 ? "+" : "-");
         if (instead)                   sb.append(" instead");
-        if (maxOpponentHandSize > 0)   sb.append(" oppHand<=").append(maxOpponentHandSize);
+        if (limitsOpponentHand())      sb.append(" oppHand<=").append(opponentHandLimit());
         if (minOpponentForwards > 0)   sb.append(" oppFwds>=").append(minOpponentForwards);
         if (maxOwnHandSize > 0)        sb.append(" ownHand<=").append(maxOwnHandSize);
         if (minOwnHandSize > 0)        sb.append(" ownHand>=").append(minOwnHandSize);
@@ -346,6 +352,16 @@ public record IfControlBoost(
         if (allBackupsDifferentElements) sb.append(" allBkpsDiffElem");
         sb.append(']');
         return sb.toString();
+    }
+
+    /** Whether this boost holds only while the opponent's hand is at or under {@link #opponentHandLimit}. */
+    public boolean limitsOpponentHand() {
+        return maxOpponentHandSize != 0;
+    }
+
+    /** The most cards the opponent may hold for this boost to hold; read only when {@link #limitsOpponentHand}. */
+    public int opponentHandLimit() {
+        return maxOpponentHandSize == OPPONENT_HAND_EMPTY ? 0 : maxOpponentHandSize;
     }
 
     /**
