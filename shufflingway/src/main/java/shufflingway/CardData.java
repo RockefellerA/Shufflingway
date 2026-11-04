@@ -6432,6 +6432,16 @@ public record CardData(
             String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
             if (seg.isEmpty()) continue;
 
+            // "The Forwards other than X you control gain "This Forward cannot be chosen by …."":
+            // the shield read as the unquoted sentence below reads it. A damage passive beside it is
+            // the field-damage scan's (fieldDamageRiderText), and a power grant parseFieldPowerGrants'.
+            List<String> quoted = quotedGrantsToOthers(seg);
+            if (!quoted.isEmpty()) {
+                for (String canon : quoted)
+                    if (canon.startsWith("The ")) result.addAll(parseIfControlBoosts(canon, cardType));
+                continue;
+            }
+
             // "If you have a 《C》, [target] gains [effects]."
             Matcher crystalM = IF_HAVE_CRYSTAL_BOOST.matcher(seg);
             if (crystalM.find()) {
@@ -7148,11 +7158,62 @@ public record CardData(
 
     /**
      * The text a field-damage scan should read for {@code seg}: the rider half when {@code seg} is
-     * a power grant carrying one, and {@code seg} unchanged otherwise.
+     * a power grant carrying one, the damage passive of a quoted grant to the side's other Forwards
+     * ({@link #quotedGrantsToOthers}), and {@code seg} unchanged otherwise.
      */
     static String fieldDamageRiderText(String seg) {
         String[] split = splitGrantWithDamageRider(seg);
-        return split != null ? split[1] : seg;
+        if (split != null) return split[1];
+        for (String canon : quotedGrantsToOthers(seg))
+            if (canon.startsWith("If ")) return canon;
+        return seg;
+    }
+
+    /**
+     * A grant of quoted passives to a side's Forwards: "The Category II Forwards other than Minwu
+     * you control gain "This Forward cannot be chosen by your opponent's abilities."" (24-053H),
+     * with "+N power and" in front (Gippal 25-020R) or a second passive after it (Warrior of Light
+     * 24-120R). Only the subjects both canonical readers take — plain, Category or Job Forwards,
+     * with an optional "other than" — so a grant to some other subject is left unread.
+     */
+    private static final Pattern QUOTED_GRANT_TO_OTHERS = Pattern.compile(
+        // A Job's words stop short of "Forwards", so a union of two subjects ("Job Pirate Forwards
+        // and Card Name Viking Forwards", Bikke 21-113R) cannot pass for one long Job name.
+        "(?i)^The\\s+(?<subject>(?:Category\\s+\\S+\\s+|Job\\s+(?:(?!Forwards?\\b)[A-Za-z''\\-]+\\s+)+?)?Forwards" +
+        "(?:\\s+other\\s+than\\s+[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-()]+)*)?)" +
+        "\\s+you\\s+control\\s+gains?\\s+(?:\\+\\d+\\s+power\\s+and\\s+)?" +
+        "(?<quotes>\"[^\"]+\"(?:\\s+and\\s+\"[^\"]+\")?)[.!]?$"
+    );
+    private static final Pattern QUOTED_PASSIVE = Pattern.compile("\"(?<text>[^\"]+)\"");
+    private static final Pattern THIS_FORWARD_CANNOT_BE_CHOSEN =
+        Pattern.compile("(?i)^This\\s+Forward\\s+(?<rest>cannot\\s+be\\s+chosen\\s+by\\s+.+?)[.!]?$");
+    private static final Pattern IF_THIS_FORWARD_IS_DEALT_DAMAGE =
+        Pattern.compile("(?i)^If\\s+this\\s+Forward\\s+is\\s+(?<rest>dealt\\s+damage\\b.+?)[.!]?$");
+
+    /**
+     * The quoted passives of a {@link #QUOTED_GRANT_TO_OTHERS} grant, each rewritten into the
+     * sentence its own reader already takes, with the grant's subject standing for "this Forward":
+     * "The Forwards other than X you control cannot be chosen by …." for the boost parser, and "If a
+     * Forward other than X you control is dealt damage …." for the field-damage scan. Empty when
+     * {@code seg} is not such a grant, and when any one of its passives is neither — a grant read
+     * in part is a grant read wrong.
+     */
+    static List<String> quotedGrantsToOthers(String seg) {
+        Matcher m = QUOTED_GRANT_TO_OTHERS.matcher(seg.trim());
+        if (!m.matches()) return List.of();
+        String subject = m.group("subject").trim();
+        String singular = subject.replaceFirst("(?i)\\bForwards\\b", "Forward");
+        List<String> out = new ArrayList<>();
+        Matcher q = QUOTED_PASSIVE.matcher(m.group("quotes"));
+        while (q.find()) {
+            String passive = q.group("text").trim();
+            Matcher chosen = THIS_FORWARD_CANNOT_BE_CHOSEN.matcher(passive);
+            Matcher dealt  = IF_THIS_FORWARD_IS_DEALT_DAMAGE.matcher(passive);
+            if (chosen.matches())     out.add("The " + subject + " you control " + chosen.group("rest") + ".");
+            else if (dealt.matches()) out.add("If a " + singular + " you control is " + dealt.group("rest") + ".");
+            else return List.of();
+        }
+        return out;
     }
 
     /**

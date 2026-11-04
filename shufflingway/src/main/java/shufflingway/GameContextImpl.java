@@ -7818,13 +7818,19 @@ final class GameContextImpl implements GameContext {
 			/** The AI's picks from a menu it controls, judged against the board; see {@link AiActionPicker}. */
 			private List<String> aiChooseActions(List<String> actions, int selectCount, boolean upTo) {
 				boolean oppIsP1 = !isP1;
+				List<CardData>  oppForwardCards  = oppIsP1 ? mw.p1ForwardCards  : mw.p2ForwardCards;
 				List<CardState> oppForwardStates = oppIsP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
+				List<Integer>   oppForwardDamage = oppIsP1 ? mw.p1ForwardDamage : mw.p2ForwardDamage;
 				List<CardState> oppMonsterStates = oppIsP1 ? mw.p1MonsterStates : mw.p2MonsterStates;
 				CardData[]  oppBackupCards  = oppIsP1 ? mw.p1BackupCards  : mw.p2BackupCards;
 				CardState[] oppBackupStates = oppIsP1 ? mw.p1BackupStates : mw.p2BackupStates;
 				int activeForwards = 0, dullForwards = 0, activeOthers = 0, dullOthers = 0, backups = 0;
-				for (CardState s : oppForwardStates) {
-					if (s == CardState.DULL) dullForwards++; else activeForwards++;
+				List<AiActionPicker.OpposingForward> oppForwards = new ArrayList<>();
+				for (int i = 0; i < oppForwardCards.size(); i++) {
+					boolean dull = oppForwardStates.get(i) == CardState.DULL;
+					if (dull) dullForwards++; else activeForwards++;
+					oppForwards.add(new AiActionPicker.OpposingForward(
+							oppForwardCards.get(i).cost(), dull, oppForwardDamage.get(i) > 0));
 				}
 				for (CardState s : oppMonsterStates) {
 					if (s == CardState.DULL) dullOthers++; else activeOthers++;
@@ -7837,7 +7843,7 @@ final class GameContextImpl implements GameContext {
 				List<CardData> ownHand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				AiActionPicker.Board board = new AiActionPicker.Board(
 						(oppIsP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone()).isEmpty(),
-						activeForwards, dullForwards, activeForwards + activeOthers, dullForwards + dullOthers,
+						oppForwards, activeForwards + activeOthers, dullForwards + dullOthers,
 						backups, (oppIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand()).size(),
 						ownHand.stream().anyMatch(CardData::isSummon));
 				return AiActionPicker.pick(actions, selectCount, upTo, board);

@@ -25,6 +25,9 @@ import java.util.regex.Pattern;
  *   <li>Taking a chosen Character off the field — "Choose 1 Backup. Put it on top of its owner's
  *       deck." (22-122L Tidus), or returned, broken, removed from the game — needs an opposing
  *       Character of the kind it names. With none, the only target left is the AI's own.</li>
+ *   <li>Choosing a Forward by its state or cost — "Choose 1 active Forward of cost 3 or less."
+ *       (24-125H Tonberry &amp; Cactuar), "Choose 1 damaged Forward." (24-123H Vajradhara Wu) —
+ *       needs an opposing Forward meeting every qualifier, whatever is then done to it.</li>
  * </ul>
  * Anything else is taken at face value. Live options keep their printed order; dead ones are taken
  * only when the menu demands an exact count.
@@ -33,18 +36,26 @@ final class AiActionPicker {
 
     private AiActionPicker() {}
 
+    /** A Forward the opponent controls, as much of it as a printed target filter asks about. */
+    record OpposingForward(int cost, boolean dull, boolean damaged) {}
+
     /**
      * What the picker needs to know about the board, seen from the AI's seat.
      *
-     * @param oppActiveForwards   active Forwards the opponent controls
-     * @param oppDullForwards     dull Forwards the opponent controls
+     * @param oppForwards         the Forwards the opponent controls
      * @param oppActiveCharacters active Characters (Forwards, Backups, Monsters) the opponent controls
      * @param oppDullCharacters   dull Characters the opponent controls
      * @param oppBackups          Backups the opponent controls, active or dull
      */
-    record Board(boolean oppBreakZoneEmpty, int oppActiveForwards, int oppDullForwards,
+    record Board(boolean oppBreakZoneEmpty, List<OpposingForward> oppForwards,
                  int oppActiveCharacters, int oppDullCharacters, int oppBackups, int oppHandSize,
-                 boolean ownHandHasSummon) {}
+                 boolean ownHandHasSummon) {
+        Board { oppForwards = List.copyOf(oppForwards); }
+
+        int oppActiveForwards() { return (int) oppForwards.stream().filter(f -> !f.dull()).count(); }
+
+        int oppDullForwards() { return (int) oppForwards.stream().filter(OpposingForward::dull).count(); }
+    }
 
     /** "Choose 1 dull Forward." — group {@code kind} is Forward or Character. */
     private static final Pattern NEEDS_DULL = Pattern.compile(
@@ -66,13 +77,23 @@ final class AiActionPicker {
             + "|Break\\s+(?:it|them)\\b"
             + "|Remove\\s+(?:it|them)\\s+from\\s+the\\s+game)");
 
+    /**
+     * "Choose 1 active Forward of cost 3 or less. Break it." — a chosen Forward named by the
+     * qualifiers a target has to meet. Groups: {@code state} (active, dull or damaged), {@code cost}
+     * and {@code cmp} (less or more; absent for exactly that cost).
+     */
+    private static final Pattern CHOOSES_FORWARD = Pattern.compile(
+            "(?i)^Choose\\s+(?:up\\s+to\\s+)?\\d+\\s+(?:(?<state>active|dull|damaged)\\s+)?Forwards?"
+            + "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<cmp>less|more))?)?"
+            + "(?:\\s+(?:your\\s+)?opponent\\s+controls)?\\.");
+
     private static final Pattern OPP_DISCARDS = Pattern.compile("(?i)^Your\\s+opponent\\s+discards\\b");
 
     private static final Pattern SUMMON_DISCOUNT = Pattern.compile(
             "(?i)\\bcost\\s+required\\s+to\\s+cast\\s+your\\s+next\\s+Summon\\s+is\\s+reduced\\b");
 
     private enum Kind { NEEDS_DULL_FORWARD, NEEDS_DULL_CHARACTER, DULLS_FORWARD, DULLS_CHARACTER,
-                        REMOVES_FORWARD, REMOVES_BACKUP, REMOVES_CHARACTER,
+                        REMOVES_FORWARD, REMOVES_BACKUP, REMOVES_CHARACTER, CHOOSES_FORWARD,
                         OPP_DISCARDS, SUMMON_DISCOUNT, OTHER }
 
     /**
@@ -114,7 +135,7 @@ final class AiActionPicker {
                     chosen.add(enabler);
                 }
                 chosen.add(a);
-            } else if (isLive(k, board)) {
+            } else if (isLive(a, k, board)) {
                 chosen.add(a);
             }
         }
@@ -126,8 +147,14 @@ final class AiActionPicker {
         return dullersFirst(chosen);
     }
 
-    private static boolean isLive(Kind k, Board board) {
+    private static boolean isLive(String action, Kind k, Board board) {
         return switch (k) {
+            case CHOOSES_FORWARD      -> {
+                Matcher m = CHOOSES_FORWARD.matcher(action.trim());
+                if (!m.find()) yield false;
+                String state = m.group("state"), cost = m.group("cost"), cmp = m.group("cmp");
+                yield board.oppForwards().stream().anyMatch(f -> meets(f, state, cost, cmp));
+            }
             case NEEDS_DULL_FORWARD   -> board.oppDullForwards() > 0;
             case NEEDS_DULL_CHARACTER -> board.oppDullCharacters() > 0;
             case DULLS_FORWARD        -> board.oppActiveForwards() > 0;
@@ -139,6 +166,22 @@ final class AiActionPicker {
             case SUMMON_DISCOUNT      -> board.ownHandHasSummon();
             case OTHER                -> true;
         };
+    }
+
+    /** Whether {@code f} meets a {@link #CHOOSES_FORWARD} filter's qualifiers; a null one asks nothing. */
+    private static boolean meets(OpposingForward f, String state, String cost, String cmp) {
+        if (state != null) {
+            String s = state.toLowerCase(Locale.ROOT);
+            if (s.equals("active") && f.dull())   return false;
+            if (s.equals("dull") && !f.dull())    return false;
+            if (s.equals("damaged") && !f.damaged()) return false;
+        }
+        if (cost != null) {
+            int c = Integer.parseInt(cost);
+            if (cmp == null ? f.cost() != c
+                    : cmp.equalsIgnoreCase("less") ? f.cost() > c : f.cost() < c) return false;
+        }
+        return true;
     }
 
     /** {@code chosen} with every option that wants a dull target moved behind the dulling options. */
@@ -185,6 +228,7 @@ final class AiActionPicker {
                 case "backup"  -> Kind.REMOVES_BACKUP;
                 default        -> Kind.REMOVES_CHARACTER;
             };
+        if (CHOOSES_FORWARD.matcher(a).find()) return Kind.CHOOSES_FORWARD;
         if (OPP_DISCARDS.matcher(a).find())    return Kind.OPP_DISCARDS;
         if (SUMMON_DISCOUNT.matcher(a).find()) return Kind.SUMMON_DISCOUNT;
         return Kind.OTHER;

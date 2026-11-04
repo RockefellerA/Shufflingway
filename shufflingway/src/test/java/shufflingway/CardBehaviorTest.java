@@ -71936,4 +71936,104 @@ public class CardBehaviorTest {
 		assertEquals(1, ravusCost(mw), "a Job Captain, not only a Forward");
 	}
 
+	// =========================================================================================
+	// Quoted shields granted to a side's other Forwards: "The Category II Forwards other than Minwu
+	// you control gain "This Forward cannot be chosen by your opponent's abilities."" (24-053H, and
+	// Steiner 28-101L, Gippal 25-020R with +2000 power in front). (Parsing and board behaviour.)
+	//
+	// CardData.quotedGrantsToOthers rewrites each quoted passive into the unquoted sentence its
+	// reader already takes, "this Forward" standing for the grant's subject. Warrior of Light
+	// 24-120R, the one printing with a damage passive beside the shield, is in LimitBehaviorTest.
+	// A subject neither reader takes is left unread rather than read in part.
+	// =========================================================================================
+
+	private static final String MINWU_24_053H = "The Category II Forwards other than Minwu you control gain "
+			+ "\"This Forward cannot be chosen by your opponent's abilities.\"";
+	private static final String GIPPAL_25_020R = "The Category X Forwards other than Gippal you control gain "
+			+ "+2000 power and \"This Forward cannot be chosen by your opponent's abilities.\"";
+
+	@Test
+	void aQuotedShieldReadsAsTheShieldItQuotes() {
+		IfControlBoost minwu = CardData.parseIfControlBoosts(MINWU_24_053H, "Forward").get(0);
+		assertTrue(minwu.cannotBeChosenByAbilities());
+		assertFalse(minwu.cannotBeChosenBySummons(), "abilities only");
+		assertTrue(minwu.chosenImmunityOpponentOnly(), "\"your opponent's\"");
+		assertTrue(minwu.appliesToCard(makeCategoryForward("Firion", "Fire", "II"), false));
+		assertFalse(minwu.appliesToCard(makeCategoryForward("Minwu", "Light", "II"), false), "other than Minwu");
+		assertFalse(minwu.appliesToCard(makeCategoryForward("Cloud", "Fire", "VII"), false), "Category II only");
+
+		List<IfControlBoost> gippal = CardData.parseIfControlBoosts(GIPPAL_25_020R, "Forward");
+		assertEquals(1, gippal.size(), "the shield; the power is parseFieldPowerGrants'");
+		assertTrue(gippal.get(0).cannotBeChosenByAbilities());
+	}
+
+	@Test
+	void minwusCategoryIiAllyCannotBeChosenByAnOpposingAbility() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeIcbCard("Minwu", "Light", "Forward", MINWU_24_053H));
+		CardData ally = makeCategoryForward("Firion", "Fire", "II");
+		placeP1Forward(mw, ally);
+		CardData caster = makeForward("Caster", "Fire", 3, 7000);
+		placeP2Forward(mw, caster);
+
+		mw.currentAbilitySource = caster;
+		mw.currentAbilitySourceIsP1 = false;
+		try {
+			ActionResolver.parse("Choose 1 Forward opponent controls. Dull it.", caster).accept(mw.buildGameContext(false));
+		} finally {
+			mw.currentAbilitySource = null;
+		}
+
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(mw.p1ForwardCards.indexOf(ally)));
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0), "Minwu shields the others, not himself");
+	}
+
+	@Test
+	void aGrantToASubjectNeitherReaderTakesIsLeftUnread() {
+		// A cost filter (Wol 16-044L) and a union of two subjects (Bikke 21-113R): neither canonical
+		// sentence has a place for them, so they stay unread rather than reaching too many Forwards.
+		String wol = "The Forwards of cost 5 or more other than Wol you control gain \"This Forward cannot be "
+				+ "chosen by your opponent's Summons or abilities.\"";
+		String bikke = "The Job Pirate  Forwards and Card Name Viking  Forwards other than Bikke you control gain "
+				+ "\"If this Forward is dealt damage by your opponent's abilities, the damage becomes 0 instead.\"";
+		assertTrue(CardData.quotedGrantsToOthers(wol).isEmpty());
+		assertTrue(CardData.quotedGrantsToOthers(bikke).isEmpty());
+		assertEquals(bikke, CardData.fieldDamageRiderText(bikke), "the damage scan reads it as printed");
+	}
+
+	// =========================================================================================
+	// A Forward's own shield "by your opponent's Summons or abilities": Rydia 15-083L, "If Rydia is
+	// dealt damage by your opponent's Summons or abilities, the damage becomes 0 instead." (Board
+	// behaviour.) Her controller's own Summons and abilities pass through it; the other self-named
+	// printings, Selh'teus 24-118R among them, read the same clause the same way.
+	// =========================================================================================
+
+	private static final String RYDIA_15_083L =
+			"If Rydia is dealt damage by your opponent's Summons or abilities, the damage becomes 0 instead.";
+
+	/** Rydia on P1's field, dealt 3000 by an ability used from {@code sideIsP1}'s seat. */
+	private static int rydiaDamageFromAbilityOf(boolean sideIsP1) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForwardWithText("Rydia", "Earth", 2, 5000, RYDIA_15_083L));
+		CardData caster = makeForward("Caster", "Fire", 3, 7000);
+		mw.currentAbilitySource = caster;
+		mw.currentAbilitySourceIsP1 = sideIsP1;
+		try {
+			ActionResolver.parse("Deal 3000 damage to all the Forwards.", caster).accept(mw.buildGameContext(sideIsP1));
+		} finally {
+			mw.currentAbilitySource = null;
+		}
+		return mw.p1ForwardDamage.get(0);
+	}
+
+	@Test
+	void rydiasShieldStopsAnOpposingAbility() {
+		assertEquals(0, rydiaDamageFromAbilityOf(false));
+	}
+
+	@Test
+	void rydiasShieldLetsHerOwnSidesAbilityThrough() {
+		assertEquals(3000, rydiaDamageFromAbilityOf(true), "\"your opponent's\" Summons or abilities");
+	}
+
 }

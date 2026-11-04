@@ -798,6 +798,14 @@ class DamageResolver {
 				applies = fromAbility;
 			}
 		}
+		// "by your opponent's …": the shield's own controller's Summons and abilities pass through it
+		// (Selh'teus 24-118R). Lifted only for a source known to be on the shield's side: with no
+		// source recorded, the shield holds.
+		if (applies && src != null && src.toLowerCase().contains("opponent")) {
+			CardData resCard = mw.currentResolutionIsSummon ? mw.currentSummonSource : mw.currentAbilitySource;
+			boolean  resIsP1 = mw.currentResolutionIsSummon ? mw.currentSummonSourceIsP1 : mw.currentAbilitySourceIsP1;
+			if (resCard != null && resIsP1 == isP1) applies = false;
+		}
 		if (!applies) return amount;
 		// "remove N [X] Counter from [self] and …" — the replacement's own cost, spent only now that
 		// the modifier has been claimed. The counter is what conditions the grant in the first place
