@@ -8671,6 +8671,58 @@ public class ActionResolver {
     }
 
     /**
+     * What an ability or a Summon settles as it goes on the Stack: for a select menu, the options
+     * it declares and then that option's targets; for anything else, its targets alone.
+     *
+     * @param declared   the declared options, or {@code null} when the effect is not a select menu
+     * @param targets    as {@link #preSelectTargets} answers
+     * @param targetText the text the targets were read off — the declared option, or the effect
+     */
+    record StackChoices(List<String> declared, List<ForwardTarget> targets, String targetText) {}
+
+    /**
+     * {@link #declareForStack}, then {@link #chooseTargetsAfterDeclaring} — what every route onto
+     * the Stack asks, save a Summon's cast, which sends the two halves over the wire differently.
+     */
+    static StackChoices chooseForStack(String effectText, CardData source, int xValue, GameContext ctx) {
+        return chooseTargetsAfterDeclaring(effectText, declareForStack(effectText, source, ctx), source, xValue, ctx);
+    }
+
+    /**
+     * The options a select menu declares as it goes on the Stack, or {@code null} when
+     * {@code effectText} is not one. The rules have the player declare the option then, not when
+     * it resolves: a Summon as it is cast (11.3.4), an action ability as it is used (11.6.6), an
+     * auto ability as it is put on the Stack (11.8.10). The count it may take is settled at the same
+     * moment. The resolution is answered from the declaration
+     * ({@link GameContext#preloadSelectedActions}).
+     */
+    static List<String> declareForStack(String effectText, CardData source, GameContext ctx) {
+        if (!ActionResolverChoose.isSelectMenu(effectText, source)) return null;
+        List<String> picked = ActionResolverChoose.declareSelectFollowingActions(effectText, source, ctx);
+        List<String> declared = picked == null ? List.of() : List.copyOf(picked);
+        ctx.logEntry("\"" + source.name() + "\" declares "
+                + (declared.isEmpty() ? "no action" : String.join(" / ", declared)));
+        return declared;
+    }
+
+    /**
+     * The targets chosen as an effect goes on the Stack, once any select menu in it has declared
+     * {@code declared}: the first declared option that chooses anything is read, not the whole
+     * menu. Read off the menu, the first "choose" in any option was answered, whichever option was
+     * taken, and the declared option then consumed those targets as its own.
+     */
+    static StackChoices chooseTargetsAfterDeclaring(String effectText, List<String> declared, CardData source,
+            int xValue, GameContext ctx) {
+        if (declared == null)
+            return new StackChoices(null, preSelectTargets(effectText, source, xValue, ctx), effectText);
+        for (String option : declared) {
+            if (targetSpec(option, source) == null) continue;
+            return new StackChoices(declared, preSelectTargets(option, source, xValue, ctx), option);
+        }
+        return new StackChoices(declared, null, effectText);
+    }
+
+    /**
      * Decodes the target constraints of a "Choose N [targets]…" effect into a {@link TargetSpec},
      * or {@code null} when {@code effectText} does not match {@link #CHOOSE_CHARACTER_PATTERN}.
      *

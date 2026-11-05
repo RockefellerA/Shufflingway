@@ -2623,6 +2623,14 @@ public interface GameContext {
     java.util.List<String> chooseActionsByOpponent(CardData source, java.util.List<String> actions,
             int selectCount, boolean upTo);
 
+    /**
+     * Loads the options a "select N of the M following actions" auto ability declared as it went on
+     * the Stack (rule 11.8.10: the player declares which to use then, not when it resolves). The
+     * next {@link #chooseActions} or {@link #chooseActionsByOpponent} call returns them, once,
+     * instead of asking again. {@code null} clears it.
+     */
+    void preloadSelectedActions(java.util.List<String> actions);
+
   /**
      * Returns the printed power of the Forward most recently discarded as part of resolving the
      * current ability (e.g. Kolka's "you may discard 1 Forward. When you do so … the discarded

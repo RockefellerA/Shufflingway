@@ -83,6 +83,8 @@ final class GameContextImpl implements GameContext {
 	private final boolean exBurst;
 	private List<ForwardTarget> lastChosenTargets = List.of();
 	private List<ForwardTarget> preloadedTargets  = null;
+	/** The options a select ability declared as it went on the Stack — see {@link GameContext#preloadSelectedActions}. */
+	private List<String> preloadedSelectedActions = null;
 	/**
 	 * Pending "when it is put from the field into the Break Zone this turn, …" mark, applied at
 	 * target selection so it lands before the primary effect that may break the target.
@@ -3360,15 +3362,18 @@ final class GameContextImpl implements GameContext {
 				}
 
 				// A fresh selection for the copy: its targets are chosen by its new controller,
-				// against the board as it stands now, and are not the ones the original picked.
+				// against the board as it stands now, and are not the ones the original picked. A
+				// select menu in it is declared afresh the same way.
 				AutoAbility copied = chosen.autoAbility();
 				GameContext selectCtx = mw.buildGameContext(isP1);
+				ActionResolver.StackChoices choices =
+						ActionResolver.chooseForStack(copied.effectText(), newSource, 0, selectCtx);
 				List<ForwardTarget> preTargets = AutoAbilityTriggers.targetsForStack(
-						ActionResolver.preSelectTargets(copied.effectText(), newSource, 0, selectCtx),
-						copied.effectText(), newSource, selectCtx);
-				mw.gameState.insertStack(mw.gameState.stackSize(),
-						new StackEntry(newSource, null, copied, isP1, 0, false, preTargets,
-								false, false, 0, 0, chosen.triggerCard(), chosen.enteredCard()));
+						choices.targets(), choices.targetText(), newSource, selectCtx);
+				StackEntry copyEntry = new StackEntry(newSource, null, copied, isP1, 0, false, preTargets,
+						false, false, 0, 0, chosen.triggerCard(), chosen.enteredCard());
+				mw.gameState.insertStack(mw.gameState.stackSize(), copyEntry);
+				if (choices.declared() != null) mw.declaredSelectActions.put(copyEntry, choices.declared());
 				logEntry(newSource.name() + " triggers " + chosen.source().name()
 						+ "'s auto-ability: " + copied.effectText());
 				mw.showStackWindowIfNeeded();
@@ -7827,8 +7832,27 @@ final class GameContextImpl implements GameContext {
 				mw.logEntry("[AutoAbility] " + source.name() + " — no ability with trigger '" + triggerType + "' to retrigger");
 			}
 
+			@Override public void preloadSelectedActions(List<String> actions) {
+				preloadedSelectedActions = actions == null ? null : List.copyOf(actions);
+			}
+
+			/**
+			 * The declared options, taken once, kept to those {@code actions} still offers — the same
+			 * text read twice yields the same options, so in practice that is all of them.
+			 */
+			private List<String> takeDeclaredActions(List<String> actions) {
+				List<String> declared = preloadedSelectedActions;
+				preloadedSelectedActions = null;
+				if (declared == null) return null;
+				List<String> out = new ArrayList<>();
+				for (String a : declared) if (actions.contains(a)) out.add(a);
+				return out;
+			}
+
 			@Override public List<String> chooseActions(CardData source,
 					List<String> actions, int selectCount, boolean upTo) {
+				List<String> declared = takeDeclaredActions(actions);
+				if (declared != null) return declared;
 				return actionsChosenBy(isP1, source, actions, selectCount, upTo,
 						() -> aiChooseActions(actions, selectCount, upTo));
 			}
@@ -7904,6 +7928,8 @@ final class GameContextImpl implements GameContext {
 
 			@Override public List<String> chooseActionsByOpponent(CardData source,
 					List<String> actions, int selectCount, boolean upTo) {
+				List<String> declared = takeDeclaredActions(actions);
+				if (declared != null) return declared;
 				// The chooser is the other seat.
 				return actionsChosenBy(!isP1, source, actions, selectCount, upTo, () -> {
 					// Printed order, deliberately: the preference the sibling above applies was

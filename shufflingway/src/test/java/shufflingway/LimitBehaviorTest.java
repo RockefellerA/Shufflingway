@@ -112,6 +112,7 @@ class LimitBehaviorTest {
 		assertNotNull(effect, "resolves: " + text);
 		GameContext ctx = mw.buildGameContext(e.isP1());
 		if (e.preSelectedTargets() != null) ctx.preloadTargets(mw.liveTargets(e));
+		mw.preloadDeclaredActions(e, ctx);
 		mw.currentAbilitySource = e.source();
 		mw.currentAbilitySourceIsP1 = e.isP1();
 		try { effect.accept(ctx); } finally { mw.currentAbilitySource = null; }
@@ -462,10 +463,9 @@ class LimitBehaviorTest {
 	// 22-115R Serjes (LB 1): "When Serjes enters the field, select 1 of the 2 following actions.
 	// "Choose 1 Forward. Dull it." "Choose 1 Forward. Freeze it.""
 	//
-	// The trigger layer resolves a select as the card arrives, without putting it on the Stack, so
-	// these place Serjes and read the board. The CPU picks the action, which between them covers
-	// both: a Forward that is active has its dull to lose, one that is already dull has only its
-	// next activation.
+	// A select goes on the Stack with its action declared there (rule 11.8.10), and with only that
+	// action's target chosen. The CPU picks the action, which between them covers both: a Forward
+	// that is active has its dull to lose, one that is already dull has only its next activation.
 	// =========================================================================================
 
 	private static final String SERJES_22_115R = "(Cards with 《LB》 cannot be included in your main deck.)"
@@ -483,7 +483,7 @@ class LimitBehaviorTest {
 		placeP1Forward(mw, theirs);
 		CardData serjes = makeSerjes();
 
-		placeP2Forward(mw, serjes);
+		enterAsP2(mw, serjes);
 
 		int i = mw.p1ForwardCards.indexOf(theirs);
 		assertEquals(CardState.DULL, mw.p1ForwardStates.get(i));
@@ -501,9 +501,30 @@ class LimitBehaviorTest {
 		int i = mw.p1ForwardCards.indexOf(theirs);
 		mw.p1ForwardStates.set(i, CardState.DULL);
 
-		placeP2Forward(mw, makeSerjes());
+		enterAsP2(mw, makeSerjes());
 
 		assertTrue(mw.p1ForwardFrozen.get(i), "dulling it again would do nothing");
+	}
+
+	@Test
+	void serjesWaitsOnTheStackWithHisActionAndItsTargetAlreadyChosen() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 4, 7000);
+		placeP1Forward(mw, theirs);
+		int i = mw.p1ForwardCards.indexOf(theirs);
+
+		placeP2Forward(mw, makeSerjes());
+
+		assertEquals(1, mw.gameState.stackSize(), "on the Stack, where P1 may respond to it");
+		StackEntry e = mw.gameState.peekStack();
+		assertEquals(List.of("Choose 1 Forward. Dull it."), mw.declaredSelectActions.get(e), "declared as it went there");
+		assertEquals(List.of(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD)), e.preSelectedTargets());
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(i), "nothing has happened yet");
+
+		resolveTop(mw);
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(i));
+		assertFalse(mw.p1ForwardFrozen.get(i), "the declared action, not a new choice");
 	}
 
 	// =========================================================================================
@@ -1845,8 +1866,8 @@ class LimitBehaviorTest {
 	// actions. "Choose 1 Forward of cost 1. Break it." "Choose 2 cards in your opponent's Break
 	// Zone. Remove them from the game.""
 	//
-	// Resolved as he arrives, without going on the Stack (tools/HANDOFF-inline-auto-abilities.md),
-	// so these place him and read the board. Each board leaves the CPU one action worth taking.
+	// A select, declared as it goes on the Stack, so these resolve his arrival. Each board leaves the
+	// CPU one action worth taking.
 	// =========================================================================================
 
 	private static final String GILGAMESH_24_119R = "Limit Break -- 1[[br]]When Gilgamesh enters the field, "
@@ -1865,7 +1886,7 @@ class LimitBehaviorTest {
 		placeP1Forward(mw, one);
 		placeP1Forward(mw, two);
 
-		placeP2Forward(mw, makeGilgamesh());
+		enterAsP2(mw, makeGilgamesh());
 
 		assertTrue(mw.gameState.getP1BreakZone().contains(one));
 		assertTrue(mw.p1ForwardCards.contains(two), "exactly cost 1");
@@ -1881,7 +1902,7 @@ class LimitBehaviorTest {
 			mw.gameState.getP1BreakZone().add(c);
 		}
 
-		placeP2Forward(mw, makeGilgamesh());
+		enterAsP2(mw, makeGilgamesh());
 
 		assertTrue(mw.gameState.getP1BreakZone().isEmpty());
 		assertTrue(mw.gameState.getP1PermanentRfp().containsAll(List.of(a, b)));
@@ -1968,8 +1989,7 @@ class LimitBehaviorTest {
 	// the 2 following actions. "Choose 1 Forward of cost 2 or less. Deal it 5000 damage." "Choose
 	// 1 dull Forward. Deal it 7000 damage.""
 	//
-	// Resolved as it arrives, as Gilgamesh's select is. Each board leaves the CPU one action worth
-	// taking.
+	// A select, as Gilgamesh's is. Each board leaves the CPU one action worth taking.
 	// =========================================================================================
 
 	private static final String IRON_GIANT_24_121H = "Limit Break -- 2[[br]]When Iron Giant (SOPFFO) enters the "
@@ -1986,7 +2006,7 @@ class LimitBehaviorTest {
 		CardData cheap = makeForward("Cheap", "Water", 2, 5000);
 		placeP1Forward(mw, cheap);
 
-		placeP2Forward(mw, makeIronGiant());
+		enterAsP2(mw, makeIronGiant());
 
 		assertTrue(mw.gameState.getP1BreakZone().contains(cheap), "5000 breaks a 5000 Forward");
 	}
@@ -1998,9 +2018,27 @@ class LimitBehaviorTest {
 		placeP1Forward(mw, dull);
 		mw.p1ForwardStates.set(mw.p1ForwardCards.indexOf(dull), CardState.DULL);
 
-		placeP2Forward(mw, makeIronGiant());
+		enterAsP2(mw, makeIronGiant());
 
 		assertTrue(mw.gameState.getP1BreakZone().contains(dull), "cost 5, so only the second action reaches it");
+	}
+
+	@Test
+	void ironGiantChoosesTheTargetOfTheActionItDeclares() {
+		// Nothing of P1's costs 2 or less, so the CPU declares the second action. The first action's
+		// "Forward of cost 2 or less" names no side and still reaches the CPU's own Ally: read off the
+		// whole menu, that would have been the target, and the 7000 would have landed on the Ally.
+		MainWindow mw = new MainWindow();
+		CardData ally = makeForward("Ally", "Fire", 2, 9000);
+		CardData dull = makeForward("Dull", "Water", 5, 7000);
+		placeP2Forward(mw, ally);
+		placeP1Forward(mw, dull);
+		mw.p1ForwardStates.set(mw.p1ForwardCards.indexOf(dull), CardState.DULL);
+
+		enterAsP2(mw, makeIronGiant());
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(dull));
+		assertEquals(0, p2Damage(mw, ally));
 	}
 
 	// =========================================================================================
@@ -2060,7 +2098,7 @@ class LimitBehaviorTest {
 	// controls. Vajradhara Wu and the chosen Forward deal damage equal to their respective power
 	// to the other.""
 	//
-	// Resolved as he arrives, as Gilgamesh's select is.
+	// A select, as Gilgamesh's is.
 	// =========================================================================================
 
 	private static final String VAJRADHARA_WU_24_123H = "Limit Break -- 2[[br]]When Vajradhara Wu enters the "
@@ -2080,7 +2118,7 @@ class LimitBehaviorTest {
 		placeP1Forward(mw, hurt);
 		mw.p1ForwardDamage.set(mw.p1ForwardCards.indexOf(hurt), 2000);
 
-		placeP2Forward(mw, makeVajradharaWu());
+		enterAsP2(mw, makeVajradharaWu());
 
 		assertTrue(mw.gameState.getP1BreakZone().contains(hurt));
 	}
@@ -2092,7 +2130,7 @@ class LimitBehaviorTest {
 		placeP1Forward(mw, theirs);
 		CardData wu = makeVajradharaWu();
 
-		placeP2Forward(mw, wu);
+		enterAsP2(mw, wu);
 
 		assertTrue(mw.gameState.getP1BreakZone().contains(theirs), "8000 to a 5000 Forward");
 		assertEquals(5000, p2Damage(mw, wu), "and 5000 back");
@@ -2155,7 +2193,7 @@ class LimitBehaviorTest {
 	// cards of your deck. Add 1 card among them to your hand and return the other card to the
 	// bottom of your deck.""
 	//
-	// Resolved as it arrives, as Gilgamesh's select is.
+	// A select, as Gilgamesh's is.
 	// =========================================================================================
 
 	private static final String TONBERRY_CACTUAR_24_125H = "Limit Break -- 2[[br]]When Tonberry & Cactuar enters "
@@ -2178,7 +2216,7 @@ class LimitBehaviorTest {
 		mw.p1ForwardStates.set(mw.p1ForwardCards.indexOf(dull), CardState.DULL);
 		putPlainCardsOnTop(mw, false, 2);
 
-		placeP2Forward(mw, makeTonberryCactuar());
+		enterAsP2(mw, makeTonberryCactuar());
 
 		assertTrue(mw.gameState.getP1BreakZone().contains(active));
 		assertTrue(mw.p1ForwardCards.contains(dull), "active only");
@@ -2194,7 +2232,7 @@ class LimitBehaviorTest {
 		putOnTopOfDeck(mw, third, false);
 		putPlainCardsOnTop(mw, false, 2);
 
-		placeP2Forward(mw, makeTonberryCactuar());
+		enterAsP2(mw, makeTonberryCactuar());
 
 		assertEquals(1, mw.gameState.getP2Hand().size(), "one of the two");
 		assertSame(third, mw.gameState.getP2MainDeck().peekFirst(), "the other went under it");
@@ -3249,8 +3287,8 @@ class LimitBehaviorTest {
 	// Card Name Lightning and add it to your hand.""
 	//
 	// An LB deck is 8 cards, and Lightning on the field is not in it, so 7 face up there means every
-	// other LB card has been spent. The select resolves as the trigger fires, without going on the
-	// Stack (see the Serjes section).
+	// other LB card has been spent. The select goes on the Stack with its action declared (see the
+	// Serjes section).
 	// =========================================================================================
 
 	private static final String LIGHTNING_26_130H = "Limit Break -- 1[[br]]If there are 7 or more face-up cards in "
@@ -3285,7 +3323,7 @@ class LimitBehaviorTest {
 		CardData fromHand = makePlainCard("Lightning", "Lightning", "Forward", 3, 7000, null, "XIII");
 		putInP2Hand(mw, fromHand);
 
-		mw.breakP2Forward(mw.p2ForwardCards.indexOf(lightning));
+		resolveWhatQueues(mw, lightning, () -> mw.breakP2Forward(mw.p2ForwardCards.indexOf(lightning)));
 
 		assertEquals(List.of(fromHand), mw.p2ForwardCards);
 		assertTrue(mw.gameState.getP2Hand().isEmpty());
@@ -3302,7 +3340,7 @@ class LimitBehaviorTest {
 		putOnTopOfDeck(mw, inDeck, false);
 		putPlainCardsOnTop(mw, false, 2);
 
-		mw.breakP2Forward(mw.p2ForwardCards.indexOf(lightning));
+		resolveWhatQueues(mw, lightning, () -> mw.breakP2Forward(mw.p2ForwardCards.indexOf(lightning)));
 
 		assertTrue(mw.p2ForwardCards.isEmpty(), "cost 4 or less");
 		assertEquals(List.of(tooDear, inDeck), mw.gameState.getP2Hand(), "so the search is the one taken");

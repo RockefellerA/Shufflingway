@@ -4499,7 +4499,10 @@ public class CardBehaviorTest {
                 ActionResolver.stripExtraCostClause(effect));
     }
 
-    /** P2's Fina enters over a dull P2 Forward, facing a 9000 P1 Forward; the AI makes her selection. */
+    /**
+     * P2's Fina enters over a dull P2 Forward, facing a 9000 P1 Forward; the AI declares her
+     * selection as the ability goes on the Stack, and the Stack resolves it.
+     */
     private static MainWindow finaEnters(boolean paidExtraCost) {
         MainWindow mw = new MainWindow();
         placeP1Forward(mw, makeForward("Target", "Fire", 3, 9000));
@@ -4508,6 +4511,8 @@ public class CardBehaviorTest {
         CardData fina = makeFina();
         mw.gameState.getIdentity().put(fina, false);
         mw.placeP2CardInForwardZone(fina, paidExtraCost);
+        assertEquals(1, mw.gameState.stackSize(), "her select goes on the Stack");
+        mw.resolveTopOfStack();
         return mw;
     }
 
@@ -4524,6 +4529,121 @@ public class CardBehaviorTest {
         boolean swept     = mw.p1ForwardDamage.get(0) == 5000;
         boolean activated = mw.p2ForwardStates.get(0) == CardState.ACTIVE;
         assertTrue(swept ^ activated, "one of the two, not both and not neither");
+    }
+
+    // =========================================================================================
+    // A select auto ability's "if …," (Cloud 15-139S, Physalis 13-028L, Frimelda 23-107L) is a
+    // trigger condition, checked as it triggers and again as it resolves (rule 11.8.13). The select
+    // parser reads past the condition, so AutoAbilityTriggers.selectConditionHolds makes both checks.
+    // =========================================================================================
+
+    private static final String CLOUD_15_139S = "When Cloud enters the field, if you control a Job AVALANCHE "
+            + "Operative Forward, select up to 2 of the 3 following actions. \"Choose 1 Forward. Deal it 10000 "
+            + "damage.\" \"Choose 1 Job AVALANCHE Operative of cost 4 or less in your Break Zone. Play it onto the "
+            + "field.\" \"All the Forwards you control gain Haste until the end of the turn.\"";
+
+    /** P1 holds a 9000 Forward; P2 has Barret, an AVALANCHE Operative, when {@code withBarret}. */
+    private static MainWindow cloudsBoard(boolean withBarret) {
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, makeForward("Theirs", "Water", 5, 9000));
+        if (withBarret) placeP2Forward(mw, TestCards.makeForwardWithJob("Barret", "Fire", 3, 7000, "AVALANCHE Operative"));
+        return mw;
+    }
+
+    private static void cloudEnters(MainWindow mw) {
+        placeP2Forward(mw, makeForwardWithText("Cloud", "Fire", 6, 8000, CLOUD_15_139S));
+    }
+
+    @Test
+    void cloudsSelectResolvesWhileTheOperativeStays() {
+        MainWindow mw = cloudsBoard(true);
+        cloudEnters(mw);
+        assertEquals(1, mw.gameState.stackSize());
+
+        mw.resolveTopOfStack();
+
+        assertEquals(1, mw.gameState.getP1BreakZone().size(), "10000 to the 9000 Forward");
+    }
+
+    @Test
+    void cloudsSelectDoesNotTriggerWithoutAnOperative() {
+        MainWindow mw = cloudsBoard(false);
+        cloudEnters(mw);
+        assertEquals(0, mw.gameState.stackSize());
+        assertEquals(1, mw.p1ForwardCards.size());
+    }
+
+    @Test
+    void cloudsSelectIsCancelledIfTheOperativeIsGoneByTheTimeItResolves() {
+        MainWindow mw = cloudsBoard(true);
+        cloudEnters(mw);
+        assertEquals(1, mw.gameState.stackSize());
+        mw.breakP2Forward(0);   // Barret, answered while the select waits on the Stack
+
+        mw.resolveTopOfStack();
+
+        assertEquals(1, mw.p1ForwardCards.size(), "the condition is read again as it resolves");
+        assertTrue(mw.declaredSelectActions.isEmpty(), "and the declaration goes with the entry");
+    }
+
+    // =========================================================================================
+    // A select Summon declares its option as it is cast (rule 11.3.4), and the targets it chooses
+    // then are that option's. Read off the whole menu instead, the first "choose" inside it was
+    // answered whichever option was taken — 51 of the corpus's 54 select Summons — and the option
+    // picked at resolution consumed those targets as its own.
+    // =========================================================================================
+
+    private static final String TWO_CHOICE_SELECT = "Select 1 of the 2 following actions. \"Choose 1 Forward of "
+            + "cost 2 or less. Deal it 5000 damage.\" \"Choose 1 dull Forward. Deal it 7000 damage.\"";
+
+    @Test
+    void aSelectSummonChoosesTheTargetsOfTheOptionItDeclares() {
+        // Nothing of P1's costs 2 or less, so the CPU declares the second option. The first one's
+        // "Forward of cost 2 or less" names no side and reaches P2's own Ally — the target a read
+        // of the whole menu would have taken, and the 7000 would have landed on it.
+        MainWindow mw = new MainWindow();
+        CardData ally = makeForward("Ally", "Fire", 2, 9000);
+        CardData dull = makeForward("Dull", "Water", 5, 7000);
+        placeP2Forward(mw, ally);
+        placeP1Forward(mw, dull);
+        mw.p1ForwardStates.set(0, CardState.DULL);
+        CardData bolt = makeSummon("Bolt", "Lightning", 3, TWO_CHOICE_SELECT);
+        mw.gameState.getIdentity().put(bolt, false);
+
+        mw.showSummonOnStack(bolt, false);
+
+        StackEntry e = mw.gameState.peekStack();
+        assertEquals(List.of("Choose 1 dull Forward. Deal it 7000 damage."), mw.declaredSelectActions.get(e),
+                "declared as it was cast");
+        assertEquals(List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD)), e.preSelectedTargets());
+        mw.resolveTopOfStack();
+        assertTrue(mw.gameState.getP1BreakZone().contains(dull));
+        assertEquals(0, mw.p2ForwardDamage.get(0), "the Ally is untouched");
+    }
+
+    @Test
+    void aSelectActionAbilityChoosesTheTargetsOfTheOptionItDeclares() {
+        // The same board and menu as the Summon above, used as an action ability: its option is
+        // declared as it is used (rule 11.6.6), and the targets are that option's.
+        MainWindow mw = new MainWindow();
+        CardData user = makeForwardWithText("Shout", "Fire", 3, 5000, "《Dull》: " + TWO_CHOICE_SELECT);
+        CardData ally = makeForward("Ally", "Fire", 2, 9000);
+        CardData dull = makeForward("Dull", "Water", 5, 7000);
+        placeP2Forward(mw, user);
+        placeP2Forward(mw, ally);
+        placeP1Forward(mw, dull);
+        mw.p1ForwardStates.set(0, CardState.DULL);
+
+        assertTrue(mw.autoAbilityTriggers.executeP2AbilityActivation(user.actionAbilities().get(0), user,
+                () -> mw.p2ForwardStates.set(0, CardState.DULL), new ArrayList<>(), new ArrayList<>(), 0));
+
+        StackEntry e = mw.gameState.peekStack();
+        assertEquals(List.of("Choose 1 dull Forward. Deal it 7000 damage."), mw.declaredSelectActions.get(e),
+                "declared as it was used");
+        assertEquals(List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD)), e.preSelectedTargets());
+        mw.resolveTopOfStack();
+        assertTrue(mw.gameState.getP1BreakZone().contains(dull));
+        assertEquals(0, mw.p2ForwardDamage.get(mw.p2ForwardCards.indexOf(ally)), "the Ally is untouched");
     }
 
     // =========================================================================================
@@ -28270,12 +28390,58 @@ public class CardBehaviorTest {
 		assertFalse(mw.p2Turn.turnOpponentFwdBroken);
 	}
 
-	@Test
-	void theAiDeclinesTheAlternateCostForNow() {
-		// A stub, asserted so that wiring it up trips this rather than passing unnoticed.
+	// -----------------------------------------------------------------------------------------
+	// The CPU's Kefka. Asked only when it cannot raise the 8 CP, it hands over its three cheapest
+	// Forwards or Monsters when Kefka plus the cheapest card his arrival can break is worth more,
+	// in printed cost, than they are (ComputerPlayer.p2PlanAltPutToBzCost).
+	// -----------------------------------------------------------------------------------------
+
+	private static final String KEFKA_4_080L = KEFKA_ALT_COST + " [[br]] When Kefka enters the field, choose "
+			+ "1 Forward or Monster opponent controls. Break it.";
+
+	/** P2 with no CP to spend, Kefka in hand, and Forwards of {@code costs} on its field. */
+	private static MainWindow p2HoldsKefkaBeside(int... costs) {
 		MainWindow mw = new MainWindow();
-		assertFalse(new ComputerPlayer(mw).p2PlanAltPutToBzCost(kefka()),
-				"P2 has no heuristic for giving up its own board — see p2PlanAltPutToBzCost");
+		for (int i = 0; i < costs.length; i++)
+			placeP2Forward(mw, makeForward("Own " + i + " (cost " + costs[i] + ")", "Earth", costs[i], 5000));
+		CardData kefka = makeForwardWithText("Kefka", "Earth", 8, 8000, KEFKA_4_080L);
+		mw.gameState.getIdentity().put(kefka, false);
+		mw.gameState.getP2Hand().add(kefka);
+		return mw;
+	}
+
+	@Test
+	void theCpuPlaysKefkaByHandingOverItsThreeCheapestForwards() {
+		MainWindow mw = p2HoldsKefkaBeside(1, 5, 2, 2);
+		CardData theirs = makeForward("Theirs", "Fire", 3, 7000);
+		placeP1Forward(mw, theirs);
+		List<CardData> cheapest = List.of(mw.p2ForwardCards.get(0), mw.p2ForwardCards.get(2), mw.p2ForwardCards.get(3));
+		CardData dear = mw.p2ForwardCards.get(1);
+
+		assertTrue(new ComputerPlayer(mw).castFromHandIfAble(), "1 + 2 + 2 for Kefka and a cost-3 Forward");
+
+		assertEquals(List.of(dear, mw.p2ForwardCards.get(1)), mw.p2ForwardCards);
+		assertEquals("Kefka", mw.p2ForwardCards.get(1).name());
+		assertTrue(mw.gameState.getP2BreakZone().containsAll(cheapest));
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+		assertFalse(mw.p1Turn.turnOpponentFwdBroken, "handed over, not broken");
+		mw.resolveTopOfStack();
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs), "and his arrival breaks it");
+	}
+
+	@Test
+	void theCpuKeepsItsBoardWhenKefkaWouldHaveNothingToBreak() {
+		MainWindow mw = p2HoldsKefkaBeside(1, 1, 1);
+		assertFalse(new ComputerPlayer(mw).castFromHandIfAble(), "three cards for one body is never worth it");
+		assertEquals(3, mw.p2ForwardCards.size());
+	}
+
+	@Test
+	void theCpuKeepsItsBoardWhenItsCheapestThreeOutweighKefkaAndHisTarget() {
+		MainWindow mw = p2HoldsKefkaBeside(4, 4, 4);
+		placeP1Forward(mw, makeForward("Theirs", "Fire", 2, 5000));
+		assertFalse(new ComputerPlayer(mw).castFromHandIfAble(), "12 handed over for 8 + 2");
+		assertEquals(3, mw.p2ForwardCards.size());
 	}
 
 	// =========================================================================================

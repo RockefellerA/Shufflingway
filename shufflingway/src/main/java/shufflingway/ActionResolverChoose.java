@@ -262,6 +262,57 @@ final class ActionResolverChoose {
     }
 
     static Consumer<GameContext> tryParseSelectFollowingActions(String text, CardData source) {
+        SelectMenu menu = selectMenu(text, source);
+        if (menu == null) return null;
+        return ctx -> {
+            List<String> chosen = menu.choose().apply(ctx);
+            if (chosen == null) return;
+            if (chosen.isEmpty()) {
+                ctx.logEntry("Select actions — none chosen");
+                return;
+            }
+            for (String actionText : chosen) {
+                Consumer<GameContext> effect = parse(actionText, source);
+                if (effect == null) {
+                    ctx.logEntry("Select actions — unrecognized: " + actionText);
+                } else {
+                    ctx.logEntry((ctx.isP1() != menu.oppSelects() ? "Selected: " : "AI selected ")
+                            + actionText);
+                    effect.accept(ctx);
+                }
+            }
+        };
+    }
+
+    /**
+     * The options a "select N of the M following actions" auto ability declares as it goes on the
+     * Stack (rule 11.8.10), asked of the seat that chooses, under exactly the count rules its
+     * resolution would apply. {@code null} when {@code text} is not such a menu or there is nothing
+     * to choose; the caller preloads the answer for the resolution ({@link GameContext#preloadSelectedActions}).
+     */
+    static List<String> declareSelectFollowingActions(String text, CardData source, GameContext ctx) {
+        SelectMenu menu = selectMenu(text, source);
+        return menu == null ? null : menu.choose().apply(ctx);
+    }
+
+    /**
+     * Whether {@code text} is a select menu that {@link ActionResolver#parse} reads as one, so its
+     * options are declared before it resolves: as an auto ability goes on the Stack (rule
+     * 11.8.10) and as a Summon is cast (rule 11.3.4).
+     */
+    static boolean isSelectMenu(String text, CardData source) {
+        return text != null && SELECT_FOLLOWING_ACTIONS.matcher(text).find()
+                && "SelectFollowingActions".equals(matchedPatternName(text, source));
+    }
+
+    /**
+     * A select menu read off its text: {@code choose} works out how many options may be taken —
+     * the printed count or the upgrade that applies — and asks the chooser, answering {@code null}
+     * when the count comes to nothing; {@code oppSelects} for "your opponent selects".
+     */
+    private record SelectMenu(Function<GameContext, List<String>> choose, boolean oppSelects) {}
+
+    private static SelectMenu selectMenu(String text, CardData source) {
         Matcher m = SELECT_FOLLOWING_ACTIONS.matcher(text);
         if (!m.find()) return null;
 
@@ -386,7 +437,7 @@ final class ActionResolverChoose {
         // after the upgrade clauses have been stripped off, which is where the options end up.
         final int total = m.group("total") != null ? Integer.parseInt(m.group("total")) : actions.size();
 
-        return ctx -> {
+        return new SelectMenu(ctx -> {
             int     effSelect = baseSelect;
             boolean effUpTo   = baseUpTo;
             if (countSource != null) {
@@ -395,7 +446,7 @@ final class ActionResolverChoose {
                 effUpTo   = true;
                 ctx.logEntry("Select actions — counted " + counted + ", may select up to " + effSelect
                         + " of " + total);
-                if (effSelect <= 0) return;
+                if (effSelect <= 0) return null;
             }
             if (surcharge != null) {
                 boolean paid = ctx.wasExtraCostPaid();
@@ -403,7 +454,7 @@ final class ActionResolverChoose {
                 effUpTo   = !paid;
                 ctx.logEntry("Select actions — extra cost " + (paid ? "paid" : "not paid")
                         + ", may select " + (paid ? "" : "up to ") + effSelect);
-                if (effSelect <= 0) return;
+                if (effSelect <= 0) return null;
             }
             if (hasCondUpgrade
                     && ctx.selfFieldCount(condElem, condInclFwd, condInclBkp, condInclMon) >= condMinCount) {
@@ -428,21 +479,8 @@ final class ActionResolverChoose {
             List<String> chosen = oppSelects
                     ? ctx.chooseActionsByOpponent(source, actions, effSelect, effUpTo)
                     : ctx.chooseActions(source, actions, effSelect, effUpTo);
-            if (chosen == null || chosen.isEmpty()) {
-                ctx.logEntry("Select actions — none chosen");
-                return;
-            }
-            for (String actionText : chosen) {
-                Consumer<GameContext> effect = parse(actionText, source);
-                if (effect == null) {
-                    ctx.logEntry("Select actions — unrecognized: " + actionText);
-                } else {
-                    ctx.logEntry((ctx.isP1() != oppSelects ? "Selected: " : "AI selected ")
-                            + actionText);
-                    effect.accept(ctx);
-                }
-            }
-        };
+            return chosen == null ? List.of() : chosen;
+        }, oppSelects);
     }
 
     /**

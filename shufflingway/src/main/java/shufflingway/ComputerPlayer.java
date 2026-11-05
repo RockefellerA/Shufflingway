@@ -262,6 +262,17 @@ class ComputerPlayer implements OpponentController {
 
 	/** Executes a planned P2 hand-cast: dulls backups, discards for CP, pays cost, plays the card. */
 	private void executeP2HandPlay(P2Plan plan) {
+		if (plan.altPayment() != null) {
+			// The cards handed over are the whole price: MainWindow.executeAltPlay puts them into
+			// the Break Zone and plays the card, the same code a networked opponent's alternate
+			// cast replays through, with nothing dulled or discarded for CP.
+			CardData card = mw.gameState.getP2Hand().get(plan.cardIdx());
+			mw.logEntry("[P2] Plays " + card.name() + " by putting " + plan.altPayment().putToBz().size()
+					+ " of its cards into the Break Zone");
+			mw.executeAltPlay(false, card, plan.cardIdx(), plan.altPayment(), List.of(), List.of(), Map.of(),
+					null, false);
+			return;
+		}
 		if (plan.warp()) {
 			// executeWarpPlay pays the Warp cost itself — it dulls and discards, banks the CP and
 			// clears it — so the ordinary payment step is skipped, and it takes the unadjusted hand
@@ -646,8 +657,15 @@ class ComputerPlayer implements OpponentController {
 			Map<Integer, String>   backupElements,        // backup idx → element of CP contributed
 			List<Integer>          discardIndices,        // P2 hand indices to discard (2 CP each)
 			Map<Integer, String>   discardElements,       // hand idx → element of CP contributed
-			boolean                warp                   // pay warpCost() and bank the card rather than cast it
-	) {}
+			boolean                warp,                  // pay warpCost() and bank the card rather than cast it
+			AltPayment             altPayment             // cast under an alternate cost instead; null = none
+	) {
+		/** An ordinary cast or a Warp, with no alternate cost. */
+		P2Plan(int cardIdx, int reducedCost, List<Integer> dullBackups, Map<Integer, String> backupElements,
+				List<Integer> discardIndices, Map<Integer, String> discardElements, boolean warp) {
+			this(cardIdx, reducedCost, dullBackups, backupElements, discardIndices, discardElements, warp, null);
+		}
+	}
 
 	/**
 	 * Whether P2 currently has any legal hand-cast available. Exposed for tests, which need to
@@ -770,11 +788,9 @@ class ComputerPlayer implements OpponentController {
 				return new P2Plan(cardIdx, cost, backups, backupElems, discards, discardElems, false);
 			}
 			// P2 could not raise the CP. A card printing a put-into-Break-Zone alternate cost has a
-			// second route onto the field that costs no CP at all; P2 does not take it yet, and
-			// p2PlanAltPutToBzCost documents what wiring it would need.
-			if (card.altPutToBzCost() != null && p2PlanAltPutToBzCost(card)) {
-				throw new IllegalStateException("p2PlanAltPutToBzCost is a stub — see its javadoc");
-			}
+			// second route onto the field that costs no CP at all.
+			AltPayment alt = card.altPutToBzCost() != null ? p2PlanAltPutToBzCost(card) : null;
+			if (alt != null) return new P2Plan(cardIdx, 0, List.of(), Map.of(), List.of(), Map.of(), false, alt);
 		}
 		// Nothing casts outright. A Warp card offers a second, usually far cheaper route: pay the
 		// Warp cost now and the card enters the field by itself once its counters run out. Tried
@@ -1045,36 +1061,49 @@ class ComputerPlayer implements OpponentController {
 	 * means no exclusion (used by BZ-cast where the source isn't in hand).
 	 */
 	/**
-	 * Stub — whether P2 would play {@code card} by paying its put-into-Break-Zone alternate cost
-	 * instead of CP: "You can put a total of 3 Forwards or Monsters you control into the Break Zone
-	 * to play Kefka from your hand onto the field." (Kefka 4-080L). Always declines, so P2 plays
-	 * such a card only when it can raise the printed CP cost the ordinary way.
+	 * P2's payment for {@code card}'s put-into-Break-Zone alternate cost, or {@code null} when it
+	 * should not take that route: "You can put a total of 3 Forwards or Monsters you control into
+	 * the Break Zone to play Kefka from your hand onto the field." (Kefka 4-080L, the only such
+	 * card). Asked only once P2 cannot raise the CP: the cost replaces the CP cost outright, so
+	 * the question is never whether P2 can pay but whether it should.
 	 *
-	 * <p>This is not merely an unwired predicate — the route is a genuinely different kind of
-	 * decision from {@link #p2PlanPayment} and needs four things before it can return true:
+	 * <p>Which cards: the cheapest that may pay, by printed cost
+	 * ({@link MainWindow#aiCheapestOwnTargets}), the measure every other payment the AI makes with
+	 * its own cards uses.
 	 *
-	 * <ul>
-	 *   <li>a heuristic for whether giving up {@code count} of P2's own Characters is worth the
-	 *       play at all, which is a board evaluation rather than an affordability sum — this cost
-	 *       replaces the CP cost outright, so it is available at zero CP and the question is never
-	 *       "can P2 pay" but "should it";</li>
-	 *   <li>a choice of <em>which</em> cards to hand over. {@link MainWindow#aiCheapestOwnTargets}
-	 *       is the AI's pick for every other cost and effect that spends its own cards — lowest
-	 *       printed cost first, the source last — so use it here too, unless the board evaluation
-	 *       above learns to tell a Backup supplying CP or an ability from its printed cost;</li>
-	 *   <li>a field on {@code P2Plan} to carry the picks, since the plan record models only CP
-	 *       payment (backups dulled, cards discarded);</li>
-	 *   <li>a branch in {@code executeP2HandPlay} that spends them through
-	 *       {@code MainWindow.putP2ForwardIntoBreakZone} and the Monster/Backup equivalents — a
-	 *       put, not a break.</li>
-	 * </ul>
-	 *
-	 * <p>{@code CostCalculator.canAffordAltCost} and {@code MainWindow.altPutToBzCandidates} are
-	 * P1-hardcoded for the same reason and would need their side parameter honoured too.
+	 * <p>Whether at all, in the same measure. P2 gives up those cards' printed cost and gains the
+	 * card itself plus the opposing Forward or Monster its arrival breaks. That gain is read as the
+	 * cheapest one there, since the AI's pick among them is not otherwise steered. So the route is
+	 * taken only when the arrival has something to break and the gain outweighs what is handed
+	 * over; three cards for one body and nothing else is never worth it.
 	 */
-	boolean p2PlanAltPutToBzCost(CardData card) {
+	AltPayment p2PlanAltPutToBzCost(CardData card) {
+		CardData.AltPutToBzCost cost = card.altPutToBzCost();
+		if (cost == null || !entersBreakingAnOpposingCharacter(card)) return null;
+		int cheapestOpposing = Integer.MAX_VALUE;
+		for (CardData c : mw.p1ForwardCards) cheapestOpposing = Math.min(cheapestOpposing, c.cost());
+		for (CardData c : mw.p1MonsterCards) cheapestOpposing = Math.min(cheapestOpposing, c.cost());
+		if (cheapestOpposing == Integer.MAX_VALUE) return null;
+		List<ForwardTarget> eligible = mw.altPutToBzCandidates(cost, false);
+		if (eligible.size() < cost.count()) return null;
+		List<ForwardTarget> picks = mw.aiCheapestOwnTargets(eligible, cost.count(), null);
+		int givenUp = 0;
+		for (ForwardTarget t : picks) givenUp += mw.autoAbilityTriggers.fieldCardData(t).cost();
+		if (givenUp >= card.cost() + cheapestOpposing) return null;
+		return new AltPayment(0, List.of(), List.of(), picks, List.of());
+	}
+
+	/** Whether {@code card}'s own arrival breaks a card its controller's opponent controls — Kefka 4-080L's. */
+	private static boolean entersBreakingAnOpposingCharacter(CardData card) {
+		for (AutoAbility fa : card.autoAbilities()) {
+			if (!fa.triggerCard().equalsIgnoreCase(card.name()) || !fa.trigger().contains("enter")) continue;
+			if (ENTERS_BREAKING_OPPOSING.matcher(fa.effectText()).find()) return true;
+		}
 		return false;
 	}
+
+	private static final Pattern ENTERS_BREAKING_OPPOSING =
+			Pattern.compile("(?i)\\bopponent\\s+controls\\.\\s+Break\\s+it\\b");
 
 	private boolean p2PlanPayment(CardData card, int reducedCost, int excludeHandIdx,
 			List<Integer> outBackups, Map<Integer, String> outBackupElems,

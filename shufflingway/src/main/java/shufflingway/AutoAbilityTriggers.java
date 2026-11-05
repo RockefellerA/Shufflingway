@@ -5182,6 +5182,13 @@ final class AutoAbilityTriggers {
 		if (withAbilitySource(source, () -> dispatchInlineAutoAbility(resolvedFa, source, isP1, effectIsP1)))
 			return;
 
+		// A select ability's "if …," decides whether it triggers at all (rule 11.8.13); it is read
+		// again as the ability resolves.
+		if (!selectConditionHolds(resolvedText, isP1)) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — condition not met, does not trigger");
+			return;
+		}
+
 		// Verify the effect is parseable before putting it on the stack. Asked of the resolved text
 		// rather than the printed text: Summoner's prints as "if you paid the extra cost, your
 		// opponent selects …", which parse() declines on purpose — it cannot know whether the cost
@@ -5274,9 +5281,15 @@ final class AutoAbilityTriggers {
 		// Auto abilities have no X cost of their own, so nothing else is competing for it.
 		int entryX = fa.trigger().equals("is dealt damage") ? mw.lastDealtDamageAmount : 0;
 		GameContext selectCtx = mw.buildGameContext(effectIsP1);
-		List<ForwardTarget> preTargets = effectText.isBlank() ? null
-				: targetsForStack(ActionResolver.preSelectTargets(effectText, source, entryX, selectCtx),
-						effectText, source, selectCtx);
+		// A select menu declares its options now, as it goes on the Stack (rule 11.8.10), and only the
+		// declared option's targets are chosen with them (ActionResolver.chooseForStack).
+		List<String> declared = null;
+		List<ForwardTarget> preTargets = null;
+		if (!effectText.isBlank()) {
+			ActionResolver.StackChoices choices = ActionResolver.chooseForStack(effectText, source, entryX, selectCtx);
+			declared = choices.declared();
+			preTargets = targetsForStack(choices.targets(), choices.targetText(), source, selectCtx);
+		}
 		// "When X is dealt damage by a Forward …, deal that Forward …": the dealer came down as the
 		// trigger card (fireIsDealtDamageTriggers), and "that Forward" is it.
 		if (fa.trigger().equals("is dealt damage") && mw.triggeringBrokenCard != null
@@ -5288,6 +5301,7 @@ final class AutoAbilityTriggers {
 		StackEntry entry = new StackEntry(source, null, fa, effectIsP1, entryX, false, preTargets, false,
 				paidExtraCost, 0, 0, mw.triggeringBrokenCard, mw.triggeringEnteredCard);
 		mw.gameState.insertStack(depth, entry);
+		if (declared != null) mw.declaredSelectActions.put(entry, declared);
 		mw.cancelFirstOppForwardAuto(entry);
 		// "When your opponent's auto-ability is put on the stack" — 10-074C Suzuhisa. Only the ones
 		// that actually go on it: the shapes this layer resolves inline never do. Collected, not
@@ -5403,11 +5417,6 @@ final class AutoAbilityTriggers {
 		new InlineShape("ChooseThenMayPutIntoBz", FA_CHOOSE_THEN_MAY_PUT_INTO_BZ,
 				AutoAbilityTriggers::executeChooseThenMayPutIntoBzAutoAbility,
 				AutoAbilityTriggers::subPayoff),
-		// "select [up to] N of the M following actions. "..." "..."..." — parse() reads the whole
-		// text, which inlineClaimOf supplies itself
-		new InlineShape("SelectFollowingActions", FA_SELECT_FOLLOWING_ACTIONS,
-				AutoAbilityTriggers::executeSelectFollowingActionsAutoAbility,
-				m -> null),
 		// "reveal any number of Summons from your hand. When you reveal no Summons, [effect0]. When you reveal N or more Summons, [effectN]."
 		new InlineShape("RevealSummonsConditional", FA_REVEAL_SUMMONS_CONDITIONAL,
 				AutoAbilityTriggers::executeRevealSummonsConditionalAutoAbility,
@@ -5477,9 +5486,6 @@ final class AutoAbilityTriggers {
 		for (InlineShape s : INLINE_SHAPES) {
 			Matcher m = s.pattern().matcher(effectText);
 			if (!m.find()) continue;
-			// Its handler hands parse() the whole text, so nothing lies outside what it reads.
-			if (s.name().equals("SelectFollowingActions"))
-				return new InlineClaim(s.name(), List.of(effectText.trim()), "", "");
 			String before = effectText.substring(0, m.start());
 			String after  = effectText.substring(m.end());
 			// The gate re-dispatches its rest, so what lies outside the inner match is outside too.
@@ -6576,49 +6582,20 @@ final class AutoAbilityTriggers {
 		return CpPlan.of(dulls, discards);
 	}
 
-	// ─── "Select N of M following actions" auto-ability ─────────────────────────
-
-
 	// =========================================================================================
 	// Select-following-actions abilities
 	// =========================================================================================
-	private void executeSelectFollowingActionsAutoAbility(
-			AutoAbility fa, CardData source, boolean isP1, boolean effectIsP1,
-			Matcher m) {
 
-		// Optional "if condition" prefix
-		String condition = m.group("condition");
-		if (condition != null && !checkAutoAbilityCondition(condition.trim(), isP1)) {
-			mw.logEntry("[AutoAbility] " + source.name() + " — condition not met: " + condition);
-			return;
-		}
-
-		boolean upTo       = m.group("upTo") != null;
-		int     selectCount = Integer.parseInt(m.group("select"));
-		// "Select 1 from the following" prints no option count — the menu is the count.
-		int     totalCount  = m.group("total") != null ? Integer.parseInt(m.group("total"))
-				: ActionResolver.selectFollowingOptions(m.group("actions")).size();
-
-		// youMay / opponentMay decline dialog (the select dialog itself is the interaction,
-		// but we still honour an explicit "you may" decline option)
-		String prompt = "Select " + (upTo ? "up to " : "") + selectCount + " of "
-				+ totalCount + " actions for " + source.name() + "?";
-		if (!acceptsOptional(fa, isP1, prompt, "Choose Actions", "Decline",
-				() -> aiAccepts("select ability"))) {
-			mw.logEntry("[AutoAbility] " + source.name() + " — optional select declined");
-			return;
-		}
-
-		if (fa.oncePerTurn())
-			mw.usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>())
-					.add(fa.effectText());
-
-		Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
-		if (effect == null) {
-			mw.logEntry("[AutoAbility] " + source.name() + " — no actions found in select effect");
-			return;
-		}
-		effect.accept(mw.buildGameContext(effectIsP1));
+	/**
+	 * Whether a select ability's "if …," still holds — Physalis 13-028L, Cloud 15-139S, Frimelda
+	 * 23-107L. True for any other text. A conditional auto ability's condition is checked as it
+	 * triggers and again as it resolves (rule 11.8.13); the select parser reads past it, so both
+	 * checks are made here, by {@link #executeAutoAbilityImpl} and by MainWindow's auto-ability arm.
+	 */
+	boolean selectConditionHolds(String effectText, boolean isP1) {
+		Matcher m = FA_SELECT_FOLLOWING_ACTIONS.matcher(effectText);
+		if (!m.find() || m.group("condition") == null) return true;
+		return checkAutoAbilityCondition(m.group("condition").trim(), isP1);
 	}
 
 	private void executeSelectFollowingActionsDynamicElements(
@@ -8863,10 +8840,13 @@ final class AutoAbilityTriggers {
 		// Depth before selection: a "when this is chosen" trigger fired by the selection has to
 		// stay above this ability so it resolves first (see GameState.insertStack).
 		int depth = mw.gameState.stackSize();
-		java.util.List<ForwardTarget> preTargets = ActionResolver.preSelectTargets(
+		// A select menu declares its option as it is used (rule 11.6.6), and the targets are that
+		// option's (ActionResolver.chooseForStack).
+		ActionResolver.StackChoices choices = ActionResolver.chooseForStack(
 				ability.effectText(), source, xValue, mw.buildGameContext(isP1));
-		StackEntry pushed = new StackEntry(source, ability, isP1, xValue, preTargets, revealedPower);
+		StackEntry pushed = new StackEntry(source, ability, isP1, xValue, choices.targets(), revealedPower);
 		mw.gameState.insertStack(depth, pushed);
+		if (choices.declared() != null) mw.declaredSelectActions.put(pushed, choices.declared());
 		triggerAutoAbilitiesForOpponentUsesActionAbility(pushed, source, isP1);
 		triggerAutoAbilitiesForOwnUsesActionAbility(pushed, source, isP1);
 		mw.showStackWindow();
@@ -8958,10 +8938,12 @@ final class AutoAbilityTriggers {
 				ActionAbility copy = entry.ability().withEffectText(text);
 				mw.logEntry("[AutoAbility] " + watcher.name() + " uses " + user.name() + "'s action ability → " + text);
 				int depth = mw.gameState.stackSize();
-				List<ForwardTarget> preTargets = ActionResolver.preSelectTargets(
+				// The copy is used anew, so a select menu in it declares again.
+				ActionResolver.StackChoices choices = ActionResolver.chooseForStack(
 						text, watcher, 0, mw.buildGameContext(userIsP1));
-				StackEntry pushed = new StackEntry(watcher, copy, userIsP1, 0, preTargets, entry.revealedForwardPower());
+				StackEntry pushed = new StackEntry(watcher, copy, userIsP1, 0, choices.targets(), entry.revealedForwardPower());
 				mw.gameState.insertStack(depth, pushed);
+				if (choices.declared() != null) mw.declaredSelectActions.put(pushed, choices.declared());
 				if (copy.isSpecial()) mw.specialAbilitiesUsedThisTurn.add(new UsedSpecialAbility(watcher, copy));
 				triggerAutoAbilitiesForOpponentUsesActionAbility(pushed, watcher, userIsP1);
 			}

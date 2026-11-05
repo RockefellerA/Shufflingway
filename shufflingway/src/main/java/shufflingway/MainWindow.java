@@ -1832,6 +1832,20 @@ public class MainWindow {
 	 * which a redirect replaces.
 	 */
 	final Map<CardData, CastPaymentRecord> summonCastPayments = new IdentityHashMap<>();
+
+	/**
+	 * The options each "select N of the M following actions" entry on the Stack declared as it went
+	 * there — an auto ability as it was pushed (rule 11.8.10), a Summon as it was cast (11.3.4) —
+	 * handed to its resolution by {@link #preloadDeclaredActions}. Keyed on the entry by identity;
+	 * {@link #redirectStackEntryTargets} moves a declaration to the copy that replaces its entry.
+	 */
+	final Map<StackEntry, List<String>> declaredSelectActions = new IdentityHashMap<>();
+
+	/** Hands {@code entry}'s declared select options, if it has any, to the context resolving it. */
+	void preloadDeclaredActions(StackEntry entry, GameContext ctx) {
+		List<String> declared = declaredSelectActions.remove(entry);
+		if (declared != null) ctx.preloadSelectedActions(declared);
+	}
 	/**
 	 * The card whose departure fired the "put into the Break Zone" trigger now resolving, or
 	 * {@code null} outside one — Lunafreya 8-132L's "play the Forward placed in the Break Zone onto
@@ -4416,6 +4430,7 @@ public class MainWindow {
 		p2MonsterFrozen.clear();
 		spentLbIndices.clear();
 		p2SpentLbIndices.clear();
+		declaredSelectActions.clear();
 
 		// Damage zone
 		p1ExBurstGlow.stop();
@@ -13681,16 +13696,42 @@ public class MainWindow {
 	 * Has {@code isP1} choose the Summon's targets now, as the rules require — a Summon chooses
 	 * when it is cast, not when it resolves, which is what lets the opponent respond to what it
 	 * is pointed at.  Returns {@code null} when the effect names no targets to choose up front.
+	 *
+	 * <p>For a select Summon, {@code declared} is the option declared a moment earlier
+	 * ({@link #declareSummonSelection}), and the targets are that option's: read off the whole
+	 * menu, the first "choose" in any option would be answered, and whichever option resolved
+	 * would then take those targets as its own.
 	 */
 	private List<ForwardTarget> chooseSummonTargets(CardData card, boolean isP1,
-			boolean paidExtraCost, int xValue) {
-		List<ForwardTarget> chosen = ActionResolver.preSelectTargets(
-				narrowedAsCast(card, resolvedSummonEffectText(card, paidExtraCost, xValue)), card, xValue,
-				buildGameContext(isP1));
+			boolean paidExtraCost, int xValue, List<String> declared) {
+		List<ForwardTarget> chosen = ActionResolver.chooseTargetsAfterDeclaring(
+				narrowedAsCast(card, resolvedSummonEffectText(card, paidExtraCost, xValue)), declared, card, xValue,
+				buildGameContext(isP1)).targets();
 		// Normalise "chose nothing" to "nothing to choose": both mean the resolution selects as
 		// it always did, and keeping them distinct would make an empty selection preload an empty
 		// list and silently fizzle the effect.
 		return chosen == null || chosen.isEmpty() ? null : chosen;
+	}
+
+	/**
+	 * The option(s) a select Summon declares as it is cast (rule 11.3.4), or {@code null} when it
+	 * is not one. The count it may take is settled now too (11.3.4.1).
+	 *
+	 * <p>Asked on both clients: the caster answers and the receiver waits for that answer, like any
+	 * other choice. So the declaration is not one of those that ride inside a cast's PLAY_CARD
+	 * ({@link #choiceTravelsWithThePlay}): it crosses on its own, ahead of the PLAY_CARD carrying
+	 * the targets, and a client replaying the cast finds the answer already waiting.
+	 */
+	private List<String> declareSummonSelection(CardData card, boolean isP1, boolean paidExtraCost, int xValue) {
+		String text = narrowedAsCast(card, resolvedSummonEffectText(card, paidExtraCost, xValue));
+		if (!ActionResolverChoose.isSelectMenu(text, card)) return null;
+		boolean travels = choiceTravelsWithThePlay;
+		choiceTravelsWithThePlay = false;
+		try {
+			return ActionResolver.declareForStack(text, card, buildGameContext(isP1));
+		} finally {
+			choiceTravelsWithThePlay = travels;
+		}
 	}
 
 	/** Pushes a Summon onto the stack and opens the stack overlay, choosing its targets first. */
@@ -13750,14 +13791,18 @@ public class MainWindow {
 			summonsCastWithChosenReduction.add(card);
 		else
 			summonsCastWithChosenReduction.remove(card);
+		// Declared on both clients, a replayed cast included: unlike the targets it does not
+		// travel inside the PLAY_CARD (see declareSummonSelection).
+		List<String> declared = declareSummonSelection(card, isP1, paidExtraCost, xValue);
 		List<ForwardTarget> targets = targetsKnown
 				? (preTargets == null || preTargets.isEmpty() ? null : preTargets)
-				: chooseSummonTargets(card, isP1, paidExtraCost, xValue);
+				: chooseSummonTargets(card, isP1, paidExtraCost, xValue, declared);
 		lastSummonPreTargets = targets;
 		StackEntry entry = paidExtraCost
 				? new StackEntry(card, null, null, isP1, xValue, false, targets, false, true, extraCostRemovedCardPower, 0)
 				: new StackEntry(card, null, null, isP1, xValue, false, targets, false, false, 0, 0);
 		gameState.insertStack(depth, entry);
+		if (declared != null) declaredSelectActions.put(entry, declared);
 		// Every cast path records its payment before pushing; a record for another card means
 		// this one was cast by an effect without paying.
 		summonCastPayments.put(card, lastCastPaymentCard == card
@@ -14048,9 +14093,10 @@ public class MainWindow {
 
 	/**
 	 * Pops and executes the top entry of the stack, then shows the next entry
-	 * if the stack is non-empty.
+	 * if the stack is non-empty. Package-private so a test can resolve an entry exactly as the
+	 * Stack does once both players have passed.
 	 */
-	private void resolveTopOfStack() {
+	void resolveTopOfStack() {
 		closeStackWindow();
 		p1IsRespondingToStack = false;
 
@@ -14062,6 +14108,7 @@ public class MainWindow {
 		resolutionSerial = nextResolutionSerial();
 
 		if (cancelledStackEntries.remove(entry)) {
+			declaredSelectActions.remove(entry);
 			String pfx = entry.isP1() ? "" : "[P2] ";
 			logEntry(pfx + "\"" + entry.source().name() + "\" — effect cancelled");
 			if (entry.isSummon()) {
@@ -14133,8 +14180,10 @@ public class MainWindow {
 				if (entry.isExBurstEntry()) ownPayment = CastPaymentRecord.unpaid(entry.source());
 				if (effect != null) {
 					// Targets were chosen when the Summon went on the Stack, so the opponent could
-					// respond to them; resolution uses that choice rather than asking again.
+					// respond to them; resolution uses that choice rather than asking again. A select
+					// Summon's declared option likewise.
 					if (entry.preSelectedTargets() != null) ctx.preloadTargets(liveTargets(entry));
+					preloadDeclaredActions(entry, ctx);
 					currentResolutionIsSummon   = true;
 					currentSummonSource     = entry.source();
 					currentSummonSourceIsP1 = entry.isP1();
@@ -14227,20 +14276,28 @@ public class MainWindow {
 				String effectText = entry.paidExtraCost()
 						? ActionResolver.applyExtraCostPaid(ab.effectText())
 						: ActionResolver.stripExtraCostClause(ab.effectText());
+				// A select ability's "if …," is read again as it resolves (rule 11.8.13).
+				boolean conditionHolds = autoAbilityTriggers.selectConditionHolds(effectText, entry.isP1());
 				// Resolved with the entry's own xValue, not with 0. Auto abilities have no X cost of
 				// their own, so this was always 0 until the "is dealt damage" dispatcher began
 				// carrying the size of the blow there — 4-083L Shantotto's "the same amount of
 				// damage" is a number only the event knows, and dropping it here dealt nothing.
-				Consumer<GameContext> effect = effectText.isBlank() ? null
+				Consumer<GameContext> effect = effectText.isBlank() || !conditionHolds ? null
 						: ActionResolver.parse(effectText, entry.source(), entry.xValue());
 				if (effect != null) {
 					logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\": " + effectText);
-					// As with Summons: an auto-ability chooses when it goes on the Stack.
+					// As with Summons: an auto-ability chooses when it goes on the Stack — its targets,
+					// and a select ability's options too.
 					if (entry.preSelectedTargets() != null) ctx.preloadTargets(liveTargets(entry));
+					preloadDeclaredActions(entry, ctx);
 					currentAbilitySource     = entry.source();
 					currentAbilitySourceIsP1 = entry.isP1();
 					currentAbilityIsSpecial  = false;
 					try { effect.accept(ctx); } finally { currentAbilitySource = null; }
+				} else if (!conditionHolds) {
+					declaredSelectActions.remove(entry);
+					logEntry("[AutoAbility] \"" + entry.source().name() + "\" — its condition no longer holds; "
+							+ "the effect is cancelled");
 				} else if (hadExtraCostClause && !entry.paidExtraCost()) {
 					// Extra cost wasn't paid, and the remaining unconditional lead-in (if any) has no
 					// follow-up action of its own — e.g. "Choose 1 Forward of cost 6 or more." alone.
@@ -14263,6 +14320,8 @@ public class MainWindow {
 				currentRevealedForwardPower = entry.revealedForwardPower();
 				try {
 					if (entry.preSelectedTargets() != null) ctx.preloadTargets(liveTargets(entry));
+					// And a select menu's option, declared as the ability was used (rule 11.6.6).
+					preloadDeclaredActions(entry, ctx);
 					ActionResolver.resolve(entry.ability(), entry.source(), gameState, ctx, entry.xValue());
 				} finally {
 					currentAbilitySource    = null;
@@ -16074,6 +16133,8 @@ public class MainWindow {
 		StackEntry updated = entry.withPreSelectedTargets(newTargets);
 		if (!gameState.replaceStackEntry(entry, updated)) return;
 		if (cancelledStackEntries.remove(entry)) cancelledStackEntries.add(updated);
+		List<String> declared = declaredSelectActions.remove(entry);
+		if (declared != null) declaredSelectActions.put(updated, declared);
 	}
 
 	// -------------------------------------------------------------------------
