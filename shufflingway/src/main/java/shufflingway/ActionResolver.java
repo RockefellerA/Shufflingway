@@ -5772,6 +5772,24 @@ public class ActionResolver {
     }
 
     /**
+     * The Elements a {@link #CHOOSE_CHARACTER_PATTERN} match excludes through its name slot, or
+     * {@code null} when that slot names a card. "Other than Light or Dark" (Refia 26-129R, Meia
+     * 11-101H, Lenna 3-144L, Golbez 17-140S) reaches the {@code excludename} group, where read as a
+     * name it matches no card and excludes nothing. The slot names a card when it is printed
+     * "other than Card Name X", or when it is the source's own name: PR-110 Lightning's "other than
+     * Lightning" is the card, not the Element.
+     */
+    static String excludedElementsOnly(Matcher choose, CardData source) {
+        String named = choose.group("excludename");
+        if (named == null) return null;
+        named = named.trim();
+        if (!ELEMENTS_ONLY_EXCLUSION.matcher(named).matches()) return null;
+        if (source != null && source.name().equalsIgnoreCase(named)) return null;
+        String before = choose.group().substring(0, choose.start("excludename") - choose.start());
+        return CARD_NAME_ENDING.matcher(before).find() ? null : named;
+    }
+
+    /**
      * Removes any trailing/embedded restriction-only sentences already captured as boolean flags
      * (once-per-turn, main-phase-only, your-turn-only, while-attacking, etc.) from {@code text},
      * then strips leftover leading/trailing punctuation.  Returns an empty string if nothing
@@ -6954,11 +6972,40 @@ public class ActionResolver {
         boolean requiresControllerTarget = tgtFilterText != null
                 && tgtFilterText.toLowerCase(Locale.ROOT).contains("you control");
         java.util.function.Predicate<StackEntry> filter = parseAbilityTypeFilter(types);
+        ChoosingOnlyOwnForward onlyOwn = choosingOnlyOwnForward(tgtFilterText);
         String prompt = "Choose 1 " + types + " to cancel:";
         return ctx -> {
             ctx.logEntry("Effect: Cancel " + types + " on stack");
-            ctx.cancelFilteredAbilityOnStack(filter, prompt, requiresControllerTarget);
+            Predicate<StackEntry> narrowed = onlyOwn == null ? null : ctx.choosingOnlyOwnForward(onlyOwn);
+            ctx.cancelFilteredAbilityOnStack(narrowed == null ? filter : filter.and(narrowed),
+                    prompt, requiresControllerTarget);
         };
+    }
+
+    /**
+     * What a cancel's "that is choosing only 1 [Category N] Forward you control" asks of the entry
+     * it cancels — Cyan 24-003H, Aerith 25-110R, Sylvestre 26-110R: that it is choosing exactly one
+     * card, a Forward the canceller controls, of {@code category} when one is named.
+     *
+     * <p>Only the clause is decoded here. Which card a stored target names is a question for the
+     * board, so {@link MainWindow#choosingOnlyOwnForward} builds the predicate, and the activation
+     * gate and the resolution both apply that one.
+     *
+     * @param category the Category the Forward must be, or {@code null} for any Forward
+     */
+    record ChoosingOnlyOwnForward(String category) {}
+
+    /** {@code effectText}'s {@link ChoosingOnlyOwnForward}, or {@code null} when it prints no such clause. */
+    static ChoosingOnlyOwnForward cancelChoosingOnlyOwnForward(String effectText) {
+        if (effectText == null) return null;
+        Matcher m = CANCEL_ABILITY_ON_STACK.matcher(effectText.trim());
+        return m.find() ? choosingOnlyOwnForward(m.group("tgtFilter")) : null;
+    }
+
+    private static ChoosingOnlyOwnForward choosingOnlyOwnForward(String tgtFilter) {
+        if (tgtFilter == null) return null;
+        Matcher m = CHOOSING_ONLY_ONE_OWN_FORWARD.matcher(tgtFilter.trim());
+        return m.matches() ? new ChoosingOnlyOwnForward(m.group("category")) : null;
     }
 
     /**
@@ -8689,10 +8736,14 @@ public class ActionResolver {
         boolean inclSummons    = tgtLower.contains("summon")
                               || tgtLower.equals("card") || tgtLower.equals("cards");
         String  categoryFilter = m.group("category");
-        String  excludeName    = restorePeriodInName(m.group("excludename") != null ? m.group("excludename").trim() : null, source);
+        String  elementsOnly   = excludedElementsOnly(m, source);
+        String  excludeName    = elementsOnly != null ? null
+                : restorePeriodInName(m.group("excludename") != null ? m.group("excludename").trim() : null, source);
         String  rawExcludeKw   = m.group("excludekw");
         boolean withoutMulticard = "Multicard".equalsIgnoreCase(rawExcludeKw != null ? rawExcludeKw.trim() : null);
-        String  rawExcludeElem = m.group("excludeelem");
+        // The three spellings tryParseChooseCharacterInner reads, in the same order.
+        String  rawExcludeElem = m.group("excludeelem") != null ? m.group("excludeelem")
+                : m.group("excludeelemlist") != null ? m.group("excludeelemlist") : elementsOnly;
         String  excludeElem    = rawExcludeElem != null ? rawExcludeElem.trim() : null;
         String  costStr        = m.group("cost");
         String  costListStr    = m.group("costlist");

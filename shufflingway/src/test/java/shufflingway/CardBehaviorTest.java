@@ -3675,6 +3675,87 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // "Choose 1 ability that is choosing only 1 [Category N] Forward you control. Cancel its
+    // effect." — 24-003H Cyan (Category VI) and 26-110R Sylvestre (any Forward). 25-110R Aerith,
+    // the auto-ability-only member, is tested in LimitBehaviorTest.
+    //
+    // All three put their card into the Break Zone to pay for it, so the gate matters as much as
+    // the resolution: with nothing on the Stack that the clause reaches, the ability cannot be
+    // used. The clause used to be read only as far as "you control".
+    // =========================================================================================
+
+    private static final String CYAN_CANCEL_24_003H = "Put Cyan into the Break Zone: Choose 1 ability that is "
+            + "choosing only 1 Category VI Forward you control. Cancel its effect.";
+    private static final String SYLVESTRE_CANCEL_26_110R = "《Water》《Water》《Water》《Dull》, put Sylvestre into "
+            + "the Break Zone: Choose 1 ability that is choosing only 1 Forward you control. Cancel its effect.";
+
+    /** An action ability of P2's on the Stack, choosing {@code targets}. */
+    private static StackEntry p2AbilityChoosing(MainWindow mw, ForwardTarget... targets) {
+        ActionAbility deal = CardData.parseActionAbilities("《1》: Choose 1 Forward. Deal it 5000 damage.").get(0);
+        StackEntry entry = new StackEntry(makeForward("Caster", "Fire", 3, 7000), deal, false, 0, List.of(targets));
+        mw.gameState.pushStack(entry);
+        return entry;
+    }
+
+    private static ForwardTarget p1Fwd(int idx) {
+        return new ForwardTarget(true, idx, ForwardTarget.CardZone.FORWARD);
+    }
+
+    private static boolean canUseOnlyAbility(MainWindow mw, CardData source) {
+        return mw.canActivateAbility(source.actionAbilities().get(0), false, CardState.ACTIVE, 0, source, true);
+    }
+
+    @Test
+    void cyanReachesOnlyAnAbilityChoosingOneCategoryViForwardOfHers() {
+        MainWindow mw = new MainWindow();
+        CardData cyan = makeForward("Cyan", "Fire", 4, 7000, CardData.parseActionAbilities(CYAN_CANCEL_24_003H));
+        placeP1Forward(mw, cyan);                                         // P1 idx 0
+        placeP1Forward(mw, makeCategoryForward("Sabin", "Earth", "VI"));  // P1 idx 1
+        placeP1Forward(mw, makeCategoryForward("Cloud", "Wind", "VII"));  // P1 idx 2
+
+        StackEntry atCloud = p2AbilityChoosing(mw, p1Fwd(2));
+        assertFalse(canUseOnlyAbility(mw, cyan), "a Category VII Forward is not one Cyan protects");
+
+        StackEntry atSabin = p2AbilityChoosing(mw, p1Fwd(1));
+        assertTrue(canUseOnlyAbility(mw, cyan));
+        ActionResolver.parse(cyan.actionAbilities().get(0).effectText(), cyan).accept(mw.buildGameContext(true));
+
+        assertTrue(mw.cancelledStackEntries.contains(atSabin));
+        assertFalse(mw.cancelledStackEntries.contains(atCloud));
+    }
+
+    @Test
+    void sylvestreReachesAnyForwardOfHisButOnlyOne() {
+        MainWindow mw = new MainWindow();
+        CardData sylvestre = makeTextCard("Sylvestre", "Water", "Backup", 6, 0, null, SYLVESTRE_CANCEL_26_110R);
+        TestCards.placeP1Backup(mw, sylvestre);
+        placeP1Forward(mw, makeForward("Ally A", "Water", 3, 7000));  // P1 idx 0
+        placeP1Forward(mw, makeForward("Ally B", "Water", 3, 7000));  // P1 idx 1
+
+        StackEntry atBoth = p2AbilityChoosing(mw, p1Fwd(0), p1Fwd(1));
+        StackEntry atOne  = p2AbilityChoosing(mw, p1Fwd(1));
+
+        // Resolved rather than gated: the gate also asks for his three Water CP. With one entry in
+        // reach the pick is made without a dialog.
+        ActionResolver.parse(sylvestre.actionAbilities().get(0).effectText(), sylvestre)
+                .accept(mw.buildGameContext(true));
+
+        assertTrue(mw.cancelledStackEntries.contains(atOne), "any Forward you control, with no Category named");
+        assertFalse(mw.cancelledStackEntries.contains(atBoth), "an ability choosing two is not choosing only 1");
+    }
+
+    @Test
+    void theOnlyOneClauseDecodesItsCategoryAndNothingElse() {
+        assertEquals(new ActionResolver.ChoosingOnlyOwnForward("VI"),
+                ActionResolver.cancelChoosingOnlyOwnForward(CYAN_CANCEL_24_003H.split(": ", 2)[1]));
+        assertEquals(new ActionResolver.ChoosingOnlyOwnForward(null),
+                ActionResolver.cancelChoosingOnlyOwnForward(SYLVESTRE_CANCEL_26_110R.split(": ", 2)[1]));
+        assertNull(ActionResolver.cancelChoosingOnlyOwnForward(
+                "Choose 1 ability that is choosing a Forward you control. Cancel its effect."),
+                "17-123L Minwu prints no \"only 1\"");
+    }
+
+    // =========================================================================================
     // "Cancel unless opponent pays" (Dull-style) — Tier 1: "Choose 1 [Summon/ability]. If your
     // opponent doesn't pay 《N》, cancel its effect." and Tier 2: the standalone body of a
     // "chosen by opponent's Summons or abilities" auto-ability.
@@ -41381,6 +41462,84 @@ public class CardBehaviorTest {
 		assertFalse(CardFilters.meetsElementExclusion(light, "Light or Dark"));
 		assertFalse(CardFilters.meetsElementExclusion(dark,  "Light or Dark"));
 		assertTrue (CardFilters.meetsElementExclusion(fire,  "Light or Dark"));
+	}
+
+	// =========================================================================================
+	// "Other than Light or Dark" on a Break Zone choice, on a real board: Leo 13-067L above, and
+	// the spelling with no card name in front — Meia 11-101H, Lenna 3-144L, Golbez 17-140S and
+	// Refia 26-129R.
+	//
+	// The Break Zone filter was handed the excluded Elements and never applied them, which the
+	// mock tests above cannot see. And with no "Card Name" ahead of it, the choose pattern took
+	// "Light or Dark" as the name of a card nobody has. PR-110 Lightning's "other than Lightning"
+	// stays a name: it is her own.
+	// =========================================================================================
+
+	private static final String MEIA_11_101H_EFFECT =
+			"choose 1 Character other than Light or Dark in your Break Zone. Add it to your hand.";
+
+	/** Resolves {@code text} from P2's seat, where the CPU chooses, under {@code source}. */
+	private static void resolveSourcedAsP2(MainWindow mw, CardData source, String text, int x) {
+		Consumer<GameContext> effect = ActionResolver.parse(text, source, x);
+		assertNotNull(effect, text);
+		mw.currentAbilitySource = source;
+		mw.currentAbilitySourceIsP1 = false;
+		try { effect.accept(mw.buildGameContext(false)); } finally { mw.currentAbilitySource = null; }
+	}
+
+	private static void putInP2Bz(MainWindow mw, CardData... cards) {
+		for (CardData c : cards) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2BreakZone().add(c);
+		}
+	}
+
+	@Test
+	void leoNeverPlaysALightOrDarkForwardFromTheBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData leo = makeForward("Leo", "Fire", 4, 8000);
+		putInP2Bz(mw, makeForward("Cecil", "Light", 3, 7000), makeForward("Golbez", "Dark", 3, 7000));
+
+		resolveSourcedAsP2(mw, leo, LEO_13_067L_EFFECT, 3);
+		assertTrue(mw.p2ForwardCards.isEmpty(), "both cost X, both excluded");
+
+		CardData terra = makeForward("Terra", "Fire", 3, 7000);
+		putInP2Bz(mw, terra);
+		resolveSourcedAsP2(mw, leo, LEO_13_067L_EFFECT, 3);
+		assertEquals(List.of(terra), mw.p2ForwardCards);
+	}
+
+	@Test
+	void meiaAddsOnlyACharacterOfAnotherElementToHand() {
+		MainWindow mw = new MainWindow();
+		CardData meia = makeForward("Meia", "Lightning", 3, 7000);
+		putInP2Bz(mw, makeForward("Cecil", "Light", 3, 7000), makePlainBackup("Kuja", "Dark", 2));
+
+		resolveSourcedAsP2(mw, meia, MEIA_11_101H_EFFECT, 0);
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "\"Light or Dark\" names two Elements, not a card");
+
+		CardData rydia = makePlainBackup("Rydia", "Water", 2);
+		putInP2Bz(mw, rydia);
+		resolveSourcedAsP2(mw, meia, MEIA_11_101H_EFFECT, 0);
+		assertEquals(List.of(rydia), mw.gameState.getP2Hand());
+	}
+
+	@Test
+	void anOtherThanClauseIsReadAsElementsOnlyWhenItNamesNoCard() {
+		TargetSpec meia = ActionResolver.targetSpec(MEIA_11_101H_EFFECT, makeForward("Meia", "Lightning", 3, 7000));
+		assertNull(meia.excludeName());
+		assertEquals("Light or Dark", meia.excludeElement());
+
+		TargetSpec ownName = ActionResolver.targetSpec(
+				"Choose 1 Forward other than Lightning. You may return it to its owner's hand.",
+				makeForward("Lightning", "Light", 4, 7000));
+		assertEquals("Lightning", ownName.excludeName(), "PR-110 Lightning means herself");
+		assertNull(ownName.excludeElement());
+
+		TargetSpec cardName = ActionResolver.targetSpec("Choose 1 Forward other than Card Name Lightning. Dull it.",
+				makeForward("Snow", "Water", 3, 7000));
+		assertEquals("Lightning", cardName.excludeName(), "printed as a card name");
+		assertNull(cardName.excludeElement());
 	}
 
 	// =========================================================================================

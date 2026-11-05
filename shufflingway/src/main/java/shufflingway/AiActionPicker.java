@@ -3,6 +3,7 @@ package shufflingway;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -28,6 +29,8 @@ import java.util.regex.Pattern;
  *   <li>Choosing a Forward by its state or cost — "Choose 1 active Forward of cost 3 or less."
  *       (24-125H Tonberry &amp; Cactuar), "Choose 1 damaged Forward." (24-123H Vajradhara Wu) —
  *       needs an opposing Forward meeting every qualifier, whatever is then done to it.</li>
+ *   <li>"Play 1 Card Name Lightning of cost 4 or less from your hand onto the field." (26-130H
+ *       Lightning) needs a card in the AI's own hand that the play would take.</li>
  * </ul>
  * Anything else is taken at face value. Live options keep their printed order; dead ones are taken
  * only when the menu demands an exact count.
@@ -46,11 +49,20 @@ final class AiActionPicker {
      * @param oppActiveCharacters active Characters (Forwards, Backups, Monsters) the opponent controls
      * @param oppDullCharacters   dull Characters the opponent controls
      * @param oppBackups          Backups the opponent controls, active or dull
+     * @param ownHandCanPlay      whether a "Play … from your hand" option, given its text, would
+     *                            find a card in the AI's own hand
      */
     record Board(boolean oppBreakZoneEmpty, List<OpposingForward> oppForwards,
                  int oppActiveCharacters, int oppDullCharacters, int oppBackups, int oppHandSize,
-                 boolean ownHandHasSummon) {
+                 boolean ownHandHasSummon, Predicate<String> ownHandCanPlay) {
         Board { oppForwards = List.copyOf(oppForwards); }
+
+        /** A board on which every "Play … from your hand" option is taken at face value. */
+        Board(boolean oppBreakZoneEmpty, List<OpposingForward> oppForwards, int oppActiveCharacters,
+              int oppDullCharacters, int oppBackups, int oppHandSize, boolean ownHandHasSummon) {
+            this(oppBreakZoneEmpty, oppForwards, oppActiveCharacters, oppDullCharacters, oppBackups,
+                    oppHandSize, ownHandHasSummon, option -> true);
+        }
 
         int oppActiveForwards() { return (int) oppForwards.stream().filter(f -> !f.dull()).count(); }
 
@@ -92,9 +104,12 @@ final class AiActionPicker {
     private static final Pattern SUMMON_DISCOUNT = Pattern.compile(
             "(?i)\\bcost\\s+required\\s+to\\s+cast\\s+your\\s+next\\s+Summon\\s+is\\s+reduced\\b");
 
+    /** "Play 1 Card Name Lightning of cost 4 or less from your hand onto the field." */
+    private static final Pattern PLAYS_FROM_HAND = Pattern.compile("(?i)^Play\\b[^.]*\\bfrom\\s+your\\s+hand\\b");
+
     private enum Kind { NEEDS_DULL_FORWARD, NEEDS_DULL_CHARACTER, DULLS_FORWARD, DULLS_CHARACTER,
                         REMOVES_FORWARD, REMOVES_BACKUP, REMOVES_CHARACTER, CHOOSES_FORWARD,
-                        OPP_DISCARDS, SUMMON_DISCOUNT, OTHER }
+                        OPP_DISCARDS, SUMMON_DISCOUNT, PLAYS_FROM_HAND, OTHER }
 
     /**
      * The options the AI takes, in the order they should resolve.
@@ -164,6 +179,7 @@ final class AiActionPicker {
             case REMOVES_CHARACTER    -> board.oppActiveCharacters() + board.oppDullCharacters() > 0;
             case OPP_DISCARDS         -> board.oppHandSize() > 0;
             case SUMMON_DISCOUNT      -> board.ownHandHasSummon();
+            case PLAYS_FROM_HAND      -> board.ownHandCanPlay().test(action.trim());
             case OTHER                -> true;
         };
     }
@@ -209,6 +225,9 @@ final class AiActionPicker {
 
     private static Kind kindOf(String action) {
         String a = action.trim();
+        // About the AI's own hand rather than a target, so ahead of the own-side shortcut below: a
+        // play whose cost is counted ("… equal to the number of Job X you control") is still a play.
+        if (PLAYS_FROM_HAND.matcher(a).find()) return Kind.PLAYS_FROM_HAND;
         // Options aimed at the AI's own side are not about opposing targets; take them at face value.
         if (a.toLowerCase(Locale.ROOT).contains("you control")) return Kind.OTHER;
         Matcher m = NEEDS_DULL.matcher(a);

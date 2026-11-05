@@ -15563,6 +15563,29 @@ public class MainWindow {
 	}
 
 	/**
+	 * The Stack entries a "that is choosing only 1 [Category N] Forward you control" cancel may
+	 * take, as a predicate — shared by the activation gate in {@link #canActivateAbility} and by
+	 * the resolution in {@code GameContextImpl}, as {@link #redirectEligibility} is for the
+	 * redirects. The type of entry ("auto-ability") is the cancel's own filter, not this one's.
+	 *
+	 * <p>"Only 1" in the redirect's sense: an entry choosing two cards, or none yet, is not.
+	 *
+	 * @param userIsP1 the player activating the cancel, which is whose field "you control" means
+	 */
+	Predicate<StackEntry> choosingOnlyOwnForward(ActionResolver.ChoosingOnlyOwnForward spec, boolean userIsP1) {
+		return entry -> {
+			List<ForwardTarget> chosen = liveTargets(entry, false);
+			if (chosen == null || chosen.size() != 1) return false;
+			ForwardTarget only = chosen.get(0);
+			CardData card = fieldCardDataOrNull(only);
+			return card != null
+					&& only.isP1() == userIsP1
+					&& only.zone() == ForwardTarget.CardZone.FORWARD
+					&& CardFilters.meetsCategoryFilter(card, spec.category());
+		};
+	}
+
+	/**
 	 * The Forwards {@code userIsP1} controls that could legally become {@code entry}'s new target.
 	 *
 	 * <p>{@code element} narrows to one Element; {@code exclude} drops a card the text puts out of
@@ -16083,6 +16106,8 @@ public class MainWindow {
 		// A cancel has nothing to do without an eligible entry on the stack, and activating it
 		// anyway pays the cost — for most of this family, the source card itself — for no effect.
 		Predicate<StackEntry> cancelFilter = ActionResolver.stackCancelFilter(ability.effectText(), isP1);
+		ActionResolver.ChoosingOnlyOwnForward onlyOwn = ActionResolver.cancelChoosingOnlyOwnForward(ability.effectText());
+		if (cancelFilter != null && onlyOwn != null) cancelFilter = cancelFilter.and(choosingOnlyOwnForward(onlyOwn, isP1));
 		if (cancelFilter != null && gameState.getStack().stream().noneMatch(cancelFilter)) return false;
 		// Same reasoning for a redirect: with nothing on the stack choosing what the text names,
 		// activating only pays the cost.

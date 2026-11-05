@@ -2981,12 +2981,13 @@ final class GameContextImpl implements GameContext {
 					int costVal, String costCmp, int powerVal, String powerCmp,
 					boolean inclForwards, boolean inclBackups, boolean inclMonsters, boolean inclSummons,
 					String jobFilter, String cardNameFilter, String categoryFilter, String excludeName,
-					boolean withoutMulticard) {
+					String excludeElement, boolean withoutMulticard) {
 				if (card.isForward() && !inclForwards) return false;
 				if (card.isBackup()  && !inclBackups)  return false;
 				if (card.isMonster() && !inclMonsters) return false;
 				if (card.isSummon()  && !inclSummons)  return false;
 				if (element != null && !card.containsElement(element)) return false;
+				if (!meetsElementExclusion(card, excludeElement)) return false;
 				if (!meetsCostConstraint(card.cost(), costVal, costCmp)) return false;
 				if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) return false;
 				if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, null)) return false;
@@ -3028,7 +3029,8 @@ final class GameContextImpl implements GameContext {
 					for (int i = 0; i < bz.size(); i++) {
 						if (!breakZoneCardMatches(bz.get(i), element, costVal, costCmp, powerVal, powerCmp,
 								inclForwards, inclBackups, inclMonsters, inclSummons,
-								jobFilter, cardNameFilter, categoryFilter, excludeName, withoutMulticard))
+								jobFilter, cardNameFilter, categoryFilter, excludeName, excludeElement,
+								withoutMulticard))
 							continue;
 						if (fromFieldThisTurnOnly
 								&& !mw.turn(sideIsP1).putToBzFromFieldThisTurn.contains(bz.get(i)))
@@ -3365,6 +3367,10 @@ final class GameContextImpl implements GameContext {
 						: chosen.isSpecialAbility() ? "special ability" : "action ability";
 				logEntry("Effect: " + chosen.source().name() + "'s " + type + " effect will be cancelled");
 				return chosen;
+			}
+
+			@Override public Predicate<StackEntry> choosingOnlyOwnForward(ActionResolver.ChoosingOnlyOwnForward spec) {
+				return mw.choosingOnlyOwnForward(spec, isP1);
 			}
 
 			@Override public StackEntry chooseAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt) {
@@ -7845,7 +7851,13 @@ final class GameContextImpl implements GameContext {
 						(oppIsP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone()).isEmpty(),
 						oppForwards, activeForwards + activeOthers, dullForwards + dullOthers,
 						backups, (oppIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand()).size(),
-						ownHand.stream().anyMatch(CardData::isSummon));
+						ownHand.stream().anyMatch(CardData::isSummon),
+						option -> {
+							// The card the play would take, as the play itself would pick it. A
+							// wording that reading does not cover is taken at face value.
+							Function<GameContext, CardData> best = ActionResolverHand.bestPlayableFromHand(option, 0);
+							return best == null || best.apply(this) != null;
+						});
 				return AiActionPicker.pick(actions, selectCount, upTo, board);
 			}
 

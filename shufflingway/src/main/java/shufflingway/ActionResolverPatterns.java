@@ -45,7 +45,9 @@ final class ActionResolverPatterns {
      *   <li>Group {@code control}   — optional: "opponent controls", "your opponent controls",
      *                                 or "you control"</li>
      *   <li>Group {@code excludekw}   — optional keyword to exclude, from "without 《Keyword》" (e.g. "Multicard")</li>
-     *   <li>Group {@code excludename} — optional card name to exclude, from "other than Card Name X"</li>
+     *   <li>Group {@code excludename} — optional card name to exclude, from "other than Card Name X";
+     *                                 also takes "other than Light or Dark", which names Elements
+     *                                 (see {@link #ELEMENTS_ONLY_EXCLUSION})</li>
      *   <li>Group {@code zone}      — optional zone, e.g. "in your Break Zone" or
      *                                 "in your opponent's Break Zone"</li>
      *   <li>Group {@code followup}  — the action to apply to chosen targets</li>
@@ -171,6 +173,18 @@ final class ActionResolverPatterns {
                     "(?:[.]\\s+|\\s+and\\s+|,\\s*)" +
                     "(?<followup>.+)"
     );
+    /**
+     * An "other than" clause naming nothing but Elements — "other than Light or Dark" (Refia
+     * 26-129R, Meia 11-101H, Lenna 3-144L, Golbez 17-140S). {@link #CHOOSE_CHARACTER_PATTERN}'s
+     * {@code excludename} group takes it whole; {@code ActionResolver.excludedElementsOnly} reads it
+     * back as Elements.
+     */
+    static final Pattern ELEMENTS_ONLY_EXCLUSION = Pattern.compile(
+            "(?i)(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+            "(?:\\s+(?:or|and)\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*"
+    );
+    /** The "Card Name " that may stand in front of {@link #CHOOSE_CHARACTER_PATTERN}'s excluded name. */
+    static final Pattern CARD_NAME_ENDING = Pattern.compile("(?i)Card\\s+Name\\s+$");
     /**
      * Matches "Choose N [Job X … or Card Name Y] [targets] you control and N [targets] opponent
      * controls. [followup]" — one selection from the active player's side and one from the
@@ -550,8 +564,11 @@ final class ActionResolverPatterns {
     /**
      * Matches the general "Choose 1 [ability type(s)] [optional target filter]. Cancel its effect."
      * family.  Handles any combination of auto-ability / action ability / special ability / ability
-     * (two types joined by " or " also accepted).  An optional "that is choosing [filter] you control"
-     * or "that has only one target" clause is captured but not enforced in code.
+     * (two types joined by " or " also accepted).  An optional "that is choosing [filter]" clause is
+     * captured as group {@code tgtFilter}. Its "only 1 [Category N] Forward you control" form is
+     * enforced in full ({@link #CHOOSING_ONLY_ONE_OWN_FORWARD}); any other wording only narrows the
+     * cancel to entries choosing something of the canceller's, and "that has only one target" not at
+     * all.
      * Group {@code types} — the raw ability-type string (e.g. "auto-ability", "special ability or auto ability").
      */
     static final Pattern CANCEL_ABILITY_ON_STACK = Pattern.compile(
@@ -561,6 +578,15 @@ final class ActionResolverPatterns {
         "(?:\\s+that\\s+(?:is\\s+)?choosing\\s+(?<tgtFilter>[^.]+?))?" +
         "(?:\\s+that\\s+has\\s+only\\s+one\\s+target)?" +
         "\\.\\s*Cancel\\s+its\\s+effect[.!]?"
+    );
+    /**
+     * The {@code tgtFilter} of {@link #CANCEL_ABILITY_ON_STACK} when it reads "only 1 [Category N]
+     * Forward you control" — 24-003H Cyan (Category VI), 25-110R Aerith (Category VII) and 26-110R
+     * Sylvestre (any Forward). Matched against the whole group. Group {@code category}, absent for
+     * Sylvestre.
+     */
+    static final Pattern CHOOSING_ONLY_ONE_OWN_FORWARD = Pattern.compile(
+        "(?i)only\\s+1\\s+(?:Category\\s+(?<category>[^\\s.]+)\\s+)?Forward\\s+you\\s+control"
     );
     /**
      * Matches "choose 1 auto-ability triggered from [your opponent's] [type] [of cost N or

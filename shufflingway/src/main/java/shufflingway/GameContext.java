@@ -348,6 +348,14 @@ public interface GameContext {
     StackEntry cancelFilteredAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt, boolean requiresControllerTarget);
 
     /**
+     * The Stack entries choosing exactly one card, a Forward this context's player controls that
+     * meets {@code spec} — what a "that is choosing only 1 [Category N] Forward you control" cancel
+     * may take (Cyan 24-003H, Aerith 25-110R, Sylvestre 26-110R). The same predicate the activation
+     * gate applies, from {@link MainWindow#choosingOnlyOwnForward}.
+     */
+    Predicate<StackEntry> choosingOnlyOwnForward(ActionResolver.ChoosingOnlyOwnForward spec);
+
+    /**
      * Chooses one Stack entry matching {@code filter} and leaves it where it is — the choice is
      * the whole of this call, for effects that act on what the ability came from rather than on
      * the ability. 25-088H Famfrit, the Darkening Cloud: "Choose 1 auto-ability triggered from a

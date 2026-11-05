@@ -158,6 +158,20 @@ class AiActionPickerTest {
                 AiActionPicker.pick(menu, 1, false, facing(new AiActionPicker.OpposingForward(3, false, false))));
     }
 
+    // 26-130H Lightning: "select 1 of the 2 following actions." Taken at face value, the play was
+    // picked with nothing in hand it could take, and the select resolved to nothing.
+    private static final String LIGHTNING_PLAY   = "Play 1 Card Name Lightning of cost 4 or less from your hand onto the field.";
+    private static final String LIGHTNING_SEARCH = "Search for 1 Card Name Lightning and add it to your hand.";
+
+    @Test
+    void aPlayFromHandIsTakenOnlyWhenTheHandHoldsACardItWouldPlay() {
+        List<String> menu = List.of(LIGHTNING_PLAY, LIGHTNING_SEARCH);
+        AiActionPicker.Board inHand  = new AiActionPicker.Board(true, List.of(), 0, 0, 0, 0, false, LIGHTNING_PLAY::equals);
+        AiActionPicker.Board notHeld = new AiActionPicker.Board(true, List.of(), 0, 0, 0, 0, false, option -> false);
+        assertEquals(List.of(LIGHTNING_PLAY), AiActionPicker.pick(menu, 1, false, inHand));
+        assertEquals(List.of(LIGHTNING_SEARCH), AiActionPicker.pick(menu, 1, false, notHeld));
+    }
+
     @Test
     void anExactCostIsReadAsThatCostAlone() {
         String breakOne = "Choose 1 Forward of cost 1. Break it.";

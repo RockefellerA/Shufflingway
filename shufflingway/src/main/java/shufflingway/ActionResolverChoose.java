@@ -2641,14 +2641,17 @@ final class ActionResolverChoose {
         boolean inclSummons  = tgtLower.contains("summon")
                            || tgtLower.equals("card") || tgtLower.equals("cards");
         String  categoryFilter = m.group("category");
-        String  excludeName      = restorePeriodInName(m.group("excludename") != null ? m.group("excludename").trim() : null, source);
+        String  elementsOnly     = excludedElementsOnly(m, source);
+        String  excludeName      = elementsOnly != null ? null
+                : restorePeriodInName(m.group("excludename") != null ? m.group("excludename").trim() : null, source);
         String  rawExcludeKw     = m.group("excludekw");
         boolean withoutMulticard = "Multicard".equalsIgnoreCase(rawExcludeKw != null ? rawExcludeKw.trim() : null);
-        // Two spellings of the same constraint: "of any Element except X and Y" stands alone,
-        // while "other than Card Name Z, X or Y" hangs off the name exclusion. Either fills the
-        // one exclusion string the selection layer reads.
-        String  rawExcludeElem = m.group("excludeelem") != null
-                ? m.group("excludeelem") : m.group("excludeelemlist");
+        // Three spellings of the same constraint: "of any Element except X and Y" stands alone,
+        // "other than Card Name Z, X or Y" hangs off the name exclusion, and "other than X or Y"
+        // fills the name slot by itself. Any of them fills the one exclusion string the selection
+        // layer reads.
+        String  rawExcludeElem = m.group("excludeelem") != null ? m.group("excludeelem")
+                : m.group("excludeelemlist") != null ? m.group("excludeelemlist") : elementsOnly;
         final String fExcludeElem = rawExcludeElem != null ? rawExcludeElem.trim() : null;
         String  costStr      = m.group("cost");
         String  costListStr  = m.group("costlist");

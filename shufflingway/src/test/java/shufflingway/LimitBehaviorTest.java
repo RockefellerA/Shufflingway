@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static shufflingway.TestCards.*;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.EnumSet;
@@ -86,16 +87,28 @@ class LimitBehaviorTest {
 		int before = mw.gameState.getStack().size();
 		trigger.run();
 		assertTrue(mw.gameState.getStack().size() > before, source.name() + "'s ability went on the Stack");
-		while (mw.gameState.getStack().size() > before) {
-			StackEntry e = mw.gameState.popStack();
-			Consumer<GameContext> effect = ActionResolver.parse(e.autoAbility().effectText(), e.source(), e.xValue());
-			assertNotNull(effect, "resolves: " + e.autoAbility().effectText());
-			GameContext ctx = mw.buildGameContext(e.isP1());
-			if (e.preSelectedTargets() != null) ctx.preloadTargets(mw.liveTargets(e));
-			mw.currentAbilitySource = e.source();
-			mw.currentAbilitySourceIsP1 = e.isP1();
-			try { effect.accept(ctx); } finally { mw.currentAbilitySource = null; }
-		}
+		resolveDownTo(mw, before);
+	}
+
+	/** Resolves the Stack's top entries, top first, until {@code depth} entries are left. */
+	private static void resolveDownTo(MainWindow mw, int depth) {
+		while (mw.gameState.getStack().size() > depth) resolveTop(mw);
+	}
+
+	/**
+	 * Pops the Stack's top entry, an auto or action ability, and resolves it the way the Stack's own
+	 * arms do: with the targets chosen as it went on the Stack, under its source.
+	 */
+	private static void resolveTop(MainWindow mw) {
+		StackEntry e = mw.gameState.popStack();
+		String text = e.autoAbility() != null ? e.autoAbility().effectText() : e.ability().effectText();
+		Consumer<GameContext> effect = ActionResolver.parse(text, e.source(), e.xValue());
+		assertNotNull(effect, "resolves: " + text);
+		GameContext ctx = mw.buildGameContext(e.isP1());
+		if (e.preSelectedTargets() != null) ctx.preloadTargets(mw.liveTargets(e));
+		mw.currentAbilitySource = e.source();
+		mw.currentAbilitySourceIsP1 = e.isP1();
+		try { effect.accept(ctx); } finally { mw.currentAbilitySource = null; }
 	}
 
 	/**
@@ -2251,6 +2264,1015 @@ class LimitBehaviorTest {
 		CardData theirs = ultimaWeaponWaterTriggerBeside(mw, 2);
 
 		assertTrue(mw.p2ForwardCards.contains(theirs));
+	}
+
+	// =========================================================================================
+	// 25-106R Machina (LB 1): "You can only cast Machina if you don't control any Forwards.[[br]]For
+	// each point of damage you have received, Machina gains +1000 power."
+	// =========================================================================================
+
+	private static final String MACHINA_25_106R = "Limit Break -- 1[[br]]You can only cast Machina if you don't "
+			+ "control any Forwards.[[br]]For each point of damage you have received, Machina gains +1000 power.";
+
+	private static CardData makeMachina() {
+		return makeLbForward("Machina", "Fire", 2, 4000, 1, "Class Zero Cadet", "TYPE-0", MACHINA_25_106R);
+	}
+
+	@Test
+	void machinaCanOnlyBeCastWhileYouControlNoForwards() {
+		MainWindow mw = new MainWindow();
+		CardData machina = makeMachina();
+		placeP1Backup(mw, makeBackup("Aide", "Fire", 2));
+		placeP2Forward(mw, makeForward("Theirs", "Water", 3, 7000));
+
+		assertTrue(mw.castRestrictionMet(machina, true), "a Backup, and the opponent's Forward, are no bar");
+		placeP1Forward(mw, makeForward("Ally", "Fire", 2, 5000));
+		assertFalse(mw.castRestrictionMet(machina, true));
+	}
+
+	@Test
+	void machinaGains1000PowerPerPointOfDamageYouHaveReceived() {
+		MainWindow mw = new MainWindow();
+		CardData machina = makeMachina();
+		placeP2Forward(mw, machina);
+		int idx = mw.p2ForwardCards.indexOf(machina);
+
+		assertEquals(4000, mw.effectiveP2ForwardPower(idx), "no damage yet");
+		for (int i = 0; i < 3; i++) mw.gameState.getP2DamageZone().add(makeForward("Damage " + i, "Fire", 2, 5000));
+		assertEquals(7000, mw.effectiveP2ForwardPower(idx));
+		mw.gameState.getP1DamageZone().add(makeForward("Their Damage", "Water", 2, 5000));
+		assertEquals(7000, mw.effectiveP2ForwardPower(idx), "the damage you have received, not your opponent's");
+	}
+
+	// =========================================================================================
+	// 25-107H Red XIII (LB 2): "If you control 3 or more Category VII Forwards, Red XIII gains
+	// Haste, First Strike and Brave.[[br]]When Red XIII enters the field, all the Forwards you
+	// control gain +2000 power until the end of the turn."
+	//
+	// Red XIII is Category VII himself, so he is one of the three.
+	// =========================================================================================
+
+	private static final String RED_XIII_25_107H = "Limit Break -- 2[[br]]If you control 3 or more Category VII "
+			+ "Forwards, Red XIII gains Haste, First Strike and Brave.[[br]]When Red XIII enters the field, all the "
+			+ "Forwards you control gain +2000 power until the end of the turn.";
+
+	private static CardData makeRedXiii() {
+		return makeLbForward("Red XIII", "Fire", 4, 7000, 2, "Warrior", "VII", RED_XIII_25_107H);
+	}
+
+	@Test
+	void redXiiiGainsHasteFirstStrikeAndBraveFromTheThirdCategoryViiForward() {
+		MainWindow mw = new MainWindow();
+		CardData red = makeRedXiii();
+		placeP2Forward(mw, red);
+		placeP2Forward(mw, makePlainCard("Cloud", "Fire", "Forward", 2, 5000, null, "VII"));
+		placeP2Backup(mw, makePlainCard("Tifa", "Earth", "Backup", 2, 0, null, "VII"));
+		int r = mw.p2ForwardCards.indexOf(red);
+
+		for (CardData.Trait t : List.of(CardData.Trait.HASTE, CardData.Trait.FIRST_STRIKE, CardData.Trait.BRAVE))
+			assertFalse(mw.effectiveP2HasTrait(r, t), "two Forwards; the Backup is not one: " + t);
+		placeP2Forward(mw, makePlainCard("Barret", "Earth", "Forward", 3, 7000, null, "VII"));
+		for (CardData.Trait t : List.of(CardData.Trait.HASTE, CardData.Trait.FIRST_STRIKE, CardData.Trait.BRAVE))
+			assertTrue(mw.effectiveP2HasTrait(r, t), "Red XIII and two more: " + t);
+	}
+
+	@Test
+	void redXiiiGivesTheForwardsYouControlPlus2000ForTheTurn() {
+		MainWindow mw = new MainWindow();
+		CardData ally   = makeForward("Ally", "Fire", 3, 5000);
+		CardData theirs = makeForward("Theirs", "Water", 3, 5000);
+		placeP2Forward(mw, ally);
+		placeP1Forward(mw, theirs);
+		CardData red = makeRedXiii();
+
+		enterAsP2(mw, red);
+
+		int a = mw.p2ForwardCards.indexOf(ally);
+		assertEquals(7000, mw.effectiveP2ForwardPower(a));
+		assertEquals(9000, mw.effectiveP2ForwardPower(mw.p2ForwardCards.indexOf(red)), "Red XIII is one of them");
+		assertEquals(5000, mw.effectiveP1ForwardPower(mw.p1ForwardCards.indexOf(theirs)), "only yours");
+		mw.turnPhases().runP2EndOfTurnCleanup();
+		assertEquals(5000, mw.effectiveP2ForwardPower(a), "until the end of the turn");
+	}
+
+	// =========================================================================================
+	// 25-109H Shuyin (LB 1): "When Shuyin enters the field, you may discard 1 card. When you do so,
+	// search for 1 Dark Forward and add it to your hand."
+	//
+	// Unlike Vincent's "put … into the Break Zone. When you do so", a discard is not one of the
+	// prices the trigger layer charges as the card arrives, so this one goes on the Stack and the
+	// resolver reads the discard and its payoff together.
+	// =========================================================================================
+
+	private static final String SHUYIN_25_109H = "Limit Break -- 1[[br]]When Shuyin enters the field, you may "
+			+ "discard 1 card. When you do so, search for 1 Dark Forward and add it to your hand.";
+
+	private static CardData makeShuyin() {
+		return makeLbForward("Shuyin", "Ice", 5, 5000, 1, "Illusion", "X", SHUYIN_25_109H);
+	}
+
+	@Test
+	void shuyinDiscardsACardToSearchForADarkForward() {
+		MainWindow mw = new MainWindow();
+		CardData held = makeForward("Held", "Water", 2, 5000);
+		mw.gameState.getIdentity().put(held, false);
+		mw.gameState.getP2Hand().add(held);
+		CardData dark       = makeForward("Dark One", "Dark", 5, 9000);
+		CardData darkBackup = makeBackup("Dark Aide", "Dark", 3);
+		CardData ice        = makeForward("Ice One", "Ice", 3, 7000);
+		for (CardData c : List.of(darkBackup, ice, dark)) putOnTopOfDeck(mw, c, false);
+
+		enterAsP2(mw, makeShuyin());
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(held), "discarded");
+		assertEquals(List.of(dark), mw.gameState.getP2Hand());
+		assertTrue(mw.gameState.getP2MainDeck().containsAll(List.of(darkBackup, ice)), "a Dark Forward only");
+	}
+
+	@Test
+	void withNothingToDiscardShuyinsAbilityNeverReachesTheStack() {
+		// A price that cannot be paid leaves nothing to do so; the trigger layer does not offer it.
+		MainWindow mw = new MainWindow();
+		CardData dark = makeForward("Dark One", "Dark", 5, 9000);
+		putOnTopOfDeck(mw, dark, false);
+
+		placeP2Forward(mw, makeShuyin());
+
+		assertTrue(mw.gameState.getStack().isEmpty());
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+		assertTrue(mw.gameState.getP2MainDeck().contains(dark));
+	}
+
+	// =========================================================================================
+	// 25-110R Aerith (LB 2): "When Aerith enters the field, you may search for 1 Card Name Cloud or
+	// Card Name Zack and add it to your hand.[[br]]《Dull》, put Aerith into the Break Zone: Choose
+	// 1 auto-ability that is choosing only 1 Category VII Forward you control. Cancel its effect."
+	//
+	// The cancel reaches one kind of entry on the Stack: an auto-ability, choosing exactly one
+	// card, which is a Category VII Forward on Aerith's side. A Summon, an entry choosing two, or
+	// one choosing a Forward of another Category or across the table is out of reach — and with
+	// nothing in reach, she cannot be used at all, or she would go to the Break Zone for nothing.
+	// =========================================================================================
+
+	private static final String AERITH_25_110R = "Limit Break -- 2[[br]]When Aerith enters the field, you may "
+			+ "search for 1 Card Name Cloud or Card Name Zack and add it to your hand.[[br]]《Dull》, put Aerith "
+			+ "into the Break Zone: Choose 1 auto-ability that is choosing only 1 Category VII Forward you "
+			+ "control. Cancel its effect.";
+
+	private static CardData makeAerith() {
+		return makeLbForward("Aerith", "Wind", 5, 4000, 2, "Ancient", "VII", AERITH_25_110R);
+	}
+
+	@Test
+	void aerithSearchesForZack() {
+		MainWindow mw = new MainWindow();
+		CardData zack = makeForward("Zack", "Fire", 3, 7000);
+		CardData tifa = makeForward("Tifa", "Earth", 3, 7000);
+		putOnTopOfDeck(mw, tifa, false);
+		putOnTopOfDeck(mw, zack, false);
+
+		enterAsP2(mw, makeAerith());
+
+		assertEquals(List.of(zack), mw.gameState.getP2Hand());
+		assertTrue(mw.gameState.getP2MainDeck().contains(tifa), "another name");
+	}
+
+	/** An auto-ability of P1's on the Stack, choosing {@code targets}. */
+	private static StackEntry p1AutoAbilityChoosing(MainWindow mw, ForwardTarget... targets) {
+		CardData source = makeForward("Caster", "Water", 3, 7000);
+		AutoAbility auto = CardData.parseAutoAbilities(
+				"When Caster enters the field, choose 1 Forward. Deal it 5000 damage.").get(0);
+		StackEntry entry = new StackEntry(source, null, auto, true, 0, false, List.of(targets),
+				false, false, 0, 0);
+		mw.gameState.pushStack(entry);
+		return entry;
+	}
+
+	private static ForwardTarget p2Forward(MainWindow mw, CardData card) {
+		return new ForwardTarget(false, mw.p2ForwardCards.indexOf(card), ForwardTarget.CardZone.FORWARD);
+	}
+
+	/** Aerith on P2's field beside {@code others}; returns Aerith. */
+	private static CardData aerithBeside(MainWindow mw, CardData... others) {
+		CardData aerith = makeAerith();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, aerith);
+		for (CardData c : others) placeP2Forward(mw, c);
+		return aerith;
+	}
+
+	private static boolean aerithCanBeUsed(MainWindow mw, CardData aerith) {
+		return mw.canActivateAbility(aerith.actionAbilities().get(0), false, CardState.ACTIVE, 0, aerith, false);
+	}
+
+	private static void useAerith(MainWindow mw, CardData aerith) {
+		useAbilityAs(mw, false, aerith, aerith.actionAbilities().get(0).effectText());
+	}
+
+	@Test
+	void aerithCancelsAnAutoAbilityChoosingOnlyACategoryViiForwardOfHers() {
+		MainWindow mw = new MainWindow();
+		CardData cloud  = makePlainCard("Cloud", "Wind", "Forward", 2, 5000, null, "VII");
+		CardData aerith = aerithBeside(mw, cloud);
+		StackEntry entry = p1AutoAbilityChoosing(mw, p2Forward(mw, cloud));
+
+		assertTrue(aerithCanBeUsed(mw, aerith));
+		useAerith(mw, aerith);
+
+		assertTrue(mw.cancelledStackEntries.contains(entry));
+	}
+
+	@Test
+	void aerithCannotCancelOneChoosingAForwardOfAnotherCategory() {
+		MainWindow mw = new MainWindow();
+		CardData lightning = makePlainCard("Lightning", "Wind", "Forward", 2, 5000, null, "XIII");
+		CardData aerith = aerithBeside(mw, lightning);
+		StackEntry entry = p1AutoAbilityChoosing(mw, p2Forward(mw, lightning));
+
+		assertFalse(aerithCanBeUsed(mw, aerith), "a Category XIII Forward is not one of hers to protect");
+		useAerith(mw, aerith);
+		assertFalse(mw.cancelledStackEntries.contains(entry));
+	}
+
+	@Test
+	void aerithCannotCancelOneChoosingTwoForwards() {
+		MainWindow mw = new MainWindow();
+		CardData cloud = makePlainCard("Cloud", "Wind", "Forward", 2, 5000, null, "VII");
+		CardData tifa  = makePlainCard("Tifa", "Earth", "Forward", 2, 5000, null, "VII");
+		CardData aerith = aerithBeside(mw, cloud, tifa);
+		StackEntry entry = p1AutoAbilityChoosing(mw, p2Forward(mw, cloud), p2Forward(mw, tifa));
+
+		assertFalse(aerithCanBeUsed(mw, aerith), "\"choosing only 1\"");
+		useAerith(mw, aerith);
+		assertFalse(mw.cancelledStackEntries.contains(entry));
+	}
+
+	@Test
+	void aerithCannotCancelOneChoosingACategoryViiForwardAcrossTheTable() {
+		MainWindow mw = new MainWindow();
+		CardData aerith = aerithBeside(mw);
+		CardData theirs = makePlainCard("Cloud", "Wind", "Forward", 2, 5000, null, "VII");
+		placeP1Forward(mw, theirs);
+		StackEntry entry = p1AutoAbilityChoosing(mw,
+				new ForwardTarget(true, mw.p1ForwardCards.indexOf(theirs), ForwardTarget.CardZone.FORWARD));
+
+		assertFalse(aerithCanBeUsed(mw, aerith), "\"you control\"");
+		useAerith(mw, aerith);
+		assertFalse(mw.cancelledStackEntries.contains(entry));
+	}
+
+	@Test
+	void aerithCannotCancelASummon() {
+		MainWindow mw = new MainWindow();
+		CardData cloud  = makePlainCard("Cloud", "Wind", "Forward", 2, 5000, null, "VII");
+		CardData aerith = aerithBeside(mw, cloud);
+		StackEntry summon = new StackEntry(makeSummon("Bolt", "Lightning", 3, ""), null, true, 0,
+				List.of(p2Forward(mw, cloud)));
+		mw.gameState.pushStack(summon);
+
+		assertFalse(aerithCanBeUsed(mw, aerith), "an auto-ability only");
+	}
+
+	// =========================================================================================
+	// 25-113R Yang (LB 1): "Brave[[br]]When Yang enters the field, you may play 1 Forward of cost
+	// equal to or less than the number of Job Monk and/or Card Name Monk you control from your hand
+	// onto the field."
+	//
+	// Yang's Job is King/Monk, so he counts himself.
+	// =========================================================================================
+
+	private static final String YANG_25_113R = "Limit Break -- 1[[br]]Brave[[br]]When Yang enters the field, you "
+			+ "may play 1 Forward of cost equal to or less than the number of Job Monk and/or Card Name Monk you "
+			+ "control from your hand onto the field.";
+
+	private static CardData makeYang() {
+		return makeLbForward("Yang", "Earth", 5, 8000, 1, "King/Monk", "IV", YANG_25_113R);
+	}
+
+	private static void putInP2Hand(MainWindow mw, CardData card) {
+		mw.gameState.getIdentity().put(card, false);
+		mw.gameState.getP2Hand().add(card);
+	}
+
+	@Test
+	void yangPlaysAForwardOfCostUpToTheMonksYouControl() {
+		MainWindow mw = new MainWindow();
+		placeP2Backup(mw, makeJobCard("Monk Aide", "Earth", "Backup", "Monk"));
+		placeP2Backup(mw, makePlainCard("Monk", "Earth", "Backup", 2, 0, null, null));
+		CardData three = makeForward("Three", "Earth", 3, 7000);
+		CardData four  = makeForward("Four", "Earth", 4, 8000);
+		putInP2Hand(mw, four);
+		putInP2Hand(mw, three);
+
+		enterAsP2(mw, makeYang());
+
+		assertTrue(mw.p2ForwardCards.contains(three), "Yang, a Job Monk and a Card Name Monk: three");
+		assertEquals(List.of(four), mw.gameState.getP2Hand());
+	}
+
+	@Test
+	void aloneYangCountsOnlyHimself() {
+		MainWindow mw = new MainWindow();
+		CardData two = makeForward("Two", "Earth", 2, 5000);
+		putInP2Hand(mw, two);
+
+		enterAsP2(mw, makeYang());
+
+		assertEquals(List.of(two), mw.gameState.getP2Hand(), "one Monk, so cost 1 at most");
+	}
+
+	@Test
+	void yangHasBrave() {
+		MainWindow mw = new MainWindow();
+		CardData yang = makeYang();
+		placeP2Forward(mw, yang);
+
+		assertTrue(mw.effectiveP2HasTrait(mw.p2ForwardCards.indexOf(yang), CardData.Trait.BRAVE));
+	}
+
+	// =========================================================================================
+	// 25-114R Kain (LB 1): "First Strike[[br]]If you control 3 or more Job Dragoon and/or Card Name
+	// Dragoon, the cost required to cast Kain is reduced by 5.[[br]]When Kain enters the field,
+	// choose 1 Forward in your Break Zone. Add it to your hand."
+	//
+	// Characters of any type count towards the three; Kain himself, not yet cast, does not.
+	// =========================================================================================
+
+	private static final String KAIN_25_114R = "Limit Break -- 1[[br]]First Strike[[br]]If you control 3 or more "
+			+ "Job Dragoon and/or Card Name Dragoon, the cost required to cast Kain is reduced by 5.[[br]]When Kain "
+			+ "enters the field, choose 1 Forward in your Break Zone. Add it to your hand.";
+
+	private static CardData makeKain() {
+		return makeLbForward("Kain", "Lightning", 9, 8000, 1, "Dragoon", "IV", KAIN_25_114R);
+	}
+
+	@Test
+	void kainCostsFiveLessFromTheThirdDragoon() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForwardWithJob("Dragoon A", "Lightning", 3, 7000, "Dragoon"));
+		placeP1Backup(mw, makeJobCard("Dragoon B", "Lightning", "Backup", "Dragoon"));
+		placeP2Forward(mw, makeForwardWithJob("Their Dragoon", "Wind", 3, 7000, "Dragoon"));
+
+		assertEquals(9, mw.castCostFor(makeKain(), true), "two of yours; the opponent's is not");
+		placeP1Backup(mw, makePlainCard("Dragoon", "Wind", "Backup", 2, 0, null, null));
+		assertEquals(4, mw.castCostFor(makeKain(), true), "\"and/or Card Name Dragoon\"");
+	}
+
+	@Test
+	void kainReturnsAForwardFromTheBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData forward = makeForward("Cecil", "Dark", 3, 7000);
+		CardData backup  = makeBackup("Aide", "Lightning", 2);
+		for (CardData c : List.of(backup, forward)) putInP2BreakZone(mw, c);
+
+		enterAsP2(mw, makeKain());
+
+		assertEquals(List.of(forward), mw.gameState.getP2Hand());
+		assertTrue(mw.gameState.getP2BreakZone().contains(backup), "a Forward only");
+	}
+
+	@Test
+	void kainHasFirstStrike() {
+		MainWindow mw = new MainWindow();
+		CardData kain = makeKain();
+		placeP2Forward(mw, kain);
+
+		assertTrue(mw.effectiveP2HasTrait(mw.p2ForwardCards.indexOf(kain), CardData.Trait.FIRST_STRIKE));
+	}
+
+	// =========================================================================================
+	// 25-115H Sephiroth (LB 4): "When Sephiroth enters the field or attacks, dull all the Forwards
+	// other than Sephiroth.[[br]]At the end of each of your turns, choose 1 dull Forward other than
+	// Sephiroth. Break it."
+	//
+	// "All the Forwards" is both sides, his own included.
+	// =========================================================================================
+
+	private static final String SEPHIROTH_25_115H = "Limit Break -- 4[[br]]When Sephiroth enters the field or "
+			+ "attacks, dull all the Forwards other than Sephiroth.[[br]]At the end of each of your turns, choose 1 "
+			+ "dull Forward other than Sephiroth. Break it.";
+
+	private static CardData makeSephiroth() {
+		return makeLbForward("Sephiroth", "Lightning", 8, 8000, 4, "War Hero", "VII", SEPHIROTH_25_115H);
+	}
+
+	@Test
+	void sephirothDullsEveryOtherForwardAsHeEnters() {
+		MainWindow mw = new MainWindow();
+		CardData ally   = makeForward("Ally", "Lightning", 3, 7000);
+		CardData theirs = makeForward("Theirs", "Water", 3, 7000);
+		placeP2Forward(mw, ally);
+		placeP1Forward(mw, theirs);
+		CardData seph = makeSephiroth();
+
+		enterAsP2(mw, seph);
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(mw.p1ForwardCards.indexOf(theirs)));
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(ally)), "his own too");
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(seph)), "not himself");
+	}
+
+	@Test
+	void sephirothDullsThemAgainWhenHeAttacks() {
+		MainWindow mw = new MainWindow();
+		CardData seph = makeSephiroth();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, seph);
+		CardData theirs = makeForward("Theirs", "Water", 3, 7000);
+		placeP1Forward(mw, theirs);
+
+		attackAsP2(mw, seph);
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(mw.p1ForwardCards.indexOf(theirs)));
+	}
+
+	@Test
+	void atTheEndOfHisTurnSephirothBreaksADullForward() {
+		MainWindow mw = new MainWindow();
+		CardData seph = makeSephiroth();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, seph);
+		mw.p2ForwardStates.set(mw.p2ForwardCards.indexOf(seph), CardState.DULL);
+		CardData dull   = makeForward("Dull", "Water", 3, 7000);
+		CardData active = makeForward("Active", "Water", 2, 5000);
+		placeP1Forward(mw, dull);
+		placeP1Forward(mw, active);
+		mw.p1ForwardStates.set(mw.p1ForwardCards.indexOf(dull), CardState.DULL);
+
+		resolveWhatQueues(mw, seph, () -> mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(dull));
+		assertTrue(mw.p1ForwardCards.contains(active), "a dull Forward");
+		assertTrue(mw.p2ForwardCards.contains(seph), "other than Sephiroth, dull as he is");
+	}
+
+	@Test
+	void sephirothBreaksNothingAtTheEndOfTheOpponentsTurn() {
+		MainWindow mw = new MainWindow();
+		CardData seph = makeSephiroth();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, seph);
+		CardData dull = makeForward("Dull", "Water", 3, 7000);
+		placeP1Forward(mw, dull);
+		mw.p1ForwardStates.set(mw.p1ForwardCards.indexOf(dull), CardState.DULL);
+		int before = mw.gameState.getStack().size();
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(true);
+
+		assertEquals(before, mw.gameState.getStack().size(), "\"each of your turns\"");
+		assertTrue(mw.p1ForwardCards.contains(dull));
+	}
+
+	// =========================================================================================
+	// 25-116H Graff (LB 2): "When Graff enters the field, choose 1 Forward you control. Remove it
+	// from the game.[[br]]When Graff attacks, choose 1 Forward opponent controls. It loses 4000
+	// power until the end of the turn."
+	//
+	// The arrival is a price: the Forward removed is one of his own side's, Graff himself among
+	// the candidates, and an LB card removed from the game goes back to the LB deck face up.
+	//
+	// Only the forced case is tested. Beside another Forward the CPU picks between the two at
+	// random (aiSelectCharacters treats a "you control" choice as neutral), so half the time
+	// it removes Graff rather than the weaker ally.
+	// =========================================================================================
+
+	private static final String GRAFF_25_116H = "Limit Break -- 2[[br]]When Graff enters the field, choose 1 "
+			+ "Forward you control. Remove it from the game.[[br]]When Graff attacks, choose 1 Forward opponent "
+			+ "controls. It loses 4000 power until the end of the turn.";
+
+	private static CardData makeGraff() {
+		return makeLbForward("Graff", "Water", 3, 9000, 2, "Grand Général", "MOBIUS", GRAFF_25_116H);
+	}
+
+	@Test
+	void aloneGraffRemovesHimselfAndGoesBackToTheLbDeck() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Fire", 3, 7000);
+		placeP1Forward(mw, theirs);
+		CardData graff = makeGraff();
+		mw.gameState.getP2LbDeck().add(graff);
+
+		enterAsP2(mw, graff);
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "the only Forward he controls is himself");
+		assertTrue(mw.p1ForwardCards.contains(theirs), "a Forward you control, not the opponent's");
+		assertTrue(mw.gameState.getP2RemovedFromGame().isEmpty(), "an LB card does not leave the game");
+		assertEquals(List.of(graff), mw.gameState.getP2LbDeck());
+	}
+
+	@Test
+	void whenGraffAttacksAnOpposingForwardLoses4000ForTheTurn() {
+		MainWindow mw = new MainWindow();
+		CardData graff = makeGraff();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, graff);
+		CardData theirs = makeForward("Theirs", "Fire", 3, 7000);
+		placeP1Forward(mw, theirs);
+		int t = mw.p1ForwardCards.indexOf(theirs);
+
+		attackAsP2(mw, graff);
+
+		assertEquals(3000, mw.effectiveP1ForwardPower(t));
+		assertEquals(9000, mw.effectiveP2ForwardPower(mw.p2ForwardCards.indexOf(graff)), "not his own");
+		mw.turnPhases().runP2EndOfTurnCleanup();
+		assertEquals(7000, mw.effectiveP1ForwardPower(t), "until the end of the turn");
+	}
+
+	// =========================================================================================
+	// 25-117R Leonora (LB 2): "When Leonora enters the field, choose 1 Category IV Forward in your
+	// Break Zone. Add it to your hand.[[br]]《Dull》: Choose 1 Category IV Forward other than
+	// Leonora. During this turn, the next damage dealt to it becomes 0 instead."
+	//
+	// Leonora is Category IV herself, which is why the shield names her out.
+	// =========================================================================================
+
+	private static final String LEONORA_25_117R = "Limit Break -- 2[[br]]When Leonora enters the field, choose 1 "
+			+ "Category IV Forward in your Break Zone. Add it to your hand.[[br]]《Dull》: Choose 1 Category IV "
+			+ "Forward other than Leonora. During this turn, the next damage dealt to it becomes 0 instead.";
+
+	private static CardData makeLeonora() {
+		return makeLbForward("Leonora", "Water", 6, 2000, 2, "Epopt", "IV", LEONORA_25_117R);
+	}
+
+	@Test
+	void leonoraReturnsACategoryIvForwardFromTheBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData cecil  = makePlainCard("Cecil", "Dark", "Forward", 3, 7000, null, "IV");
+		CardData rosa   = makePlainCard("Rosa", "Water", "Backup", 2, 0, null, "IV");
+		CardData cloud  = makePlainCard("Cloud", "Wind", "Forward", 2, 5000, null, "VII");
+		for (CardData c : List.of(rosa, cloud, cecil)) putInP2BreakZone(mw, c);
+
+		enterAsP2(mw, makeLeonora());
+
+		assertEquals(List.of(cecil), mw.gameState.getP2Hand());
+		assertTrue(mw.gameState.getP2BreakZone().containsAll(List.of(rosa, cloud)), "a Category IV Forward only");
+	}
+
+	@Test
+	void leonoraZeroesTheNextDamageToACategoryIvForward() {
+		MainWindow mw = new MainWindow();
+		CardData leonora = makeLeonora();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, leonora);
+		CardData edward = makePlainCard("Edward", "Water", "Forward", 2, 9000, null, "IV");
+		CardData cloud  = makePlainCard("Cloud", "Wind", "Forward", 2, 9000, null, "VII");
+		placeP2Forward(mw, edward);
+		placeP2Forward(mw, cloud);
+
+		useAbilityAs(mw, false, leonora, leonora.actionAbilities().get(0).effectText());
+		castSummonAs(mw, false, "Deal 1000 damage to all the Forwards.");
+
+		assertEquals(0, p2Damage(mw, edward), "the next damage becomes 0");
+		assertEquals(1000, p2Damage(mw, cloud), "a Category VII Forward cannot be chosen");
+		assertEquals(1000, p2Damage(mw, leonora), "nor Leonora herself");
+		castSummonAs(mw, false, "Deal 1000 damage to all the Forwards.");
+		assertEquals(1000, p2Damage(mw, edward), "only the next damage");
+	}
+
+	@Test
+	void leonoraCannotBeUsedWithNoOtherCategoryIvForward() {
+		MainWindow mw = new MainWindow();
+		CardData leonora = makeLeonora();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, leonora);
+		placeP2Forward(mw, makePlainCard("Cloud", "Wind", "Forward", 2, 5000, null, "VII"));
+		ActionAbility shield = leonora.actionAbilities().get(0);
+
+		assertFalse(mw.canActivateAbility(shield, false, CardState.ACTIVE, 0, leonora, false),
+				"other than Leonora, and of Category IV");
+		placeP1Forward(mw, makePlainCard("Edge", "Wind", "Forward", 3, 7000, null, "IV"));
+		assertTrue(mw.canActivateAbility(shield, false, CardState.ACTIVE, 0, leonora, false),
+				"either side's");
+	}
+
+	// =========================================================================================
+	// 25-118H Golbez (LB 2): "《1》《X》: Search for 1 Job Archfiend of cost X and play it onto the
+	// field. You can only use this ability once per turn."
+	//
+	// Exactly cost X, not X or less.
+	// =========================================================================================
+
+	private static final String GOLBEZ_25_118H = "Limit Break -- 2[[br]]《1》《X》: Search for 1 Job Archfiend of "
+			+ "cost X and play it onto the field. You can only use this ability once per turn.";
+
+	private static CardData makeGolbez() {
+		return makeLbForward("Golbez", "Dark", 5, 9000, 2, "Warlock", "IV", GOLBEZ_25_118H);
+	}
+
+	@Test
+	void golbezsAbilityCostsXAndIsOncePerTurn() {
+		ActionAbility search = makeGolbez().actionAbilities().get(0);
+
+		assertTrue(search.hasXCost());
+		assertEquals(List.of(""), search.cpCost(), "one generic CP besides X");
+		assertTrue(search.oncePerTurn());
+	}
+
+	@Test
+	void golbezPlaysAnArchfiendOfCostXFromTheDeck() {
+		MainWindow mw = new MainWindow();
+		CardData golbez = makeGolbez();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, golbez);
+		CardData rubicante = makeForwardWithJob("Rubicante", "Fire", 3, 8000, "Archfiend");
+		CardData barbariccia = makeForwardWithJob("Barbariccia", "Wind", 4, 8000, "Archfiend");
+		CardData stranger = makeForward("Stranger", "Fire", 3, 7000);
+		for (CardData c : List.of(barbariccia, stranger, rubicante)) putOnTopOfDeck(mw, c, false);
+		String text = golbez.actionAbilities().get(0).effectText();
+
+		mw.currentAbilitySource = golbez;
+		mw.currentAbilitySourceIsP1 = false;
+		try {
+			ActionResolver.parse(text, golbez, 3).accept(mw.buildGameContext(false));
+		} finally { mw.currentAbilitySource = null; }
+
+		assertTrue(mw.p2ForwardCards.contains(rubicante), "X = 3");
+		assertTrue(mw.gameState.getP2MainDeck().containsAll(List.of(barbariccia, stranger)),
+				"cost 4, and a cost-3 Forward that is not an Archfiend, stay behind");
+	}
+
+	// =========================================================================================
+	// 26-124R Amarant (LB 1): "When Amarant enters the field, choose 1 Forward. Deal it 3000 damage
+	// for every 2 Fire Characters you control."
+	//
+	// Amarant is Fire and on the field when it resolves, so he is one of the count.
+	// =========================================================================================
+
+	private static final String AMARANT_26_124R = "Limit Break -- 1[[br]]When Amarant enters the field, choose 1 "
+			+ "Forward. Deal it 3000 damage for every 2 Fire Characters you control.";
+
+	/**
+	 * Amarant entering P2's field beside {@code fireBackups} Fire Backups and a Water one, facing a
+	 * Forward big enough to read the damage off. Returns that Forward.
+	 */
+	private static CardData amarantEntersBeside(MainWindow mw, int fireBackups) {
+		for (int i = 0; i < fireBackups; i++) placeP2Backup(mw, makeBackup("Fire Aide " + i, "Fire", 2));
+		placeP2Backup(mw, makeBackup("Water Aide", "Water", 2));
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		enterAsP2(mw, makeLbForward("Amarant", "Fire", 7, 7000, 1, "Fighter", "IX", AMARANT_26_124R));
+		return theirs;
+	}
+
+	@Test
+	void amarantIsHimselfHalfOfTheFirstPair() {
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < 2; i++) placeP1Backup(mw, makeBackup("Their Fire " + i, "Fire", 2));
+
+		CardData theirs = amarantEntersBeside(mw, 1);
+
+		assertEquals(3000, p1Damage(mw, theirs),
+				"Amarant and one Fire Backup; the Water Backup and the opponent's Fire Backups do not count");
+	}
+
+	@Test
+	void amarantDealsAnother3000ForEachFurtherPair() {
+		MainWindow mw = new MainWindow();
+
+		CardData theirs = amarantEntersBeside(mw, 4);
+
+		assertEquals(6000, p1Damage(mw, theirs), "five Fire Characters are two pairs; the fifth adds nothing");
+	}
+
+	// =========================================================================================
+	// 26-125R Heretical Knight Garland (LB 2): "When Heretical Knight Garland enters the field,
+	// choose up to 2 Backups opponent controls. Freeze them."
+	// =========================================================================================
+
+	private static final String HERETICAL_GARLAND_26_125R = "Limit Break -- 2[[br]]When Heretical Knight Garland "
+			+ "enters the field, choose up to 2 Backups opponent controls. Freeze them.";
+
+	@Test
+	void hereticalKnightGarlandFreezesTwoOpposingBackups() {
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < 3; i++) placeP1Backup(mw, makeBackup("Their Aide " + i, "Water", 2));
+		CardData theirs = makeForward("Theirs", "Water", 3, 7000);
+		placeP1Forward(mw, theirs);
+		placeP2Backup(mw, makeBackup("Own Aide", "Ice", 2));
+
+		enterAsP2(mw, makeLbForward("Heretical Knight Garland", "Ice", 6, 8000, 2, "Knight", "PICTLOGICA",
+				HERETICAL_GARLAND_26_125R));
+
+		int frozen = 0;
+		for (int i = 0; i < 3; i++) {
+			if (!mw.p1BackupFrozen[i]) continue;
+			frozen++;
+			assertEquals(CardState.ACTIVE, mw.p1BackupStates[i], "freezing does not dull");
+		}
+		assertEquals(2, frozen, "up to 2, of the 3");
+		assertFalse(mw.p2BackupFrozen[0], "opponent controls");
+		assertFalse(mw.p1ForwardFrozen.get(mw.p1ForwardCards.indexOf(theirs)), "Backups only");
+	}
+
+	// =========================================================================================
+	// 26-126R Yuffie (LB 2): "When Yuffie enters the field, if you control 2 or more Category VII
+	// Forwards, draw 1 card.[[br]]《Dull》, discard 2 Category VII cards: Choose 1 Forward. Break it."
+	//
+	// Yuffie is Category VII, so one other Category VII Forward makes two. How the discard cost is
+	// read is tested in CardBehaviorTest, beside Folka's and Lumina's; these pay it.
+	// =========================================================================================
+
+	private static final String YUFFIE_26_126R = "Limit Break -- 2[[br]]When Yuffie enters the field, if you control 2 "
+			+ "or more Category VII Forwards, draw 1 card.[[br]]《Dull》, discard 2 Category VII cards: Choose 1 "
+			+ "Forward. Break it.";
+
+	private static CardData makeYuffie() {
+		return makeLbForward("Yuffie", "Wind", 4, 5000, 2, "Ninja", "VII", YUFFIE_26_126R);
+	}
+
+	/** Yuffie on P2's field without her arrival, facing one Forward. */
+	private static CardData yuffieFacing(MainWindow mw, CardData theirs) {
+		CardData yuffie = makeYuffie();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, yuffie);
+		placeP1Forward(mw, theirs);
+		return yuffie;
+	}
+
+	@Test
+	void besideAnotherCategoryViiForwardYuffieDrawsACard() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makePlainCard("Tifa", "Earth", "Forward", 2, 5000, null, "VII"));
+		putPlainCardsOnTop(mw, false, 1);
+
+		enterAsP2(mw, makeYuffie());
+
+		assertEquals(1, mw.gameState.getP2Hand().size());
+	}
+
+	@Test
+	void besideACategoryViiBackupYuffieDrawsNothing() {
+		MainWindow mw = new MainWindow();
+		placeP2Backup(mw, makePlainCard("Aerith", "Earth", "Backup", 2, 0, null, "VII"));
+		putPlainCardsOnTop(mw, false, 1);
+
+		enterAsP2(mw, makeYuffie());
+
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "Forwards: a Backup does not make the second");
+	}
+
+	@Test
+	void yuffieDiscardsTwoCategoryViiCardsToBreakAForward() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 3, 7000);
+		CardData yuffie = yuffieFacing(mw, theirs);
+		CardData tifa    = makePlainCard("Tifa", "Earth", "Forward", 2, 5000, null, "VII");
+		CardData squall  = makePlainCard("Squall", "Ice", "Forward", 2, 5000, null, "VIII");
+		CardData bahamut = makePlainCard("Bahamut", "Fire", "Summon", 4, 0, null, "VII");
+		for (CardData c : List.of(tifa, squall, bahamut)) putInP2Hand(mw, c);
+		int y = mw.p2ForwardCards.indexOf(yuffie);
+		int before = mw.gameState.stackSize();
+
+		assertTrue(mw.autoAbilityTriggers.executeP2AbilityActivation(yuffie.actionAbilities().get(0), yuffie,
+				() -> mw.p2ForwardStates.set(y, CardState.DULL), new ArrayList<>(), new ArrayList<>(), 0));
+		assertEquals(List.of(squall), mw.gameState.getP2Hand(), "a Summon of the Category pays as well as a Forward");
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(y));
+		assertEquals(before + 1, mw.gameState.stackSize());
+		resolveTop(mw);
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs));
+		assertTrue(mw.p2ForwardCards.contains(yuffie), "the CPU aims it across the table");
+	}
+
+	@Test
+	void yuffiesBreakNeedsTwoCategoryViiCardsInHand() {
+		MainWindow mw = new MainWindow();
+		CardData yuffie = yuffieFacing(mw, makeForward("Theirs", "Water", 3, 7000));
+		putInP2Hand(mw, makePlainCard("Tifa", "Earth", "Forward", 2, 5000, null, "VII"));
+		putInP2Hand(mw, makePlainCard("Squall", "Ice", "Forward", 2, 5000, null, "VIII"));
+		ActionAbility breakIt = yuffie.actionAbilities().get(0);
+
+		assertFalse(mw.canActivateAbility(breakIt, false, CardState.ACTIVE, 0, yuffie, false));
+		putInP2Hand(mw, makePlainCard("Barret", "Fire", "Forward", 3, 7000, null, "VII"));
+		assertTrue(mw.canActivateAbility(breakIt, false, CardState.ACTIVE, 0, yuffie, false));
+	}
+
+	// =========================================================================================
+	// 26-127R Dark Fina (LB 3): "When Dark Fina enters the field, you may cast 1 Summon of cost 7 or
+	// less from your hand without paying the cost.[[br]]When you cast a Summon, choose 1 Character
+	// in your Break Zone. Add it to your hand. This effect will trigger only during your turn and
+	// only once per turn."
+	//
+	// The free cast is a cast, so on her own turn it wakes her second ability, which goes on the
+	// Stack above the Summon and resolves first.
+	// =========================================================================================
+
+	private static final String DARK_FINA_26_127R = "Limit Break -- 3[[br]]When Dark Fina enters the field, you may "
+			+ "cast 1 Summon of cost 7 or less from your hand without paying the cost.[[br]]When you cast a Summon, "
+			+ "choose 1 Character in your Break Zone. Add it to your hand. This effect will trigger only during your "
+			+ "turn and only once per turn.";
+
+	private static CardData makeDarkFina() {
+		return makeLbForward("Dark Fina", "Earth", 9, 9000, 3, "Sage of Hess", "FFBE", DARK_FINA_26_127R);
+	}
+
+	/** Dark Fina on P2's field without her arrival. */
+	private static CardData darkFinaOnTheField(MainWindow mw) {
+		CardData fina = makeDarkFina();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, fina);
+		return fina;
+	}
+
+	@Test
+	void darkFinaCastsASummonOfCostSevenOrLessForFreeAndTheCastWakesHerOtherAbility() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.startFirstTurn(GameState.Player.P2);
+		CardData odin  = makeSummon("Odin", "Earth", 8, "Draw 1 card.");
+		CardData titan = makeSummon("Titan", "Earth", 7, "Draw 1 card.");
+		putInP2Hand(mw, odin);
+		putInP2Hand(mw, titan);
+		CardData lasswell = makeForward("Lasswell", "Earth", 3, 7000);
+		putInP2BreakZone(mw, lasswell);
+		CardData fina = makeDarkFina();
+		int before = mw.gameState.stackSize();
+
+		placeP2Forward(mw, fina);
+		assertEquals(before + 1, mw.gameState.stackSize(), "her arrival");
+		resolveTop(mw);
+
+		assertEquals(List.of(odin), mw.gameState.getP2Hand(), "cost 8 is out of reach");
+		assertEquals(before + 2, mw.gameState.stackSize(), "the Summon, and her cast trigger above it");
+		assertSame(fina, mw.gameState.peekStack().source());
+		resolveTop(mw);
+		assertSame(titan, mw.gameState.peekStack().source(), "the Summon resolves after it");
+		assertEquals(List.of(odin, lasswell), mw.gameState.getP2Hand());
+	}
+
+	@Test
+	void darkFinaReturnsACharacterFromTheBreakZoneOncePerTurn() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.startFirstTurn(GameState.Player.P2);
+		CardData fina = darkFinaOnTheField(mw);
+		CardData ifrit    = makeSummon("Ifrit", "Fire", 2, "");
+		CardData lasswell = makeForward("Lasswell", "Earth", 3, 7000);
+		for (CardData c : List.of(ifrit, lasswell)) putInP2BreakZone(mw, c);
+
+		resolveWhatQueues(mw, fina, () -> mw.autoAbilityTriggers.triggerAutoAbilitiesForCastSummon(false));
+
+		assertEquals(List.of(lasswell), mw.gameState.getP2Hand());
+		assertTrue(mw.gameState.getP2BreakZone().contains(ifrit), "a Summon is not a Character");
+		putInP2BreakZone(mw, makeForward("Rain", "Fire", 3, 7000));
+		int before = mw.gameState.stackSize();
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForCastSummon(false);
+		assertEquals(before, mw.gameState.stackSize(), "only once per turn");
+	}
+
+	@Test
+	void darkFinaWakesOnlyToHerOwnSummonsOnHerOwnTurn() {
+		MainWindow mw = new MainWindow();                          // P1 holds the turn by default
+		darkFinaOnTheField(mw);
+		putInP2BreakZone(mw, makeForward("Lasswell", "Earth", 3, 7000));
+		int before = mw.gameState.stackSize();
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForCastSummon(false);
+		assertEquals(before, mw.gameState.stackSize(), "her controller's Summon, on the opponent's turn");
+		mw.gameState.startFirstTurn(GameState.Player.P2);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForCastSummon(true);
+		assertEquals(before, mw.gameState.stackSize(), "the opponent's Summon, on her controller's turn");
+	}
+
+	// =========================================================================================
+	// 26-128R Shantotto (LB 3): "When Shantotto enters the field, choose up to 2 active Forwards
+	// opponent controls. Break them."
+	// =========================================================================================
+
+	private static final String SHANTOTTO_26_128R = "Limit Break -- 3[[br]]When Shantotto enters the field, choose up "
+			+ "to 2 active Forwards opponent controls. Break them.";
+
+	@Test
+	void shantottoBreaksTwoActiveOpposingForwards() {
+		MainWindow mw = new MainWindow();
+		CardData first  = makeForward("First", "Water", 3, 7000);
+		CardData second = makeForward("Second", "Water", 5, 9000);
+		CardData dull   = makeForward("Dull", "Water", 2, 5000);
+		for (CardData c : List.of(first, second, dull)) placeP1Forward(mw, c);
+		mw.p1ForwardStates.set(mw.p1ForwardCards.indexOf(dull), CardState.DULL);
+		CardData ally = makeForward("Ally", "Lightning", 2, 5000);
+		placeP2Forward(mw, ally);
+
+		enterAsP2(mw, makeLbForward("Shantotto", "Lightning", 9, 8000, 3, "Mage", "XI", SHANTOTTO_26_128R));
+
+		assertTrue(mw.gameState.getP1BreakZone().containsAll(List.of(first, second)));
+		assertTrue(mw.p1ForwardCards.contains(dull), "active Forwards only");
+		assertTrue(mw.p2ForwardCards.contains(ally), "opponent controls");
+	}
+
+	// =========================================================================================
+	// 26-129R Refia (LB 2): "When Refia enters the field, choose 1 Category WOFF Forward of cost 3
+	// or less other than Light or Dark in your Break Zone. Play it onto the field."
+	// =========================================================================================
+
+	private static final String REFIA_26_129R = "Limit Break -- 2[[br]]When Refia enters the field, choose 1 Category "
+			+ "WOFF Forward of cost 3 or less other than Light or Dark in your Break Zone. Play it onto the field.";
+
+	private static CardData makeRefia() {
+		return makeLbForward("Refia", "Water", 6, 5000, 2, "White Mage", "WOFF", REFIA_26_129R);
+	}
+
+	/** Stocks P2's Break Zone with a card failing each part of Refia's filter, and returns them. */
+	private static List<CardData> stockWhatRefiaCannotChoose(MainWindow mw) {
+		List<CardData> cards = List.of(
+				makePlainCard("Reynn", "Ice", "Forward", 4, 8000, null, "WOFF"),          // cost 4
+				makePlainCard("Enna Kros", "Light", "Forward", 2, 5000, null, "WOFF"),    // Light
+				makePlainCard("Shadow Lord", "Dark", "Forward", 3, 8000, null, "WOFF"),   // Dark
+				makePlainCard("Cloud", "Wind", "Forward", 2, 5000, null, "VII"),          // another Category
+				makePlainCard("Tama", "Wind", "Backup", 2, 0, null, "WOFF"));             // a Backup
+		cards.forEach(c -> putInP2BreakZone(mw, c));
+		return cards;
+	}
+
+	@Test
+	void refiaPlaysACategoryWoffForwardOfCostThreeOrLessFromTheBreakZone() {
+		MainWindow mw = new MainWindow();
+		List<CardData> others = stockWhatRefiaCannotChoose(mw);
+		CardData lann = makePlainCard("Lann", "Fire", "Forward", 3, 7000, null, "WOFF");
+		putInP2BreakZone(mw, lann);
+
+		enterAsP2(mw, makeRefia());
+
+		assertTrue(mw.p2ForwardCards.contains(lann));
+		assertTrue(mw.gameState.getP2BreakZone().containsAll(others));
+	}
+
+	@Test
+	void refiaPlaysNothingWhenNoCardInTheBreakZoneQualifies() {
+		MainWindow mw = new MainWindow();
+		List<CardData> others = stockWhatRefiaCannotChoose(mw);
+		CardData refia = makeRefia();
+		int before = mw.gameState.stackSize();
+
+		placeP2Forward(mw, refia);
+		resolveDownTo(mw, before);
+
+		assertEquals(List.of(refia), mw.p2ForwardCards);
+		assertEquals(others.size(), mw.gameState.getP2BreakZone().size());
+	}
+
+	// =========================================================================================
+	// 26-130H Lightning (LB 1): "If there are 7 or more face-up cards in your LB deck, Lightning
+	// gains Haste.[[br]]When Lightning leaves the field, select 1 of the 2 following actions.
+	// "Play 1 Card Name Lightning of cost 4 or less from your hand onto the field." "Search for 1
+	// Card Name Lightning and add it to your hand.""
+	//
+	// An LB deck is 8 cards, and Lightning on the field is not in it, so 7 face up there means every
+	// other LB card has been spent. The select resolves as the trigger fires, without going on the
+	// Stack (see the Serjes section).
+	// =========================================================================================
+
+	private static final String LIGHTNING_26_130H = "Limit Break -- 1[[br]]If there are 7 or more face-up cards in "
+			+ "your LB deck, Lightning gains Haste.[[br]]When Lightning leaves the field, select 1 of the 2 following "
+			+ "actions.[[br]]\"Play 1 Card Name Lightning of cost 4 or less from your hand onto the field.\"[[br]]"
+			+ "\"Search for 1 Card Name Lightning and add it to your hand.\"";
+
+	/** Lightning on P2's field, with her place in the LB deck to go back to. */
+	private static CardData lightningOnTheField(MainWindow mw) {
+		CardData lightning = makeLbForward("Lightning", "Light", 5, 8000, 1, "Ravager/L'Cie", "XIII",
+				LIGHTNING_26_130H);
+		mw.gameState.getP2LbDeck().add(lightning);
+		placeP2Forward(mw, lightning);
+		return lightning;
+	}
+
+	@Test
+	void lightningGainsHasteWithSevenFaceUpCardsLeftInTheLbDeck() {
+		MainWindow mw = new MainWindow();
+		int l = mw.p2ForwardCards.indexOf(lightningOnTheField(mw));
+		for (int i = 0; i < 7; i++) mw.p2SpentLbIndices.add(i);
+
+		assertFalse(mw.effectiveP2HasTrait(l, CardData.Trait.HASTE), "her own is one of the seven spent");
+		mw.p2SpentLbIndices.add(7);
+		assertTrue(mw.effectiveP2HasTrait(l, CardData.Trait.HASTE));
+	}
+
+	@Test
+	void asLightningLeavesTheFieldALightningFromHandTakesHerPlace() {
+		MainWindow mw = new MainWindow();
+		CardData lightning = lightningOnTheField(mw);
+		CardData fromHand = makePlainCard("Lightning", "Lightning", "Forward", 3, 7000, null, "XIII");
+		putInP2Hand(mw, fromHand);
+
+		mw.breakP2Forward(mw.p2ForwardCards.indexOf(lightning));
+
+		assertEquals(List.of(fromHand), mw.p2ForwardCards);
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+		assertEquals(List.of(lightning), mw.gameState.getP2LbDeck());
+	}
+
+	@Test
+	void withNoLightningSheCouldPlayLightningSearchesForOne() {
+		MainWindow mw = new MainWindow();
+		CardData lightning = lightningOnTheField(mw);
+		CardData tooDear = makePlainCard("Lightning", "Lightning", "Forward", 5, 9000, null, "XIII");
+		putInP2Hand(mw, tooDear);
+		CardData inDeck = makePlainCard("Lightning", "Wind", "Forward", 2, 5000, null, "XIII");
+		putOnTopOfDeck(mw, inDeck, false);
+		putPlainCardsOnTop(mw, false, 2);
+
+		mw.breakP2Forward(mw.p2ForwardCards.indexOf(lightning));
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "cost 4 or less");
+		assertEquals(List.of(tooDear, inDeck), mw.gameState.getP2Hand(), "so the search is the one taken");
 	}
 
 	// =========================================================================================
