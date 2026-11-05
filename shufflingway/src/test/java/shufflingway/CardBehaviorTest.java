@@ -15938,6 +15938,51 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// The turn's "must block" (p1MustBlock / p2MustBlock: "It gains "If possible, this Forward
+	// must block."" — Mika 29-122R, Tulien 21-072H) is read through forwardCompelledToBlock beside
+	// Dio's and Ricard's compulsions. Mika's section in LimitBehaviorTest covers one compelled
+	// Forward against one attacker; these are the shapes only the family reaches.
+	// =========================================================================================
+
+	@Test
+	void whenTwoForwardsMustBlockThePlayerChoosesWhich() {
+		MainWindow mw = new MainWindow();
+		enterAttackDeclarationStep(mw, false);
+		CardData attacker = makeForward("Attacker", "Earth", 3, 7000);
+		mw.placeP2CardInForwardZone(attacker);
+		mw.gameState.getIdentity().put(attacker, false);
+		for (String name : List.of("First", "Second", "Free")) {
+			CardData f = makeForward(name, "Ice", 3, 8000);
+			mw.placeCardInForwardZone(f);
+			mw.gameState.getIdentity().put(f, true);
+		}
+		mw.p1MustBlock.add(mw.p1ForwardCards.get(0));
+		mw.p1MustBlock.add(mw.p1ForwardCards.get(1));
+		mw.pendingP2Attacker = attacker;
+
+		assertTrue(mw.isForwardBlockSelectable(0));
+		assertTrue(mw.isForwardBlockSelectable(1), "not only the first compelled Forward (rule 10.1.3.1.3)");
+		assertFalse(mw.isForwardBlockSelectable(2));
+		mw.p1BlockerSelection = 1;
+		assertNull(mw.p1BlockDeclarationRefusal());
+	}
+
+	@Test
+	void aCompelledForwardBlocksAPartyForTheAi() {
+		MainWindow mw = new MainWindow();
+		mw.placeCardInForwardZone(makeForward("Party A", "Fire", 3, 7000));
+		mw.placeCardInForwardZone(makeForward("Party B", "Fire", 3, 6000));
+		mw.placeP2CardInForwardZone(makeForward("Sturdy", "Ice", 3, 9000));
+		mw.placeP2CardInForwardZone(makeForward("Frail",  "Ice", 2, 2000));
+		mw.p2MustBlock.add(mw.p2ForwardCards.get(1));
+		ComputerPlayer cp = new ComputerPlayer(mw);
+
+		List<Integer> answer = new ArrayList<>();
+		cp.requestPartyBlocker(List.of(0, 1), 13000, false, answer::add);
+		assertEquals(List.of(1), answer, "Frail blocks the party, though Sturdy would survive it");
+	}
+
+	// =========================================================================================
 	// Hyoh 16-097H, a 1-cost 3000-power Forward that pumps itself twice:
 	//   《Lightning》: Hyoh gains Haste and Hyoh's power becomes 7000.
 	//   《L》《L》《L》: Hyoh gains "If Hyoh deals damage to your opponent, the damage becomes 2
@@ -28113,6 +28158,50 @@ public class CardBehaviorTest {
 
 		assertTrue(mw.p2Turn.turnOpponentFwdBroken);
 		assertTrue(mw.p1Turn.forwardPutToBZThisTurn, "a break is also a departure to the Break Zone");
+	}
+
+	// The two other routes that print "put … into the Break Zone": an action ability's cost (27-117R
+	// Onion Knight's "Put Onion Knight into the Break Zone:") and forceTargetToBreakZone, the effect
+	// behind "Put it into the Break Zone" (12-107R Lunafreya). Both used to break, so each read as a
+	// Forward broken this turn, and the effect let "cannot be broken" refuse the put.
+
+	@Test
+	void anAbilityCostThatPutsAForwardIntoTheBreakZoneIsNotABreak() {
+		MainWindow mw = new MainWindow();
+		CardData payer = makeForwardWithText("Payer", "Fire", 2, 5000, "Put Payer into the Break Zone: Draw 1 card.");
+		placeP2Forward(mw, payer);
+
+		assertTrue(mw.autoAbilityTriggers.executeP2AbilityActivation(payer.actionAbilities().get(0), payer,
+				() -> {}, new ArrayList<>(), new ArrayList<>(), 0));
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(payer), "the cost was paid");
+		assertFalse(mw.p1Turn.turnOpponentFwdBroken, "P1's opponent broke nothing");
+	}
+
+	@Test
+	void puttingAForwardIntoTheBreakZoneByEffectIsNotABreakAndIgnoresCannotBeBroken() {
+		MainWindow mw = new MainWindow();
+		CardData sturdy = makeForwardWithTraits("Sturdy", "Earth", 7000, Set.of(CardData.Trait.CANNOT_BE_BROKEN));
+		placeP1Forward(mw, sturdy);
+
+		mw.buildGameContext(false).forceTargetToBreakZone(new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(sturdy), "\"cannot be broken\" does not stop a put");
+		assertFalse(mw.p2Turn.turnOpponentFwdBroken);
+	}
+
+	@Test
+	void cannotBePutIntoTheBreakZoneByTheOpponentStillStopsTheirPut() {
+		MainWindow mw = new MainWindow();
+		CardData warded = makeForwardWithText("Warded", "Earth", 3, 7000,
+				"Warded cannot be put into the Break Zone by your opponent's Summons or abilities.");
+		placeP1Forward(mw, warded);
+		ForwardTarget slot = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+
+		mw.buildGameContext(false).forceTargetToBreakZone(slot);
+		assertTrue(mw.p1ForwardCards.contains(warded), "the opponent's effect");
+		mw.buildGameContext(true).forceTargetToBreakZone(slot);
+		assertTrue(mw.gameState.getP1BreakZone().contains(warded), "its own controller's");
 	}
 
 	// -----------------------------------------------------------------------------------------

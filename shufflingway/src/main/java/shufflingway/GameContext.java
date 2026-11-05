@@ -496,8 +496,9 @@ public interface GameContext {
     void redirectChosenTarget(TargetRedirect spec, CardData source);
 
     /**
-     * Forces {@code t} directly into the Break Zone, bypassing any
-     * "cannot be broken" protection that {@link #breakTarget} would respect.
+     * Puts {@code t} into the Break Zone — "put it into the Break Zone" (12-107R Lunafreya, 24-100C
+     * Cecil). A put is not a break: "cannot be broken" protection that {@link #breakTarget} would
+     * respect does not stop it, and a Forward put this way is not one broken this turn.
      */
     void forceTargetToBreakZone(ForwardTarget t);
 

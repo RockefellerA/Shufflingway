@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.IntUnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -1277,6 +1278,19 @@ class ComputerPlayer implements OpponentController {
 				minAttackerPower = Math.min(minAttackerPower,
 						mw.partyMemberPower(true, code) - mw.partyMemberDamage(true, code));
 		}
+		// A compelled Forward that can block takes the block, as in chooseBlocker; a compulsion
+		// naming any member binds against the whole party.
+		List<Integer> compelled = new ArrayList<>();
+		for (int i = 0; i < mw.p2ForwardStates.size(); i++) {
+			CardData fwd = mw.p2ForwardCards.get(i);
+			if (mw.p2ForwardStates.get(i) != CardState.ACTIVE || fwd.cannotBlockParty()
+					|| mw.p2CannotBlock.contains(fwd) || mw.p2CannotBlockPersistent.contains(fwd)
+					|| mw.blockBarredByFieldCostLock(fwd)) continue;
+			for (int code : attackerIndices)
+				if (mw.forwardCompelledToBlock(fwd, mw.partyMemberBaseCard(true, code))) { compelled.add(i); break; }
+		}
+		if (!compelled.isEmpty())
+			return bestCompelledBlocker(compelled, minAttackerPower, mw::effectiveP2ForwardPower);
 		int bestBlockerIdx = -1, bestBlockerPower = 0;
 		for (int i = 0; i < mw.p2ForwardStates.size(); i++) {
 			if (mw.p2ForwardStates.get(i) != CardState.ACTIVE) continue;
@@ -1300,6 +1314,26 @@ class ComputerPlayer implements OpponentController {
 			if (weakest >= 0) return weakest;
 		}
 		return null;
+	}
+
+	/**
+	 * Which of {@code compelled}, P2 Forward indices all bound to block, takes the block: the
+	 * strongest that survives {@code attackPower}, as an unforced block would pick, and failing
+	 * that the weakest, the cheapest loss.
+	 */
+	private static int bestCompelledBlocker(List<Integer> compelled, int attackPower, IntUnaryOperator power) {
+		int best = -1, bestPow = -1;
+		for (int i : compelled) {
+			int p = power.applyAsInt(i);
+			if (p >= attackPower && p > bestPow) { best = i; bestPow = p; }
+		}
+		if (best >= 0) return best;
+		int weakestPow = Integer.MAX_VALUE;
+		for (int i : compelled) {
+			int p = power.applyAsInt(i);
+			if (p < weakestPow) { best = i; weakestPow = p; }
+		}
+		return best;
 	}
 
 	ForwardTarget chooseBlocker(int effectiveAttackerPower, ForwardTarget attacker) {
@@ -1372,30 +1406,22 @@ class ComputerPlayer implements OpponentController {
 			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
 		}
 
-		// Dio 26-075C: a P2 Forward compelled to block this particular attacker has no choice at
-		// all — not even the weakest-survivor latitude below — so it is settled before anything
-		// else. It only binds while the Forward is a legal blocker, which is what "if possible"
-		// means and why the answer is looked for among cands rather than over the whole field.
+		// A P2 Forward compelled to block (MainWindow.forwardCompelledToBlock: Dio 26-075C's
+		// attacker-specific grant, Ricard 6-103H's printing, a turn's "must block" such as Mika
+		// 29-122R's) leaves the AI no choice but which compelled Forward blocks (rule 10.1.3.1.3),
+		// so it is settled before anything else — and whether the block is survivable does not
+		// lift it. Only a legal blocker is bound, which is what "if possible" means and why the
+		// compelled Forwards are looked for among cands rather than over the whole field.
 		CardData attackerCard = attacker != null ? mw.autoAbilityTriggers.fieldCardData(attacker) : null;
-		if (attackerCard != null) {
-			for (ForwardTarget t : cands) {
-				if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
-				if (mw.forwardCompelledToBlock(mw.p2ForwardCards.get(t.idx()), attackerCard)) return t;
-			}
-		}
-
-		// Honour must-block Forwards first: pick the weakest that can survive.
-		if (!mw.p2MustBlock.isEmpty()) {
-			ForwardTarget best = null; int bestPow = -1;
-			for (ForwardTarget t : cands) {
-				if (t.zone() != ForwardTarget.CardZone.FORWARD
-						|| !mw.p2MustBlock.contains(mw.p2ForwardCards.get(t.idx()))) continue;
-				int p = mw.fieldForwardPower(false, t.zone(), t.idx());
-				if (p >= effectiveAttackerPower && (best == null || p < bestPow)) { best = t; bestPow = p; }
-			}
-			if (best != null) return best;
-			// else fall through — constraint lifted if none can survive
-		}
+		List<Integer> compelled = new ArrayList<>();
+		for (ForwardTarget t : cands)
+			if (t.zone() == ForwardTarget.CardZone.FORWARD
+					&& mw.forwardCompelledToBlock(mw.p2ForwardCards.get(t.idx()), attackerCard))
+				compelled.add(t.idx());
+		if (!compelled.isEmpty())
+			return new ForwardTarget(false, bestCompelledBlocker(compelled, effectiveAttackerPower,
+					i -> mw.fieldForwardPower(false, ForwardTarget.CardZone.FORWARD, i)),
+					ForwardTarget.CardZone.FORWARD);
 
 		// Otherwise pick the strongest blocker that survives the attack.
 		ForwardTarget best = null; int bestPow = -1;

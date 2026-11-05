@@ -6182,9 +6182,19 @@ final class AutoAbilityTriggers {
 		}
 
 		// The payer is asked, then pays. The AI declines when the effect aims at Forwards and its
-		// opponent has none; otherwise it takes the offer.
+		// opponent has none; otherwise it takes the offer. A payoff choosing from a Break Zone reads
+		// no field, so it is judged by the zone instead: 28-122R Rufus's "choose 1 Category VII
+		// Forward … in your Break Zone" was declined whenever the opponent had no Forward out.
 		String finalSubEffect = subEffect;
 		if (!acceptsOptional(fa, isP1, source.name() + " — " + optionalPrompt(fa, fa.effectText()), () -> {
+			TargetSpec bzChoice = ActionResolver.mandatoryChoiceTargetSpec(finalSubEffect, source);
+			if (bzChoice != null && bzChoice.zone() != null) {
+				if (new GameContextImpl(mw, effectIsP1, false).eligibleCharactersFromBreakZone(bzChoice).isEmpty()) {
+					mw.logEntry("[AutoAbility] [AI] declines optional ability — nothing in the Break Zone to choose");
+					return false;
+				}
+				return aiAccepts("optional ability");
+			}
 			boolean effectNeedsForward = finalSubEffect.toLowerCase(java.util.Locale.ROOT).contains("forward");
 			if (effectNeedsForward && mw.playerForwardCards(!effectIsP1).isEmpty()) {
 				mw.logEntry("[AutoAbility] [AI] declines optional ability — no opponent Forwards to target");
@@ -8615,7 +8625,9 @@ final class AutoAbilityTriggers {
 			mw.logEntry(ability.counterScaleName() + " Counters on " + source.name() + ": " + xValue);
 		}
 
-		// Break-zone costs: process in reverse index order within each zone to avoid index shifting
+		// Break-zone costs: process in reverse index order within each zone to avoid index shifting.
+		// "Put X into the Break Zone" is a put, not a break: a Forward paid this way must not count
+		// as one broken this turn (see MainWindow.putP1ForwardIntoBreakZone).
 		List<ForwardTarget> sortedBz = new ArrayList<>(bzTargets);
 		sortedBz.sort((a, b) -> a.zone() == b.zone() ? Integer.compare(b.idx(), a.idx()) : 0);
 		mw.lastBzCostForwardPower = 0;
@@ -8628,7 +8640,7 @@ final class AutoAbilityTriggers {
 					if (bf != null) { mw.lastBzCostForwardPower += bf.power(); mw.lastBzCostForwards.add(bf); }
 				}
 				switch (t.zone()) {
-					case FORWARD -> mw.breakP1Forward(t.idx());
+					case FORWARD -> mw.putP1ForwardIntoBreakZone(t.idx());
 					case BACKUP  -> breakP1BackupSlot(t.idx());
 					case MONSTER -> breakP1MonsterSlot(t.idx());
 				}
@@ -8638,7 +8650,7 @@ final class AutoAbilityTriggers {
 					if (bf != null) { mw.lastBzCostForwardPower += bf.power(); mw.lastBzCostForwards.add(bf); }
 				}
 				switch (t.zone()) {
-					case FORWARD -> mw.breakP2Forward(t.idx());
+					case FORWARD -> mw.putP2ForwardIntoBreakZone(t.idx());
 					case BACKUP  -> mw.breakP2BackupSlot(t.idx());
 					case MONSTER -> mw.breakP2MonsterSlot(t.idx());
 				}

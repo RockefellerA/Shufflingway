@@ -3766,10 +3766,28 @@ final class GameContextImpl implements GameContext {
 			@Override public void forceTargetToBreakZone(ForwardTarget t) {
 				mw.pendingCostBreakDestLabel = t.isP1() ? mw.p1BreakLabel : mw.p2BreakLabel;
 				switch (t.zone()) {
-					case FORWARD -> { if (t.isP1()) breakP1Forward(t.idx()); else breakP2Forward(t.idx()); }
+					case FORWARD -> putForwardIntoBreakZone(t);
 					case BACKUP  -> { if (t.isP1()) mw.autoAbilityTriggers.breakP1BackupSlot(t.idx()); else mw.breakP2BackupSlot(t.idx()); }
 					case MONSTER -> { if (t.isP1()) mw.autoAbilityTriggers.breakP1MonsterSlot(t.idx()); else mw.breakP2MonsterSlot(t.idx()); }
 				}
+			}
+
+			/**
+			 * The Forward at {@code t} put into the Break Zone. A put is not a break, so "cannot be
+			 * broken" does not stop it and it does not count as a Forward broken this turn. "Cannot be
+			 * put into the Break Zone by your opponent's effects" still does.
+			 */
+			private void putForwardIntoBreakZone(ForwardTarget t) {
+				List<CardData> row = t.isP1() ? mw.p1ForwardCards : mw.p2ForwardCards;
+				if (t.idx() < 0 || t.idx() >= row.size()) return;
+				CardData card = row.get(t.idx());
+				if (t.isP1() != isP1
+						&& ActionResolver.hasCannotBePutIntoBzByOppFieldAbility(card, mw.damageReceivedBy(t.isP1()))) {
+					logEntry((t.isP1() ? "" : "[P2] ") + card.name() + " cannot be put into the Break Zone by opponent's effects");
+					return;
+				}
+				if (t.isP1()) mw.putP1ForwardIntoBreakZone(t.idx());
+				else          mw.putP2ForwardIntoBreakZone(t.idx());
 			}
 
 			/**

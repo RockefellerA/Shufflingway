@@ -8018,23 +8018,29 @@ public class MainWindow {
 	}
 
 	/**
-	 * True if {@code blocker} carries a "This Forward must block [attacker] if possible" ability
-	 * naming {@code attacker}. Read through {@link #effectiveFieldAbilities} because the only
-	 * current source, Dio 26-075C, grants the text until end of turn rather than printing it.
+	 * True if {@code blocker} is compelled to block {@code attacker}: the one question every
+	 * blocker-side compulsion is asked through — the blocker-selectable checks, the human's block
+	 * validator ({@link #p1BlockDeclarationRefusal}) and the AI's blocker pick. Those callers are
+	 * also where "if possible" is read, by asking only of a Forward that can legally block; under
+	 * rule 10.1.3.1.3 a compelled Forward that can block must be the one declared, whether or not
+	 * it survives, and one that cannot lifts the compulsion.
 	 *
-	 * <p>The compulsion is attacker-specific — unlike {@link #p1MustBlock}, which restricts
-	 * the blocker choice against everything that attacks — so both arguments matter.
-	 *
-	 * <p>Also true for a standing self-named compulsion ("Ricard must block if possible." 6-103H,
-	 * "If possible, Cecil must block." 2-129L), which names no attacker and so binds against every
-	 * one. It rides this method rather than the turn-scoped index set because everything downstream
-	 * — the blocker-selectable checks, the two human validators, the AI's blocker pick — already
-	 * consults it, and because only this path checks that the compelled Forward can actually block
-	 * before restricting the choice, which is what "if possible" asks for.
+	 * <p>Three sources, two of which name no attacker and so bind against every one:
+	 * <ul>
+	 *   <li>"This Forward must block [attacker] if possible", naming {@code attacker} (Dio 26-075C,
+	 *       which grants the text until end of turn rather than printing it — hence the
+	 *       {@link #effectiveFieldAbilities} read);</li>
+	 *   <li>a standing self-named compulsion ("Ricard must block if possible." 6-103H, "If possible,
+	 *       Cecil must block." 2-129L);</li>
+	 *   <li>{@link #p1MustBlock} / {@link #p2MustBlock}, the turn-scoped compulsion an effect lays on
+	 *       a chosen Forward ("It gains "If possible, this Forward must block." until the end of the
+	 *       turn." — Mika 29-122R, Tulien 21-072H, Ba'Gamnan 14-070C).</li>
+	 * </ul>
 	 */
 	boolean forwardCompelledToBlock(CardData blocker, CardData attacker) {
-		if (blocker == null || attacker == null) return false;
-		if (lostAbilitiesCards.contains(blocker)) return false;
+		if (blocker == null) return false;
+		if (p1MustBlock.contains(blocker) || p2MustBlock.contains(blocker)) return true;
+		if (attacker == null || lostAbilitiesCards.contains(blocker)) return false;
 		for (FieldAbility fa : effectiveFieldAbilities(blocker)) {
 			Matcher m = AutoAbilityTriggers.FA_THIS_FORWARD_MUST_BLOCK_NAMED.matcher(fa.effectText());
 			if (m.find() && m.group("cardname").trim().equalsIgnoreCase(attacker.name())) return true;
@@ -8220,6 +8226,23 @@ public class MainWindow {
 			return -1;
 		}
 		return p1ForwardCompelledToBlockIdx(pendingP2Attacker);
+	}
+
+	/**
+	 * True when P1's Forward at {@code idx} is compelled to block what P2 is currently attacking
+	 * with. When several Forwards are, the player chooses among them (rule 10.1.3.1.3), so a
+	 * declaration is checked against this rather than against the one index
+	 * {@link #p1ForwardCompelledToBlockIdxForPendingAttack} reports.
+	 */
+	private boolean p1ForwardCompelledAgainstPendingAttack(int idx) {
+		if (idx < 0 || idx >= p1ForwardCards.size()) return false;
+		CardData fwd = p1ForwardCards.get(idx);
+		if (pendingP2PartyIndices != null) {
+			for (CardData member : partyMemberBaseCards(false, pendingP2PartyIndices))
+				if (forwardCompelledToBlock(fwd, member)) return true;
+			return false;
+		}
+		return forwardCompelledToBlock(fwd, pendingP2Attacker);
 	}
 
 	private static boolean blockerCostExcluded(int blockerCost, int[] costFilter) {
@@ -19734,14 +19757,10 @@ public class MainWindow {
 	String p1ForwardBlockRejection(int idx) {
 		String ineligible = p1ForwardBlockIneligibility(idx);
 		if (ineligible != null) return ineligible;
-		// If any forward must block, restrict choices to those
-		if (!p1MustBlock.isEmpty() && !p1MustBlock.contains(p1ForwardCards.get(idx)))
+		// A compelled Forward takes the block, and only when it can —
+		// p1ForwardCompelledToBlockIdx returns -1 once "if possible" fails.
+		if (p1ForwardCompelledToBlockIdxForPendingAttack() >= 0 && !p1ForwardCompelledAgainstPendingAttack(idx))
 			return "another Forward you control must block";
-		// Dio 26-075C: a Forward compelled against this specific attacker takes the block, and
-		// only when it can — p1ForwardCompelledToBlockIdx returns -1 once "if possible" fails.
-		int compelled = p1ForwardCompelledToBlockIdxForPendingAttack();
-		if (compelled >= 0 && compelled != idx)
-			return "another Forward is compelled to block this attacker";
 		return null;
 	}
 
@@ -20543,8 +20562,7 @@ public class MainWindow {
 		CardState s = p1MonsterStates.get(idx);
 		if (s != CardState.ACTIVE) return false;
 		if (!isP1MonsterTemporarilyForward(idx)) return false;
-		if (!p1MustBlock.isEmpty()) return false;   // a Forward is forced to block
-		if (p1ForwardCompelledToBlockIdxForPendingAttack() >= 0) return false;  // …against this attacker
+		if (p1ForwardCompelledToBlockIdxForPendingAttack() >= 0) return false;  // a Forward must block
 		if (attackerUnblockable()) return false;
 		// Jack Garland 29-123R: this method is the only path a Monster reaches a block by, so the
 		// restriction is complete here for P1's side.
@@ -20574,7 +20592,6 @@ public class MainWindow {
 		CardState s = p1BackupStates[idx];
 		if (s != CardState.ACTIVE) return false;
 		if (!isP1BackupTemporarilyForward(idx)) return false;
-		if (!p1MustBlock.isEmpty()) return false;
 		if (p1ForwardCompelledToBlockIdxForPendingAttack() >= 0) return false;
 		if (attackerUnblockable()) return false;
 		CardData backupBlocker = p1BackupCards[idx];
@@ -20618,6 +20635,45 @@ public class MainWindow {
 	// Block resolution
 	// -------------------------------------------------------------------------
 
+	/**
+	 * Why the block P1 is declaring — the blocker now selected, or none — breaks a compulsion to
+	 * block, or {@code null} when it may stand. The message is what the refusal dialog says. Two
+	 * kinds of compulsion, checked in turn:
+	 * <ul>
+	 *   <li>on the attack: "Opponent must block [it] if possible" on the attacker or any party
+	 *       member, or a field-wide "The Forwards … must block". Declining is refused while any
+	 *       Forward could block.</li>
+	 *   <li>on a blocker ({@link #forwardCompelledToBlock}): the declared blocker has to be one of
+	 *       the compelled Forwards that can block (rule 10.1.3.1.3), and declining is refused as
+	 *       well. When none of them can block, the compulsion lifts.</li>
+	 * </ul>
+	 */
+	String p1BlockDeclarationRefusal() {
+		if (!p1InBlockDeclaration()) return null;
+		int code = p1ChosenBlockerCode();
+		boolean party = pendingP2PartyIndices != null;
+		List<CardData> attackers = party ? partyMemberBaseCards(false, pendingP2PartyIndices)
+				: List.of(pendingP2Attacker);
+		if (code < 0 && (attackers.stream().anyMatch(this::attackerMustBeBlocked) || forwardsMustBlock(true))) {
+			for (int i = 0; i < p1ForwardStates.size(); i++) {
+				if (!isForwardBlockSelectable(i)) continue;
+				// No name for a party under the field-wide kind: it names a side, not an attacker,
+				// so there is no party member to point at.
+				String name = !party ? pendingP2Attacker.name()
+						: attackers.stream().filter(this::attackerMustBeBlocked).map(CardData::name)
+								.findFirst().orElse("the attacking party");
+				return "You must block " + name + " — select an eligible Forward.";
+			}
+		}
+		int compelled = p1ForwardCompelledToBlockIdxForPendingAttack();
+		if (compelled < 0) return null;
+		ForwardTarget chosen = code < 0 ? null : ForwardTarget.fromSlotCode(true, code);
+		if (chosen != null && chosen.zone() == ForwardTarget.CardZone.FORWARD
+				&& p1ForwardCompelledAgainstPendingAttack(chosen.idx())) return null;
+		return p1ForwardCards.get(compelled).name() + " must block "
+				+ (party ? "" : pendingP2Attacker.name() + " ") + "if possible.";
+	}
+
 	/** Called when P1 clicks the Attack/Block/Take-Damage button during block declaration. */
 	void handleP1BlockAction() {
 		if (pendingP2PartyIndices != null) { handleP1PartyBlockAction(); return; }
@@ -20635,24 +20691,10 @@ public class MainWindow {
 		else if (p1BlockerMonsterIdx >= 0) { blkZone = ForwardTarget.CardZone.MONSTER; blkIdx = p1BlockerMonsterIdx; }
 		else if (p1BlockerBackupIdx >= 0)  { blkZone = ForwardTarget.CardZone.BACKUP;  blkIdx = p1BlockerBackupIdx; }
 
-		// Must-block validation: done before clearing state so isForwardBlockSelectable still works.
-		if (blkZone == null && blockIsCompelled(attacker, true)) {
-			for (int i = 0; i < p1ForwardStates.size(); i++) {
-				if (isForwardBlockSelectable(i)) {
-					showEffectOptionDialog("You must block " + attacker.name()
-							+ " — select an eligible Forward.", "Must Block", new Object[]{"OK"});
-					return;
-				}
-			}
-		}
-		// Dio 26-075C: the compulsion sits on one Forward rather than on the attacker, so it also
-		// has to be rejected when a different blocker was declared, not only when none was.
-		if (p1ForwardCompelledToBlockIdx(attacker) >= 0
-				&& !(blkZone == ForwardTarget.CardZone.FORWARD
-						&& blkIdx == p1ForwardCompelledToBlockIdx(attacker))) {
-			CardData compelled = p1ForwardCards.get(p1ForwardCompelledToBlockIdx(attacker));
-			showEffectOptionDialog(compelled.name() + " must block " + attacker.name()
-					+ " if possible.", "Must Block", new Object[]{"OK"});
+		// Validated before the pending state is cleared, which the check reads.
+		String refusal = p1BlockDeclarationRefusal();
+		if (refusal != null) {
+			showEffectOptionDialog(refusal, "Must Block", new Object[]{"OK"});
 			return;
 		}
 
@@ -20734,34 +20776,10 @@ public class MainWindow {
 		Runnable      onDone          = pendingP2BlockDone;
 		int           blockerCode     = p1ChosenBlockerCode();
 
-		// Must-block validation: done before clearing state so isForwardBlockSelectable still works.
-		if (blockerCode < 0) {
-			List<CardData> partyCards = partyMemberBaseCards(false, attackerIndices);
-			boolean partyMustBeBlocked = partyCards.stream().anyMatch(this::attackerMustBeBlocked)
-					|| forwardsMustBlock(true);
-			if (partyMustBeBlocked) {
-				for (int i = 0; i < p1ForwardStates.size(); i++) {
-					if (isForwardBlockSelectable(i)) {
-						// No name when the compulsion is the field-wide kind — it names a side, not
-						// an attacker, so there is no party member to point at.
-						String mustBlockName = partyCards.stream()
-								.filter(this::attackerMustBeBlocked)
-								.map(CardData::name)
-								.findFirst().orElse("the attacking party");
-						showEffectOptionDialog("You must block " + mustBlockName
-								+ " — select an eligible Forward.", "Must Block", new Object[]{"OK"});
-						return;
-					}
-				}
-			}
-		}
-		// Dio 26-075C, party form: a compelled Forward must be the one declared, so this is
-		// checked whether or not a blocker was named. See handleP1BlockAction for the single case.
-		int partyCompelled = p1ForwardCompelledToBlockIdxForPendingAttack();
-		if (partyCompelled >= 0
-				&& blockerCode != ForwardTarget.slotCode(ForwardTarget.CardZone.FORWARD, partyCompelled)) {
-			showEffectOptionDialog(p1ForwardCards.get(partyCompelled).name()
-					+ " must block if possible.", "Must Block", new Object[]{"OK"});
+		// Validated before the pending state is cleared, which the check reads.
+		String refusal = p1BlockDeclarationRefusal();
+		if (refusal != null) {
+			showEffectOptionDialog(refusal, "Must Block", new Object[]{"OK"});
 			return;
 		}
 

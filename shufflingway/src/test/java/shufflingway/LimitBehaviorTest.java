@@ -56,8 +56,14 @@ class LimitBehaviorTest {
 	/** {@link #makeLbForward}, for a card whose Job or Category the test depends on. */
 	private static CardData makeLbForward(String name, String element, int cost, int power, int lbCost,
 			String job, String category, String text) {
+		return makeLbForward(name, element, cost, power, lbCost, job, category, null, text);
+	}
+
+	/** {@link #makeLbForward}, for a card printed with two Categories. */
+	private static CardData makeLbForward(String name, String element, int cost, int power, int lbCost,
+			String job, String category1, String category2, String text) {
 		return MainWindow.buildCardData(new DeckCardDetail(null, name, element, cost, power, "Forward",
-				true, lbCost, false, text, false, job, category, null));
+				true, lbCost, false, text, false, job, category1, category2));
 	}
 
 	/** A main-deck card with no text, built the same way, for a test that reads its Job or Category. */
@@ -3318,6 +3324,698 @@ class LimitBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 27-115R Shadow Lord (LB 2): "When Shadow Lord enters the field, choose up to 2 Characters. If
+	// you control 4 or more Ice Characters, dull them and Freeze them.[[br]]When Shadow Lord enters
+	// the field, choose 1 Character in your Break Zone. If you control 4 or more Earth Characters,
+	// add it to your hand."
+	//
+	// Shadow Lord is Ice and Earth, so he counts towards both.
+	// =========================================================================================
+
+	private static final String SHADOW_LORD_27_115R = "Limit Break -- 2[[br]]When Shadow Lord enters the field, "
+			+ "choose up to 2 Characters. If you control 4 or more Ice Characters, dull them and Freeze them.[[br]]"
+			+ "When Shadow Lord enters the field, choose 1 Character in your Break Zone. If you control 4 or more "
+			+ "Earth Characters, add it to your hand.";
+
+	/**
+	 * Shadow Lord entering P2's field beside three {@code element} Backups, facing two Forwards, with
+	 * {@code buried} in P2's Break Zone. Returns the two Forwards.
+	 */
+	private static List<CardData> shadowLordEntersBeside(MainWindow mw, String element, CardData buried) {
+		for (int i = 0; i < 3; i++) placeP2Backup(mw, makeBackup(element + " Aide " + i, element, 2));
+		List<CardData> theirs = List.of(makeForward("First", "Fire", 3, 7000), makeForward("Second", "Fire", 4, 8000));
+		theirs.forEach(c -> placeP1Forward(mw, c));
+		putInP2BreakZone(mw, buried);
+		enterAsP2(mw, makeLbForward("Shadow Lord", "Ice/Earth", 6, 8000, 2, "Kindred", "XI", SHADOW_LORD_27_115R));
+		return theirs;
+	}
+
+	@Test
+	void withFourIceCharactersShadowLordDullsAndFreezesTwoCharacters() {
+		MainWindow mw = new MainWindow();
+		CardData buried = makeForward("Buried", "Earth", 3, 7000);
+
+		for (CardData c : shadowLordEntersBeside(mw, "Ice", buried)) {
+			int i = mw.p1ForwardCards.indexOf(c);
+			assertEquals(CardState.DULL, mw.p1ForwardStates.get(i), c.name());
+			assertTrue(mw.p1ForwardFrozen.get(i), c.name());
+		}
+		assertTrue(mw.gameState.getP2BreakZone().contains(buried), "one Earth Character, himself");
+	}
+
+	@Test
+	void withFourEarthCharactersShadowLordReturnsACharacterFromTheBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData buried = makeBackup("Buried", "Water", 2);
+
+		List<CardData> theirs = shadowLordEntersBeside(mw, "Earth", buried);
+
+		assertEquals(List.of(buried), mw.gameState.getP2Hand(), "a Character: a Backup is one");
+		for (CardData c : theirs)
+			assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(mw.p1ForwardCards.indexOf(c)),
+					"one Ice Character, himself");
+	}
+
+	// =========================================================================================
+	// 27-116R The Emperor (LB 1): "When The Emperor attacks, choose 1 Forward. Dull it.[[br]]When
+	// The Emperor leaves the field, you may search for 1 Card Name The Emperor and add it to your
+	// hand."
+	//
+	// He goes back to the LB deck as he leaves, so the search finds another printing in the main
+	// deck, never himself.
+	// =========================================================================================
+
+	private static final String EMPEROR_27_116R = "Limit Break -- 1[[br]]When The Emperor attacks, choose 1 Forward. "
+			+ "Dull it.[[br]]When The Emperor leaves the field, you may search for 1 Card Name The Emperor and add "
+			+ "it to your hand.";
+
+	private static CardData makeEmperor() {
+		return makeLbForward("The Emperor", "Ice/Lightning", 4, 7000, 1, "Emperor", "SOPFFO", EMPEROR_27_116R);
+	}
+
+	@Test
+	void whenTheEmperorAttacksHeDullsAnOpposingForward() {
+		MainWindow mw = new MainWindow();
+		CardData emperor = makeEmperor();
+		placeP2Forward(mw, emperor);
+		CardData theirs = makeForward("Theirs", "Fire", 3, 7000);
+		placeP1Forward(mw, theirs);
+
+		attackAsP2(mw, emperor);
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(mw.p1ForwardCards.indexOf(theirs)));
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(emperor)), "not himself");
+	}
+
+	@Test
+	void asTheEmperorLeavesTheFieldHeSearchesForAnotherEmperor() {
+		MainWindow mw = new MainWindow();
+		CardData emperor = makeEmperor();
+		mw.gameState.getP2LbDeck().add(emperor);
+		placeP2Forward(mw, emperor);
+		CardData another = makePlainCard("The Emperor", "Dark", "Backup", 3, 0, null, null);
+		putOnTopOfDeck(mw, another, false);
+		putPlainCardsOnTop(mw, false, 2);
+
+		resolveWhatQueues(mw, emperor, () -> mw.breakP2Forward(mw.p2ForwardCards.indexOf(emperor)));
+
+		assertEquals(List.of(another), mw.gameState.getP2Hand());
+		assertEquals(List.of(emperor), mw.gameState.getP2LbDeck(), "he goes back to the LB deck");
+	}
+
+	// =========================================================================================
+	// 27-117R Onion Knight (LB 2): "When Onion Knight leaves the field, you may play 1 Category DFF
+	// Forward of cost 4 or less from your hand onto the field dull.[[br]]Put Onion Knight into the
+	// Break Zone: Choose 1 Forward of cost 4 or less. Break it."
+	// =========================================================================================
+
+	private static final String ONION_KNIGHT_27_117R = "Limit Break -- 2[[br]]When Onion Knight leaves the field, "
+			+ "you may play 1 Category DFF Forward of cost 4 or less from your hand onto the field dull.[[br]]Put "
+			+ "Onion Knight into the Break Zone: Choose 1 Forward of cost 4 or less. Break it.";
+
+	/** Onion Knight on P2's field, with his place in the LB deck to go back to. */
+	private static CardData onionKnightOnTheField(MainWindow mw) {
+		CardData onion = makeLbForward("Onion Knight", "Wind/Lightning", 6, 8000, 2, "Ninja", "DFF",
+				ONION_KNIGHT_27_117R);
+		mw.gameState.getP2LbDeck().add(onion);
+		placeP2Forward(mw, onion);
+		return onion;
+	}
+
+	@Test
+	void asOnionKnightLeavesTheFieldADffForwardComesInDullFromHand() {
+		MainWindow mw = new MainWindow();
+		CardData onion = onionKnightOnTheField(mw);
+		CardData luneth = makePlainCard("Luneth", "Wind", "Forward", 4, 7000, null, "DFF");
+		CardData dear   = makePlainCard("Firion", "Fire", "Forward", 5, 8000, null, "DFF");
+		CardData other  = makePlainCard("Arc", "Water", "Forward", 3, 5000, null, "III");
+		for (CardData c : List.of(dear, other, luneth)) putInP2Hand(mw, c);
+
+		resolveWhatQueues(mw, onion, () -> mw.breakP2Forward(mw.p2ForwardCards.indexOf(onion)));
+
+		assertEquals(List.of(luneth), mw.p2ForwardCards);
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "onto the field dull");
+		assertTrue(mw.gameState.getP2Hand().containsAll(List.of(dear, other)), "Category DFF, cost 4 or less");
+	}
+
+	@Test
+	void onionKnightPutsHimselfIntoTheBreakZoneToBreakAForwardOfCostFourOrLess() {
+		MainWindow mw = new MainWindow();
+		CardData onion = onionKnightOnTheField(mw);
+		CardData cheap = makeForward("Cheap", "Water", 4, 7000);
+		CardData dear  = makeForward("Dear", "Water", 5, 9000);
+		placeP1Forward(mw, cheap);
+		placeP1Forward(mw, dear);
+		int before = mw.gameState.stackSize();
+
+		assertTrue(mw.autoAbilityTriggers.executeP2AbilityActivation(onion.actionAbilities().get(0), onion,
+				() -> {}, new ArrayList<>(), new ArrayList<>(), 0));
+		assertTrue(mw.p2ForwardCards.isEmpty(), "the cost");
+		assertEquals(List.of(onion), mw.gameState.getP2LbDeck(), "an LB card goes back to the LB deck");
+		assertFalse(mw.p1Turn.turnOpponentFwdBroken, "putting him into the Break Zone is not breaking him");
+		resolveDownTo(mw, before);
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(cheap));
+		assertTrue(mw.p1ForwardCards.contains(dear), "cost 4 or less");
+	}
+
+	// =========================================================================================
+	// 27-118R Vaan (LB 2): "When Vaan enters the field, if you control 4 or more Wind Characters,
+	// activate all the Backups you control.[[br]]When Vaan enters the field, choose 1 Forward. If
+	// you control 4 or more Water Characters, it loses 8000 power until the end of the turn."
+	//
+	// Vaan is Wind and Water, so he counts towards both.
+	// =========================================================================================
+
+	private static final String VAAN_27_118R = "Limit Break -- 2[[br]]When Vaan enters the field, if you control 4 "
+			+ "or more Wind Characters, activate all the Backups you control.[[br]]When Vaan enters the field, "
+			+ "choose 1 Forward. If you control 4 or more Water Characters, it loses 8000 power until the end of "
+			+ "the turn.";
+
+	/** Vaan entering P2's field beside three dull {@code element} Backups, facing one Forward. Returns it. */
+	private static CardData vaanEntersBeside(MainWindow mw, String element) {
+		for (int i = 0; i < 3; i++) placeP2Backup(mw, makeBackup(element + " Aide " + i, element, 2));
+		Arrays.fill(mw.p2BackupStates, 0, 3, CardState.DULL);
+		CardData theirs = makeForward("Theirs", "Fire", 5, 9000);
+		placeP1Forward(mw, theirs);
+		enterAsP2(mw, makeLbForward("Vaan", "Wind/Water", 7, 5000, 2, "Sky Pirate", "XII", VAAN_27_118R));
+		return theirs;
+	}
+
+	@Test
+	void withFourWindCharactersVaanActivatesHisBackups() {
+		MainWindow mw = new MainWindow();
+		placeP1Backup(mw, makeBackup("Their Aide", "Wind", 2));
+		mw.p1BackupStates[0] = CardState.DULL;
+
+		CardData theirs = vaanEntersBeside(mw, "Wind");
+
+		for (int i = 0; i < 3; i++) assertEquals(CardState.ACTIVE, mw.p2BackupStates[i]);
+		assertEquals(CardState.DULL, mw.p1BackupStates[0], "the Backups you control");
+		assertEquals(9000, mw.effectiveP1ForwardPower(mw.p1ForwardCards.indexOf(theirs)),
+				"one Water Character, himself");
+	}
+
+	@Test
+	void withFourWaterCharactersVaanTakes8000FromAForwardForTheTurn() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = vaanEntersBeside(mw, "Water");
+		int t = mw.p1ForwardCards.indexOf(theirs);
+
+		assertEquals(1000, mw.effectiveP1ForwardPower(t));
+		assertEquals(CardState.DULL, mw.p2BackupStates[0], "one Wind Character, himself");
+		mw.turnPhases().runP2EndOfTurnCleanup();
+		assertEquals(9000, mw.effectiveP1ForwardPower(t), "until the end of the turn");
+	}
+
+	// =========================================================================================
+	// 27-119R Warrior of Light (LB 2): "When Warrior of Light enters the field, you may search for 1
+	// Earth or Water Job Standard Unit of cost 3 or less and play it onto the field.[[br]]When a Job
+	// Standard Unit enters your field, draw 1 card, then discard 1 card."
+	//
+	// The Standard Unit his arrival plays wakes his second ability at once.
+	// =========================================================================================
+
+	private static final String WARRIOR_OF_LIGHT_27_119R = "Limit Break -- 2[[br]]When Warrior of Light enters the "
+			+ "field, you may search for 1 Earth or Water Job Standard Unit of cost 3 or less and play it onto the "
+			+ "field.[[br]]When a Job Standard Unit enters your field, draw 1 card, then discard 1 card.";
+
+	private static CardData makeWarriorOfLight27() {
+		return makeLbForward("Warrior of Light", "Earth/Water", 7, 5000, 2, "Warrior of Light", "SOPFFO",
+				WARRIOR_OF_LIGHT_27_119R);
+	}
+
+	private static CardData standardUnit(String name, String element, int cost) {
+		return makeForwardWithJob(name, element, cost, 5000, "Standard Unit");
+	}
+
+	@Test
+	void warriorOfLightPlaysAnEarthOrWaterStandardUnitFromTheDeck() {
+		MainWindow mw = new MainWindow();
+		CardData unit     = standardUnit("Cornelian Guard", "Water", 3);
+		CardData fire     = standardUnit("Fire Guard", "Fire", 2);
+		CardData dear     = standardUnit("Elite Guard", "Earth", 4);
+		CardData stranger = makeForwardWithJob("Knight", "Earth", 2, 5000, "Knight");
+		for (CardData c : List.of(fire, dear, stranger, unit)) putOnTopOfDeck(mw, c, false);
+
+		enterAsP2(mw, makeWarriorOfLight27());
+
+		assertTrue(mw.p2ForwardCards.contains(unit));
+		for (CardData c : List.of(fire, dear, stranger)) assertFalse(mw.p2ForwardCards.contains(c), c.name());
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "its arrival drew a card, then discarded it");
+		assertEquals(1, mw.gameState.getP2BreakZone().size());
+	}
+
+	@Test
+	void aStandardUnitEnteringHisSideDrawsAndThenDiscards() {
+		MainWindow mw = new MainWindow();
+		CardData wol = makeWarriorOfLight27();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, wol);
+		putInP2Hand(mw, makeForward("Held", "Earth", 2, 5000));
+		putPlainCardsOnTop(mw, false, 1);
+
+		resolveWhatQueues(mw, wol, () -> placeP2Forward(mw, standardUnit("Cornelian Guard", "Water", 3)));
+
+		assertEquals(1, mw.gameState.getP2Hand().size(), "drew one, then discarded one");
+		assertEquals(1, mw.gameState.getP2BreakZone().size());
+		int before = mw.gameState.stackSize();
+		placeP1Forward(mw, standardUnit("Their Guard", "Fire", 2));
+		assertEquals(before, mw.gameState.stackSize(), "your field");
+	}
+
+	// =========================================================================================
+	// 27-120R Terra (LB 2): "When Terra enters the field, you may pay 《Lightning》. When you do so,
+	// choose 1 Forward. Break it.[[br]]When Terra enters the field, you may pay 《Fire》. When you do
+	// so, remove all the cards in your opponent's Break Zone from the game."
+	//
+	// Both resolve as she arrives (PayWhenDoSo, see the inline-auto-abilities handoff), so these
+	// place her and read the board. Each board leaves P2 one Backup to pay with, so only one of the
+	// two is paid.
+	// =========================================================================================
+
+	private static final String TERRA_27_120R = "Limit Break -- 2[[br]]When Terra enters the field, you may pay "
+			+ "《Lightning》. When you do so, choose 1 Forward. Break it.[[br]]When Terra enters the field, you may pay "
+			+ "《Fire》. When you do so, remove all the cards in your opponent's Break Zone from the game.";
+
+	/** P1 with a Forward and a card in its Break Zone; Terra entering beside one {@code element} Backup. */
+	private static List<CardData> terraEntersPaying(MainWindow mw, String element) {
+		CardData theirs = makeForward("Theirs", "Water", 3, 7000);
+		placeP1Forward(mw, theirs);
+		CardData buried = makeForward("Buried", "Water", 2, 5000);
+		mw.gameState.getIdentity().put(buried, true);
+		mw.gameState.getP1BreakZone().add(buried);
+		placeP2Backup(mw, makeBackup(element + " Aide", element, 2));
+		placeP2Forward(mw, makeLbForward("Terra", "Lightning/Fire", 5, 7000, 2, "Magitek Knight", "VI", TERRA_27_120R));
+		return List.of(theirs, buried);
+	}
+
+	@Test
+	void terraPaysLightningToBreakAForward() {
+		MainWindow mw = new MainWindow();
+
+		List<CardData> theirs = terraEntersPaying(mw, "Lightning");
+
+		assertEquals(CardState.DULL, mw.p2BackupStates[0], "《Lightning》 was paid");
+		assertTrue(mw.gameState.getP1BreakZone().containsAll(theirs), "the Forward broken; no 《Fire》 to clear the zone");
+		assertTrue(mw.gameState.getP1PermanentRfp().isEmpty());
+	}
+
+	@Test
+	void terraPaysFireToRemoveTheOpponentsBreakZoneFromTheGame() {
+		MainWindow mw = new MainWindow();
+		CardData own = makeForward("Own", "Fire", 2, 5000);
+		putInP2BreakZone(mw, own);
+
+		List<CardData> theirs = terraEntersPaying(mw, "Fire");
+
+		assertEquals(CardState.DULL, mw.p2BackupStates[0], "《Fire》 was paid");
+		assertEquals(List.of(theirs.get(1)), mw.gameState.getP1PermanentRfp());
+		assertTrue(mw.gameState.getP1BreakZone().isEmpty());
+		assertTrue(mw.p1ForwardCards.contains(theirs.get(0)), "no 《Lightning》 for the break");
+		assertEquals(List.of(own), mw.gameState.getP2BreakZone(), "your opponent's Break Zone only");
+	}
+
+	// =========================================================================================
+	// 27-121R Locke (LB 2): "When Locke enters the field, choose 1 Forward opponent controls. Return
+	// it to its owner's hand.[[br]]When a Forward opponent controls is returned from the field to its
+	// owner's hand, your opponent discards 1 card. This effect will trigger only once per turn."
+	//
+	// His own arrival is the first return. P1 discards, and a P1 choice opens a dialog, so each
+	// board leaves P1 one card to discard.
+	// =========================================================================================
+
+	private static final String LOCKE_27_121R = "Limit Break -- 2[[br]]When Locke enters the field, choose 1 Forward "
+			+ "opponent controls. Return it to its owner's hand.[[br]]When a Forward opponent controls is returned "
+			+ "from the field to its owner's hand, your opponent discards 1 card. This effect will trigger only "
+			+ "once per turn.";
+
+	private static CardData makeLocke() {
+		return makeLbForward("Locke", "Water/Ice", 7, 8000, 2, "Treasure Hunter", "VI", LOCKE_27_121R);
+	}
+
+	@Test
+	void lockeReturnsAnOpposingForwardAndTheReturnMakesTheOpponentDiscard() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Fire", 5, 9000);
+		placeP1Forward(mw, theirs);
+		CardData ally = makeForward("Ally", "Water", 2, 5000);
+		placeP2Forward(mw, ally);
+
+		enterAsP2(mw, makeLocke());
+
+		assertTrue(mw.p1ForwardCards.isEmpty());
+		assertTrue(mw.p2ForwardCards.contains(ally), "opponent controls");
+		assertTrue(mw.gameState.getP1Hand().isEmpty(), "returned, then discarded as the only card in hand");
+		assertEquals(List.of(theirs), mw.gameState.getP1BreakZone());
+	}
+
+	@Test
+	void lockesDiscardWatchesOpposingForwardsOncePerTurn() {
+		MainWindow mw = new MainWindow();
+		CardData locke = makeLocke();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, locke);
+		CardData held = makeForward("Held", "Fire", 2, 5000);
+		mw.gameState.getIdentity().put(held, true);
+		mw.gameState.getP1Hand().add(held);
+		int before = mw.gameState.stackSize();
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForCharacterReturnedToHand(false, true);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForCharacterReturnedToHand(true, false);
+		assertEquals(before, mw.gameState.stackSize(), "his own side's Forward, and an opposing Backup");
+		resolveWhatQueues(mw, locke, () -> mw.autoAbilityTriggers.triggerAutoAbilitiesForCharacterReturnedToHand(true, true));
+		assertEquals(List.of(held), mw.gameState.getP1BreakZone());
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForCharacterReturnedToHand(true, true);
+		assertEquals(before, mw.gameState.stackSize(), "only once per turn");
+	}
+
+	// =========================================================================================
+	// 28-119R Serah (LB 1): "When Serah enters the field, choose 1 Forward. If you control 3 or more
+	// Fire Characters, deal it 5000 damage.[[br]]When Serah enters the field, if you control 3 or
+	// more Ice Characters, your opponent discards 1 card."
+	//
+	// Serah is Fire and Ice, so she counts towards both. P1 discards, so P1 holds one card: a
+	// choice between two would open a dialog.
+	// =========================================================================================
+
+	private static final String SERAH_28_119R = "Limit Break -- 1[[br]]When Serah enters the field, choose 1 Forward. "
+			+ "If you control 3 or more Fire Characters, deal it 5000 damage.[[br]]When Serah enters the field, if "
+			+ "you control 3 or more Ice Characters, your opponent discards 1 card.";
+
+	/** Serah entering P2's field beside two {@code element} Backups, facing a Forward and a one-card hand. */
+	private static CardData serahEntersBeside(MainWindow mw, String element) {
+		for (int i = 0; i < 2; i++) placeP2Backup(mw, makeBackup(element + " Aide " + i, element, 2));
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		CardData held = makeForward("Held", "Water", 2, 5000);
+		mw.gameState.getIdentity().put(held, true);
+		mw.gameState.getP1Hand().add(held);
+		enterAsP2(mw, makeLbForward("Serah", "Fire/Ice", 5, 5000, 1, "Saboteur", "XIII", SERAH_28_119R));
+		return theirs;
+	}
+
+	@Test
+	void withThreeFireCharactersSerahDeals5000Damage() {
+		MainWindow mw = new MainWindow();
+
+		CardData theirs = serahEntersBeside(mw, "Fire");
+
+		assertEquals(5000, p1Damage(mw, theirs));
+		assertEquals(1, mw.gameState.getP1Hand().size(), "one Ice Character, herself");
+	}
+
+	@Test
+	void withThreeIceCharactersSerahMakesTheOpponentDiscard() {
+		MainWindow mw = new MainWindow();
+
+		CardData theirs = serahEntersBeside(mw, "Ice");
+
+		assertTrue(mw.gameState.getP1Hand().isEmpty());
+		assertEquals(1, mw.gameState.getP1BreakZone().size(), "the card is discarded");
+		assertEquals(0, p1Damage(mw, theirs), "one Fire Character, herself");
+	}
+
+	// =========================================================================================
+	// 28-120R Ritz (LB 1): "When Ritz enters the field, gain 《C》."
+	// =========================================================================================
+
+	private static final String RITZ_28_120R = "Limit Break -- 1[[br]]When Ritz enters the field, gain 《C》.";
+
+	@Test
+	void ritzGainsACrystalAsSheEnters() {
+		MainWindow mw = new MainWindow();
+		int p1Before = mw.gameState.getP1Crystals();
+
+		enterAsP2(mw, makeLbForward("Ritz", "Ice/Wind", 5, 5000, 1, "Fencer", "FFTA", RITZ_28_120R));
+
+		assertEquals(1, mw.gameState.getP2Crystals());
+		assertEquals(p1Before, mw.gameState.getP1Crystals(), "her controller's");
+	}
+
+	// =========================================================================================
+	// 28-121R Gilgamesh (LB 1): "First Strike Brave"
+	//
+	// Two keywords on one line, with no break between them.
+	// =========================================================================================
+
+	@Test
+	void gilgameshHasFirstStrikeAndBrave() {
+		MainWindow mw = new MainWindow();
+		CardData gilgamesh = makeLbForward("Gilgamesh", "Wind/Earth", 4, 8000, 1, "Warrior", "VII",
+				"Limit Break -- 1[[br]]First Strike Brave");
+		placeP2Forward(mw, gilgamesh);
+		int g = mw.p2ForwardCards.indexOf(gilgamesh);
+
+		assertTrue(mw.effectiveP2HasTrait(g, CardData.Trait.FIRST_STRIKE));
+		assertTrue(mw.effectiveP2HasTrait(g, CardData.Trait.BRAVE));
+	}
+
+	// =========================================================================================
+	// 28-122R Rufus (LB 2): "When Rufus enters the field, you may pay 《Earth》《Lightning》. When you
+	// do so, choose 1 Category VII Forward of cost 3 or less in your Break Zone. Play it onto the
+	// field."
+	//
+	// Placed, and then anything it queued resolved, so the tests read the same whether the trigger
+	// layer resolves the payment inline or puts it on the Stack.
+	// =========================================================================================
+
+	private static final String RUFUS_28_122R = "Limit Break -- 2[[br]]When Rufus enters the field, you may pay "
+			+ "《Earth》《Lightning》. When you do so, choose 1 Category VII Forward of cost 3 or less in your Break "
+			+ "Zone. Play it onto the field.";
+
+	/**
+	 * Rufus entering P2's field beside one active Backup of each of {@code elements}, with a Category
+	 * VII Forward of cost 3 in the Break Zone and two that miss the filter. Returns the cost-3 one.
+	 */
+	private static CardData rufusEntersBeside(MainWindow mw, String... elements) {
+		for (String e : elements) placeP2Backup(mw, makeBackup(e + " Aide", e, 2));
+		CardData tseng = makePlainCard("Tseng", "Lightning", "Forward", 3, 7000, null, "VII");
+		putInP2BreakZone(mw, makePlainCard("Reno", "Lightning", "Forward", 4, 7000, null, "VII"));
+		putInP2BreakZone(mw, makePlainCard("Kain", "Lightning", "Forward", 2, 5000, null, "IV"));
+		putInP2BreakZone(mw, tseng);
+		CardData rufus = makeLbForward("Rufus", "Earth/Lightning", 5, 8000, 2, "President of Shinra", "VII",
+				RUFUS_28_122R);
+		int before = mw.gameState.stackSize();
+		placeP2Forward(mw, rufus);
+		resolveDownTo(mw, before);
+		return tseng;
+	}
+
+	@Test
+	void rufusPaysEarthAndLightningToPlayACategoryViiForwardFromTheBreakZone() {
+		MainWindow mw = new MainWindow();
+
+		CardData tseng = rufusEntersBeside(mw, "Earth", "Lightning");
+
+		assertTrue(mw.p2ForwardCards.contains(tseng));
+		assertEquals(2, mw.gameState.getP2BreakZone().size(), "cost 4, and Category IV, stay behind");
+		assertEquals(CardState.DULL, mw.p2BackupStates[0], "《Earth》");
+		assertEquals(CardState.DULL, mw.p2BackupStates[1], "《Lightning》");
+	}
+
+	@Test
+	void withNothingInTheBreakZoneToTakeRufusPaysNothing() {
+		MainWindow mw = new MainWindow();
+		placeP2Backup(mw, makeBackup("Earth Aide", "Earth", 2));
+		placeP2Backup(mw, makeBackup("Lightning Aide", "Lightning", 2));
+		putInP2BreakZone(mw, makePlainCard("Reno", "Lightning", "Forward", 4, 7000, null, "VII"));
+		int before = mw.gameState.stackSize();
+
+		placeP2Forward(mw, makeLbForward("Rufus", "Earth/Lightning", 5, 8000, 2, "President of Shinra", "VII",
+				RUFUS_28_122R));
+		resolveDownTo(mw, before);
+
+		assertEquals(CardState.ACTIVE, mw.p2BackupStates[0], "the CPU does not pay for an empty choice");
+		assertEquals(CardState.ACTIVE, mw.p2BackupStates[1]);
+	}
+
+	@Test
+	void withoutTheLightningRufusPlaysNothing() {
+		MainWindow mw = new MainWindow();
+
+		CardData tseng = rufusEntersBeside(mw, "Earth");
+
+		assertFalse(mw.p2ForwardCards.contains(tseng), "the play is what the payment buys");
+		assertEquals(CardState.ACTIVE, mw.p2BackupStates[0], "nothing paid");
+	}
+
+	// =========================================================================================
+	// 28-123R Ashe (LB 2): "When Ashe enters the field, reveal the top 5 cards of your deck. Add 1
+	// Category MBM Character among them to your hand and return the other cards to the bottom of
+	// your deck in any order.[[br]]At the beginning of the Attack Phase during each of your turns,
+	// you may pay 《1》. When you do so, play 1 Category MBM Character of cost 3 or less from your
+	// hand onto the field."
+	// =========================================================================================
+
+	private static final String ASHE_28_123R = "Limit Break -- 2[[br]]When Ashe enters the field, reveal the top 5 "
+			+ "cards of your deck. Add 1 Category MBM Character among them to your hand and return the other cards to "
+			+ "the bottom of your deck in any order.[[br]]At the beginning of the Attack Phase during each of your "
+			+ "turns, you may pay 《1》. When you do so, play 1 Category MBM Character of cost 3 or less from your "
+			+ "hand onto the field.";
+
+	private static CardData makeAshe() {
+		return makeLbForward("Ashe", "Lightning/Water", 6, 8000, 2, "Princess", "MBM", ASHE_28_123R);
+	}
+
+	@Test
+	void asheAddsACategoryMbmCharacterFromTheTopFive() {
+		MainWindow mw = new MainWindow();
+		CardData sixth = makePlainCard("Basch", "Fire", "Forward", 3, 7000, null, "MBM");
+		putOnTopOfDeck(mw, sixth, false);
+		CardData vaan    = makePlainCard("Vaan", "Wind", "Forward", 3, 7000, null, "MBM");
+		CardData esper   = makePlainCard("Belias", "Fire", "Summon", 3, 0, null, "MBM");
+		CardData outside = makePlainCard("Balthier", "Wind", "Forward", 3, 7000, null, "XII");
+		for (CardData c : List.of(vaan, esper, outside)) putOnTopOfDeck(mw, c, false);
+		putPlainCardsOnTop(mw, false, 2);
+
+		enterAsP2(mw, makeAshe());
+
+		assertEquals(List.of(vaan), mw.gameState.getP2Hand(), "a Character, not the Summon; the sixth is out of reach");
+		assertSame(sixth, mw.gameState.getP2MainDeck().peekFirst(), "the other four went under it");
+		assertEquals(5, mw.gameState.getP2MainDeck().size());
+	}
+
+	@Test
+	void atTheStartOfHerAttackPhaseAshePaysOneToPlayACheapMbmCharacter() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.startFirstTurn(GameState.Player.P2);
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, makeAshe());
+		placeP2Backup(mw, makeBackup("Aide", "Fire", 2));
+		CardData penelo = makePlainCard("Penelo", "Wind", "Forward", 3, 5000, null, "MBM");
+		CardData dear   = makePlainCard("Basch", "Fire", "Forward", 4, 8000, null, "MBM");
+		CardData other  = makePlainCard("Larsa", "Earth", "Backup", 2, 0, null, "XII");
+		for (CardData c : List.of(dear, other, penelo)) putInP2Hand(mw, c);
+		int before = mw.gameState.stackSize();
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(false);
+		resolveDownTo(mw, before);
+
+		assertTrue(mw.p2ForwardCards.contains(penelo));
+		assertEquals(List.of(dear, other), mw.gameState.getP2Hand(), "cost 3 or less, Category MBM");
+		assertEquals(CardState.DULL, mw.p2BackupStates[0], "《1》 was paid");
+	}
+
+	@Test
+	void ashePlaysNothingAtTheStartOfTheOpponentsAttackPhase() {
+		MainWindow mw = new MainWindow();                          // P1 holds the turn by default
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, makeAshe());
+		placeP2Backup(mw, makeBackup("Aide", "Fire", 2));
+		putInP2Hand(mw, makePlainCard("Penelo", "Wind", "Forward", 3, 5000, null, "MBM"));
+		int before = mw.gameState.stackSize();
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(true);
+		resolveDownTo(mw, before);
+
+		assertEquals(1, mw.gameState.getP2Hand().size(), "during each of your turns");
+		assertEquals(CardState.ACTIVE, mw.p2BackupStates[0]);
+	}
+
+	// =========================================================================================
+	// 28-124R Bahamut (LB 1): "When Bahamut enters the field, choose 1 Forward. It loses 4000 power
+	// until the end of the turn.[[br]]When Bahamut enters the field, choose 1 Forward. Deal it 4000
+	// damage."
+	//
+	// Two separate abilities, each with its own choice. Neither alone breaks a 7000-power Forward;
+	// together they do.
+	// =========================================================================================
+
+	private static final String BAHAMUT_28_124R = "Limit Break -- 1[[br]]When Bahamut enters the field, choose 1 "
+			+ "Forward. It loses 4000 power until the end of the turn.[[br]]When Bahamut enters the field, choose 1 "
+			+ "Forward. Deal it 4000 damage.";
+
+	private static CardData makeBahamut28() {
+		return makeLbForward("Bahamut", "Water/Fire", 9, 8000, 1, "Dragon", "SOPFFO", BAHAMUT_28_124R);
+	}
+
+	@Test
+	void bahamutTakes4000PowerAndDeals4000Damage() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Earth", 5, 9000);
+		placeP1Forward(mw, theirs);
+		int t = mw.p1ForwardCards.indexOf(theirs);
+
+		enterAsP2(mw, makeBahamut28());
+
+		assertEquals(5000, mw.effectiveP1ForwardPower(t));
+		assertEquals(4000, p1Damage(mw, theirs));
+		mw.turnPhases().runP2EndOfTurnCleanup();
+		assertEquals(9000, mw.effectiveP1ForwardPower(t), "the loss lasts until the end of the turn");
+	}
+
+	@Test
+	void togetherBahamutsTwoAbilitiesBreakA7000PowerForward() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Earth", 4, 7000);
+		placeP1Forward(mw, theirs);
+
+		enterAsP2(mw, makeBahamut28());
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs), "3000 power, 4000 damage");
+	}
+
+	// =========================================================================================
+	// 29-119R Reynn (LB 2): "When Reynn enters the field, reveal the top 5 cards of your deck. Add 1
+	// Category WOFF Character among them to your hand and return the other cards to the bottom of
+	// your deck in any order.[[br]]《Dull》, put Reynn into the Break Zone: Play 1 Category WOFF
+	// Character of cost 3 or less from your hand onto the field."
+	// =========================================================================================
+
+	private static final String REYNN_29_119R = "Limit Break -- 2[[br]]When Reynn enters the field, reveal the top "
+			+ "5 cards of your deck. Add 1 Category WOFF Character among them to your hand and return the other cards "
+			+ "to the bottom of your deck in any order.[[br]]《Dull》, put Reynn into the Break Zone: Play 1 Category "
+			+ "WOFF Character of cost 3 or less from your hand onto the field.";
+
+	private static CardData makeReynn() {
+		return makeLbForward("Reynn", "Fire", 5, 5000, 2, "Mirage Keeper", "DFF", "WOFF", REYNN_29_119R);
+	}
+
+	@Test
+	void reynnAddsACategoryWoffCharacterFromTheTopFive() {
+		MainWindow mw = new MainWindow();
+		CardData sixth = makePlainCard("Lann", "Fire", "Forward", 3, 7000, null, "WOFF");
+		putOnTopOfDeck(mw, sixth, false);
+		CardData tama    = makePlainCard("Tama", "Wind", "Backup", 2, 0, null, "WOFF");
+		CardData mirage  = makePlainCard("Chocochick", "Earth", "Summon", 2, 0, null, "WOFF");
+		CardData outside = makePlainCard("Tidus", "Water", "Forward", 3, 7000, null, "X");
+		for (CardData c : List.of(tama, mirage, outside)) putOnTopOfDeck(mw, c, false);
+		putPlainCardsOnTop(mw, false, 2);
+
+		enterAsP2(mw, makeReynn());
+
+		assertEquals(List.of(tama), mw.gameState.getP2Hand(), "a Character, Backups included, not the Summon; "
+				+ "the sixth card is out of reach");
+		assertSame(sixth, mw.gameState.getP2MainDeck().peekFirst(), "the other four went under it");
+		assertEquals(5, mw.gameState.getP2MainDeck().size());
+	}
+
+	@Test
+	void reynnPutsHerselfIntoTheBreakZoneToPlayACheapWoffCharacter() {
+		MainWindow mw = new MainWindow();
+		CardData reynn = makeReynn();
+		mw.gameState.getP2LbDeck().add(reynn);
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, reynn);
+		CardData lann  = makePlainCard("Lann", "Fire", "Forward", 3, 7000, null, "WOFF");
+		CardData dear  = makePlainCard("Enna Kros", "Fire", "Forward", 5, 9000, null, "WOFF");
+		CardData other = makePlainCard("Firion", "Fire", "Forward", 2, 5000, null, "II");
+		for (CardData c : List.of(dear, other, lann)) putInP2Hand(mw, c);
+		int r = mw.p2ForwardCards.indexOf(reynn);
+		int before = mw.gameState.stackSize();
+
+		assertTrue(mw.autoAbilityTriggers.executeP2AbilityActivation(reynn.actionAbilities().get(0), reynn,
+				() -> mw.p2ForwardStates.set(r, CardState.DULL), new ArrayList<>(), new ArrayList<>(), 0));
+		assertTrue(mw.p2ForwardCards.isEmpty(), "the cost");
+		assertEquals(List.of(reynn), mw.gameState.getP2LbDeck(), "an LB card goes back to the LB deck");
+		resolveDownTo(mw, before);
+
+		assertEquals(List.of(lann), mw.p2ForwardCards);
+		assertEquals(List.of(dear, other), mw.gameState.getP2Hand(), "Category WOFF, cost 3 or less");
+	}
+
+	// =========================================================================================
 	// 29-120R Seymour (LB 2): "When Seymour enters the field, select 1 Job Summoner you control.
 	// Put it into the Break Zone. When you do so, choose 1 dull Forward opponent controls. Break
 	// it. Your opponent discards 1 card."
@@ -3457,6 +4155,108 @@ class LimitBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 29-122R Mika (LB 1): "When Mika enters the field, choose 1 Forward. It gains "If possible,
+	// this Forward must block." until the end of the turn."
+	//
+	// Rule 10.1.3.1.3: a Forward compelled to block must be the one declared, so neither declining
+	// nor a different blocker is on offer, and whether it survives does not matter. A compelled
+	// Forward that cannot block lifts the compulsion: that is the "if possible".
+	// =========================================================================================
+
+	private static final String MIKA_29_122R = "Limit Break -- 1[[br]]When Mika enters the field, choose 1 Forward. "
+			+ "It gains \"If possible, this Forward must block.\" until the end of the turn.";
+
+	private static CardData makeMika() {
+		return makeLbForward("Mika", "Earth", 3, 5000, 1, "Yevon Maester", "X", MIKA_29_122R);
+	}
+
+	/**
+	 * Mika enters P2's field facing {@code theirs} alone, so the CPU's choice is P1's one Forward,
+	 * then attacks during P2's Attack Phase, with P1 to declare a block.
+	 */
+	private static CardData mikaCompelsThenAttacks(MainWindow mw, CardData theirs) {
+		mw.gameState.startFirstTurn(GameState.Player.P2);
+		for (int i = 0; i < 3; i++) mw.gameState.advancePhase();   // Draw, Main 1, Attack
+		placeP1Forward(mw, theirs);
+		CardData mika = makeMika();
+		enterAsP2(mw, mika);
+		mw.pendingP2Attacker    = mika;
+		mw.pendingP2AttackerIdx = mw.p2ForwardCards.indexOf(mika);
+		return mika;
+	}
+
+	@Test
+	void theForwardMikaChoosesMustBlockUntilTheEndOfTheTurn() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Fire", 3, 7000);
+		placeP1Forward(mw, theirs);
+
+		enterAsP2(mw, makeMika());
+
+		CardData anyAttacker = makeForward("Anyone", "Ice", 2, 3000);
+		assertTrue(mw.forwardCompelledToBlock(theirs, anyAttacker), "it names no attacker, so it binds against all");
+		assertFalse(mw.forwardCompelledToBlock(mw.p2ForwardCards.get(0), anyAttacker), "the CPU aims it across the table");
+		mw.turnPhases().runP2EndOfTurnCleanup();
+		assertFalse(mw.forwardCompelledToBlock(theirs, anyAttacker), "until the end of the turn");
+	}
+
+	@Test
+	void theForwardMikaChoseIsTheOnlyBlockAndDecliningIsRefused() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Fire", 3, 3000);   // it does not survive the block
+		mikaCompelsThenAttacks(mw, theirs);
+		CardData bystander = makeForward("Bystander", "Fire", 3, 8000);
+		placeP1Forward(mw, bystander);
+		int t = mw.p1ForwardCards.indexOf(theirs), b = mw.p1ForwardCards.indexOf(bystander);
+
+		assertTrue(mw.isForwardBlockSelectable(t));
+		assertFalse(mw.isForwardBlockSelectable(b), "a different blocker would dodge the compulsion");
+		assertNotNull(mw.p1BlockDeclarationRefusal(), "and so would declining");
+		mw.p1BlockerSelection = b;
+		assertNotNull(mw.p1BlockDeclarationRefusal());
+		mw.p1BlockerSelection = t;
+		assertNull(mw.p1BlockDeclarationRefusal());
+	}
+
+	@Test
+	void mikasCompulsionLiftsWhenTheChosenForwardCannotBlock() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Fire", 3, 7000);
+		mikaCompelsThenAttacks(mw, theirs);
+		CardData bystander = makeForward("Bystander", "Fire", 3, 8000);
+		placeP1Forward(mw, bystander);
+		mw.p1ForwardStates.set(mw.p1ForwardCards.indexOf(theirs), CardState.DULL);
+
+		assertTrue(mw.isForwardBlockSelectable(mw.p1ForwardCards.indexOf(bystander)), "if possible");
+		assertNull(mw.p1BlockDeclarationRefusal(), "and declining is open again");
+	}
+
+	@Test
+	void theCpuBlocksWithTheForwardMikaChoseEvenWhenItWillNotSurvive() {
+		MainWindow mw = new MainWindow();
+		CardData attacker = makeForward("Attacker", "Fire", 4, 7000);
+		CardData frail  = makeForward("Frail", "Ice", 2, 3000);
+		CardData sturdy = makeForward("Sturdy", "Ice", 4, 9000);
+		placeP1Forward(mw, attacker);
+		placeP2Forward(mw, frail);
+		placeP2Forward(mw, sturdy);
+		CardData mika = makeMika();
+		int f = mw.p2ForwardCards.indexOf(frail);
+		// P1's Mika, with the choice made as it went on the Stack.
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, f, ForwardTarget.CardZone.FORWARD)));
+		ActionResolver.parse(mika.autoAbilities().get(0).effectText(), mika).accept(ctx);
+		ComputerPlayer cp = new ComputerPlayer(mw);
+		ForwardTarget p1Attack = new ForwardTarget(true, mw.p1ForwardCards.indexOf(attacker), ForwardTarget.CardZone.FORWARD);
+
+		assertEquals(new ForwardTarget(false, f, ForwardTarget.CardZone.FORWARD), cp.chooseBlocker(7000, p1Attack),
+				"Frail blocks, though Sturdy would survive and break the attacker");
+		mw.p2ForwardStates.set(f, CardState.DULL);
+		assertEquals(new ForwardTarget(false, mw.p2ForwardCards.indexOf(sturdy), ForwardTarget.CardZone.FORWARD),
+				cp.chooseBlocker(7000, p1Attack), "a dull Frail cannot block, which lifts it");
+	}
+
+	// =========================================================================================
 	// 29-123R Jack Garland (LB 1): "Jack Garland cannot be blocked by a Monster that is also a
 	// Forward." A restriction on the blocker's card type, barring exactly the Monsters an effect
 	// turned into Forwards, and leaving Backups acting as Forwards alone since those are not
@@ -3498,5 +4298,47 @@ class LimitBehaviorTest {
 
 		assertFalse(mw.isMonsterBlockSelectable(0),
 				"the Monster is a Forward only by grant, which is exactly what the text names");
+	}
+
+	// =========================================================================================
+	// 29-124R Auron (LB 1): "If you control a Category X Forward other than Auron, Auron gains
+	// +2000 power and Brave."
+	//
+	// Auron is Category X himself, which is what "other than Auron" is there for.
+	// =========================================================================================
+
+	private static final String AURON_29_124R = "Limit Break -- 1[[br]]If you control a Category X Forward other "
+			+ "than Auron, Auron gains +2000 power and Brave.";
+
+	private static CardData makeAuron() {
+		return makeLbForward("Auron", "Water", 4, 8000, 1, "Guardian", "THEATRHYTHM", "X", AURON_29_124R);
+	}
+
+	@Test
+	void auronGainsPowerAndBraveBesideAnotherCategoryXForward() {
+		MainWindow mw = new MainWindow();
+		CardData auron = makeAuron();
+		placeP2Forward(mw, auron);
+		placeP2Backup(mw, makePlainCard("Yuna", "Water", "Backup", 2, 0, null, "X"));
+		placeP2Forward(mw, makePlainCard("Vivi", "Fire", "Forward", 2, 5000, null, "IX"));
+		int a = mw.p2ForwardCards.indexOf(auron);
+
+		assertEquals(8000, mw.effectiveP2ForwardPower(a), "himself, a Backup and another Category are not it");
+		assertFalse(mw.effectiveP2HasTrait(a, CardData.Trait.BRAVE));
+		placeP2Forward(mw, makePlainCard("Tidus", "Water", "Forward", 3, 7000, null, "X"));
+		assertEquals(10000, mw.effectiveP2ForwardPower(a));
+		assertTrue(mw.effectiveP2HasTrait(a, CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void aCategoryXForwardTheOpponentControlsDoesNotCountForAuron() {
+		MainWindow mw = new MainWindow();
+		CardData auron = makeAuron();
+		placeP2Forward(mw, auron);
+		placeP1Forward(mw, makePlainCard("Tidus", "Water", "Forward", 3, 7000, null, "X"));
+		int a = mw.p2ForwardCards.indexOf(auron);
+
+		assertEquals(8000, mw.effectiveP2ForwardPower(a), "you control");
+		assertFalse(mw.effectiveP2HasTrait(a, CardData.Trait.BRAVE));
 	}
 }
