@@ -1846,6 +1846,15 @@ public class MainWindow {
 		List<String> declared = declaredSelectActions.remove(entry);
 		if (declared != null) ctx.preloadSelectedActions(declared);
 	}
+
+	/**
+	 * What resolves each "When you do so" payoff waiting on the Stack as its own delayed auto
+	 * ability ({@link AutoAbilityTriggers#triggerWhenYouDoSo}). It was built as the price was paid,
+	 * holding what the payment settled, because a response in between could overwrite the fields
+	 * it would otherwise read. Keyed on the entry by identity, and moved with a redirect as
+	 * {@link #declaredSelectActions} is.
+	 */
+	final Map<StackEntry, Consumer<GameContext>> whenYouDoSoPayoffs = new IdentityHashMap<>();
 	/**
 	 * The card whose departure fired the "put into the Break Zone" trigger now resolving, or
 	 * {@code null} outside one — Lunafreya 8-132L's "play the Forward placed in the Break Zone onto
@@ -4431,6 +4440,7 @@ public class MainWindow {
 		spentLbIndices.clear();
 		p2SpentLbIndices.clear();
 		declaredSelectActions.clear();
+		whenYouDoSoPayoffs.clear();
 
 		// Damage zone
 		p1ExBurstGlow.stop();
@@ -13793,10 +13803,10 @@ public class MainWindow {
 			summonsCastWithChosenReduction.remove(card);
 		// Declared on both clients, a replayed cast included: unlike the targets it does not
 		// travel inside the PLAY_CARD (see declareSummonSelection).
-		List<String> declared = declareSummonSelection(card, isP1, paidExtraCost, xValue);
+		List<String> declared = whileChoosingForStack(() -> declareSummonSelection(card, isP1, paidExtraCost, xValue));
 		List<ForwardTarget> targets = targetsKnown
 				? (preTargets == null || preTargets.isEmpty() ? null : preTargets)
-				: chooseSummonTargets(card, isP1, paidExtraCost, xValue, declared);
+				: whileChoosingForStack(() -> chooseSummonTargets(card, isP1, paidExtraCost, xValue, declared));
 		lastSummonPreTargets = targets;
 		StackEntry entry = paidExtraCost
 				? new StackEntry(card, null, null, isP1, xValue, false, targets, false, true, extraCostRemovedCardPower, 0)
@@ -14109,6 +14119,7 @@ public class MainWindow {
 
 		if (cancelledStackEntries.remove(entry)) {
 			declaredSelectActions.remove(entry);
+			whenYouDoSoPayoffs.remove(entry);
 			String pfx = entry.isP1() ? "" : "[P2] ";
 			logEntry(pfx + "\"" + entry.source().name() + "\" — effect cancelled");
 			if (entry.isSummon()) {
@@ -14266,6 +14277,20 @@ public class MainWindow {
 				}
 				refreshP1HandLabel();
 				refreshP1BreakLabel();
+			} else if (entry.isAutoAbility() && whenYouDoSoPayoffs.containsKey(entry)) {
+				// A "When you do so" payoff, put here as its own delayed auto ability once its price
+				// was paid (rule 11.8.17), resolved by what was built then.
+				Consumer<GameContext> payoff = whenYouDoSoPayoffs.remove(entry);
+				logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\" (when you do so): "
+						+ entry.autoAbility().effectText());
+				if (entry.preSelectedTargets() != null) ctx.preloadTargets(liveTargets(entry));
+				preloadDeclaredActions(entry, ctx);
+				currentAbilitySource     = entry.source();
+				currentAbilitySourceIsP1 = entry.isP1();
+				currentAbilityIsSpecial  = false;
+				try { payoff.accept(ctx); } finally { currentAbilitySource = null; }
+				refreshP1HandLabel();
+				refreshP1BreakLabel();
 			} else if (entry.isAutoAbility()) {
 				AutoAbility ab = entry.autoAbility();
 				// Transform the "If you paid the extra cost, …" clause based on whether it actually
@@ -14276,15 +14301,20 @@ public class MainWindow {
 				String effectText = entry.paidExtraCost()
 						? ActionResolver.applyExtraCostPaid(ab.effectText())
 						: ActionResolver.stripExtraCostClause(ab.effectText());
+				// A "when you do so" shape is resolved by its own executor, which makes the payment and
+				// runs the payoff it buys (AutoAbilityTriggers.resolveInlineShapeOnStack).
+				boolean byExecutor = !effectText.isBlank() && autoAbilityTriggers.resolveInlineShapeOnStack(entry, effectText);
 				// A select ability's "if …," is read again as it resolves (rule 11.8.13).
-				boolean conditionHolds = autoAbilityTriggers.selectConditionHolds(effectText, entry.isP1());
+				boolean conditionHolds = byExecutor || autoAbilityTriggers.selectConditionHolds(effectText, entry.isP1());
 				// Resolved with the entry's own xValue, not with 0. Auto abilities have no X cost of
 				// their own, so this was always 0 until the "is dealt damage" dispatcher began
 				// carrying the size of the blow there — 4-083L Shantotto's "the same amount of
 				// damage" is a number only the event knows, and dropping it here dealt nothing.
-				Consumer<GameContext> effect = effectText.isBlank() || !conditionHolds ? null
+				Consumer<GameContext> effect = effectText.isBlank() || !conditionHolds || byExecutor ? null
 						: ActionResolver.parse(effectText, entry.source(), entry.xValue());
-				if (effect != null) {
+				if (byExecutor) {
+					// Resolved above.
+				} else if (effect != null) {
 					logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\": " + effectText);
 					// As with Summons: an auto-ability chooses when it goes on the Stack — its targets,
 					// and a select ability's options too.
@@ -14349,7 +14379,33 @@ public class MainWindow {
 	 * nor inside the AI putting a response together ({@link #cpuRespondsTo}).
 	 */
 	void showStackWindowIfNeeded() {
-		if (!isResolvingStack && !cpuBuildingResponse && !gameState.getStack().isEmpty()) showStackWindow();
+		if (!isResolvingStack && !cpuBuildingResponse && choosingForStack == 0 && !gameState.getStack().isEmpty())
+			showStackWindow();
+	}
+
+	/**
+	 * How many Stack-time choices are under way: an ability or a Summon declaring its select option
+	 * or choosing its targets as it goes on the Stack ({@link #whileChoosingForStack}). While one is,
+	 * the Stack window stays shut.
+	 *
+	 * <p>A choice fires events of its own — every card chosen reports it ("chosen by …" triggers),
+	 * and those dispatchers ask for the Stack window as they finish. The entry doing the choosing
+	 * is not on the Stack yet, so the window would open on whatever is beneath. When that is one of
+	 * P1's entries, the CPU passes on it at once and it resolves, ahead of the entry still on its
+	 * way: P1's Summon resolved before 23-014H Nelapa's cast trigger was put above it, and before
+	 * P1's own "When you cast a Summon" trigger too. Every route onto the Stack opens the window
+	 * itself once its entry is there.
+	 */
+	private int choosingForStack = 0;
+
+	/** Runs {@code choice} — a Stack-time declaration or target choice — with the Stack window held shut. */
+	<T> T whileChoosingForStack(Supplier<T> choice) {
+		choosingForStack++;
+		try {
+			return choice.get();
+		} finally {
+			choosingForStack--;
+		}
 	}
 
 	/**
@@ -16135,6 +16191,8 @@ public class MainWindow {
 		if (cancelledStackEntries.remove(entry)) cancelledStackEntries.add(updated);
 		List<String> declared = declaredSelectActions.remove(entry);
 		if (declared != null) declaredSelectActions.put(updated, declared);
+		Consumer<GameContext> payoff = whenYouDoSoPayoffs.remove(entry);
+		if (payoff != null) whenYouDoSoPayoffs.put(updated, payoff);
 	}
 
 	// -------------------------------------------------------------------------
@@ -22603,6 +22661,81 @@ public class MainWindow {
 					return blinkTier(t, blinker) == 0 ? -cost : cost;
 				}));
 		return List.copyOf(order.subList(0, Math.min(count, order.size())));
+	}
+
+	/**
+	 * The {@code count} of {@code eligible}, one side's own cards, its AI returns to hand for
+	 * {@code source}'s ability (Tidus 7-117C, Luzaf 14-114R). A card the opponent's Stack entry is
+	 * aimed at is saved first ({@link #threatenedOnStack}); after that the return is a price, paid
+	 * like a spend ({@link #aiCheapestOwnTargets}).
+	 */
+	List<ForwardTarget> aiOwnBounceTargets(List<ForwardTarget> eligible, int count, CardData source) {
+		Set<CardData> threatened = threatenedOnStack(sideOf(eligible));
+		List<ForwardTarget> order = new ArrayList<>(aiCheapestOwnTargets(eligible, eligible.size(), source));
+		order.sort(Comparator.comparing((ForwardTarget t) -> !threatened.contains(autoAbilityTriggers.fieldCardData(t))));
+		return List.copyOf(order.subList(0, Math.min(count, order.size())));
+	}
+
+	/**
+	 * The {@code count} of {@code eligible}, one side's own cards, its AI shields ("cannot be
+	 * broken", "the damage becomes 0" — Titan 1-110C): what the opponent's Stack entry is aimed at
+	 * first, then what is in battle, then the dearest by printed cost.
+	 */
+	List<ForwardTarget> aiBestOwnShieldTargets(List<ForwardTarget> eligible, int count) {
+		Set<CardData> threatened = threatenedOnStack(sideOf(eligible));
+		List<ForwardTarget> order = new ArrayList<>(eligible);
+		order.sort(Comparator.comparing((ForwardTarget t) -> !threatened.contains(autoAbilityTriggers.fieldCardData(t)))
+				.thenComparing(t -> !inBattle(t))
+				.thenComparing(Comparator.comparingInt((ForwardTarget t) -> {
+					CardData c = autoAbilityTriggers.fieldCardData(t);
+					return c == null ? 0 : c.cost();
+				}).reversed()));
+		return List.copyOf(order.subList(0, Math.min(count, order.size())));
+	}
+
+	/**
+	 * The {@code count} of {@code eligible}, one side's own cards, its AI hands a buff to: what is
+	 * in battle first — the grant can decide that fight — then the strongest by current power. For
+	 * "Activate it." ({@code activate}) a dull card comes before anything else, since an active one
+	 * gains nothing.
+	 */
+	List<ForwardTarget> aiBestOwnBuffTargets(List<ForwardTarget> eligible, int count, boolean activate) {
+		List<ForwardTarget> order = new ArrayList<>(eligible);
+		order.sort(Comparator.comparing((ForwardTarget t) -> activate && fieldSlotStateAt(t) != CardState.DULL)
+				.thenComparing(t -> !inBattle(t))
+				.thenComparing(Comparator.comparingInt((ForwardTarget t) ->
+						fieldForwardPower(t.isP1(), t.zone(), t.idx())).reversed()));
+		return List.copyOf(order.subList(0, Math.min(count, order.size())));
+	}
+
+	/** The cards on {@code ownerIsP1}'s side that an entry of the other side's on the Stack has chosen. */
+	Set<CardData> threatenedOnStack(boolean ownerIsP1) {
+		Set<CardData> out = Collections.newSetFromMap(new IdentityHashMap<>());
+		for (StackEntry e : gameState.getStack()) {
+			if (e.isP1() == ownerIsP1) continue;
+			List<ForwardTarget> targets = liveTargets(e, false);
+			if (targets == null) continue;
+			for (ForwardTarget t : targets) {
+				if (t.isP1() != ownerIsP1) continue;
+				CardData c = autoAbilityTriggers.fieldCardData(t);
+				if (c != null) out.add(c);
+			}
+		}
+		return out;
+	}
+
+	/** Whether the card at {@code t} is attacking or blocking in the battle under way. */
+	private boolean inBattle(ForwardTarget t) {
+		CardData card = autoAbilityTriggers.fieldCardData(t);
+		if (card == null) return false;
+		for (CardData a : t.isP1() ? p1DeclaredAttackers : p2DeclaredAttackers) if (a == card) return true;
+		int blocking = t.isP1() ? p1BlockingIdx : p2BlockingIdx;
+		return t.zone() == ForwardTarget.CardZone.FORWARD && blocking == t.idx();
+	}
+
+	/** The side every one of {@code targets} sits on — the first one's; P2's when there are none. */
+	private static boolean sideOf(List<ForwardTarget> targets) {
+		return !targets.isEmpty() && targets.get(0).isP1();
 	}
 
 	/** Where {@code t}'s card ranks as a blink — see {@link #aiBestOwnBlinkTargets}. */

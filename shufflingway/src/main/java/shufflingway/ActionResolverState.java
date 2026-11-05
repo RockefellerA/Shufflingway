@@ -602,6 +602,7 @@ final class ActionResolverState {
 
         String noun = m.group("noun").trim();
         String tail = m.group("tail").trim();
+        boolean when = m.group("when") != null;
         // Proved for both a plural and a singular count: the payoff's verb agreement is printed for
         // the plural ("Deal them"), and a one-counter turn has to resolve too.
         if (parse(payoffText(2, noun, tail), source) == null) return null;
@@ -624,8 +625,9 @@ final class ActionResolverState {
             ctx.removeCounters(source, counter, take);
             ctx.logEntry(source.name() + " — removed " + take + " " + counter + " Counter(s); "
                     + "choose up to " + take + " " + noun);
-            Consumer<GameContext> payoff = parse(payoffText(take, noun, tail), source);
-            if (payoff != null) payoff.accept(ctx);
+            String sized = payoffText(take, noun, tail);
+            Consumer<GameContext> payoff = parse(sized, source);
+            if (payoff != null) afterPaying(when, source, sized, 0, payoff).accept(ctx);
         };
     }
 
@@ -1046,9 +1048,11 @@ final class ActionResolverState {
                         for (String e : c.elements())
                             if (!e.isBlank()) elements.add(e.trim());
                 ctx.logEntry("Effect: " + elements.size() + " Element(s) among removed cards " + elements);
-                Consumer<GameContext> sizedPayoff = parse(COST_UP_TO_NUMBER_OF_ELEMENTS_REMOVED.matcher(effect)
-                        .replaceAll("cost " + elements.size() + " or less"), source);
-                if (sizedPayoff != null) sizedPayoff.accept(ctx);
+                String sizedText = COST_UP_TO_NUMBER_OF_ELEMENTS_REMOVED.matcher(effect)
+                        .replaceAll("cost " + elements.size() + " or less");
+                Consumer<GameContext> sizedPayoff = parse(sizedText, source);
+                if (sizedPayoff != null)
+                    afterPaying(whenDoSo, source, sizedText, 0, sizedPayoff).accept(ctx);
             };
         }
         // "When you do so, / Then, … of cost equal to or less than the number of cards you
@@ -1063,9 +1067,11 @@ final class ActionResolverState {
                 return null;
             return base.andThen(ctx -> {
                 if (whenDoSo && removed[0] == 0) return;   // removing nothing is not doing so
-                Consumer<GameContext> sizedPayoff = parse(COST_UP_TO_NUMBER_REMOVED.matcher(effect)
-                        .replaceAll("cost " + removed[0] + " or less"), source);
-                if (sizedPayoff != null) sizedPayoff.accept(ctx);
+                String sizedText = COST_UP_TO_NUMBER_REMOVED.matcher(effect)
+                        .replaceAll("cost " + removed[0] + " or less");
+                Consumer<GameContext> sizedPayoff = parse(sizedText, source);
+                if (sizedPayoff != null)
+                    afterPaying(whenDoSo, source, sizedText, 0, sizedPayoff).accept(ctx);
             });
         }
         // A trailing sentence this parser cannot account for declines the whole ability. Handing it

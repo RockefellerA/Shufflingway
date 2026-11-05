@@ -173,4 +173,23 @@ public record AutoAbility(
                         castPaymentMinElements, castOnly, warpOnly, true, damageThreshold,
                         partyMinCount, partyCategory, partyJob, partyCardNames);
     }
+
+    /** The {@link #trigger()} of a {@link #whenYouDoSo} payoff. No card prints it. */
+    public static final String WHEN_YOU_DO_SO = "when you do so";
+
+    /**
+     * The payoff of "X. When you do so, Y" as the delayed auto ability it becomes once X is done
+     * (rule 11.8.17): {@code payoffText} is Y. It belongs to no card's text, so no event dispatches
+     * it and none of the firing restrictions apply. It is created only to go on the Stack.
+     */
+    public static AutoAbility whenYouDoSo(String payoffText) {
+        return new AutoAbility("", WHEN_YOU_DO_SO, false, false, payoffText,
+                false, false, false, "", "", "", 0, false, false, false, 0,
+                0, null, null, List.of());
+    }
+
+    /** Whether this is a {@link #whenYouDoSo} payoff. */
+    public boolean isWhenYouDoSo() {
+        return WHEN_YOU_DO_SO.equals(trigger);
+    }
 }

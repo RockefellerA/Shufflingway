@@ -538,6 +538,7 @@ final class ActionResolverHand {
         Matcher m = DISCARD_THEN_SAME_AS_DISCARDED.matcher(text.trim());
         if (!m.matches()) return null;
         String payoff = m.group("payoff").trim();
+        boolean when = m.group("when") != null;
         boolean byCost = SAME_COST_AS_DISCARDED.matcher(payoff).find();
         boolean byType = SAME_TYPE_AS_DISCARDED.matcher(payoff).find();
         if (byCost == byType) return null;
@@ -557,14 +558,15 @@ final class ActionResolverHand {
                 return;
             }
             String value = byCost ? String.valueOf(discarded.cost()) : discarded.type();
-            Consumer<GameContext> eff = parse(fillSameAsDiscarded(payoff, byCost, value), source);
+            String filled = fillSameAsDiscarded(payoff, byCost, value);
+            Consumer<GameContext> eff = parse(filled, source);
             if (eff == null) {
                 ctx.logEntry("Effect: no payoff for a discarded " + value);
                 return;
             }
             ctx.logEntry("Effect: discarded " + discarded.name() + " — "
                     + (byCost ? "cost " : "type ") + value);
-            eff.accept(ctx);
+            afterPaying(when, source, filled, 0, eff).accept(ctx);
         };
     }
 
@@ -1654,6 +1656,7 @@ final class ActionResolverHand {
         if (!m.matches()) return null;
         String noun = m.group("noun").trim();
         String tail = m.group("tail").trim();
+        boolean when = m.group("when") != null;
         // Proved for both a plural and a singular count: the payoff's verb agreement is printed for
         // the plural ("Deal them"), and a one-card discard has to resolve too.
         if (parse(discardPayoffText(2, noun, tail), source) == null) return null;
@@ -1670,8 +1673,9 @@ final class ActionResolverHand {
             }
             ctx.logEntry("Effect: discarded " + discarded + " card(s); choose up to "
                     + discarded + " " + noun);
-            Consumer<GameContext> payoff = parse(discardPayoffText(discarded, noun, tail), source);
-            if (payoff != null) payoff.accept(ctx);
+            String sized = discardPayoffText(discarded, noun, tail);
+            Consumer<GameContext> payoff = parse(sized, source);
+            if (payoff != null) afterPaying(when, source, sized, 0, payoff).accept(ctx);
         };
     }
 

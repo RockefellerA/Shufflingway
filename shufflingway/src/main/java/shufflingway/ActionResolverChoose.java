@@ -501,25 +501,29 @@ final class ActionResolverChoose {
             if (e == null) return null;
             effects.add(e);
         }
+        String payoffText = afterWhenYouDoSo(text);
         return ctx -> {
             int discarded = ctx.yourHandSize();
             ctx.logEntry("Effect: Discard hand (" + discarded + " card(s))");
             ctx.selfDiscardEntireHand();
             if (discarded == 0) return;
+            // The selection is the payoff's, so the opponent makes it as that ability resolves.
             int picks = discarded + plus;
-            int[] times = new int[actions.size()];
-            for (int i = 0; i < picks; i++) {
-                List<String> chosen = ctx.chooseActionsByOpponent(source, actions, 1, false);
-                if (chosen == null || chosen.isEmpty()) continue;
-                int idx = actions.indexOf(chosen.get(0));
-                if (idx >= 0) times[idx]++;
-            }
-            for (int i = 0; i < actions.size(); i++) {
-                for (int n = 0; n < times[i]; n++) {
-                    ctx.logEntry("Opponent selected: " + actions.get(i));
-                    effects.get(i).accept(ctx);
+            ctx.triggerWhenYouDoSo(source, payoffText, 0, c -> {
+                int[] times = new int[actions.size()];
+                for (int i = 0; i < picks; i++) {
+                    List<String> chosen = c.chooseActionsByOpponent(source, actions, 1, false);
+                    if (chosen == null || chosen.isEmpty()) continue;
+                    int idx = actions.indexOf(chosen.get(0));
+                    if (idx >= 0) times[idx]++;
                 }
-            }
+                for (int i = 0; i < actions.size(); i++) {
+                    for (int n = 0; n < times[i]; n++) {
+                        c.logEntry("Opponent selected: " + actions.get(i));
+                        effects.get(i).accept(c);
+                    }
+                }
+            });
         };
     }
 
@@ -2799,8 +2803,10 @@ final class ActionResolverChoose {
                         String dullName    = replayM.group("dullName");
                         String discardName = replayM.group("discardName");
                         final String capturedText = text;
-                        Consumer<GameContext> replayEffect =
+                        Consumer<GameContext> replay =
                                 ctx2 -> { Consumer<GameContext> inner = parse(capturedText, source, 0); if (inner != null) inner.accept(ctx2); };
+                        Consumer<GameContext> replayEffect = afterPaying(replayM.group("when") != null, source,
+                                "use this special ability again without paying the cost", 0, replay);
                         if (payCost != null) {
                             final String elem = payCost.trim();
                             secondary = ctx -> ctx.mayPayToReplayAbility(elem, replayEffect);
@@ -6467,6 +6473,8 @@ final class ActionResolverChoose {
             // apart anyway, because only one of them would still be right if a printing ever
             // reached across the table for the card.
             final boolean ontoOwnField = mayPayXPlayM.group("own") != null;
+            final boolean whenYouDoSo  = mayPayXPlayM.group("when") != null;
+            final String  payoffText   = "if its cost is X, play it onto " + (ontoOwnField ? "your" : "the") + " field.";
             return ctx -> {
                 ctx.logChooseHeader(choosePrefix + " — may pay 《X》 to play it"
                         + (ontoOwnField ? " onto your field" : "") + " when X is its cost");
@@ -6477,9 +6485,17 @@ final class ActionResolverChoose {
                 for (ForwardTarget t : ts) {
                     CardData chosen = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
                     if (chosen == null) continue;
-                    ctx.mayPayCostToEffect(chosen.cost(), null, 0, paid -> {
+                    // After "When you do so" the play is its own ability on the Stack, so the card is
+                    // looked for again as it resolves, and a card that has moved is not played.
+                    ctx.mayPayCostToEffect(chosen.cost(), null, 0, afterPaying(whenYouDoSo, source, payoffText,
+                            chosen.cost(), paid -> {
+                        CardData still = t.isP1() ? paid.p1BreakZoneCard(t.idx()) : paid.p2BreakZoneCard(t.idx());
+                        if (still != chosen) {
+                            paid.logEntry(chosen.name() + " is no longer where it was chosen — not played");
+                            return;
+                        }
                         if (ontoOwnField) paid.playTargetOntoOwnField(t); else paid.playTargetOntoField(t);
-                    });
+                    }));
                 }
                 // No secondary: this branch has consumed the whole followup, and the split's
                 // second half is the same sentence it already read.

@@ -504,7 +504,7 @@ public class ActionResolver {
         // Break Zone. When you do so, …" — the count drives both payoffs. Anchored end to end. It
         // once passed the guard only because the trigger layer's self-break shape claimed the text
         // (and then refused it, so the card did nothing in play).
-        result = tryParsePutAnyNumberToBzOppSelectsAndDiscards(effectText);
+        result = tryParsePutAnyNumberToBzOppSelectsAndDiscards(effectText, source);
         if (result != null) return claim("PutAnyNumberToBzOppSelectsAndDiscards", result);
 
         // Fail closed on "X. When/If you do so, Y" when nothing above read it and X does not parse
@@ -5666,10 +5666,19 @@ public class ActionResolver {
         return effectText != null && CHOOSE_FOLLOWUP_BLINKS_TARGET.matcher(effectText).find();
     }
 
-    /** What {@code effectText} does to a pick of its controller's own — see {@link GameContext#setAiOwnPick}. */
+    /**
+     * What {@code effectText} does to a pick of its controller's own — see {@link GameContext#setAiOwnPick}.
+     * Read in this order, so a text that spends or returns its pick is never also taken for the
+     * shield or the buff that may follow ("Dull it. It cannot be broken." is a shield, not a harm).
+     */
     static GameContext.AiOwnPick aiOwnPickOf(String effectText) {
+        if (effectText == null) return GameContext.AiOwnPick.NONE;
         if (chooseEffectSpendsTarget(effectText)) return GameContext.AiOwnPick.SPEND;
         if (chooseEffectBlinksTarget(effectText)) return GameContext.AiOwnPick.BLINK;
+        if (CHOOSE_FOLLOWUP_BOUNCES_TARGET.matcher(effectText).find()) return GameContext.AiOwnPick.BOUNCE;
+        if (CHOOSE_FOLLOWUP_SHIELDS_TARGET.matcher(effectText).find()) return GameContext.AiOwnPick.SHIELD;
+        if (CHOOSE_FOLLOWUP_ACTIVATES_TARGET.matcher(effectText).find()) return GameContext.AiOwnPick.ACTIVATE;
+        if (chooseEffectBenefitsTarget(effectText)) return GameContext.AiOwnPick.BUFF;
         return GameContext.AiOwnPick.NONE;
     }
 
@@ -6359,9 +6368,11 @@ public class ActionResolver {
     }
 
     /**
-     * Parses "X. When/If you do so, Y." into a sequence: resolve X, then resolve Y only if
-     * X made progress (see {@link GameContext#effectMadeProgress()}). Returns {@code null} if
-     * either half cannot be parsed, so non-sequence text falls through to the regular matchers.
+     * Parses "X. When/If you do so, Y." into a sequence: resolve X, then Y only if X made progress
+     * (see {@link GameContext#effectMadeProgress()}). After "When" Y goes on the Stack as its own
+     * delayed auto ability ({@link GameContext#triggerWhenYouDoSo}); after "If" it is part of the
+     * same effect and resolves straight away. Returns {@code null} if either half cannot be parsed,
+     * so non-sequence text falls through to the regular matchers.
      */
     private static Consumer<GameContext> tryParseWhenYouDoSoSequence(String text, CardData source, int xValue) {
         Matcher m = WHEN_YOU_DO_SO_SEQUENCE.matcher(text);
@@ -6390,12 +6401,16 @@ public class ActionResolver {
         // in that form rather than as the removal parse() would give, which takes what there is.
         Consumer<GameContext> price    = tryParseBzRemovalPrice(m.group("primary"));
         Consumer<GameContext> primary  = price != null ? price : parse(m.group("primary").trim(), source, xValue);
-        Consumer<GameContext> followup = parse(m.group("followup").trim(), source, xValue);
+        String followupText = m.group("followup").trim();
+        Consumer<GameContext> followup = parse(followupText, source, xValue);
         if (primary == null || followup == null) return null;
+        boolean delayed = m.group("when") != null;
         return ctx -> {
             ctx.resetEffectProgress();
             primary.accept(ctx);
-            if (ctx.effectMadeProgress()) followup.accept(ctx);
+            if (!ctx.effectMadeProgress()) return;
+            if (delayed) ctx.triggerWhenYouDoSo(source, followupText, xValue, followup);
+            else followup.accept(ctx);
         };
     }
 
@@ -6710,7 +6725,7 @@ public class ActionResolver {
      * opponent's ability" watcher fires. "(select as many as possible)" is the {@code upTo} form —
      * a board holding fewer Forwards than the count hands over all of them rather than nothing.
      */
-    private static Consumer<GameContext> tryParsePutAnyNumberToBzOppSelectsAndDiscards(String text) {
+    private static Consumer<GameContext> tryParsePutAnyNumberToBzOppSelectsAndDiscards(String text, CardData source) {
         Matcher m = PUT_ANY_NUMBER_TO_BZ_OPP_SELECTS_AND_DISCARDS.matcher(text.trim());
         if (!m.matches()) return null;
         String types = m.group("types").toLowerCase();
@@ -6719,19 +6734,23 @@ public class ActionResolver {
         boolean inclMonsters = characters || types.contains("monster");
         boolean inclBackups  = characters;
         String what = cap(m.group("types"));
+        String payoffText = afterWhenYouDoSo(text);
         return ctx -> {
             int n = ctx.putAnyNumberOfOwnCharactersToBz(inclForwards, inclBackups, inclMonsters, what);
             // "When you do so" — no sacrifice, no effect. Also keeps an empty picker off the
             // opponent's screen, which is what asking them to select 0 Forwards would do.
             if (n <= 0) return;
-            String pick = n + " Forward" + (n == 1 ? "" : "s");
-            ctx.logEntry("Effect: Opponent selects " + pick + " they control → Break Zone");
-            List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(n, true, null, null, null,
-                    -1, null, true, false, false, pick);
-            sortedByIdxDesc(ts, true) .forEach(ctx::forceTargetToBreakZone);
-            sortedByIdxDesc(ts, false).forEach(ctx::forceTargetToBreakZone);
-            ctx.logEntry("Effect: Opponent discards " + n + " card(s)");
-            ctx.forceOpponentDiscard(n);
+            // The count is held here, so the payoff carries it onto the Stack.
+            ctx.triggerWhenYouDoSo(source, payoffText, 0, c -> {
+                String pick = n + " Forward" + (n == 1 ? "" : "s");
+                c.logEntry("Effect: Opponent selects " + pick + " they control → Break Zone");
+                List<ForwardTarget> ts = c.opponentSelectsOwnCharacters(n, true, null, null, null,
+                        -1, null, true, false, false, pick);
+                sortedByIdxDesc(ts, true) .forEach(c::forceTargetToBreakZone);
+                sortedByIdxDesc(ts, false).forEach(c::forceTargetToBreakZone);
+                c.logEntry("Effect: Opponent discards " + n + " card(s)");
+                c.forceOpponentDiscard(n);
+            });
         };
     }
 
@@ -8710,16 +8729,51 @@ public class ActionResolver {
      * {@code declared}: the first declared option that chooses anything is read, not the whole
      * menu. Read off the menu, the first "choose" in any option was answered, whichever option was
      * taken, and the declared option then consumed those targets as its own.
+     *
+     * <p>Only the text ahead of "When you do so" chooses now ({@link #beforeWhenYouDoSo}). The payoff
+     * after it chooses its own targets once its price is paid.
      */
     static StackChoices chooseTargetsAfterDeclaring(String effectText, List<String> declared, CardData source,
             int xValue, GameContext ctx) {
-        if (declared == null)
-            return new StackChoices(null, preSelectTargets(effectText, source, xValue, ctx), effectText);
+        if (declared == null) {
+            String own = beforeWhenYouDoSo(effectText);
+            return new StackChoices(null, preSelectTargets(own, source, xValue, ctx), own);
+        }
         for (String option : declared) {
-            if (targetSpec(option, source) == null) continue;
-            return new StackChoices(declared, preSelectTargets(option, source, xValue, ctx), option);
+            String own = beforeWhenYouDoSo(option);
+            if (targetSpec(own, source) == null) continue;
+            return new StackChoices(declared, preSelectTargets(own, source, xValue, ctx), own);
         }
         return new StackChoices(declared, null, effectText);
+    }
+
+    /**
+     * {@code text} up to its first "When you do so": what an ability chooses for as it goes on the
+     * Stack. What follows is a delayed auto ability of its own (rule 11.8.17), which chooses its
+     * targets as it goes on the Stack in turn ({@link GameContext#triggerWhenYouDoSo}).
+     */
+    static String beforeWhenYouDoSo(String text) {
+        if (text == null) return null;
+        Matcher m = WHEN_YOU_DO_SO_CLAUSE.matcher(text);
+        return m.find() ? text.substring(0, m.start()).trim() : text;
+    }
+
+    /** {@code text} after its first "When you do so,": the payoff, as the Stack shows it. */
+    static String afterWhenYouDoSo(String text) {
+        Matcher m = WHEN_YOU_DO_SO_CLAUSE.matcher(text);
+        return m.find() ? text.substring(m.end()).replaceFirst("^[,.]?\\s*", "").trim() : text.trim();
+    }
+
+    /**
+     * {@code payoff} in the form a price-paying primitive runs once the price is paid
+     * ({@link GameContext#mayPayCostToEffect} and its siblings). After "When you do so" it puts the
+     * payoff on the Stack as its own delayed auto ability ({@link GameContext#triggerWhenYouDoSo}).
+     * After "If you do so" it is the payoff itself.
+     */
+    static Consumer<GameContext> afterPaying(boolean whenYouDoSo, CardData source, String payoffText,
+            int xValue, Consumer<GameContext> payoff) {
+        if (!whenYouDoSo) return payoff;
+        return ctx -> ctx.triggerWhenYouDoSo(source, payoffText, xValue, payoff);
     }
 
     /**

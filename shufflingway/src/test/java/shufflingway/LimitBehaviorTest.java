@@ -102,20 +102,20 @@ class LimitBehaviorTest {
 	}
 
 	/**
-	 * Pops the Stack's top entry, an auto or action ability, and resolves it the way the Stack's own
-	 * arms do: with the targets chosen as it went on the Stack, under its source.
+	 * Resolves the Stack's top entry exactly as the Stack does once both players have passed
+	 * ({@link MainWindow#resolveTopOfStack}): with the targets and any select option chosen as it
+	 * went on the Stack, under its source. An entry the resolver reads must parse. Two kinds are
+	 * resolved otherwise: one of the "when you do so" shapes by its own executor, and a "When you do
+	 * so" payoff by what was built as its price was paid ({@link MainWindow#whenYouDoSoPayoffs}).
 	 */
 	private static void resolveTop(MainWindow mw) {
-		StackEntry e = mw.gameState.popStack();
-		String text = e.autoAbility() != null ? e.autoAbility().effectText() : e.ability().effectText();
-		Consumer<GameContext> effect = ActionResolver.parse(text, e.source(), e.xValue());
-		assertNotNull(effect, "resolves: " + text);
-		GameContext ctx = mw.buildGameContext(e.isP1());
-		if (e.preSelectedTargets() != null) ctx.preloadTargets(mw.liveTargets(e));
-		mw.preloadDeclaredActions(e, ctx);
-		mw.currentAbilitySource = e.source();
-		mw.currentAbilitySourceIsP1 = e.isP1();
-		try { effect.accept(ctx); } finally { mw.currentAbilitySource = null; }
+		StackEntry e = mw.gameState.peekStack();
+		String text = e.autoAbility() != null ? e.autoAbility().effectText()
+				: e.ability() != null ? e.ability().effectText() : null;
+		boolean payoff = e.autoAbility() != null && e.autoAbility().isWhenYouDoSo();
+		if (text != null && !payoff && AutoAbilityTriggers.inlineShapeOf(text) == null)
+			assertNotNull(ActionResolver.parse(text, e.source(), e.xValue()), "resolves: " + text);
+		mw.resolveTopOfStack();
 	}
 
 	/**
@@ -778,9 +778,10 @@ class LimitBehaviorTest {
 	// Backup. Put it on top of its owner's deck." "Draw 2 cards.""
 	//
 	// dispatch() has no site for this: the trigger layer reads it through its own inline shape,
-	// ConditionGateMay, so the characterization file shows it as "parsed (null) (null)" and says
-	// nothing about what it does. These pin the count in front of the payment and each of the three
-	// actions on a real board. Driven as P2, where the AI takes every action it is offered.
+	// ConditionGateMay, which resolves off the Stack, so the characterization file shows it as
+	// "parsed (null) (null)" and says nothing about what it does. These pin the count in front of
+	// the payment and each of the three actions on a real board. Driven as P2, where the AI takes
+	// every action it is offered.
 	// =========================================================================================
 
 	private static final String TIDUS_22_122L = "When Tidus enters the field, if you control 8 or more "
@@ -827,6 +828,7 @@ class LimitBehaviorTest {
 		MainWindow mw = tidusBoard(tidus, 5);        // 5 Backups + 3 Forwards = 8
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(tidus, false);
+		resolveDownTo(mw, 0);
 
 		assertEquals(3, dullP2Backups(mw), "《Water》《Water》《Water》 was paid");
 		assertTrue(mw.gameState.getP2Hand().size() >= 2, "the draw action ran: " + mw.gameState.getP2Hand());
@@ -854,6 +856,7 @@ class LimitBehaviorTest {
 		mw.gameState.getP1MainDeck().clear();
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(tidus, false);
+		resolveDownTo(mw, 0);
 
 		assertEquals(seymour, mw.gameState.getP1MainDeck().peekLast(),
 				"the Forward went to the bottom of its owner's deck");
@@ -1122,8 +1125,8 @@ class LimitBehaviorTest {
 	// Backup you control into the Break Zone. When you do so, choose 1 Forward opponent controls.
 	// Deal it 9000 damage."
 	//
-	// The trigger layer resolves a "when you do so" as the card arrives, without putting it on the
-	// Stack, so these place Vincent and read the board.
+	// The ability goes on the Stack as he arrives, and the price and its payoff are settled as it
+	// resolves (rule 11.8.14).
 	// =========================================================================================
 
 	private static final String VINCENT_23_119R = "Limit Break -- 2[[br]]   First Strike[[br]]   When Vincent "
@@ -1144,7 +1147,7 @@ class LimitBehaviorTest {
 		CardData theirs = makeForward("Theirs", "Water", 6, 10000);
 		placeP1Forward(mw, theirs);
 
-		placeP2Forward(mw, makeVincent());
+		enterAsP2(mw, makeVincent());
 
 		assertTrue(mw.gameState.getP2BreakZone().contains(fire), "the Fire Backup pays for it");
 		assertTrue(Arrays.asList(mw.p2BackupCards).contains(water), "only the one, and only Fire");
@@ -1160,6 +1163,7 @@ class LimitBehaviorTest {
 		placeP1Forward(mw, theirs);
 
 		placeP2Forward(mw, makeVincent());
+		resolveDownTo(mw, 0);
 
 		assertTrue(Arrays.asList(mw.p2BackupCards).contains(water));
 		assertEquals(0, p1Damage(mw, theirs), "no Backup put there, so nothing to do so");
@@ -3654,9 +3658,8 @@ class LimitBehaviorTest {
 	// choose 1 Forward. Break it.[[br]]When Terra enters the field, you may pay 《Fire》. When you do
 	// so, remove all the cards in your opponent's Break Zone from the game."
 	//
-	// Both resolve as she arrives (PayWhenDoSo, see the inline-auto-abilities handoff), so these
-	// place her and read the board. Each board leaves P2 one Backup to pay with, so only one of the
-	// two is paid.
+	// Both go on the Stack as she arrives and are paid for as they resolve (PayWhenDoSo). Each board
+	// leaves P2 one Backup to pay with, so only one of the two is paid.
 	// =========================================================================================
 
 	private static final String TERRA_27_120R = "Limit Break -- 2[[br]]When Terra enters the field, you may pay "
@@ -3671,8 +3674,27 @@ class LimitBehaviorTest {
 		mw.gameState.getIdentity().put(buried, true);
 		mw.gameState.getP1BreakZone().add(buried);
 		placeP2Backup(mw, makeBackup(element + " Aide", element, 2));
-		placeP2Forward(mw, makeLbForward("Terra", "Lightning/Fire", 5, 7000, 2, "Magitek Knight", "VI", TERRA_27_120R));
+		enterAsP2(mw, makeLbForward("Terra", "Lightning/Fire", 5, 7000, 2, "Magitek Knight", "VI", TERRA_27_120R));
 		return List.of(theirs, buried);
+	}
+
+	@Test
+	void terrasAbilityWaitsOnTheStackWithNothingPaid() {
+		// Rule 11.8.14: a "you may" ability is put on the Stack whatever its controller means to do,
+		// and the choice is made as it resolves — so P1 can answer it before anything is paid.
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 3, 7000);
+		placeP1Forward(mw, theirs);
+		placeP2Backup(mw, makeBackup("Lightning Aide", "Lightning", 2));
+
+		placeP2Forward(mw, makeLbForward("Terra", "Lightning/Fire", 5, 7000, 2, "Magitek Knight", "VI", TERRA_27_120R));
+
+		assertEquals(2, mw.gameState.stackSize(), "both of her abilities, waiting");
+		assertEquals(CardState.ACTIVE, mw.p2BackupStates[0], "nothing paid yet");
+		assertTrue(mw.p1ForwardCards.contains(theirs));
+		resolveDownTo(mw, 0);
+		assertEquals(CardState.DULL, mw.p2BackupStates[0]);
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs));
 	}
 
 	@Test
@@ -3841,8 +3863,8 @@ class LimitBehaviorTest {
 	// do so, choose 1 Category VII Forward of cost 3 or less in your Break Zone. Play it onto the
 	// field."
 	//
-	// Placed, and then anything it queued resolved, so the tests read the same whether the trigger
-	// layer resolves the payment inline or puts it on the Stack.
+	// Placed, and then what it queued resolved: the ability goes on the Stack, and the payment is
+	// made as it resolves.
 	// =========================================================================================
 
 	private static final String RUFUS_28_122R = "Limit Break -- 2[[br]]When Rufus enters the field, you may pay "
@@ -4109,6 +4131,7 @@ class LimitBehaviorTest {
 		assertFalse(seymour.autoAbilities().get(0).youMay(), "Seymour's cost is not optional");
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(seymour, false);
+		resolveDownTo(mw, 0);
 
 		assertTrue(mw.gameState.getP2BreakZone().contains(summoner));
 		assertFalse(mw.p1ForwardCards.contains(victim));

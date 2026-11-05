@@ -348,6 +348,21 @@ final class GameContextImpl implements GameContext {
 			@Override public void markEffectFizzled()   { mw.effectProgress = false; }
 			@Override public boolean effectMadeProgress() { return mw.effectProgress; }
 
+			@Override public void triggerWhenYouDoSo(CardData source, String payoffText, int xValue,
+					Consumer<GameContext> payoff) {
+				// The delayed ability's source is its parent's (rule 11.8.17.5). With none known, as
+				// only a parse with no source can leave it, there is nothing to put on the Stack.
+				CardData owner = source != null ? source : mw.currentAbilitySource;
+				if (owner == null) {
+					payoff.accept(this);
+					return;
+				}
+				// Targets still preloaded here were meant for the payoff — the primary before it chose
+				// nothing of them — so they go with it rather than being chosen again.
+				mw.autoAbilityTriggers.triggerWhenYouDoSo(owner, isP1, isP1, payoffText, xValue,
+						consumePreloadedTargets(), payoff);
+			}
+
 
 	// =========================================================================================
 	// Forward slots: reads, state, and slot-addressed damage
@@ -1724,7 +1739,7 @@ final class GameContextImpl implements GameContext {
 				// no longer answered by the heuristic below — which picks at random among equally
 				// good targets, and so broke a different Forward on each client.
 				Supplier<List<ForwardTarget>> cpuPick =
-						() -> aiSelectCharacters(eligible, maxCount, opponentOnly, selfOnly);
+						() -> aiSelectCharacters(eligible, maxCount, upTo, opponentOnly, selfOnly);
 				return fireChosenByOpponentTriggers(mw.selectChosenTargets(isP1, eligible, maxCount,
 						title, "Waiting for your opponent to choose targets...",
 						() -> totalCostBudget >= 0
@@ -1739,8 +1754,31 @@ final class GameContextImpl implements GameContext {
 			 * to route its question by seat — it is now one of three answers rather than the branch
 			 * every non-local seat fell into.
 			 */
+			/**
+			 * The AI's picks among its own cards, by what the effect does to them ({@link #aiOwnPick}).
+			 * An "up to" choice that spends or returns its picks is answered with none — the AI
+			 * gives nothing up it does not have to — save that a return still pulls back a card the
+			 * opponent's Stack entry is aimed at.
+			 */
+			private List<ForwardTarget> aiOwnPicks(List<ForwardTarget> pool, int maxCount, boolean upTo) {
+				return switch (aiOwnPick) {
+					case SPEND    -> upTo ? List.of() : mw.aiCheapestOwnTargets(pool, maxCount, aiOwnPickSource);
+					case BLINK    -> mw.aiBestOwnBlinkTargets(pool, maxCount, aiOwnPickSource);
+					case BOUNCE   -> {
+						if (!upTo) yield mw.aiOwnBounceTargets(pool, maxCount, aiOwnPickSource);
+						Set<CardData> threatened = mw.threatenedOnStack(isP1);
+						yield pool.stream().filter(t -> threatened.contains(cardAtTarget(t)))
+								.limit(maxCount).toList();
+					}
+					case SHIELD   -> mw.aiBestOwnShieldTargets(pool, maxCount);
+					case ACTIVATE -> mw.aiBestOwnBuffTargets(pool, maxCount, true);
+					case BUFF     -> mw.aiBestOwnBuffTargets(pool, maxCount, false);
+					case NONE     -> List.copyOf(pool.subList(0, Math.min(maxCount, pool.size())));
+				};
+			}
+
 			private List<ForwardTarget> aiSelectCharacters(List<ForwardTarget> eligible, int maxCount,
-					boolean opponentOnly, boolean selfOnly) {
+					boolean upTo, boolean opponentOnly, boolean selfOnly) {
 				if (eligible.isEmpty()) return List.of();
 				// A budgeted selection spends rather than counts, so it gets its own pick: the
 				// opponent's Forwards, most expensive first, taking each one the budget still
@@ -1775,15 +1813,11 @@ final class GameContextImpl implements GameContext {
 							.filter(t -> t.isP1() != preferOwn).toList();
 					if (!preferred.isEmpty()) pool = preferred;
 				}
-				// Every pick left is the AI's own and the effect says what it does to it. Spent: it
-				// gives up the cheapest, as every payment it makes with its own cards does, and the
-				// card whose ability is asking only when nothing else is eligible. Left to the
-				// shuffle below, Graff 25-116H removed himself as often as the ally beside him.
-				// Blinked: the card whose enters-the-field ability pays off on the way back.
+				// Every pick left is the AI's own and the effect says what it does to it (AiOwnPick).
+				// Left to the shuffle below, Graff 25-116H removed himself as often as the ally
+				// beside him.
 				if (aiOwnPick != AiOwnPick.NONE && pool.stream().allMatch(t -> t.isP1() == isP1)) {
-					List<ForwardTarget> picked = aiOwnPick == AiOwnPick.SPEND
-							? mw.aiCheapestOwnTargets(pool, maxCount, aiOwnPickSource)
-							: mw.aiBestOwnBlinkTargets(pool, maxCount, aiOwnPickSource);
+					List<ForwardTarget> picked = aiOwnPicks(pool, maxCount, upTo);
 					picked.forEach(t -> logEntry("[AI] chose " + cardAtTarget(t).name()));
 					return picked;
 				}
@@ -3366,8 +3400,8 @@ final class GameContextImpl implements GameContext {
 				// select menu in it is declared afresh the same way.
 				AutoAbility copied = chosen.autoAbility();
 				GameContext selectCtx = mw.buildGameContext(isP1);
-				ActionResolver.StackChoices choices =
-						ActionResolver.chooseForStack(copied.effectText(), newSource, 0, selectCtx);
+				ActionResolver.StackChoices choices = mw.whileChoosingForStack(
+						() -> ActionResolver.chooseForStack(copied.effectText(), newSource, 0, selectCtx));
 				List<ForwardTarget> preTargets = AutoAbilityTriggers.targetsForStack(
 						choices.targets(), choices.targetText(), newSource, selectCtx);
 				StackEntry copyEntry = new StackEntry(newSource, null, copied, isP1, 0, false, preTargets,
@@ -5309,13 +5343,18 @@ final class GameContextImpl implements GameContext {
 				logSelectedOwnCard(isP1, pick);
 				forceTargetToBreakZone(pick);
 				// "When you do so" — the payoff hangs off the put actually having happened, which
-				// it now has. The cost is exact, and the choice spans both fields: the card says
-				// "choose 1 Forward" with no side named, so the user's own Forwards qualify too.
-				logEntry("Effect: choose 1 Forward of cost " + cost + " — you gain control of it");
-				List<ForwardTarget> chosen = selectCharacters(1, false, false, false, null, null,
-						cost, null, -1, null, true, false, false,
-						null, null, null, null, false, null, false);
-				for (ForwardTarget t : chosen) gainControlOfForward(t, "permanent", false);
+				// it now has, and is its own ability on the Stack with the cost written in. The cost
+				// is exact, and the choice spans both fields: the card says "choose 1 Forward" with
+				// no side named, so the user's own Forwards qualify too.
+				triggerWhenYouDoSo(null, "choose 1 Forward of cost " + cost + ". You gain control of it.", 0, c -> {
+					c.logEntry("Effect: choose 1 Forward of cost " + cost + " — you gain control of it");
+					List<ForwardTarget> chosen = c.consumePreloadedTargets();
+					if (chosen == null)
+						chosen = c.selectCharacters(1, false, false, false, null, null,
+								cost, null, -1, null, true, false, false,
+								null, null, null, null, false, null, false);
+					for (ForwardTarget t : chosen) c.gainControlOfForward(t, "permanent", false);
+				});
 			}
 
 			/**

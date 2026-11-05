@@ -97,6 +97,9 @@ import org.mockito.InOrder;
  *       its owner recorded, as a real game would</li>
  *   <li>{@code fwd(isP1, idx)} for a {@link ForwardTarget}; {@code summonChoosing} and
  *       {@code abilityChoosing} for a {@link StackEntry} that has already chosen</li>
+ *   <li>{@code resolveStack} — resolves the Stack until it is empty, including the "When you do
+ *       so" payoffs that go on it as their own entries; {@code resolvingPayoffsAtOnce} has a mock
+ *       run those payoffs on itself</li>
  * </ul>
  */
 public class CardBehaviorTest {
@@ -134,6 +137,28 @@ public class CardBehaviorTest {
                 abilities, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
                 false, false, null, false, false, false, false, false, 1,
                 null, null, null, "");
+    }
+
+    /**
+     * Resolves everything on the Stack, top first, as the Stack does once both players have passed
+     * on each entry ({@link MainWindow#resolveTopOfStack}).
+     */
+    private static void resolveStack(MainWindow mw) {
+        while (!mw.gameState.getStack().isEmpty()) mw.resolveTopOfStack();
+    }
+
+    /**
+     * Has a mocked context resolve each "When you do so" payoff it is handed on itself, straight
+     * away, as the Stack would once both players passed: a mock has no Stack to put it on. The
+     * handover ({@link GameContext#triggerWhenYouDoSo}) is still recorded, so a test can verify the
+     * payoff was deferred.
+     */
+    private static GameContext resolvingPayoffsAtOnce(GameContext ctx) {
+        doAnswer(i -> {
+            i.<Consumer<GameContext>>getArgument(3).accept(ctx);
+            return null;
+        }).when(ctx).triggerWhenYouDoSo(any(), any(), anyInt(), any());
+        return ctx;
     }
 
     private static CardData makePlainBackup(String name, String element, int cost) {
@@ -4587,6 +4612,306 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Stack order when P1's cast fires a CPU trigger. "When your opponent casts a Summon, …" goes on
+    // the Stack above the Summon and resolves first (rule 11.8.7: triggered abilities are put on the
+    // Stack the next time a player would gain priority, over what is already there). Gladiator
+    // 7-090C chooses nothing as its trigger goes on; Nelapa 23-014H declares a select and chooses
+    // its target then — with P1's Summon on top of the Stack while it does.
+    // =========================================================================================
+
+    private static final String NELAPA_23_014H = "When your opponent casts a Summon, select up to 2 of the 2 "
+            + "following actions.[[br]]   \"Choose 1 Forward. Deal it 10000 damage.\"[[br]]   \"Nelapa deals your "
+            + "opponent 1 point of damage.\"";
+
+    /** P1, with cards to draw and a Forward on the field, casts a Summon that only draws. */
+    private static CardData p1CastsADrawSummon(MainWindow mw) {
+        for (int i = 0; i < 3; i++) {
+            CardData c = makeForward("P1 Deck " + i, "Fire", 1, 1000);
+            mw.gameState.getIdentity().put(c, true);
+            mw.gameState.getP1MainDeck().addFirst(c);
+        }
+        CardData draw = makeSummon("Insight", "Water", 1, "Draw 1 card.");
+        mw.gameState.getIdentity().put(draw, true);
+        mw.showSummonOnStack(draw, true);
+        return draw;
+    }
+
+    @Test
+    void aCastTriggerThatChoosesNothingGoesOnTheStackAboveTheSummon() {
+        MainWindow mw = new MainWindow();
+        CardData gladiator = makeForwardWithText("Gladiator", "Lightning", 4, 8000,
+                "When your opponent casts a Summon, Gladiator gains +2000 power until the end of the turn.");
+        placeP2Forward(mw, gladiator);
+        int handBefore = mw.gameState.getP1Hand().size();
+
+        CardData draw = p1CastsADrawSummon(mw);
+
+        assertEquals(2, mw.gameState.stackSize(), "the Summon and the trigger above it");
+        assertSame(gladiator, mw.gameState.peekStack().source());
+        assertSame(draw, mw.gameState.getStack().get(0).source());
+        assertEquals(handBefore, mw.gameState.getP1Hand().size(), "the Summon has not resolved");
+    }
+
+    @Test
+    void aCastTriggerThatChoosesAsItGoesOnStillGoesOnAboveTheSummon() {
+        MainWindow mw = new MainWindow();
+        CardData nelapa = makeForwardWithText("Nelapa", "Fire", 2, 5000, NELAPA_23_014H);
+        placeP2Forward(mw, nelapa);
+        CardData theirs = makeForward("Theirs", "Water", 3, 7000);
+        placeP1Forward(mw, theirs);
+        int handBefore = mw.gameState.getP1Hand().size();
+
+        CardData draw = p1CastsADrawSummon(mw);
+
+        assertEquals(2, mw.gameState.stackSize(), "the Summon and Nelapa's trigger above it");
+        assertSame(nelapa, mw.gameState.peekStack().source());
+        assertSame(draw, mw.gameState.getStack().get(0).source());
+        assertEquals(handBefore, mw.gameState.getP1Hand().size(), "the Summon has not resolved");
+        assertTrue(mw.p1ForwardCards.contains(theirs), "nor has Nelapa's trigger");
+
+        // Nelapa's trigger resolves first; then P1's Summon comes back to the top, where the CPU
+        // passes on it and it resolves too.
+        mw.resolveTopOfStack();
+        assertTrue(mw.gameState.getP1BreakZone().contains(theirs), "10000 to the Forward");
+        assertEquals(handBefore + 1, mw.gameState.getP1Hand().size(), "and then the Summon's draw");
+        assertTrue(mw.gameState.getStack().isEmpty());
+    }
+
+    @Test
+    void p1sOwnCastTriggerThatChoosesResolvesAheadOfTheSummon() {
+        // The same hazard from P1's side: P1's "When you cast a Summon" trigger chooses as it goes on
+        // the Stack, with P1's Summon on top. The order shows in where P2's Forward ends up: the
+        // trigger's 1000 breaks it first, and the Summon's return then finds it gone. In the other
+        // order the Summon returns it to hand and the trigger finds nothing to damage.
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, makeForwardWithText("Caller", "Fire", 2, 5000,
+                "When you cast a Summon, choose 1 Forward opponent controls. Deal it 1000 damage."));
+        CardData theirs = makeForward("Theirs", "Water", 1, 1000);
+        placeP2Forward(mw, theirs);
+        CardData bounce = makeSummon("Gust", "Wind", 1, "Choose 1 Forward opponent controls. Return it to its owner's hand.");
+        mw.gameState.getIdentity().put(bounce, true);
+
+        mw.showSummonOnStack(bounce, true);   // one eligible target each: no dialog
+
+        assertTrue(mw.gameState.getP2BreakZone().contains(theirs), "broken by the trigger, which resolved first");
+        assertFalse(mw.gameState.getP2Hand().contains(theirs));
+        assertTrue(mw.gameState.getStack().isEmpty());
+    }
+
+    // =========================================================================================
+    // "X. When you do so, Y": Y is a delayed auto ability of its own (rule 11.8.17), with the
+    // source and controller of the ability that made it (11.8.17.5). It goes on the Stack as X is
+    // done, choosing its targets then (11.8.9), and both players get priority before it resolves.
+    // "If you do so, Y" is the rest of the same effect and resolves at once. Both routes are here:
+    // an inline shape's executor (a self-sacrifice) and parse()'s sequence (a self-dull). The
+    // abilities are P2's, so their choices are the AI's.
+    // =========================================================================================
+
+    private static final String MARTYR_WHEN = "When Martyr enters the field, put Martyr into the Break Zone. "
+            + "When you do so, choose 1 Forward opponent controls. Deal it 9000 damage.";
+
+    /** P1 fields a 7000 Forward; then P2 fields Martyr ({@code text}), whose arrival goes on the Stack. */
+    private static CardData martyrArrives(MainWindow mw, String text) {
+        return arrivesOverAP1Forward(mw, "Martyr", text);
+    }
+
+    /** P1 fields a 7000 Forward; then P2 fields {@code name} ({@code text}), whose arrival goes on the Stack. */
+    private static CardData arrivesOverAP1Forward(MainWindow mw, String name, String text) {
+        placeP1Forward(mw, makeForward("Theirs", "Water", 3, 7000));
+        CardData card = makeForwardWithText(name, "Fire", 2, 5000, text);
+        placeP2Forward(mw, card);
+        assertEquals(1, mw.gameState.stackSize(), name + "'s arrival is on the Stack");
+        return card;
+    }
+
+    /** The response P1 makes in the window before a payoff resolves: its Forward goes back to hand. */
+    private static void p1ReturnsItsForward(MainWindow mw) {
+        GameContext p1 = mw.buildGameContext(true);
+        p1.preloadTargets(List.of(fwd(true, 0)));
+        ActionResolver.parse("Choose 1 Forward you control. Return it to its owner's hand.",
+                makeSummon("Retreat", "Wind", 1, "")).accept(p1);
+    }
+
+    @Test
+    void thePayoffGoesOnTheStackOnceThePriceIsPaid() {
+        MainWindow mw = new MainWindow();
+        CardData martyr = martyrArrives(mw, MARTYR_WHEN);
+        CardData theirs = mw.p1ForwardCards.get(0);
+
+        mw.resolveTopOfStack();
+
+        assertTrue(mw.gameState.getP2BreakZone().contains(martyr), "the price is paid as the ability resolves");
+        assertEquals(1, mw.gameState.stackSize(), "and the payoff is its own entry");
+        StackEntry payoff = mw.gameState.peekStack();
+        assertTrue(payoff.autoAbility().isWhenYouDoSo());
+        assertSame(martyr, payoff.source(), "with the source of the ability that made it");
+        assertFalse(payoff.isP1());
+        assertEquals(List.of(fwd(true, 0)), payoff.preSelectedTargets(), "having chosen as it went on");
+        assertEquals(0, mw.p1ForwardDamage.get(0), "nothing dealt yet");
+
+        mw.resolveTopOfStack();
+        assertTrue(mw.gameState.getP1BreakZone().contains(theirs), "9000 to the 7000 Forward");
+        assertTrue(mw.whenYouDoSoPayoffs.isEmpty(), "and what resolved it goes with the entry");
+    }
+
+    @Test
+    void aResponseBetweenThePriceAndThePayoffCanAnswerIt() {
+        MainWindow mw = new MainWindow();
+        CardData martyr = martyrArrives(mw, MARTYR_WHEN);
+        CardData theirs = mw.p1ForwardCards.get(0);
+        mw.resolveTopOfStack();
+
+        p1ReturnsItsForward(mw);   // in the window the payoff's own entry opens
+        mw.resolveTopOfStack();
+
+        assertTrue(mw.gameState.getP1Hand().contains(theirs), "saved: the payoff's target has left the field");
+        assertTrue(mw.gameState.getP2BreakZone().contains(martyr), "and the price stays paid");
+        assertTrue(mw.gameState.getStack().isEmpty());
+    }
+
+    @Test
+    void ifYouDoSoResolvesAsPartOfTheSameEffect() {
+        MainWindow mw = new MainWindow();
+        martyrArrives(mw, MARTYR_WHEN.replace("When you do so", "If you do so"));
+        CardData theirs = mw.p1ForwardCards.get(0);
+
+        mw.resolveTopOfStack();
+
+        assertTrue(mw.gameState.getP1BreakZone().contains(theirs), "the payoff resolved with the price");
+        assertTrue(mw.gameState.getStack().isEmpty(), "and was never an entry of its own");
+    }
+
+    @Test
+    void theSequencesPayoffChoosesItsTargetsOnlyOnceThePriceIsPaid() {
+        // Through parse() rather than an executor. The first "choose" in the text is the payoff's,
+        // and it used to be answered as the parent went on the Stack.
+        String text = "When Terra enters the field, dull active Terra. When you do so, choose 1 Forward "
+                + "opponent controls. Deal it 8000 damage.";
+        MainWindow mw = new MainWindow();
+        CardData terra = arrivesOverAP1Forward(mw, "Terra", text);
+        CardData theirs = mw.p1ForwardCards.get(0);
+        assertNull(AutoAbilityTriggers.inlineShapeOf(terra.autoAbilities().get(0).effectText()));
+        assertNull(mw.gameState.peekStack().preSelectedTargets(), "the parent chose nothing for the payoff");
+
+        mw.resolveTopOfStack();
+        assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "the price");
+        assertTrue(mw.gameState.peekStack().autoAbility().isWhenYouDoSo());
+        assertEquals(List.of(fwd(true, 0)), mw.gameState.peekStack().preSelectedTargets(), "the payoff did, going on");
+
+        mw.resolveTopOfStack();
+        assertTrue(mw.gameState.getP1BreakZone().contains(theirs));
+    }
+
+    @Test
+    void cyanGainsTheCrystalsHerPaymentBoughtFromThePayoffsOwnEntry() {
+        // 21-004L: "you may pay 《X》. When you do so, gain 《C》 for each CP paid as X." X travels on
+        // the payoff's entry. The AI buys one unit of X with its one active Backup.
+        MainWindow mw = new MainWindow();
+        CardData backup = makePlainBackup("Payer", "Water", 2);
+        mw.gameState.getIdentity().put(backup, false);
+        mw.placeP2CardInFirstBackupSlot(backup);
+        mw.p2BackupStates[0] = CardState.ACTIVE;
+        CardData cyan = makeForwardWithText("Cyan", "Water", 3, 7000, "When Cyan enters the field, you may pay 《X》. "
+                + "When you do so, gain 《C》 for each CP paid as X. The maximum you can pay for 《X》 is 5.");
+        placeP2Forward(mw, cyan);
+        int crystalsBefore = mw.gameState.getP2Crystals();
+
+        mw.resolveTopOfStack();
+        assertEquals(CardState.DULL, mw.p2BackupStates[0], "1 CP paid as X");
+        assertEquals(crystalsBefore, mw.gameState.getP2Crystals(), "nothing gained yet");
+        assertEquals(1, mw.gameState.peekStack().xValue(), "X rides on the payoff");
+
+        mw.resolveTopOfStack();
+        assertEquals(crystalsBefore + 1, mw.gameState.getP2Crystals());
+    }
+
+    @Test
+    void kolkaDealsThePowerOfTheForwardHerPriceDiscardedNotOfOneDiscardedSince() {
+        // 18-057C: "discard 1 Forward. When you do so, … damage equal to the discarded Forward's
+        // power." A discard made in the window before the payoff resolves records over the same
+        // fields, so the payoff holds what its own price recorded.
+        MainWindow mw = new MainWindow();
+        CardData heavy = makeForward("Heavy", "Earth", 4, 8000);
+        mw.gameState.getIdentity().put(heavy, false);
+        mw.gameState.getP2Hand().add(heavy);
+        placeP1Forward(mw, makeForward("Theirs", "Water", 5, 10000));
+        placeP2Forward(mw, makeForwardWithText("Kolka", "Earth", 2, 5000, "When Kolka enters the field, you may "
+                + "discard 1 Forward. When you do so, choose 1 Forward opponent controls. Deal it damage equal to "
+                + "the discarded Forward's power."));
+
+        mw.resolveTopOfStack();
+        assertTrue(mw.gameState.getP2BreakZone().contains(heavy), "the price");
+        CardData light = makeForward("Light", "Earth", 1, 1000);
+        mw.gameState.getIdentity().put(light, false);
+        mw.gameState.getP2Hand().add(light);
+        ActionResolver.parse("Discard 1 Forward.", makeSummon("Toss", "Earth", 1, "")).accept(mw.buildGameContext(false));
+        assertTrue(mw.gameState.getP2BreakZone().contains(light), "the discard in between");
+
+        mw.resolveTopOfStack();
+        assertEquals(8000, (int) mw.p1ForwardDamage.get(0), "Heavy's power, not Light's");
+    }
+
+    @Test
+    void miraBreaksTheArrivingForwardFromItsOwnEntry() {
+        // 20-102L: "you may pay 《1》 and discard 1 Monster. When you do so, break that Forward." The
+        // CP and the discard are both the price; "that Forward" is the one whose arrival fired her,
+        // which the payoff's entry carries rather than choosing anew.
+        MainWindow mw = new MainWindow();
+        CardData backup = makePlainBackup("Payer", "Wind", 2);
+        mw.gameState.getIdentity().put(backup, false);
+        mw.placeP2CardInFirstBackupSlot(backup);
+        mw.p2BackupStates[0] = CardState.ACTIVE;
+        CardData monster = makeMonsterWithText("Bomb", "Wind", "");
+        mw.gameState.getIdentity().put(monster, false);
+        mw.gameState.getP2Hand().add(monster);
+        mw.suppressAutoAbilityForNextCards = 1;
+        placeP2Forward(mw, makeForwardWithText("Mira", "Wind", 2, 5000, "When an opponent's Forward enters the "
+                + "field, you may pay 《1》 and discard 1 Monster. When you do so, break that Forward."));
+        CardData arriving = makeForward("Arriving", "Fire", 3, 7000);
+        placeP1Forward(mw, arriving);
+        assertEquals(1, mw.gameState.stackSize(), "Mira's watcher");
+
+        mw.resolveTopOfStack();
+        assertTrue(mw.gameState.getP2BreakZone().contains(monster), "the Monster went with the CP");
+        assertTrue(mw.p1ForwardCards.contains(arriving), "not broken yet");
+        assertEquals(List.of(fwd(true, 0)), mw.gameState.peekStack().preSelectedTargets(), "aimed at the arrival");
+
+        mw.resolveTopOfStack();
+        assertTrue(mw.gameState.getP1BreakZone().contains(arriving));
+    }
+
+    @Test
+    void tamasCancelStillLandsInsideTheChoiceThatFiredIt() {
+        // 18-059R: "When a Forward you control is chosen by your opponent's Summon or ability, you
+        // may put Tama into the Break Zone. When you do so, cancel its effect." The trigger resolves
+        // inside the selection that fired it, so the cancel has to land there too. On the Stack it
+        // would resolve after the Summon had dealt its damage.
+        MainWindow mw = new MainWindow();
+        CardData tama = makeForwardWithText("Tama", "Water", 2, 3000, "When a Forward you control is chosen by "
+                + "your opponent's Summon or ability, you may put Tama into the Break Zone. When you do so, cancel "
+                + "its effect.");
+        placeP2Forward(mw, tama);
+        CardData ally = makeForward("Ally", "Water", 3, 7000);
+        placeP2Forward(mw, ally);
+        // Of cost 3 or more: Ally is the one eligible target, so no dialog is needed.
+        String text = "Choose 1 Forward of cost 3 or more opponent controls. Deal it 5000 damage.";
+        CardData summon = makeSummon("Bolt", "Lightning", 3, text);
+        mw.currentSummonSource = summon;
+        mw.currentSummonSourceIsP1 = true;
+        mw.currentResolutionIsSummon = true;
+        try {
+            ActionResolver.parse(text, summon).accept(mw.buildGameContext(true));
+        } finally {
+            mw.currentSummonSource = null;
+            mw.currentResolutionIsSummon = false;
+        }
+
+        assertTrue(mw.gameState.getP2BreakZone().contains(tama), "Tama paid");
+        assertEquals(0, (int) mw.p2ForwardDamage.get(mw.p2ForwardCards.indexOf(ally)), "and the 5000 was cancelled");
+        assertTrue(mw.gameState.getStack().isEmpty(), "with no payoff left waiting on the Stack");
+    }
+
+    // =========================================================================================
     // A select Summon declares its option as it is cast (rule 11.3.4), and the targets it chooses
     // then are that option's. Read off the whole menu instead, the first "choose" inside it was
     // answered whichever option was taken — 51 of the corpus's 54 select Summons — and the option
@@ -6354,8 +6679,10 @@ public class CardBehaviorTest {
         mw.p2BackupStates[0] = CardState.ACTIVE;
 
         mw.placeCardInForwardZone(makeForward("Amon", "Lightning", 3, 9000)); // P1 idx 0
+        mw.suppressAutoAbilityForNextCards = 1;                               // her arrival is fired below
         mw.placeP2CardInForwardZone(ursula);                                  // P2 idx 0
         mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(ursula, false);
+        resolveStack(mw);
 
         assertEquals(5000, (int) mw.p1ForwardDamage.get(0),
                 "her own Damage-3 boost raises the trigger's 4000 to 5000");
@@ -11711,7 +12038,7 @@ public class CardBehaviorTest {
         doAnswer(i -> { progress[0] = true;  return null; }).when(ctx).resetEffectProgress();
         doAnswer(i -> { progress[0] = false; return null; }).when(ctx).markEffectFizzled();
         when(ctx.effectMadeProgress()).thenAnswer(i -> progress[0]);
-        return ctx;
+        return resolvingPayoffsAtOnce(ctx);
     }
 
     @Test
@@ -12937,7 +13264,7 @@ public class CardBehaviorTest {
 
 	@Test
 	void ardynOpponentPicksOneMoreThanDiscardedWithRepeats() {
-		GameContext ctx = mock(GameContext.class);
+		GameContext ctx = resolvingPayoffsAtOnce(mock(GameContext.class));
 		when(ctx.yourHandSize()).thenReturn(2);
 		when(ctx.chooseActionsByOpponent(any(), anyList(), eq(1), eq(false)))
 				.thenReturn(List.of("Ardyn deals your opponent 1 point of damage."));
@@ -20405,6 +20732,7 @@ public class CardBehaviorTest {
 			mw.gameState.getP2Hand().add(makeSummon("Firaga " + i, "Fire", 2, ""));
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(
 				makeAutoAbilityForward("Terra", "Ice", 8000, TERRA_15_037L_TEXT), false);
+		resolveStack(mw);
 		return mw;
 	}
 
@@ -25475,14 +25803,21 @@ public class CardBehaviorTest {
 		MainWindow mw = new MainWindow();
 		CardData clione = fieldClione(mw);
 
-		// This shape resolves inline inside its executor rather than going on the Stack, so the
-		// whole ability is done by the time the cast returns. Before the prompt was gated on
-		// "you may", it blocked here on a modal Decline dialog instead.
-		mw.pushSummonOnStack(makeSummon("Shiva", "Ice", 2, "Draw 1 card."), false, 0, 0, false, null, false);
+		// The trigger goes on the Stack above the Summon and resolves first. Before the prompt was
+		// gated on "you may", it blocked here on a modal Decline dialog instead.
+		CardData shiva = makeSummon("Shiva", "Ice", 2, "Draw 1 card.");
+		mw.gameState.getIdentity().put(shiva, false);
+		int handBefore = mw.gameState.getP2Hand().size();
+		mw.pushSummonOnStack(shiva, false, 0, 0, false, null, false);
+		assertEquals(2, stackOf(mw).size(), "Clione's trigger above the Summon");
+		mw.resolveTopOfStack();
 
-		assertEquals(1, stackOf(mw).size(), "only the Summon — the trigger resolved on the spot");
-		assertTrue(mw.cancelledStackEntries.contains(stackOf(mw).get(0)),
-				"the sacrifice buys the cancel — the sentence split used to drop it");
+		// The cancelled Summon is resolved straight after, without a response window: to the
+		// Break Zone, its effect undone — the sacrifice buys the cancel, which the sentence split
+		// used to drop.
+		assertTrue(stackOf(mw).isEmpty());
+		assertTrue(mw.gameState.getP2BreakZone().contains(shiva));
+		assertEquals(handBefore, mw.gameState.getP2Hand().size(), "its draw never happened");
 		assertFalse(mw.p1MonsterCards.contains(clione), "and Clione paid for it");
 	}
 
@@ -25504,6 +25839,7 @@ public class CardBehaviorTest {
 	 */
 	private static void castAsP2(MainWindow mw, String name) {
 		mw.pushSummonOnStack(makeSummon(name, "Ice", 2, "Draw 1 card."), false, 0, 0, false, null, false);
+		mw.resolveTopOfStack();   // the cast trigger, which went on the Stack above the Summon
 	}
 
 	@Test
@@ -25521,8 +25857,9 @@ public class CardBehaviorTest {
 		for (int i = 0; i < 5; i++) mw.gameState.getP2MainDeck().push(makeForward("Card " + i, "Water", 1, 1000));
 
 		castAsP2(mw, "Shiva");
-
 		assertNull(mw.p2BackupCards[0], "the Backup broke itself — the Monster-only lookup never found it");
+		mw.resolveTopOfStack();   // "When you do so": the draw went on the Stack, above the Summon
+
 		assertEquals(handBefore + 2, mw.gameState.getP2Hand().size(), "and the sub-effect it paid for ran");
 	}
 
@@ -31975,6 +32312,7 @@ public class CardBehaviorTest {
 		for (int i = 0; i < 5; i++) mw.gameState.getP2MainDeck().add(makeForward("Deck" + i, "Wind", 2, 5000));
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1(false);
+		resolveStack(mw);
 
 		assertTrue(mw.p2ForwardCards.isEmpty(), "Reks put himself into the Break Zone");
 		assertEquals(1, mw.gameState.getP2BreakZone().size());
@@ -33637,8 +33975,10 @@ public class CardBehaviorTest {
 		CardData noctis = makeAutoAbilityForward("Noctis", NOCTIS_20_078H_TEXT);
 		placeP2Forward(mw, noctis);
 		placeP2Forward(mw, makeForward("Ally", "Earth", 3, 7000));
+		resolveStack(mw);   // Noctis's own arrival
 
 		mw.breakP2Forward(0);
+		resolveStack(mw);
 
 		assertEquals(1, mw.p2ForwardCards.size());
 		assertSame(noctis, mw.p2ForwardCards.get(0), "Noctis came back");
@@ -33794,6 +34134,7 @@ public class CardBehaviorTest {
 		CardData ally = mw.p2ForwardCards.get(0);
 
 		mw.breakP2Forward(0);
+		resolveStack(mw);
 
 		assertEquals(1, mw.p2ForwardCards.size(), "the Forward came straight back");
 		assertSame(ally, mw.p2ForwardCards.get(0));
@@ -38945,7 +39286,7 @@ public class CardBehaviorTest {
 	@Test
 	void ignisDealsTheTotalPowerOfTheForwardsItDulled() {
 		ForwardTarget a = fwd(false, 0), b = fwd(false, 1), victim = fwd(true, 0);
-		GameContext ctx = mock(GameContext.class);
+		GameContext ctx = resolvingPayoffsAtOnce(mock(GameContext.class));
 		when(ctx.consumePreloadedTargets()).thenReturn(null);
 		when(ctx.selectCharacters(eq(2), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(), anyInt(), any(),
 				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(), any(), any(), anyBoolean(),
@@ -39092,6 +39433,7 @@ public class CardBehaviorTest {
 				+ "CP required to cast the discarded card. If the discarded card is a Job Member of the Turks, "
 				+ "also deal it 5000 damage.", makeForward("Cissnei", "Lightning", 3, 7000))
 				.accept(mw.buildGameContext(false));
+		resolveStack(mw);
 
 		assertTrue(mw.gameState.getP2BreakZone().contains(turk), "the Turk is discarded");
 		assertEquals(3000 + 5000, (int) mw.p1ForwardDamage.get(0), "3 CP x 1000, and 5000 for a Turk");
@@ -42047,6 +42389,163 @@ public class CardBehaviorTest {
 		assertEquals(CardState.DULL, mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(plain)));
 	}
 
+	// -----------------------------------------------------------------------------------------
+	// The other own-side picks (GameContext.AiOwnPick): a return to hand is a save for a card the
+	// opponent's Stack entry is aimed at and otherwise a price paid with the cheapest; a shield
+	// goes to what is threatened, then to what is in battle, then to the dearest; a buff to what
+	// is in battle, then to the strongest, and "Activate it." to a dull card; and an "up to"
+	// choice that would give a card up takes none.
+	// -----------------------------------------------------------------------------------------
+
+	private static final String TIDUS_7_117C_EFFECT = "choose 1 Character you control. Return it to its owner's hand.";
+
+	/** P1's "Choose 1 Forward. Break it." waiting on the Stack, aimed at {@code target} on P2's row. */
+	private static void p1BreakAimedAt(MainWindow mw, CardData target) {
+		CardData caster = makeForwardWithText("Caster", "Fire", 3, 5000, "《1》: Choose 1 Forward. Break it.");
+		mw.gameState.pushStack(new StackEntry(caster, caster.actionAbilities().get(0), true, 0,
+				List.of(new ForwardTarget(false, mw.p2ForwardCards.indexOf(target), ForwardTarget.CardZone.FORWARD))));
+	}
+
+	@Test
+	void aReturnOfItsOwnIsPaidWithTheCheapestAndNotTheCardAsking() {
+		MainWindow mw = new MainWindow();
+		CardData tidus = makeForward("Tidus", "Water", 4, 9000);
+		CardData dear  = makeForward("Dear", "Water", 5, 8000);
+		CardData aide  = makePlainBackup("Aide", "Water", 1);
+		placeP2Forward(mw, tidus);
+		placeP2Forward(mw, dear);
+		mw.gameState.getIdentity().put(aide, false);
+		TestCards.placeP2Backup(mw, aide);
+
+		resolveSourcedAsP2(mw, tidus, TIDUS_7_117C_EFFECT, 0);
+
+		assertEquals(List.of(aide), mw.gameState.getP2Hand(), "the cheapest; Tidus would undo his own arrival");
+	}
+
+	/** P2's own Forwards and Backups as selection targets. */
+	private static List<ForwardTarget> p2Own(MainWindow mw) {
+		List<ForwardTarget> out = new ArrayList<>();
+		for (int i = 0; i < mw.p2ForwardCards.size(); i++) out.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
+		for (int i = 0; i < mw.p2BackupCards.length; i++)
+			if (mw.p2BackupCards[i] != null) out.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
+		return out;
+	}
+
+	@Test
+	void aReturnOfItsOwnSavesTheCardTheOpponentIsAimingAt() {
+		// The pick itself, against the Stack: P1's break aimed at Dear makes the return a save.
+		MainWindow mw = new MainWindow();
+		CardData tidus = makeForward("Tidus", "Water", 4, 9000);
+		CardData dear  = makeForward("Dear", "Water", 5, 8000);
+		CardData aide  = makePlainBackup("Aide", "Water", 1);
+		placeP2Forward(mw, tidus);
+		placeP2Forward(mw, dear);
+		mw.gameState.getIdentity().put(aide, false);
+		TestCards.placeP2Backup(mw, aide);
+
+		assertEquals(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.BACKUP)),
+				mw.aiOwnBounceTargets(p2Own(mw), 1, tidus), "nothing threatened: the cheapest, as a price");
+		p1BreakAimedAt(mw, dear);
+		assertEquals(List.of(new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD)),
+				mw.aiOwnBounceTargets(p2Own(mw), 1, tidus), "Dear, pulled back out of the break's way");
+	}
+
+	@Test
+	void tidusArrivingUnderABreakSavesTheForwardItIsAimedAt() {
+		// The same save through the game: Tidus arrives while P1's break waits beneath, his trigger
+		// chooses as it goes on the Stack above it (with the Stack window held shut meanwhile, or the
+		// break would resolve right there), and the break then finds Dear gone.
+		MainWindow mw = new MainWindow();
+		CardData dear = makeForward("Dear", "Water", 5, 8000);
+		CardData aide = makePlainBackup("Aide", "Water", 1);
+		placeP2Forward(mw, dear);
+		mw.gameState.getIdentity().put(aide, false);
+		TestCards.placeP2Backup(mw, aide);
+		p1BreakAimedAt(mw, dear);
+
+		placeP2Forward(mw, makeForwardWithText("Tidus", "Water", 4, 9000,
+				"When Tidus enters the field, " + TIDUS_7_117C_EFFECT));
+		assertEquals(2, mw.gameState.stackSize(), "Tidus's trigger above the break");
+		mw.resolveTopOfStack();   // the trigger, then the break the CPU passes on
+
+		assertEquals(List.of(dear), mw.gameState.getP2Hand(), "pulled back out of the break's way");
+		assertTrue(mw.gameState.getStack().isEmpty());
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty(), "the break found nothing");
+	}
+
+	/** Bismarck, Lord of the Mists 14-042L's end-of-turn return, on P2's field beside a Wind ally. */
+	private static CardData bismarckBeside(MainWindow mw, CardData ally) {
+		CardData bismarck = makeForwardWithText("Bismarck", "Wind", 5, 9000, "At the end of each of your turns, "
+				+ "choose up to 1 Wind Character you control. Return it to its owner's hand.");
+		placeP2Forward(mw, bismarck);
+		placeP2Forward(mw, ally);
+		return bismarck;
+	}
+
+	@Test
+	void anUpToReturnOfItsOwnTakesNothing() {
+		MainWindow mw = new MainWindow();
+		bismarckBeside(mw, makeForward("Ally", "Wind", 2, 5000));
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false);
+		resolveStack(mw);
+
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "nothing given up that does not have to be");
+	}
+
+	@Test
+	void aShieldOfItsOwnGoesToTheDearestUnlessAnotherIsThreatened() {
+		// Titan 1-110C: "Choose 1 Forward you control. Dull it. It cannot be broken this turn."
+		String titan = "Choose 1 Forward you control. Dull it. It cannot be broken this turn.";
+		MainWindow mw = new MainWindow();
+		CardData dear  = makeForward("Dear", "Earth", 5, 9000);
+		CardData cheap = makeForward("Cheap", "Earth", 2, 5000);
+		placeP2Forward(mw, dear);
+		placeP2Forward(mw, cheap);
+
+		resolveSourcedAsP2(mw, makeSummon("Titan", "Earth", 2, titan), titan, 0);
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "nothing threatened: the dearest");
+
+		// The pick against the Stack, for the reason the return test above gives.
+		p1BreakAimedAt(mw, cheap);
+		assertEquals(List.of(new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD)),
+				mw.aiBestOwnShieldTargets(p2Own(mw), 1), "what the break is aimed at");
+	}
+
+	@Test
+	void aBuffOfItsOwnGoesToTheForwardInBattleAndOtherwiseTheStrongest() {
+		String buff = "Choose 1 Forward you control. It gains +2000 power until the end of the turn.";
+		for (boolean battle : new boolean[] { false, true }) {
+			MainWindow mw = new MainWindow();
+			CardData big   = makeForward("Big", "Fire", 5, 8000);
+			CardData small = makeForward("Small", "Fire", 2, 5000);
+			placeP2Forward(mw, big);
+			placeP2Forward(mw, small);
+			if (battle) mw.p2DeclaredAttackers.add(small);
+
+			resolveSourcedAsP2(mw, makeSummon("Boost", "Fire", 1, buff), buff, 0);
+
+			CardData boosted = battle ? small : big;
+			assertEquals(2000, mw.p2ForwardPowerBoost.get(mw.p2ForwardCards.indexOf(boosted)),
+					battle ? "the one attacking" : "out of battle: the strongest");
+		}
+	}
+
+	@Test
+	void anActivationOfItsOwnGoesToADullForward() {
+		MainWindow mw = new MainWindow();
+		CardData active = makeForward("Active", "Ice", 5, 9000);
+		CardData dull   = makeForward("Dull", "Ice", 2, 5000);
+		placeP2Forward(mw, active);
+		placeP2Forward(mw, dull);
+		mw.p2ForwardStates.set(1, CardState.DULL);
+		String activate = "Choose 1 Forward you control. Activate it.";
+
+		resolveSourcedAsP2(mw, makeSummon("Wake", "Ice", 1, activate), activate, 0);
+
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(1));
+	}
+
 	// =========================================================================================
 	// Vallaide 22-020R: "《1》: Choose 1 Forward. It gains \"When this Forward is dealt damage,
 	// break this Forward.\" until the end of the turn."
@@ -43272,15 +43771,17 @@ public class CardBehaviorTest {
 
     @Test
     void krakenDrawsOnlyAfterTheDiscardHappens() {
-        GameContext ctx = mock(GameContext.class);
+        GameContext ctx = resolvingPayoffsAtOnce(mock(GameContext.class));
         when(ctx.effectMadeProgress()).thenReturn(true);
 
         Consumer<GameContext> fn = ActionResolver.parse(KRAKEN_14_104C_EFFECT, null);
         assertNotNull(fn);
         fn.accept(ctx);
 
+        // The draw is its own delayed ability once the discard is made (rule 11.8.17).
         InOrder order = inOrder(ctx);
         order.verify(ctx).mayDiscardCardOfJobFromHand("Chaos");
+        order.verify(ctx).triggerWhenYouDoSo(any(), eq("draw 2 cards."), anyInt(), any());
         order.verify(ctx).drawCards(2);
     }
 
@@ -46130,7 +46631,7 @@ public class CardBehaviorTest {
 	void kefkaSpendsTheCountersHeBankedOnHisOwnTurnsEnd() {
 		CardData kefka = kefka20008H();
 		CardData victim = makeForward("Victim", "Ice", 3, 7000);
-		GameContext ctx = mock(GameContext.class);
+		GameContext ctx = resolvingPayoffsAtOnce(mock(GameContext.class));
 		when(ctx.consumePreloadedTargets()).thenReturn(null);
 		when(ctx.getCounters(kefka, "Magic")).thenReturn(3);
 		when(ctx.selectNumber(eq(0), eq(3), anyString())).thenReturn(2);
@@ -46211,7 +46712,7 @@ public class CardBehaviorTest {
 
 	@Test
 	void yangSizesTheChoiceByHowManyCardsActuallyWent() {
-		GameContext ctx = mock(GameContext.class);
+		GameContext ctx = resolvingPayoffsAtOnce(mock(GameContext.class));
 		when(ctx.consumePreloadedTargets()).thenReturn(null);
 		when(ctx.opponentForwardCount()).thenReturn(3);
 		when(ctx.mayDiscardAnyNumberFromHand(anyInt())).thenReturn(2);
@@ -47481,6 +47982,7 @@ public class CardBehaviorTest {
 		placeP1Forward(mw, victim);
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(delita, false);
+		resolveStack(mw);
 
 		assertTrue(mw.p1ForwardCards.isEmpty(), "the chosen Forward is broken outright");
 		assertTrue(mw.gameState.getP1BreakZone().contains(victim));
@@ -47517,6 +48019,7 @@ public class CardBehaviorTest {
 		placeP1Forward(mw, victim);
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(lulu, false);
+		resolveStack(mw);
 
 		assertTrue(mw.p1ForwardCards.isEmpty(), "7000 damage on a 7000-power Forward breaks it");
 		assertNull(mw.p2BackupCards[1], "the Backup was the price");
@@ -48405,6 +48908,7 @@ public class CardBehaviorTest {
 		stackP2Deck(mw, first, second);
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(ardyn, false);
+		resolveStack(mw);
 
 		assertTrue(mw.gameState.getP2BreakZone().contains(price1), "both Backups paid");
 		assertTrue(mw.gameState.getP2BreakZone().contains(price2));
@@ -49947,6 +50451,7 @@ public class CardBehaviorTest {
 			seatP2Backup(mw, i, makePlainBackup("Bank " + i, "Dark", 1), CardState.ACTIVE);
 
 		ActionResolver.parse(chaosEffect(), chaos).accept(mw.buildGameContext(false));
+		resolveStack(mw);   // the payoff, its own entry on the Stack
 
 		assertTrue(mw.p2ForwardCards.contains(buried), "a cost-5 Forward came back for 5 CP");
 		assertFalse(mw.gameState.getP2BreakZone().contains(buried));
@@ -50865,7 +51370,7 @@ public class CardBehaviorTest {
 
 	/** Resolves Bhunivelze's trigger against a sacrifice of {@code put} Characters. */
 	private static GameContext resolveBhunivelze(int put, List<ForwardTarget> selected) {
-		GameContext ctx = mock(GameContext.class);
+		GameContext ctx = resolvingPayoffsAtOnce(mock(GameContext.class));
 		when(ctx.putAnyNumberOfOwnCharactersToBz(anyBoolean(), anyBoolean(), anyBoolean(), any()))
 				.thenReturn(put);
 		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
@@ -51648,7 +52153,22 @@ public class CardBehaviorTest {
 		placeP1Forward(mw, prize);
 		placeP1Forward(mw, decoy);
 
-		mw.buildGameContext(false).selectOwnForwardToBzThenGainControlOfSameCost();
+		// Resolved under Ultimecia as the Stack resolves her: "When you do so" puts the take on the
+		// Stack as its own ability, with the cost written in and its target chosen as it goes on.
+		CardData ultimecia = makeForward("Ultimecia", "Dark", 5, 9000);
+		mw.currentAbilitySource = ultimecia;
+		mw.currentAbilitySourceIsP1 = false;
+		try {
+			mw.buildGameContext(false).selectOwnForwardToBzThenGainControlOfSameCost();
+		} finally {
+			mw.currentAbilitySource = null;
+		}
+		assertTrue(mw.gameState.getP2BreakZone().contains(give), "the price");
+		StackEntry take = mw.gameState.peekStack();
+		assertSame(ultimecia, take.source());
+		assertEquals("choose 1 Forward of cost 4. You gain control of it.", take.autoAbility().effectText());
+		assertEquals(List.of(fwd(true, 0)), take.preSelectedTargets(), "Prize, the one Forward of cost 4");
+		resolveStack(mw);
 
 		assertEquals(List.of("Prize"), mw.p2ForwardCards.stream().map(CardData::name).toList(),
 				"the Forward given up is gone and the one of matching cost has changed hands");
@@ -56876,6 +57396,7 @@ public class CardBehaviorTest {
 		MainWindow mw = miraBoard(true);
 		CardData arriving = makeForward("Arriving", "Fire", 3, 7000);
 		placeP1Forward(mw, arriving);
+		resolveStack(mw);
 		assertFalse(mw.p1ForwardCards.contains(arriving), "that Forward is broken");
 		assertTrue(mw.gameState.getP2Hand().isEmpty(), "the Monster was discarded");
 		assertEquals(CardState.DULL, mw.p2BackupStates[0], "and 《1》 paid");
@@ -56886,6 +57407,7 @@ public class CardBehaviorTest {
 		MainWindow mw = miraBoard(false);
 		CardData arriving = makeForward("Arriving", "Fire", 3, 7000);
 		placeP1Forward(mw, arriving);
+		resolveStack(mw);
 		assertTrue(mw.p1ForwardCards.contains(arriving));
 		assertEquals(CardState.ACTIVE, mw.p2BackupStates[0], "no CP spent on a discard that cannot happen");
 	}
@@ -56905,9 +57427,10 @@ public class CardBehaviorTest {
 		mw.gameState.getP2MainDeck().addLast(other);
 		Consumer<GameContext> parsed = ActionResolver.parse("discard 1 Summon or Job Eikon. When you do so, reveal "
 				+ "the top 2 cards of your deck. Add all the Lightning cards and Category XVI cards among them to your "
-				+ "hand and put the rest of the cards into the Break Zone.", null);
+				+ "hand and put the rest of the cards into the Break Zone.", makeForward("Ramuh", "Lightning", 3, 7000));
 		assertNotNull(parsed);
 		parsed.accept(mw.buildGameContext(false));
+		resolveStack(mw);   // the reveal, its own ability once the discard is made
 		assertTrue(mw.gameState.getP2BreakZone().contains(eikon), "the Job Eikon is a legal discard");
 		assertTrue(mw.gameState.getP2Hand().contains(bolt), "the Lightning card goes to hand");
 		assertTrue(mw.gameState.getP2BreakZone().contains(other), "the rest to the Break Zone");
@@ -56983,6 +57506,7 @@ public class CardBehaviorTest {
 				+ "Backup other than Meeth you control from the game. If you do so, draw 2 cards.");
 		mw.gameState.getIdentity().put(meeth, false);
 		mw.placeP2CardInFirstBackupSlot(meeth);
+		resolveStack(mw);
 		return mw;
 	}
 
@@ -57942,7 +58466,7 @@ public class CardBehaviorTest {
 
 	@Test
 	void cloudSearchesWithBothTheCostAndThePowerThreshold() {
-		GameContext ctx = mock(GameContext.class);
+		GameContext ctx = resolvingPayoffsAtOnce(mock(GameContext.class));
 		when(ctx.effectMadeProgress()).thenReturn(true);
 		when(ctx.removeCardsFromBreakZoneFromGameEitherSpec(any(), any(), anyInt(), anyBoolean(), anyString()))
 				.thenReturn(3);
@@ -65841,6 +66365,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse("discard 1 card. When you do so, choose 1 Forward of the same cost as the "
 				+ "discarded card. Break it.", makeForward("Pictomancer (XIV)", "Earth", 3, 7000))
 				.accept(mw.buildGameContext(false));
+		resolveStack(mw);   // the payoff, its own entry on the Stack
 
 		assertFalse(mw.p1ForwardCards.contains(five), "cost 5, the discarded card's cost");
 		assertTrue(mw.p1ForwardCards.contains(three));
@@ -66401,6 +66926,7 @@ public class CardBehaviorTest {
 
 		ActionResolver.parse(GILGAMESH_18_074L, makeForward("Gilgamesh", "Lightning", 4, 8000))
 				.accept(mw.buildGameContext(false));
+		resolveStack(mw);   // the payoff, its own entry on the Stack
 
 		assertTrue(mw.gameState.getP2RemovedFromGame().containsAll(bz), "the AI took every card");
 		// Fire, Earth, Water: three Elements, the Fire/Earth card counting for both and Fire once.
@@ -66819,6 +67345,7 @@ public class CardBehaviorTest {
 		assertTrue(paine.autoAbilities().get(0).youMay(), "the phase trigger's \"you may\" is lifted");
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false);
+		resolveStack(mw);
 
 		assertTrue(mw.gameState.getP2BreakZone().contains(paine));
 		assertTrue(mw.p2ForwardCards.contains(next));
@@ -66838,6 +67365,7 @@ public class CardBehaviorTest {
 		mw.placeP2CardInMonsterZone(cactoid);
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false);
+		resolveStack(mw);
 
 		assertTrue(mw.gameState.getP2BreakZone().contains(cactoid), "the price is paid");
 		assertFalse(mw.p1ForwardCards.contains(victim), "and 10000 breaks a 9000 Forward");
@@ -66859,6 +67387,7 @@ public class CardBehaviorTest {
 		mw.turn(false).cardsCastThisTurn = 3;
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false);
+		resolveStack(mw);
 
 		assertTrue(mw.gameState.getP2BreakZone().contains(lehko));
 		assertTrue(mw.p2ForwardCards.contains(four));
@@ -66902,6 +67431,7 @@ public class CardBehaviorTest {
 		assertTrue(wol.autoAbilities().get(0).youMay());
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(false);
+		resolveStack(mw);
 
 		// The AI buys one unit of X, so only the cost-1 unit qualifies.
 		assertTrue(mw.p2ForwardCards.contains(unit), "cost 1 = X");
@@ -66988,6 +67518,7 @@ public class CardBehaviorTest {
 		mw.gameState.getIdentity().put(vii, false);
 		mw.gameState.getP2Hand().add(vii);
 		fn.accept(mw.buildGameContext(false));
+		resolveStack(mw);
 
 		assertEquals(List.of(other), mw.gameState.getP2Hand(), "the Category VII card is the one discarded");
 		assertFalse(mw.p1ForwardCards.contains(victim), "7000 breaks the 7000 Forward");
@@ -67024,6 +67555,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse("dull any number of active Backups you control. When you do so, choose 1 "
 				+ "Forward. Deal it 3000 damage for each Backup you dulled due to this ability.",
 				makeForward("Warrior", "Fire", 3, 7000)).accept(mw.buildGameContext(false));
+		resolveStack(mw);   // the payoff, its own entry on the Stack
 
 		assertEquals(2, dullP2Backups(mw));
 		assertEquals(6000, (int) mw.p1ForwardDamage.get(0), "3000 for each of 2");
@@ -67046,6 +67578,7 @@ public class CardBehaviorTest {
 				+ "Forward. Deal it 3000 damage for each Backup you dulled due to this ability and Illua gains "
 				+ "+3000 power for each Backup you dulled due to this ability until the end of the turn.",
 				illua).accept(mw.buildGameContext(false));
+		resolveStack(mw);   // the payoff, its own entry on the Stack
 
 		assertEquals(2, dullP2Backups(mw), "the Ice Backup is not a Fire Backup");
 		assertEquals(6000, (int) mw.p1ForwardDamage.get(0));
@@ -67074,6 +67607,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse("reveal any number of Lightning cards from your hand. When you do so, choose 1 "
 				+ "Forward. Deal it 2000 damage for each card you revealed.",
 				makeForward("Vivi", "Lightning", 1, 3000)).accept(mw.buildGameContext(false));
+		resolveStack(mw);   // the payoff, its own entry on the Stack
 
 		assertEquals(4000, (int) mw.p1ForwardDamage.get(0), "2 Lightning cards, the Fire one not offered");
 		assertEquals(3, mw.gameState.getP2Hand().size(), "revealing keeps the cards in hand");
@@ -67117,6 +67651,7 @@ public class CardBehaviorTest {
 				+ "from the game. When you do so, choose 1 Forward of cost equal to or less than the number "
 				+ "of cards you removed. Break it.", makePlainBackup("Exdeath", "Lightning", 4))
 				.accept(mw.buildGameContext(false));
+		resolveStack(mw);   // the payoff, its own entry on the Stack
 
 		assertEquals(1, mw.gameState.getP2BreakZone().size(), "one of each cost removed, the second 2 left");
 		assertFalse(mw.p1ForwardCards.contains(cheap), "2 removed, so a cost-2 Forward can be broken");
@@ -67160,6 +67695,7 @@ public class CardBehaviorTest {
 		CardData a = p1Target(mw, 8000);
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(salamander, false);
+		resolveStack(mw);
 
 		assertEquals(0, mw.gameState.getP2Crystals(), "《C》《C》 was paid");
 		assertFalse(mw.p1ForwardCards.contains(a), "9000 breaks the 8000 Forward");
@@ -67176,6 +67712,7 @@ public class CardBehaviorTest {
 		p1Target(mw, 8000);
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(salamander, false);
+		resolveStack(mw);
 
 		assertEquals(2, mw.gameState.getP2Crystals());
 		assertEquals(5, dullP2Backups(mw), "《Fire》《Fire》《Fire》《2》 is five CP");
@@ -67337,6 +67874,7 @@ public class CardBehaviorTest {
 		mw.gameState.getIdentity().put(foe, true);
 		mw.placeCardInForwardZone(foe);
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(foe, true);
+		resolveStack(mw);
 		return foe;
 	}
 
@@ -67402,6 +67940,7 @@ public class CardBehaviorTest {
 		mw.placeP2CardInForwardZone(arrival);
 
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(arrival, false);
+		resolveStack(mw);
 
 		assertEquals(2000, mw.p2ForwardPowerBoost.get(mw.p2ForwardCards.indexOf(arrival)));
 	}
@@ -67792,6 +68331,7 @@ public class CardBehaviorTest {
 		mw.gameState.getIdentity().put(montblanc, false);
 
 		mw.placeP2CardInFirstBackupSlot(montblanc);   // fires its enters-the-field trigger
+		resolveStack(mw);
 
 		for (int i = 0; i < mw.p2BackupCards.length; i++) {
 			CardData b = mw.p2BackupCards[i];
@@ -68629,6 +69169,7 @@ public class CardBehaviorTest {
 		assertTrue(mw.gameState.getP2BreakZone().contains(marilith), "the fourth point is not the fifth");
 
 		p2TakesAPoint(mw, 0);
+		resolveStack(mw);
 		assertTrue(mw.p2ForwardCards.contains(marilith), "played from the Break Zone");
 		assertEquals(CardState.DULL, mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(marilith)));
 		assertFalse(mw.gameState.getP2BreakZone().contains(marilith));
@@ -68644,11 +69185,31 @@ public class CardBehaviorTest {
 		assertTrue(mw.p2ForwardCards.contains(baigan), "3500 is under the floor");
 		assertTrue(mw.p1ForwardCards.contains(striker));
 
-		// The self-sacrifice is resolved by the trigger layer as the damage lands (the AI takes the
-		// offer), and the damage step then finds Baigan gone rather than indexing his old seat.
+		// The self-sacrifice goes on the Stack as the damage lands, and the AI takes the offer as it
+		// resolves. The 3500 is cleared first, as a later turn would: on top of it the 4000 would
+		// break him before his ability resolved (see the test below).
+		mw.p2ForwardDamage.set(0, 0);
 		dealAbilityDamage(mw, striker, true, 4000);
+		resolveStack(mw);
 		assertTrue(mw.gameState.getP2BreakZone().contains(baigan));
 		assertTrue(mw.gameState.getP1BreakZone().contains(striker), "7000 to every Forward opponent controls");
+	}
+
+	@Test
+	void aHitThatBreaksBaiganLeavesHisAbilityNothingToPutIntoTheBreakZone() {
+		// 3500 and then 4000 breaks a 7000 Forward as the second hit lands. His ability goes on the
+		// Stack and resolves afterwards, when "put Baigan into the Break Zone" can no longer be done,
+		// so "When you do so" never happens.
+		MainWindow mw = new MainWindow();
+		CardData baigan = makeForwardWithText("Baigan", "Water", 5, 7000, BAIGAN_9_072H_FULL);
+		CardData striker = dealtDamageBoard(mw, baigan);
+
+		dealAbilityDamage(mw, striker, true, 3500);
+		dealAbilityDamage(mw, striker, true, 4000);
+		resolveStack(mw);
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(baigan), "broken by the damage");
+		assertTrue(mw.p1ForwardCards.contains(striker), "and nothing paid for the 7000");
 	}
 
 	// =========================================================================================
@@ -68825,9 +69386,10 @@ public class CardBehaviorTest {
 		assertTrue(mw.gameState.getP2BreakZone().contains(own), "his own side's ability");
 		assertEquals(CardState.ACTIVE, mw.p2BackupStates[0]);
 
-		// The pay-if-you-do-so payoff is resolved by the trigger layer as the discard lands.
+		// The pay-if-you-do-so ability goes on the Stack as the discard lands, and pays as it resolves.
 		CardData weapon = makeForwardWithText("Emerald Weapon", "Wind", 5, 9000, EMERALD_WEAPON_19_039R);
 		p2DiscardsDuring(mw, weapon, makeSummon("Shiva", "Ice", 2, ""), true);
+		resolveStack(mw);
 		assertTrue(mw.p2ForwardCards.contains(weapon), "an opposing Summon counts; he pays and returns");
 		assertEquals(CardState.DULL, mw.p2BackupStates[0]);
 		// Only this copy: the first one, discarded earlier, stays put. Both used to come out and
@@ -68878,6 +69440,10 @@ public class CardBehaviorTest {
 		} finally {
 			mw.currentAbilitySource = null;
 		}
+		// The payoff went on the Stack as the discard was made, above Black Waltz 2's answer to it
+		// (listed bottom first).
+		assertEquals(List.of(waltz2, waltz1), triggerSources(mw));
+		mw.resolveTopOfStack();
 
 		assertTrue(mw.gameState.getP2BreakZone().contains(waltz2), "the cost of the payoff");
 		assertEquals(7000, mw.p1ForwardDamage.get(0), "Black Waltz 1's payoff hit the dull Forward");
@@ -69002,6 +69568,7 @@ public class CardBehaviorTest {
 		mw.p2BackupStates[0] = CardState.ACTIVE;
 
 		mw.buildGameContext(false).addTargetToHand(new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE));
+		resolveStack(mw);
 
 		assertTrue(mw.p2ForwardCards.contains(aphmau), "salvaged, paid 《Lightning》, played from hand");
 	}
@@ -69089,6 +69656,7 @@ public class CardBehaviorTest {
 
 		mw.searchDeckForCard(false, true, false, false, false, -1, null, "Sin", null, null, null, null, null,
 				"hand", 1, false, null);
+		resolveStack(mw);
 
 		assertTrue(mw.gameState.getP2Hand().contains(sin));
 		assertTrue(mw.gameState.getP1BreakZone().contains(victim), "paid 《3》 and broke the only Forward");
@@ -69112,6 +69680,7 @@ public class CardBehaviorTest {
 			mw.p2BackupStates[1] = CardState.ACTIVE;
 
 			mw.buildGameContext(false).addTargetToHand(new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE));
+			resolveStack(mw);
 
 			// P2's Galuf: a P2 "your turn" trigger used to never fire, on any turn.
 			assertEquals(turn == GameState.Player.P2, mw.p2ForwardCards.contains(galuf), "turn " + turn);
@@ -69373,6 +69942,7 @@ public class CardBehaviorTest {
 		mw.gameState.getP2BreakZone().add(lightning);
 
 		mw.buildGameContext(false).removeTargetFromGame(new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE));
+		resolveStack(mw);
 
 		assertTrue(mw.gameState.getP2PermanentRfp().contains(lightning));
 		assertTrue(mw.gameState.getP1PermanentRfp().contains(victim), "paid 《4》 and removed the only Forward");
@@ -69591,10 +70161,15 @@ public class CardBehaviorTest {
 			mw.gameState.getP2MainDeck().addFirst(c);
 		}
 
-		// P1's Forward whose enters-the-field ability goes on the Stack.
+		// P1's Forward whose enters-the-field ability goes on the Stack, and Suzuhisa's answer above it.
 		placeP1Forward(mw, makeForwardWithText("Drawer", "Fire", 2, 5000, "When Drawer enters the field, draw 1 card."));
+		assertEquals(2, mw.gameState.stackSize());
+		mw.resolveTopOfStack();
+		assertTrue(mw.gameState.getP2BreakZone().contains(suzuhisa), "resolved ahead of the opponent's trigger");
+		// "When you do so": the draw is its own ability, put above the opponent's trigger in turn.
+		assertEquals(2, mw.gameState.stackSize());
+		mw.resolveTopOfStack();
 
-		assertTrue(mw.gameState.getP2BreakZone().contains(suzuhisa), "resolved as the opponent's trigger went on");
 		assertEquals(2, mw.gameState.getP2Hand().size());
 	}
 
@@ -70271,8 +70846,10 @@ public class CardBehaviorTest {
 		MainWindow mw = terraBoard(terra, true);
 
 		ActionResolver.parse(TERRA_PAYOFF, terra).accept(mw.buildGameContext(false));
-
 		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "the price");
+		assertEquals(0, mw.p1ForwardDamage.get(0), "the damage waits on the Stack as its own ability");
+		resolveStack(mw);
+
 		assertEquals(8000, mw.p1ForwardDamage.get(0));
 	}
 
@@ -70382,6 +70959,7 @@ public class CardBehaviorTest {
 		CardData arriving = makeForward("Arriving", "Ice", 3, 7000);
 
 		placeP1Forward(mw, arriving);
+		resolveStack(mw);
 
 		assertTrue(mw.gameState.getP2BreakZone().containsAll(List.of(spare, monster)), "CP from the spare, then the discard");
 		assertFalse(mw.p1ForwardCards.contains(arriving), "that Forward is broken");
@@ -70798,6 +71376,7 @@ public class CardBehaviorTest {
 			mw.gameState.getP2BreakZone().add(c);
 		}
 		ActionResolver.parse(VAAN_ATTACK, vaan).accept(mw.buildGameContext(false));
+		resolveStack(mw);
 		return mw;
 	}
 

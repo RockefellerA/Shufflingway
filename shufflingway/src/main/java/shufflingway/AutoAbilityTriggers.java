@@ -5078,8 +5078,7 @@ final class AutoAbilityTriggers {
 		}
 
 		mw.buildGameContext(isP1).dullTarget(slot);
-		mw.logEntry("[AutoAbility] " + source.name() + " — if you do so: " + subEffect);
-		effect.accept(mw.buildGameContext(effectIsP1));
+		runPayoff(followsWhenYouDoSo(fa.effectText(), m.start("sub")), source, isP1, effectIsP1, subEffect, 0, effect);
 	}
 
 	/**
@@ -5176,10 +5175,15 @@ final class AutoAbilityTriggers {
 		}
 		AutoAbility resolvedFa = resolvedText.equals(fa.effectText()) ? fa : fa.withEffectText(resolvedText);
 
-		// The "when you do so" family and its siblings resolve here and now rather than going on the
-		// Stack, so the ability source they run under has to be established here — the Stack route
-		// sets it from the entry (MainWindow's isAutoAbility() arm) and these never reach it.
-		if (withAbilitySource(source, () -> dispatchInlineAutoAbility(resolvedFa, source, isP1, effectIsP1)))
+		// The "when you do so" family and its siblings (INLINE_SHAPES) pay a cost or make a choice
+		// before their payoff can be read, and their executors do both. They go on the Stack like any
+		// other ability and the executor runs as the entry resolves (resolveInlineShapeOnStack): a
+		// "you may" ability is put on the Stack whatever its controller means to do, and the choice
+		// — here, the payment — is made as it resolves (rule 11.8.14). The few that cannot wait
+		// resolve here and now (resolvesInlineAtTrigger), under the source established here.
+		boolean shapeOnStack = inlineShapeOf(resolvedText) != null && !resolvesInlineAtTrigger(resolvedFa);
+		if (!shapeOnStack && withAbilitySource(source,
+				() -> atTrigger(() -> dispatchInlineAutoAbility(resolvedFa, source, isP1, effectIsP1))))
 			return;
 
 		// A select ability's "if …," decides whether it triggers at all (rule 11.8.13); it is read
@@ -5194,8 +5198,9 @@ final class AutoAbilityTriggers {
 		// opponent selects …", which parse() declines on purpose — it cannot know whether the cost
 		// was paid, and reading the conditional loosely would fire the effect either way. Checking
 		// the raw text here rejected the ability before the rewrite that makes it readable ever ran,
-		// so it never reached the Stack however the cost was paid.
-		if (ActionResolver.parse(resolvedText, source) == null) {
+		// so it never reached the Stack however the cost was paid. An inline shape is read by its
+		// executor, not by parse().
+		if (!shapeOnStack && ActionResolver.parse(resolvedText, source) == null) {
 			mw.logEntry("[AutoAbility] Unrecognized effect: " + resolvedText);
 			return;
 		}
@@ -5208,8 +5213,9 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
-		// youMay / opponentMay: player decides at trigger time whether to put ability on stack.
-		if (fa.youMay() || fa.opponentMay()) {
+		// youMay / opponentMay: player decides at trigger time whether to put ability on stack. Not an
+		// inline shape's: its executor makes that offer as it resolves.
+		if (!shapeOnStack && (fa.youMay() || fa.opponentMay())) {
 			// If the effect requires discarding a card of a specific type, skip offering
 			// when the player has no eligible cards in hand — nothing to choose from. Read off the
 			// board, so both clients skip together whoever is being offered.
@@ -5261,7 +5267,7 @@ final class AutoAbilityTriggers {
 			Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
 			mw.logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText());
 			// Inline, so the source is established here rather than by the Stack entry.
-			withAbilitySource(source, () -> { effect.accept(mw.buildGameContext(effectIsP1)); return true; });
+			withAbilitySource(source, () -> atTrigger(() -> { effect.accept(mw.buildGameContext(effectIsP1)); return true; }));
 			return;
 		}
 
@@ -5283,10 +5289,13 @@ final class AutoAbilityTriggers {
 		GameContext selectCtx = mw.buildGameContext(effectIsP1);
 		// A select menu declares its options now, as it goes on the Stack (rule 11.8.10), and only the
 		// declared option's targets are chosen with them (ActionResolver.chooseForStack).
+		// An inline shape chooses nothing yet: its payoff's targets are chosen once the price is paid,
+		// as the entry resolves.
 		List<String> declared = null;
 		List<ForwardTarget> preTargets = null;
-		if (!effectText.isBlank()) {
-			ActionResolver.StackChoices choices = ActionResolver.chooseForStack(effectText, source, entryX, selectCtx);
+		if (!effectText.isBlank() && !shapeOnStack) {
+			ActionResolver.StackChoices choices = mw.whileChoosingForStack(
+					() -> ActionResolver.chooseForStack(effectText, source, entryX, selectCtx));
 			declared = choices.declared();
 			preTargets = targetsForStack(choices.targets(), choices.targetText(), source, selectCtx);
 		}
@@ -5512,6 +5521,157 @@ final class AutoAbilityTriggers {
 		return null;
 	}
 
+	/**
+	 * The inline shapes that still resolve as they trigger instead of going on the Stack:
+	 * <ul>
+	 *   <li>a "chosen by your opponent's …" trigger, which has to resolve inside the selection that
+	 *       fired it — see the matching branch in {@link #executeAutoAbilityImpl};</li>
+	 *   <li>Fusoya's "the same number of Elements … as the cost you paid to cast" select
+	 *       (SelectFollowingActionsDynamicElements), whose count reads the payment record a cast
+	 *       made in response would replace.</li>
+	 * </ul>
+	 */
+	private boolean resolvesInlineAtTrigger(AutoAbility fa) {
+		if ("SelectFollowingActionsDynamicElements".equals(inlineShapeOf(fa.effectText()))) return true;
+		return fa.trigger().startsWith("chosen by opponent's")
+				|| (resolvingChosenBySelection && fa.trigger().equals("is blocked or chosen by opponent's ability"));
+	}
+
+	/**
+	 * Resolves a Stack entry whose ability takes one of the {@link #INLINE_SHAPES} through that
+	 * shape's executor, which makes the payment and runs the payoff it buys — the same executor that
+	 * used to run as the ability triggered. {@code false} when {@code effectText} (the entry's text,
+	 * extra-cost branch applied) takes no such shape, and the caller resolves it through
+	 * {@link ActionResolver#parse}.
+	 *
+	 * <p>Not through {@code parse()}: for 30 of the pay shapes it reads the payoff out of the middle
+	 * of "pay 《…》. When you do so, …" and drops the payment, which would make them free.
+	 */
+	boolean resolveInlineShapeOnStack(StackEntry entry, String effectText) {
+		if (inlineShapeOf(effectText) == null) return false;
+		AutoAbility ab = entry.autoAbility();
+		AutoAbility resolved = effectText.equals(ab.effectText()) ? ab : ab.withEffectText(effectText);
+		// The entry carries the side the effect runs for; the controller is the other side only for
+		// an "opponent may" ability.
+		boolean controllerIsP1 = ab.opponentMay() ? !entry.isP1() : entry.isP1();
+		mw.logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\": " + effectText);
+		withAbilitySource(entry.source(),
+				() -> dispatchInlineAutoAbility(resolved, entry.source(), controllerIsP1, entry.isP1()));
+		return true;
+	}
+
+	/**
+	 * How many abilities are resolving as they trigger rather than off the Stack
+	 * ({@link #resolvesInlineAtTrigger}, and the "chosen by opponent's" branch of
+	 * {@link #executeAutoAbilityImpl}). A "When you do so" payoff inside one of them runs at once.
+	 */
+	private int resolvingAtTrigger = 0;
+
+	/** Runs {@code body} counted in {@link #resolvingAtTrigger}. */
+	private boolean atTrigger(BooleanSupplier body) {
+		resolvingAtTrigger++;
+		try { return body.getAsBoolean(); } finally { resolvingAtTrigger--; }
+	}
+
+	/**
+	 * Puts the payoff of "X. When you do so, Y" on the Stack as the delayed auto ability it is, now
+	 * that X is done — see {@link GameContext#triggerWhenYouDoSo}. The controller is
+	 * {@code controllerIsP1}, and {@code effectIsP1} is the side the payoff runs for, which differs
+	 * only for an "opponent may" ability. It chooses its targets now, as any auto ability does going
+	 * on the Stack, and {@code payoff} resolves it ({@link MainWindow#whenYouDoSoPayoffs}).
+	 *
+	 * <p>{@code carried} are targets the parent settled for the payoff, which it takes instead of
+	 * choosing: "break that Character" in Mira 20-102L's payoff is the Forward whose arrival set
+	 * her off, preloaded by the parent. {@code null} when there are none. The card whose event
+	 * fired the parent rides on the entry too, as it does on any triggered entry.
+	 *
+	 * @param payoff resolves the payoff; in the {@link #resolvingAtTrigger} case it is given the
+	 *               context {@code carried} came from, so those targets are still standing
+	 */
+	void triggerWhenYouDoSo(CardData source, boolean controllerIsP1, boolean effectIsP1, String payoffText,
+			int xValue, List<ForwardTarget> carried, Consumer<GameContext> payoff) {
+		if (carried != null && carried.isEmpty()) carried = null;
+		if (resolvingAtTrigger > 0) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — when you do so: " + payoffText);
+			GameContext now = mw.buildGameContext(effectIsP1);
+			if (carried != null) now.preloadTargets(carried);
+			payoff.accept(now);
+			return;
+		}
+		mw.logEntry("[AutoAbility] " + source.name() + " — when you do so: " + payoffText + " — pushed to stack");
+		// Taken first, so a "when this is chosen" trigger the selection fires lands above this entry.
+		int depth = mw.gameState.stackSize();
+		GameContext selectCtx = mw.buildGameContext(effectIsP1);
+		ActionResolver.StackChoices choices = carried != null
+				? new ActionResolver.StackChoices(null, carried, payoffText)
+				: mw.whileChoosingForStack(() -> ActionResolver.chooseForStack(payoffText, source, xValue, selectCtx));
+		List<ForwardTarget> preTargets = carried != null ? carried
+				: targetsForStack(choices.targets(), choices.targetText(), source, selectCtx);
+		StackEntry entry = new StackEntry(source, null, AutoAbility.whenYouDoSo(payoffText), effectIsP1, xValue,
+				false, preTargets, false, false, 0, 0, mw.triggeringBrokenCard, mw.triggeringEnteredCard);
+		mw.gameState.insertStack(depth, entry);
+		PriceRecord paid = PriceRecord.capture(mw);
+		mw.whenYouDoSoPayoffs.put(entry, ctx -> {
+			PriceRecord since = PriceRecord.capture(mw);
+			paid.restore(mw);
+			try { payoff.accept(ctx); } finally { since.restore(mw); }
+		});
+		if (choices.declared() != null) mw.declaredSelectActions.put(entry, choices.declared());
+		mw.cancelFirstOppForwardAuto(entry);
+		withBatch(() -> collectEventTriggers("opponent auto-ability put on stack", !controllerIsP1));
+		mw.showStackWindowIfNeeded();
+	}
+
+	/**
+	 * What a price just settled that a payoff reads back by name: "the discarded card" (17-098R
+	 * Cissnei, 18-057C Kolka, 20-122R Leslie) and "the removed Forward" (14-072R Hojo). Taken as a
+	 * {@link #triggerWhenYouDoSo} payoff goes on the Stack, and stood back up while it resolves,
+	 * because a response in between discards or removes over the same fields.
+	 */
+	private record PriceRecord(int discardedPower, String discardedName, CardData discarded,
+			CardData discardedAsCost, int removedCost, int removedPower) {
+		static PriceRecord capture(MainWindow mw) {
+			return new PriceRecord(mw.lastDiscardedForwardPower, mw.lastDiscardedCardName, mw.lastDiscardedCard,
+					mw.lastDiscardedCostCard, mw.lastRemovedFromGameCardCost, mw.lastRemovedFromGameCardPower);
+		}
+
+		void restore(MainWindow mw) {
+			mw.lastDiscardedForwardPower    = discardedPower;
+			mw.lastDiscardedCardName        = discardedName;
+			mw.lastDiscardedCard            = discarded;
+			mw.lastDiscardedCostCard        = discardedAsCost;
+			mw.lastRemovedFromGameCardCost  = removedCost;
+			mw.lastRemovedFromGameCardPower = removedPower;
+		}
+	}
+
+	/**
+	 * Whether the payoff starting at {@code at} in {@code text} follows "When you do so", making it
+	 * a delayed auto ability of its own, rather than "If you do so", which keeps it part of the
+	 * same effect.
+	 */
+	static boolean followsWhenYouDoSo(String text, int at) {
+		return WHEN_YOU_DO_SO_BEFORE_PAYOFF.matcher(text.substring(0, at)).find();
+	}
+
+	private static final Pattern WHEN_YOU_DO_SO_BEFORE_PAYOFF =
+			Pattern.compile("(?i)\\bWhen\\s+you\\s+do\\s+so[,.]?\\s*$");
+
+	/**
+	 * Runs an {@link #INLINE_SHAPES} executor's payoff once its price is paid: on the Stack as its
+	 * own ability when it follows "When you do so" ({@link #triggerWhenYouDoSo}), at once when it
+	 * follows "If you do so".
+	 */
+	private void runPayoff(boolean whenYouDoSo, CardData source, boolean isP1, boolean effectIsP1,
+			String payoffText, int xValue, Consumer<GameContext> payoff) {
+		if (whenYouDoSo) {
+			triggerWhenYouDoSo(source, isP1, effectIsP1, payoffText, xValue, null, payoff);
+			return;
+		}
+		mw.logEntry("[AutoAbility] " + source.name() + " — if you do so: " + payoffText);
+		payoff.accept(mw.buildGameContext(effectIsP1));
+	}
+
 	/** Resolves {@code fa} through the first {@link #INLINE_SHAPES} entry that claims it. */
 	private boolean dispatchInlineAutoAbility(AutoAbility fa, CardData source, boolean isP1,
 			boolean effectIsP1) {
@@ -5619,8 +5779,7 @@ final class AutoAbilityTriggers {
 			mw.logEntry("[AutoAbility] Unrecognized counter-removal sub-effect: " + subEffect);
 			return;
 		}
-		mw.logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect);
-		effect.accept(mw.buildGameContext(effectIsP1));
+		runPayoff(followsWhenYouDoSo(fa.effectText(), m.start("sub")), source, isP1, effectIsP1, subEffect, 0, effect);
 	}
 
 	private void executeRemoveFieldWhenDoSoAutoAbility(AutoAbility fa, CardData source,
@@ -5665,8 +5824,7 @@ final class AutoAbilityTriggers {
 			mw.logEntry("[AutoAbility] Unrecognized sub-effect: " + subEffect);
 			return;
 		}
-		mw.logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect);
-		effect.accept(mw.buildGameContext(effectIsP1));
+		runPayoff(followsWhenYouDoSo(fa.effectText(), m.start("sub")), source, isP1, effectIsP1, subEffect, 0, effect);
 	}
 
 	private void executePutIntoBzWhenDoSoAutoAbility(AutoAbility fa, CardData source,
@@ -5719,8 +5877,7 @@ final class AutoAbilityTriggers {
 			mw.logEntry("[AutoAbility] Unrecognized sub-effect: " + subEffect);
 			return;
 		}
-		mw.logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect);
-		effect.accept(mw.buildGameContext(effectIsP1));
+		runPayoff(followsWhenYouDoSo(fa.effectText(), m.start("sub")), source, isP1, effectIsP1, subEffect, 0, effect);
 	}
 
 	private void executePutSelfIntoBzIfDoSoAutoAbility(AutoAbility fa, CardData source,
@@ -5779,8 +5936,7 @@ final class AutoAbilityTriggers {
 		}
 		mw.buildGameContext(isP1).forceTargetToBreakZone(slot);
 
-		mw.logEntry("[AutoAbility] " + source.name() + " — if you do so: " + subEffect);
-		effect.accept(mw.buildGameContext(effectIsP1));
+		runPayoff(followsWhenYouDoSo(fa.effectText(), m.start("sub")), source, isP1, effectIsP1, subEffect, 0, effect);
 	}
 
 	/**
@@ -6079,8 +6235,9 @@ final class AutoAbilityTriggers {
 			mw.logEntry("[AutoAbility] Unrecognized reveal-scaled effect: " + resolved);
 			return;
 		}
-		mw.logEntry("[AutoAbility] " + source.name() + " — revealed " + count + " Summon(s) → " + resolved);
-		fn.accept(mw.buildGameContext(effectIsP1));
+		mw.logEntry("[AutoAbility] " + source.name() + " — revealed " + count + " Summon(s)");
+		// The count is written into the payoff's own text, so it goes on the Stack already settled.
+		runPayoff(true, source, isP1, effectIsP1, resolved, 0, fn);
 	}
 
 	/**
@@ -6253,6 +6410,7 @@ final class AutoAbilityTriggers {
 		}
 
 		IntUnaryOperator xFromPaid = paid -> xBoughtBy(paid, fixedCost, xPerUnit);
+		boolean whenYouDoSo = followsWhenYouDoSo(payM.group(), payM.start(2) - payM.start());
 		// The AI buys one unit of X, which is what it has always done for a plain 《X》, and pays
 		// nothing when it cannot reach the fixed part.
 		int aiTarget = isXCost ? fixedCost + xPerUnit : fixedCost;
@@ -6265,7 +6423,8 @@ final class AutoAbilityTriggers {
 					}
 					return plan;
 				},
-				paid -> applyPayWhenDoSoEffect(finalSubEffect, source, xFromPaid.applyAsInt(paid), effectIsP1), null);
+				paid -> applyPayWhenDoSoEffect(finalSubEffect, source, xFromPaid.applyAsInt(paid), isP1, effectIsP1,
+						whenYouDoSo), null);
 	}
 
 	/**
@@ -6283,7 +6442,9 @@ final class AutoAbilityTriggers {
 			return;
 		}
 		String payoff = payAndDiscardPayoff(m.group(3));
-		String rewritten = "pay " + m.group(1) + ". When you do so, discard 1 " + type
+		// The discard is half of the price, so it follows the CP as part of the same effect; the
+		// payoff after both is the delayed ability.
+		String rewritten = "pay " + m.group(1) + ". If you do so, discard 1 " + type
 				+ ". When you do so, " + payoff;
 		Matcher payM = FA_PAY_WHEN_DO_SO.matcher(rewritten);
 		if (!payM.matches()) return;
@@ -6343,11 +6504,12 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
+		boolean whenYouDoSo = followsWhenYouDoSo(fa.effectText(), m.start(3));
 		if (options.get(choice).contains("Crystal")) {
 			mw.playerSpendCrystals(effectIsP1, crystals);
 			mw.refreshCrystalDisplays();
 			mw.logEntry((effectIsP1 ? "" : "[P2] ") + "Paid " + crystals + " Crystal(s)");
-			applyPayWhenDoSoEffect(subEffect, source, 0, effectIsP1);
+			applyPayWhenDoSoEffect(subEffect, source, 0, isP1, effectIsP1, whenYouDoSo);
 		} else {
 			payCpAtResolution(source.name(), fixedCost, fixedCost, effectIsP1, 0, elementNeeds, null,
 					() -> {
@@ -6355,61 +6517,78 @@ final class AutoAbilityTriggers {
 						if (plan == null) mw.logEntry("[AutoAbility] " + source.name() + " — [AI] could not pay " + costRun);
 						return plan;
 					},
-					paid -> applyPayWhenDoSoEffect(subEffect, source, 0, effectIsP1), null);
+					paid -> applyPayWhenDoSoEffect(subEffect, source, 0, isP1, effectIsP1, whenYouDoSo), null);
 		}
 	}
 
-	private void applyPayWhenDoSoEffect(String subEffect, CardData source, int xValue, boolean effectIsP1) {
-		GameContext ctx = mw.buildGameContext(effectIsP1);
+	/**
+	 * Runs a pay shape's payoff, X now known: on the Stack as its own ability after "When you do so",
+	 * at once after "If you do so" ({@link #runPayoff}).
+	 */
+	private void applyPayWhenDoSoEffect(String subEffect, CardData source, int xValue, boolean isP1,
+			boolean effectIsP1, boolean whenYouDoSo) {
+		Consumer<GameContext> payoff = payWhenDoSoPayoff(subEffect, source, xValue, effectIsP1);
+		if (payoff != null) runPayoff(whenYouDoSo, source, isP1, effectIsP1, subEffect, xValue, payoff);
+	}
+
+	/**
+	 * What resolves a pay shape's payoff for {@code xValue}, or {@code null}, logged, when nothing
+	 * reads it. A payoff naming the card whose arrival fired the trigger holds that card and finds
+	 * it as it resolves. Once the payoff is its own Stack entry, the card may have moved in
+	 * between, and if it has left the field the payoff does nothing to it (rule 11.8.17.3).
+	 */
+	private Consumer<GameContext> payWhenDoSoPayoff(String subEffect, CardData source, int xValue,
+			boolean effectIsP1) {
 		// "Gain 《C》 for each CP paid as X" must be resolved with the known xValue directly —
 		// the generic parse chain would see xValue=0 for this pattern and give 0 crystals.
 		if (ActionResolver.isGainCrystalPerX(subEffect)) {
-			ctx.logEntry("Effect: Gain " + xValue + " Crystal(s) (for each CP paid as X)");
-			ctx.gainCrystal(xValue);
-			return;
+			return ctx -> {
+				ctx.logEntry("Effect: Gain " + xValue + " Crystal(s) (for each CP paid as X)");
+				ctx.gainCrystal(xValue);
+			};
 		}
+		CardData arrived = mw.triggeringEnteredCard;
 		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source, xValue);
 		// "… break that Forward" — 20-102L Mira: the payoff names the card whose arrival fired the
 		// trigger, so it stands as the preloaded target, as for the self-sacrifice shapes.
-		if (effect != null && mw.triggeringEnteredCard != null
-				&& REFERS_TO_ENTERING_CARD.matcher(subEffect).find()) {
-			// Either side: Mira watches the opponent's field.
-			ForwardTarget entered = enteringCardTarget(mw.triggeringEnteredCard, true);
-			if (entered == null) entered = enteringCardTarget(mw.triggeringEnteredCard, false);
-			if (entered == null) {
-				mw.logEntry("[AutoAbility] " + source.name() + " — entering card no longer on field; skipped");
-				return;
-			}
-			ctx.preloadTargets(List.of(entered));
-		}
-		if (effect == null) {
-			// "Until the end of the turn, it gains …" — 13-009H Selphie, whose "it" is the Forward
-			// whose arrival fired the trigger. Preloaded here rather than by the caller because this
-			// is where the wording is recognised; the cost has already been charged by the time a
-			// sub-effect is read, so a grant left unwired would be paid for and dropped.
-			effect = ActionResolver.parsePayGatedFollowup(subEffect, source, xValue);
-			if (effect != null) {
-				ForwardTarget entered = mw.triggeringEnteredCard != null
-						? enteringCardTarget(mw.triggeringEnteredCard, effectIsP1) : null;
+		if (effect != null && arrived != null && REFERS_TO_ENTERING_CARD.matcher(subEffect).find()) {
+			Consumer<GameContext> onArrived = effect;
+			return ctx -> {
+				// Either side: Mira watches the opponent's field.
+				ForwardTarget entered = enteringCardTarget(arrived, true);
+				if (entered == null) entered = enteringCardTarget(arrived, false);
 				if (entered == null) {
-					mw.logEntry("[AutoAbility] " + source.name()
-							+ " — entering card no longer on field; skipped");
+					mw.logEntry("[AutoAbility] " + source.name() + " — entering card no longer on field; skipped");
 					return;
 				}
 				ctx.preloadTargets(List.of(entered));
-			}
+				onArrived.accept(ctx);
+			};
 		}
-		if (effect == null) {
-			// A sub-effect measured in X has nothing to do at X = 0, and declines rather than
-			// resolving as an empty one. That is a payment of nothing, not an unread ability.
-			if (xValue == 0 && subEffect.matches("(?i).*\\bX\\b.*"))
-				mw.logEntry("[AutoAbility] " + source.name() + " — nothing paid for 《X》; no effect");
-			else
-				mw.logEntry("[AutoAbility] Unrecognized 'when you do so' effect: " + subEffect);
-			return;
+		if (effect != null) return effect;
+		// "Until the end of the turn, it gains …" — 13-009H Selphie, whose "it" is the Forward
+		// whose arrival fired the trigger. Preloaded here rather than by the caller because this
+		// is where the wording is recognised; the cost has already been charged by the time a
+		// sub-effect is read, so a grant left unwired would be paid for and dropped.
+		Consumer<GameContext> grant = ActionResolver.parsePayGatedFollowup(subEffect, source, xValue);
+		if (grant != null) {
+			return ctx -> {
+				ForwardTarget entered = arrived != null ? enteringCardTarget(arrived, effectIsP1) : null;
+				if (entered == null) {
+					mw.logEntry("[AutoAbility] " + source.name() + " — entering card no longer on field; skipped");
+					return;
+				}
+				ctx.preloadTargets(List.of(entered));
+				grant.accept(ctx);
+			};
 		}
-		mw.logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect + " (X=" + xValue + ")");
-		effect.accept(ctx);
+		// A sub-effect measured in X has nothing to do at X = 0, and declines rather than
+		// resolving as an empty one. That is a payment of nothing, not an unread ability.
+		if (xValue == 0 && subEffect.matches("(?i).*\\bX\\b.*"))
+			mw.logEntry("[AutoAbility] " + source.name() + " — nothing paid for 《X》; no effect");
+		else
+			mw.logEntry("[AutoAbility] Unrecognized 'when you do so' effect: " + subEffect);
+		return null;
 	}
 
 	/**
@@ -8842,8 +9021,9 @@ final class AutoAbilityTriggers {
 		int depth = mw.gameState.stackSize();
 		// A select menu declares its option as it is used (rule 11.6.6), and the targets are that
 		// option's (ActionResolver.chooseForStack).
-		ActionResolver.StackChoices choices = ActionResolver.chooseForStack(
-				ability.effectText(), source, xValue, mw.buildGameContext(isP1));
+		final int chosenX = xValue;
+		ActionResolver.StackChoices choices = mw.whileChoosingForStack(() -> ActionResolver.chooseForStack(
+				ability.effectText(), source, chosenX, mw.buildGameContext(isP1)));
 		StackEntry pushed = new StackEntry(source, ability, isP1, xValue, choices.targets(), revealedPower);
 		mw.gameState.insertStack(depth, pushed);
 		if (choices.declared() != null) mw.declaredSelectActions.put(pushed, choices.declared());
@@ -8939,8 +9119,8 @@ final class AutoAbilityTriggers {
 				mw.logEntry("[AutoAbility] " + watcher.name() + " uses " + user.name() + "'s action ability → " + text);
 				int depth = mw.gameState.stackSize();
 				// The copy is used anew, so a select menu in it declares again.
-				ActionResolver.StackChoices choices = ActionResolver.chooseForStack(
-						text, watcher, 0, mw.buildGameContext(userIsP1));
+				ActionResolver.StackChoices choices = mw.whileChoosingForStack(() -> ActionResolver.chooseForStack(
+						text, watcher, 0, mw.buildGameContext(userIsP1)));
 				StackEntry pushed = new StackEntry(watcher, copy, userIsP1, 0, choices.targets(), entry.revealedForwardPower());
 				mw.gameState.insertStack(depth, pushed);
 				if (choices.declared() != null) mw.declaredSelectActions.put(pushed, choices.declared());

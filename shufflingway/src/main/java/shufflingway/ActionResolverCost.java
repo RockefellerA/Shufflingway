@@ -101,8 +101,9 @@ final class ActionResolverCost {
         final String element  = (String)  tally[1];
         final int    crystals = (Integer) tally[2];
         final String effectText = m.group("effect").trim();
-        Consumer<GameContext> effect = parse(effectText, source, xValue);
-        if (effect == null) return null;
+        Consumer<GameContext> payoff = parse(effectText, source, xValue);
+        if (payoff == null) return null;
+        Consumer<GameContext> effect = afterPaying(m.group("when") != null, source, effectText, xValue, payoff);
         // A payoff that plays from hand needs a card there (14-019R Red XIII): the payer must not
         // discard it for the CP. Asked at resolution, against the hand as it is then.
         Function<GameContext, CardData> needed =
@@ -134,8 +135,10 @@ final class ActionResolverCost {
             else return null;                               // two Elements: not a run of one
         }
         if (element == null || (count < 2 && generic == 0)) return null;   // the other parser's
-        Consumer<GameContext> effect = parse(m.group("effect").trim(), source, xValue);
-        if (effect == null) return null;
+        String effectText = m.group("effect").trim();
+        Consumer<GameContext> payoff = parse(effectText, source, xValue);
+        if (payoff == null) return null;
+        Consumer<GameContext> effect = afterPaying(m.group("when") != null, source, effectText, xValue, payoff);
         final String elem = element;
         final int n = count, g = generic;
         return g == 0
@@ -600,8 +603,10 @@ final class ActionResolverCost {
                 return;
             }
             dulled.forEach(ctx::dullTarget);
-            Consumer<GameContext> payoff = parse(scaleByCount(sub, PER_BACKUP_DULLED, dulled.size()), source);
-            if (payoff != null) payoff.accept(ctx);
+            // The count is written into the payoff, which goes on the Stack with it settled.
+            String scaled = scaleByCount(sub, PER_BACKUP_DULLED, dulled.size());
+            Consumer<GameContext> payoff = parse(scaled, source);
+            if (payoff != null) ctx.triggerWhenYouDoSo(source, scaled, 0, payoff);
         };
     }
 
@@ -630,8 +635,9 @@ final class ActionResolverCost {
             for (ForwardTarget t : dulled) total += ctx.effectiveTargetPower(t);
             dulled.forEach(ctx::dullTarget);
             ctx.logEntry("Effect: total power dulled — " + total);
-            Consumer<GameContext> payoff = parse(header + " Deal it " + total + " damage.", source);
-            if (payoff != null) payoff.accept(ctx);
+            String totalled = header + " Deal it " + total + " damage.";
+            Consumer<GameContext> payoff = parse(totalled, source);
+            if (payoff != null) ctx.triggerWhenYouDoSo(source, totalled, 0, payoff);
         };
     }
 
@@ -661,8 +667,9 @@ final class ActionResolverCost {
         return ctx -> {
             int n = ctx.revealAnyNumberFromHandMatching(kind, spec);
             if (n == 0) { ctx.markEffectFizzled(); return; }
-            Consumer<GameContext> payoff = parse(scaleByCount(sub, PER_CARD_REVEALED, n), source);
-            if (payoff != null) payoff.accept(ctx);
+            String scaled = scaleByCount(sub, PER_CARD_REVEALED, n);
+            Consumer<GameContext> payoff = parse(scaled, source);
+            if (payoff != null) ctx.triggerWhenYouDoSo(source, scaled, 0, payoff);
         };
     }
 

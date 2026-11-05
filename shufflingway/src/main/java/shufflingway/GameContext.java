@@ -66,6 +66,19 @@ public interface GameContext {
     /** Returns {@code true} if the most recent effect made progress (was not fizzled). */
     boolean effectMadeProgress();
 
+    /**
+     * The payoff of "X. When you do so, Y", now that X is done. Y is a delayed auto ability of its
+     * own (rule 11.8.17), with the source and controller of the ability that created it (11.8.17.5).
+     * It goes on the Stack choosing its targets (11.8.9), and both players get priority before it
+     * resolves. "If you do so, Y" is the rest of the same effect and never comes here.
+     *
+     * <p>{@code payoffText} is Y, read for those targets and shown on the Stack. {@code payoff} is
+     * what resolves it, carrying whatever X settled: X itself, a count, a card. Inside an ability
+     * that resolves as it triggers, which only the "chosen by your opponent's …" ones do, the
+     * payoff runs at once: a cancel has to land before the choice that fired it.
+     */
+    void triggerWhenYouDoSo(CardData source, String payoffText, int xValue, Consumer<GameContext> payoff);
+
     // ---- P1 forwards --------------------------------------------------------
 
     /** Number of P1 forwards currently on the field. */
@@ -2685,7 +2698,26 @@ public interface GameContext {
          * Removed and played straight back ({@link ActionResolver#chooseEffectBlinksTarget}). The AI
          * blinks the card whose enters-the-field ability pays off ({@link MainWindow#aiBestOwnBlinkTargets}).
          */
-        BLINK
+        BLINK,
+        /**
+         * Returned to its owner's hand (Tidus 7-117C, Luzaf 14-114R). A save for a card the
+         * opponent's Stack entry is aimed at, and otherwise a price paid with the cheapest
+         * ({@link MainWindow#aiOwnBounceTargets}).
+         */
+        BOUNCE,
+        /**
+         * Shielded — "cannot be broken", "the damage becomes 0" (Titan 1-110C, Mist Dragon 9-068H).
+         * The AI shields what is threatened, then what is in battle, then its dearest
+         * ({@link MainWindow#aiBestOwnShieldTargets}).
+         */
+        SHIELD,
+        /** Activated ("Activate it."): a dull card first ({@link MainWindow#aiBestOwnBuffTargets}). */
+        ACTIVATE,
+        /**
+         * Given power or a keyword ({@link ActionResolver#chooseEffectBenefitsTarget}): what is in
+         * battle first, then the strongest ({@link MainWindow#aiBestOwnBuffTargets}).
+         */
+        BUFF
     }
 
     /**

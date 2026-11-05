@@ -2397,7 +2397,7 @@ final class ActionResolverPatterns {
     static final Pattern REMOVE_ANY_COUNTERS_THEN_CHOOSE_SAME_NUMBER = Pattern.compile(
         "(?i)^(?:you\\s+may\\s+)?remove\\s+any\\s+number\\s+of\\s+(?<counter>[A-Za-z][A-Za-z ]*?)\\s+" +
         "Counters?\\s+from\\s+(?<card>[^.!]+?)\\s*[.!]\\s*" +
-        "(?:When|If)\\s+you\\s+do\\s+so,?\\s+choose\\s+(?:up\\s+to\\s+)?the\\s+same\\s+number\\s+of\\s+" +
+        "(?:(?<when>When)|If)\\s+you\\s+do\\s+so,?\\s+choose\\s+(?:up\\s+to\\s+)?the\\s+same\\s+number\\s+of\\s+" +
         "(?<noun>.+?)\\s+as\\s+the\\s+(?<counter2>[A-Za-z][A-Za-z ]*?)\\s+Counters?\\s+you\\s+removed\\s*[.!]\\s*" +
         "(?<tail>\\S.*)$", Pattern.DOTALL
     );
@@ -2417,7 +2417,7 @@ final class ActionResolverPatterns {
      */
     static final Pattern DISCARD_ANY_NUMBER_THEN_CHOOSE_SAME_NUMBER = Pattern.compile(
         "(?i)^(?:you\\s+may\\s+)?discard\\s+any\\s+number\\s+of\\s+cards\\s*[.!]\\s*" +
-        "(?:When|If)\\s+you\\s+do\\s+so,?\\s+choose\\s+(?:up\\s+to\\s+)?the\\s+same\\s+number\\s+of\\s+" +
+        "(?:(?<when>When)|If)\\s+you\\s+do\\s+so,?\\s+choose\\s+(?:up\\s+to\\s+)?the\\s+same\\s+number\\s+of\\s+" +
         "(?<noun>.+?)\\s+as\\s+the\\s+discarded\\s+cards\\s*[.!]\\s*" +
         "(?<tail>\\S.*)$", Pattern.DOTALL
     );
@@ -3270,7 +3270,7 @@ final class ActionResolverPatterns {
      */
     static final Pattern FOLLOWUP_MAY_PAY_X_PLAY_IF_COST_IS_X = Pattern.compile(
         "(?i)^You\\s+may\\s+pay\\s+《X》[.!]?\\s+" +
-        "(?:(?:When|If)\\s+you\\s+do\\s+so,\\s+)?" +
+        "(?:(?:(?<when>When)|If)\\s+you\\s+do\\s+so,\\s+)?" +
         "if\\s+its\\s+cost\\s+is\\s+X[,.]\\s+play\\s+it\\s+onto\\s+" +
         "(?:(?<own>your)\\s+|the\\s+)?field[.!]?$"
     );
@@ -12254,6 +12254,25 @@ final class ActionResolverPatterns {
         "(?i)\\bchoose\\s[^.]*\\.\\s+remove\\s+(?:it|them)\\s+from\\s+the\\s+game\\.\\s+(?:Then,?\\s+)?"
         + "play\\s+(?:it|them|the\\s+removed\\s+(?:Forward|Character|Monster|Backup)s?)\\s+onto\\s+the\\s+field\\b");
     /**
+     * A "choose …" whose next sentence returns the pick to its owner's hand: Tidus 7-117C, Yaag Rosch
+     * 7-123R, Miounne 5-067R ("You may return it…"), Luzaf 14-114R. Paid as a price or used as a
+     * save; see {@code ActionResolver.chooseEffectBouncesTarget}.
+     */
+    static final Pattern CHOOSE_FOLLOWUP_BOUNCES_TARGET = Pattern.compile(
+        "(?i)\\bchoose\\s[^.]*\\.\\s+(?:you\\s+may\\s+)?return\\s+(?:it|them)\\s+to\\s+(?:its|their)\\s+"
+        + "owners?'?s?\\s+hands?\\b");
+    /**
+     * A "choose …" whose followup shields the pick: "It cannot be broken this turn." (Titan 1-110C),
+     * "the damage becomes 0 instead" (Mist Dragon 9-068H), "cannot be chosen by your opponent's …"
+     * (Fenrir 20-081H), "the next damage dealt to it is reduced …" (Leviathan 13-100R).
+     */
+    static final Pattern CHOOSE_FOLLOWUP_SHIELDS_TARGET = Pattern.compile(
+        "(?i)\\bchoose\\s[^.]*\\.\\s+.*?(?:cannot\\s+be\\s+broken|damage\\s+becomes\\s+0"
+        + "|cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's|next\\s+damage\\s+dealt\\s+to\\s+(?:it|them))");
+    /** A "choose …" whose next sentence activates the pick: "Activate it." */
+    static final Pattern CHOOSE_FOLLOWUP_ACTIVATES_TARGET = Pattern.compile(
+        "(?i)\\bchoose\\s[^.]*\\.\\s+activate\\s+(?:it|them)\\b");
+    /**
      * An auto ability whose whole effect is a price its controller pays and nothing more, read end
      * to end with {@code matches()}: "choose 1 Character you control. Break it." (Delita 1-112R),
      * "… Remove it from the game." (Graff 25-116H), "… Return it to its owner's hand." (Tidus
@@ -12615,10 +12634,15 @@ final class ActionResolverPatterns {
         "(?i)Until\\s+the\\s+end\\s+of\\s+(?:your|the)\\s+turn,?\\s+you\\s+(?:can|may)\\s+cast\\s+" +
         "(?<name>.+?)\\s+removed\\s+by\\s+this\\s+ability(?:'s\\s+cost)?[.!]?"
     );
-    /** Parses "Draw N card(s)[, then discard M card(s)]" as a standalone effect. */
+    /** "X. When/If you do so, Y" — {@code primary} is X, {@code followup} Y, {@code when} set for "When". */
     static final Pattern WHEN_YOU_DO_SO_SEQUENCE = Pattern.compile(
-        "(?is)(?<primary>.+?)\\.\\s+(?:When|If)\\s+you\\s+do\\s+so,?\\s+(?<followup>.+)"
+        "(?is)(?<primary>.+?)\\.\\s+(?:(?<when>When)|If)\\s+you\\s+do\\s+so,?\\s+(?<followup>.+)"
     );
+    /**
+     * "When you do so" anywhere in a text: where the part an ability chooses for as it goes on the
+     * Stack ends, since what follows is a delayed auto ability that chooses its own (rule 11.8.17).
+     */
+    static final Pattern WHEN_YOU_DO_SO_CLAUSE = Pattern.compile("(?i)\\bWhen\\s+you\\s+do\\s+so\\b");
     /**
      * Matches the optional-cost replay clause appended to Special abilities:
      * "You may [cost]. When/If you do so, use this (special) ability again without paying the cost."
@@ -12634,7 +12658,7 @@ final class ActionResolverPatterns {
             "pay\\s+《(?<payCost>[^》]+)》" +
             "|dull\\s+active\\s+(?<dullName>[^.,]+)" +
             "|discard\\s+1\\s+Card\\s+Name\\s+(?<discardName>[^.,]+)" +
-        ")\\s*[.,]?\\s+(?:When|If)\\s+you\\s+do\\s+so,?\\s+" +
+        ")\\s*[.,]?\\s+(?:(?<when>When)|If)\\s+you\\s+do\\s+so,?\\s+" +
         "use\\s+this\\s+(?:special\\s+)?ability\\s+again\\s+without\\s+paying\\s+the\\s+cost[.!]?"
     );
     /**
@@ -12650,7 +12674,7 @@ final class ActionResolverPatterns {
      */
     static final Pattern MAY_PAY_COST_THEN_EFFECT = Pattern.compile(
         "(?is)^(?:you\\s+may\\s+)?pay\\s+(?<costs>(?:《[^》]+》)+)\\s*[.!]?\\s+" +
-        "(?:If|When)\\s+you\\s+do\\s+so[,.]?\\s+(?<effect>.+)$"
+        "(?:If|(?<when>When))\\s+you\\s+do\\s+so[,.]?\\s+(?<effect>.+)$"
     );
     /**
      * {@link #MAY_PAY_COST_THEN_EFFECT} with the "You may" required rather than optional. An auto
@@ -12660,7 +12684,7 @@ final class ActionResolverPatterns {
      */
     static final Pattern YOU_MAY_PAY_CP_RUN_THEN_EFFECT = Pattern.compile(
         "(?is)^you\\s+may\\s+pay\\s+(?<costs>(?:《[^》]+》)+)\\s*[.!]?\\s+" +
-        "(?:If|When)\\s+you\\s+do\\s+so[,.]?\\s+(?<effect>.+)$"
+        "(?:If|(?<when>When))\\s+you\\s+do\\s+so[,.]?\\s+(?<effect>.+)$"
     );
     /** One 《…》 token of a cost run. */
     static final Pattern COST_TOKEN = Pattern.compile("《([^》]+)》");
@@ -13206,7 +13230,7 @@ final class ActionResolverPatterns {
      * {@link #SAME_TYPE_AS_DISCARDED} phrase, filled in once the card is known.
      */
     static final Pattern DISCARD_THEN_SAME_AS_DISCARDED = Pattern.compile(
-        "(?is)^discard\\s+1\\s+card(?:\\s+from\\s+your\\s+hand)?\\.\\s+(?:If|When)\\s+you\\s+do\\s+so\\s*,\\s*" +
+        "(?is)^discard\\s+1\\s+card(?:\\s+from\\s+your\\s+hand)?\\.\\s+(?:If|(?<when>When))\\s+you\\s+do\\s+so\\s*,\\s*" +
         "(?<payoff>.*\\bas\\s+the\\s+discarded\\s+card\\b.*?)\\s*$");
     /** "of the same cost as the discarded card", replaced by "of cost N". */
     static final Pattern SAME_COST_AS_DISCARDED = Pattern.compile(
