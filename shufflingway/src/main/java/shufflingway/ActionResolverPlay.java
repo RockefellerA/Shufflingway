@@ -182,8 +182,8 @@ final class ActionResolverPlay {
     /**
      * Parses "Remove [Self] from the game. Then, play [Self] onto the field [dull]." — Lightning
      * 4-115L's immediate self-blink. The card leaves for the RFG zone and comes straight back, so
-     * the replay reads {@link GameContext#playLastRemovedFromRfpOntoField} (the card the preceding
-     * call just put there) rather than the Break-Zone route the second sentence would take alone.
+     * the replay is {@link GameContext#playSourceFromRfpOntoField(CardData, boolean)} on the source
+     * itself, rather than the Break-Zone route the second sentence would take alone.
      */
     static Consumer<GameContext> tryParseRemoveSelfThenPlaySelfOntoField(String text, CardData source) {
         if (source == null) return null;
@@ -199,7 +199,7 @@ final class ActionResolverPlay {
             ctx.logEntry("Effect: Remove " + name + " from the game, then play it onto the field"
                     + (dull ? " dull" : ""));
             ctx.removeNamedCardFromGame(name);
-            ctx.playLastRemovedFromRfpOntoField(dull);
+            ctx.playSourceFromRfpOntoField(source, dull);
         };
     }
     static Consumer<GameContext> tryParseIfEitherPlayerNoForwardsPutSourceToBz(String text, CardData source) {

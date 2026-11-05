@@ -941,7 +941,7 @@ public class ActionResolver {
         if (result != null) return claim("BreakThenOpponentMayPlayIfBroken", result);
 
         result = tryParseChooseCharacter(effectText, source, xValue);
-        if (result != null) return claim("ChooseCharacter", withAiTargetPreference(effectText, result));
+        if (result != null) return claim("ChooseCharacter", withAiTargetPreference(effectText, source, result));
 
         result = tryParseIfSelfFwdReceivedDamageDraw(effectText, source);
         if (result != null) return claim("IfSelfFwdReceivedDamageDraw", result);
@@ -5639,14 +5639,66 @@ public class ActionResolver {
     }
 
     /**
-     * Wraps a "choose …" effect so an AI controller prefers its own cards when the effect is a
-     * pure buff.  The flag is advisory and is read only by the AI's auto-selection branch; a
-     * human player still picks freely.
+     * True when a "choose …" effect spends what it picks for good: breaks it, puts it into the
+     * Break Zone, or removes it from the game without bringing it back — Graff 25-116H, Delita
+     * 1-112R, Sephiroth 29-087L. An AI controller choosing among its own cards then gives up the
+     * one it values least ({@link MainWindow#aiCheapestOwnTargets}).
+     *
+     * <p>Two shapes that look like harm are deliberately out. A removal the same ability brings
+     * back is a blink, which wants the AI's best card rather than its cheapest (Rinoa 6-041L,
+     * Time Mage 3-043C, Kytes 15-047R). And "Dull it. It cannot be broken this turn." (Titan
+     * 1-110C) is a shield: {@link #CHOOSE_FOLLOWUP_HARMS_TARGET} counts the dull as harm, which
+     * is right for steering it away from the opponent's side and wrong for picking among one's own.
      */
-    private static Consumer<GameContext> withAiTargetPreference(String effectText, Consumer<GameContext> fn) {
-        if (!chooseEffectBenefitsTarget(effectText)) return fn;
+    static boolean chooseEffectSpendsTarget(String effectText) {
+        if (effectText == null) return false;
+        return CHOOSE_FOLLOWUP_SPENDS_TARGET.matcher(effectText).find()
+                && !REMOVED_CARD_RETURNS_TO_FIELD.matcher(effectText).find();
+    }
+
+    /**
+     * True when a "choose …" effect blinks what it picks: removes it from the game and plays it
+     * straight back onto the field ({@link #CHOOSE_FOLLOWUP_BLINKS_TARGET}). The card's own
+     * enters-the-field abilities trigger again on the way back, which is what an AI controller
+     * picks for ({@link MainWindow#aiBestOwnBlinkTargets}).
+     */
+    static boolean chooseEffectBlinksTarget(String effectText) {
+        return effectText != null && CHOOSE_FOLLOWUP_BLINKS_TARGET.matcher(effectText).find();
+    }
+
+    /** What {@code effectText} does to a pick of its controller's own — see {@link GameContext#setAiOwnPick}. */
+    static GameContext.AiOwnPick aiOwnPickOf(String effectText) {
+        if (chooseEffectSpendsTarget(effectText)) return GameContext.AiOwnPick.SPEND;
+        if (chooseEffectBlinksTarget(effectText)) return GameContext.AiOwnPick.BLINK;
+        return GameContext.AiOwnPick.NONE;
+    }
+
+    /**
+     * True when an auto ability's whole effect is a price its controller pays with nothing gained
+     * ({@link #EFFECT_IS_ONLY_A_PRICE}): Delita 1-112R's "choose 1 Character you control. Break
+     * it.", Dadaluma 11-011R's "Dadaluma deals you 1 point of damage." Triggering one again is a
+     * loss, so a blink passes over the card that carries it.
+     */
+    static boolean effectIsOnlyAPrice(String effectText) {
+        return effectText != null && EFFECT_IS_ONLY_A_PRICE.matcher(effectText.trim()).matches();
+    }
+
+    /**
+     * Wraps a "choose …" effect with the AI's reading of what it does to the cards it picks, for
+     * a selection made as the effect resolves: a pure buff is aimed at the AI's own cards
+     * ({@link #chooseEffectBenefitsTarget}), and an effect that spends or blinks a pick of the
+     * AI's own picks for that ({@link #aiOwnPickOf}). Advisory, and read only by the AI's
+     * auto-selection branch; a human player still picks freely. {@link #preSelectTargets} gives
+     * the same reading to a selection made as an ability is used.
+     */
+    private static Consumer<GameContext> withAiTargetPreference(String effectText, CardData source,
+            Consumer<GameContext> fn) {
+        boolean benefits = chooseEffectBenefitsTarget(effectText);
+        GameContext.AiOwnPick ownPick = aiOwnPickOf(effectText);
+        if (!benefits && ownPick == GameContext.AiOwnPick.NONE) return fn;
         return ctx -> {
-            ctx.setAiPrefersOwnTargets(true);
+            if (benefits) ctx.setAiPrefersOwnTargets(true);
+            if (ownPick != GameContext.AiOwnPick.NONE) ctx.setAiOwnPick(ownPick, source);
             fn.accept(ctx);
         };
     }
@@ -8608,6 +8660,9 @@ public class ActionResolver {
         // chooses as it is activated. Undead Princess 19-052C is what the gap looks like from the
         // other seat: the AI paid a Forward to hand her "+4000 power" to the player she was aimed at.
         ctx.setAiPrefersOwnTargets(chooseEffectBenefitsTarget(effectText));
+        // And what happens to a pick of the AI's own, so the choice among its own cards is made
+        // for that rather than at random — Graff 25-116H removing himself beside an ally.
+        ctx.setAiOwnPick(aiOwnPickOf(effectText), source);
         return ctx.selectCharacters(spec.maxCount(), spec.upTo(), spec.opponentOnly(), spec.selfOnly(),
                 spec.condition(), spec.element(), spec.costVal(), spec.costCmp(), spec.powerVal(),
                 spec.powerCmp(), spec.inclForwards(), spec.inclBackups(), spec.inclMonsters(),

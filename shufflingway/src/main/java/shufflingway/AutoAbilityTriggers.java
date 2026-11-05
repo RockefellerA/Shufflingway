@@ -2019,6 +2019,46 @@ final class AutoAbilityTriggers {
 	}
 
 	/**
+	 * The enters-the-field abilities of {@code card}, on {@code isP1}'s field, that would trigger
+	 * were it blinked by {@code blinker}'s ability: removed from the game and played straight back.
+	 * The loop in {@link #triggerAutoAbilitiesForEntersField} asked ahead of time, for that one kind
+	 * of entry. It is not a cast and not from a hand, it comes from the removed zone (not the Break
+	 * Zone or the deck), and it is due to {@code blinker}. Read off the printed abilities: whatever
+	 * was granted to the card or taken from it does not survive the trip. Answers for the AI's
+	 * blink pick ({@link MainWindow#aiBestOwnBlinkTargets}).
+	 */
+	List<AutoAbility> selfEntryAbilitiesOnBlink(CardData card, boolean isP1, CardData blinker) {
+		if (card.isForward() && oppSuppressesForwardEtf(!isP1)) return List.of();
+		boolean bySummon  = blinker != null && blinker.isSummon();
+		boolean byAbility = blinker != null && !blinker.isSummon();
+		boolean ownTurn   = (mw.gameState.getCurrentPlayer() == GameState.Player.P1) == isP1;
+		List<AutoAbility> fires = new ArrayList<>();
+		for (AutoAbility fa : card.autoAbilities()) {
+			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
+			String trigger = fa.trigger();
+			if (!trigger.contains("enter")) continue;
+			if (trigger.equals("enters the field from hand")
+					|| trigger.equals("enters the field from break zone")
+					|| trigger.equals("enters the field from deck")) continue;
+			if (fa.castOnly() || fa.warpOnly() || fa.altCostOnly() || fa.castPaymentMinElements() > 0) continue;
+			if ((fa.yourTurnOnly() && !ownTurn) || (fa.opponentTurnOnly() && ownTurn)) continue;
+			if (trigger.startsWith("enters the field by ")) {
+				String prefix = "enters the field by ability of ";
+				boolean due = switch (trigger) {
+					case "enters the field by ability"            -> byAbility;
+					case "enters the field by summon or ability",
+					     "enters the field by own summon or ability" -> byAbility || bySummon;
+					default -> trigger.startsWith(prefix) && byAbility
+							&& CardFilters.meetsCardNameFilter(blinker, trigger.substring(prefix.length()));
+				};
+				if (!due) continue;
+			}
+			fires.add(fa);
+		}
+		return fires;
+	}
+
+	/**
 	 * Locates {@code card} on its controller's field and returns a {@link ForwardTarget} for it,
 	 * or {@code null} if it is not currently on the field.
 	 */
@@ -7307,7 +7347,8 @@ final class AutoAbilityTriggers {
 	 * A cost that names the source's own card ("Put [self] into the Break Zone") is a
 	 * self-reference to THIS instance, so it breaks the source directly with no player choice —
 	 * even when other copies of the same name are on the field.  Other costs select among the
-	 * eligible field cards, prompting the player when more than {@code count} qualify.
+	 * eligible field cards when more than {@code count} qualify: P1 is prompted, and P2 — only
+	 * ever the CPU here, through {@link #executeP2AbilityActivation} — gives up its cheapest.
 	 */
 	private List<ForwardTarget> autoResolveBzTargets(CardData source, List<BreakZoneCost> bzCosts, boolean isP1) {
 		if (bzCosts.isEmpty()) return List.of();
@@ -7321,6 +7362,7 @@ final class AutoAbilityTriggers {
 			}
 			List<ForwardTarget> eligible = eligibleBzFieldCards(bz, isP1);
 			if (eligible.size() <= bz.count()) result.addAll(eligible);
+			else if (!isP1) result.addAll(mw.aiCheapestOwnTargets(eligible, bz.count(), source));
 			else {
 				String strAmt = bz.count() > 1 ? " cards" : " card";
 				String text = "Select " + bz.count() + strAmt + " to put into the Break Zone.";

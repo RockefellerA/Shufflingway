@@ -2948,7 +2948,10 @@ final class ActionResolverChoose {
                             Matcher rfpM = SECONDARY_PLAY_REMOVED_ONTO_FIELD.matcher(secondaryText);
                             if (rfpM.find()) {
                                 boolean dullIt = rfpM.group("dull") != null;
-                                secondary = ctx -> ctx.playLastRemovedFromRfpOntoField(dullIt);
+                                // The cards the removal took, by identity: a blinked LB card went to
+                                // the LB deck instead, and nothing comes back for it.
+                                secondary = ctx -> List.copyOf(removedCards)
+                                        .forEach(c -> ctx.playSourceFromRfpOntoField(c, dullIt));
                             } else {
                                 // Tried ahead of the general chain: this sentence's "its" is the
                                 // Forward the primary chose, which a standalone parse cannot see.

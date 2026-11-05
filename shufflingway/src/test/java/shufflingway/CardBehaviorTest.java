@@ -15621,7 +15621,7 @@ public class CardBehaviorTest {
 		InOrder order = inOrder(ctx);
 		order.verify(ctx).removeNamedCardFromGame("Lightning");
 		// The RFG route, not the Break-Zone one — the card is in the RFG zone by this point.
-		order.verify(ctx).playLastRemovedFromRfpOntoField(true);
+		order.verify(ctx).playSourceFromRfpOntoField(lightning, true);
 		verify(ctx, never()).playAllByNameFromOwnBreakZoneDull(any(), anyBoolean());
 	}
 
@@ -15662,7 +15662,7 @@ public class CardBehaviorTest {
 		GameContext ctx = mock(GameContext.class);
 		ActionResolver.parse("Remove Snow from the game. Then, play Snow onto the field.", snow)
 				.accept(ctx);
-		verify(ctx).playLastRemovedFromRfpOntoField(false);
+		verify(ctx).playSourceFromRfpOntoField(snow, false);
 	}
 
 	@Test
@@ -15680,7 +15680,7 @@ public class CardBehaviorTest {
 		GameContext ctx = mock(GameContext.class);
 		ActionResolver.parse(effect, shiva).accept(ctx);
 		verify(ctx).removeNamedCardFromGame("Shiva, Lady of Frost");
-		verify(ctx).playLastRemovedFromRfpOntoField(false);
+		verify(ctx).playSourceFromRfpOntoField(shiva, false);
 	}
 
 	// =========================================================================================
@@ -41629,6 +41629,256 @@ public class CardBehaviorTest {
 				makeForward("Snow", "Water", 3, 7000));
 		assertEquals("Lightning", cardName.excludeName(), "printed as a card name");
 		assertNull(cardName.excludeElement());
+	}
+
+	// =========================================================================================
+	// The CPU's choice among its own cards when the choice spends them: "Choose 1 Character you
+	// control. Break it." (Delita 1-112R) and its kin, and a type-based "Put 1 Backup into the
+	// Break Zone:" cost (Mystic 1-096C). Both are paid with the CPU's cheapest card by printed
+	// cost, and with the card whose ability is asking only when nothing else is eligible
+	// (MainWindow.aiCheapestOwnTargets). Graff 25-116H's section in LimitBehaviorTest covers a
+	// choice made as an ability goes on the Stack. These cover the reading of the text, a choice
+	// made as the effect resolves, and the cost.
+	//
+	// A blink is the other own-side pick with a rule of its own: "Remove it from the game. Then,
+	// play the removed Forward onto the field dull." (Rinoa 6-041L). It pays off only through
+	// what triggers on the way back, so the CPU blinks the card with an enters-the-field ability
+	// that would trigger again and is more than a price, and never an LB card, which the trip
+	// sends to the LB deck (MainWindow.aiBestOwnBlinkTargets).
+	// =========================================================================================
+
+	private static final String RINOA_6_041L_EFFECT = "choose 1 Forward other than Rinoa you control. "
+			+ "Remove it from the game. Then, play the removed Forward onto the field dull.";
+
+	@Test
+	void aChoiceSpendsItsPickWhenTheNextSentenceTakesItForGood() {
+		for (String spends : List.of(
+				"choose 1 Forward you control. Remove it from the game.",                       // Graff 25-116H
+				"choose 1 Character you control. Break it.",                                    // Delita 1-112R
+				"choose 1 Character you control. Remove it from the game. Draw 2 cards.",       // Sephiroth 29-087L
+				"choose 1 Backup you control. You may remove it from the game. If you do so, "  // Fordola 8-147S
+						+ "Fordola gains +1000 power, Haste, First Strike and Brave."))
+			assertTrue(ActionResolver.chooseEffectSpendsTarget(spends), spends);
+		for (String keeps : List.of(
+				"choose 1 Forward other than Rinoa you control. Remove it from the game. "    // Rinoa 6-041L
+						+ "Then, play the removed Forward onto the field dull.",
+				"Choose 1 Job Sky Pirate you control. Remove it from the game. "              // Kytes 15-047R
+						+ "Play it onto the field at the end of the turn.",
+				"Choose 1 Forward you control. Dull it. It cannot be broken this turn.",       // Titan 1-110C
+				"Choose 1 Forward you control. It gains +2000 power until the end of the turn."))
+			assertFalse(ActionResolver.chooseEffectSpendsTarget(keeps), keeps);
+	}
+
+	@Test
+	void resolvingABreakOfItsOwnTheCpuGivesUpItsCheapestCharacter() {
+		MainWindow mw = new MainWindow();
+		CardData delita = makeForward("Delita", "Earth", 3, 9000);
+		CardData dear   = makeForward("Dear", "Earth", 4, 8000);
+		CardData aide   = makePlainBackup("Aide", "Earth", 1);
+		placeP2Forward(mw, delita);
+		placeP2Forward(mw, dear);
+		mw.gameState.getIdentity().put(aide, false);
+		TestCards.placeP2Backup(mw, aide);
+
+		resolveSourcedAsP2(mw, delita, "Choose 1 Character you control. Break it.", 0);
+
+		assertEquals(List.of(aide), mw.gameState.getP2BreakZone(), "cost 1; a Backup counts as a Character");
+		assertTrue(mw.p2ForwardCards.containsAll(List.of(delita, dear)));
+	}
+
+	@Test
+	void resolvingABreakOfItsOwnTheCpuSparesTheCardAsking() {
+		MainWindow mw = new MainWindow();
+		CardData delita = makeForward("Delita", "Earth", 3, 9000);
+		CardData dear   = makeForward("Dear", "Earth", 4, 8000);
+		placeP2Forward(mw, delita);
+		placeP2Forward(mw, dear);
+
+		resolveSourcedAsP2(mw, delita, "Choose 1 Character you control. Break it.", 0);
+
+		assertEquals(List.of(dear), mw.gameState.getP2BreakZone(), "Delita is cheaper, and the one asking");
+	}
+
+	@Test
+	void theCpuPaysAPutABackupCostWithItsCheapestBackup() {
+		// It used to hand this choice to the human's on-board picker.
+		MainWindow mw = new MainWindow();
+		CardData mystic = makeForwardWithText("Mystic", "Earth", 2, 3000,
+				"Put 1 Backup into the Break Zone: Mystic gains +3000 power until the end of the turn.");
+		placeP2Forward(mw, mystic);
+		CardData dear  = makePlainBackup("Dear", "Earth", 5);
+		CardData cheap = makePlainBackup("Cheap", "Earth", 2);
+		for (CardData b : List.of(dear, cheap)) {
+			mw.gameState.getIdentity().put(b, false);
+			TestCards.placeP2Backup(mw, b);
+		}
+
+		assertTrue(mw.autoAbilityTriggers.executeP2AbilityActivation(mystic.actionAbilities().get(0), mystic,
+				() -> {}, new ArrayList<>(), new ArrayList<>(), 0));
+
+		assertEquals(List.of(cheap), mw.gameState.getP2BreakZone());
+		assertSame(dear, mw.p2BackupCards[0]);
+	}
+
+	@Test
+	void aBlinkIsARemovalPlayedStraightBack() {
+		for (String blinks : List.of(
+				RINOA_6_041L_EFFECT,
+				"choose 1 Forward you control. Remove it from the game. Then, play the removed Forward "  // Unei 10-023H
+						+ "onto the field dull",
+				"Choose 1 Job Sky Pirate you control. Remove it from the game. "                         // Kytes 15-047R
+						+ "Play it onto the field at the end of the turn."))
+			assertTrue(ActionResolver.chooseEffectBlinksTarget(blinks), blinks);
+		for (String not : List.of(
+				"choose 1 Forward you control. Remove it from the game. When you do so, choose 1 Forward in "  // Hojo 14-072R
+						+ "your Break Zone with a cost inferior to that of the removed Forward. Play it onto the field.",
+				"choose 1 Forward you control. Remove it from the game."))                                     // Graff 25-116H
+			assertFalse(ActionResolver.chooseEffectBlinksTarget(not), not);
+	}
+
+	@Test
+	void anEntryAbilityIsReadAsOnlyAPriceWhenNothingFollowsThePrice() {
+		for (String price : List.of(
+				"choose 1 Character you control. Break it.",                                       // Delita 1-112R
+				"choose 1 Character you control. Return it to its owner's hand.",                   // Tidus 7-117C
+				"Dadaluma deals you 1 point of damage.",                                             // 11-011R
+				"discard 2 cards.",                                                                  // Tifa 20-077L
+				"your opponent gains control of Leon."))                                             // Leon 6-063H
+			assertTrue(ActionResolver.effectIsOnlyAPrice(price), price);
+		for (String payoff : List.of(
+				"choose 1 Character you control. Remove it from the game. Draw 2 cards.",          // Sephiroth 29-087L
+				"choose 1 Forward of cost 3 or less opponent controls. Break it. Kuja deals you 1 point of damage.",
+				"draw 1 card."))
+			assertFalse(ActionResolver.effectIsOnlyAPrice(payoff), payoff);
+	}
+
+	@Test
+	void theCpuBlinksTheForwardWhoseEntryAbilityPaysOff() throws Exception {
+		MainWindow mw = new MainWindow();
+		CardData rinoa  = makeForward("Rinoa", "Ice", 4, 7000);
+		CardData plain  = makeForward("Plain", "Ice", 6, 9000);
+		CardData drawer = makeForwardWithText("Drawer", "Ice", 2, 5000, "When Drawer enters the field, draw 1 card.");
+		mw.suppressAutoAbilityForNextCards = 3;   // the board, without its arrivals
+		for (CardData c : List.of(rinoa, plain, drawer)) placeP2Forward(mw, c);
+		assertTrue(mw.gameState.getStack().isEmpty());
+
+		// On the EDT, as in the game: the return from the removed zone holds the card's enter
+		// triggers until its animation has run, which the second pass lets it do.
+		SwingUtilities.invokeAndWait(() -> resolveSourcedAsP2(mw, rinoa, RINOA_6_041L_EFFECT, 0));
+		SwingUtilities.invokeAndWait(() -> { });
+
+		int d = mw.p2ForwardCards.indexOf(drawer);
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(d), "Drawer made the trip and came back dull");
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(plain)),
+				"the dearer Forward has nothing to trigger on the way back");
+		assertEquals(1, mw.gameState.getStack().size());
+		assertSame(drawer, mw.gameState.peekStack().source(), "its draw triggered again");
+	}
+
+	@Test
+	void theCpuPassesOverAnEntryAbilityThatIsOnlyAPriceOrWouldNotTrigger() {
+		MainWindow mw = new MainWindow();
+		CardData rinoa  = makeForward("Rinoa", "Ice", 4, 7000);
+		CardData delita = makeForwardWithText("Delita", "Earth", 3, 9000,
+				"When Delita enters the field, choose 1 Character you control. Break it.");
+		CardData kain   = makeForwardWithText("Kain", "Wind", 5, 8000,
+				"When Kain enters the field from your hand, draw 1 card.");
+		CardData plain  = makeForward("Plain", "Ice", 4, 7000);
+		mw.suppressAutoAbilityForNextCards = 4;   // the board, without its arrivals
+		for (CardData c : List.of(rinoa, delita, kain, plain)) placeP2Forward(mw, c);
+
+		resolveSourcedAsP2(mw, rinoa, RINOA_6_041L_EFFECT, 0);
+
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(plain)),
+				"cheaper than Kain, whose draw a blink cannot trigger, and not Delita, who would break a card again");
+		for (CardData c : List.of(delita, kain))
+			assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(c)), c.name());
+	}
+
+	/** An LB Forward whose enters-the-field ability draws a card — the blink a player would want. */
+	private static CardData makeDrawingLbForward(String name) {
+		String text = "When " + name + " enters the field, draw 1 card.";
+		return new CardData(null, name, "Lightning", 4, 8000, "Forward", true, 2, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(text), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, text);
+	}
+
+	/** P1's Rinoa blinks P1's Forward at {@code idx}, on the EDT as in the game, with the animation let run. */
+	private static void blinkAsP1(MainWindow mw, CardData rinoa, int idx) throws Exception {
+		SwingUtilities.invokeAndWait(() -> {
+			GameContext ctx = mw.buildGameContext(true);
+			ctx.preloadTargets(List.of(new ForwardTarget(true, idx, ForwardTarget.CardZone.FORWARD)));
+			mw.currentAbilitySource = rinoa;
+			mw.currentAbilitySourceIsP1 = true;
+			try { ActionResolver.parse(RINOA_6_041L_EFFECT, rinoa).accept(ctx); }
+			finally { mw.currentAbilitySource = null; }
+		});
+		SwingUtilities.invokeAndWait(() -> { });
+	}
+
+	/** {@code card} already in P1's removed-from-game zone, from some earlier effect. */
+	private static CardData removedEarlierByP1(MainWindow mw, CardData card) {
+		mw.gameState.getIdentity().put(card, true);
+		mw.gameState.addToPermanentRfp(card);
+		return card;
+	}
+
+	@Test
+	void aBlinkedLbCardLeavesTheFieldAndNothingComesBack() throws Exception {
+		MainWindow mw = new MainWindow();
+		CardData rinoa   = makeForward("Rinoa", "Ice", 4, 7000);
+		CardData lb      = makeDrawingLbForward("Lightning");
+		CardData earlier = removedEarlierByP1(mw, makeForward("Earlier", "Fire", 3, 7000));
+		mw.suppressAutoAbilityForNextCards = 2;   // the board, without its arrivals
+		placeP1Forward(mw, rinoa);
+		placeP1Forward(mw, lb);
+		// Cast from the LB deck, which turned it face up. The deck list holds every LB card all
+		// game; face up is the spent mark on its slot.
+		mw.gameState.getP1LbDeck().add(lb);
+		mw.spentLbIndices.add(0);
+
+		blinkAsP1(mw, rinoa, mw.p1ForwardCards.indexOf(lb));
+
+		assertEquals(List.of(rinoa), mw.p1ForwardCards, "it left, and nothing came in its place");
+		assertEquals(List.of(lb), mw.gameState.getP1LbDeck(), "rule 15.2.8.4.1: back to the LB deck");
+		assertEquals(Set.of(0), mw.spentLbIndices, "still face up, so it cannot be cast again");
+		assertEquals(List.of(earlier), mw.gameState.getP1PermanentRfp(), "the card removed earlier stays removed");
+		assertTrue(mw.gameState.getStack().isEmpty(), "and no enter-the-field ability triggered");
+	}
+
+	@Test
+	void aBlinkReturnsTheCardItRemovedRatherThanTheLastOneRemoved() throws Exception {
+		MainWindow mw = new MainWindow();
+		CardData rinoa   = makeForward("Rinoa", "Ice", 4, 7000);
+		CardData ally    = makeForward("Ally", "Ice", 3, 6000);
+		CardData earlier = removedEarlierByP1(mw, makeForward("Earlier", "Fire", 3, 7000));
+		placeP1Forward(mw, rinoa);
+		placeP1Forward(mw, ally);
+
+		blinkAsP1(mw, rinoa, mw.p1ForwardCards.indexOf(ally));
+
+		assertEquals(List.of(rinoa, ally), mw.p1ForwardCards);
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(1), "onto the field dull");
+		assertEquals(List.of(earlier), mw.gameState.getP1PermanentRfp());
+	}
+
+	@Test
+	void theCpuNeverBlinksAnLbCardWhileAnotherForwardIsEligible() {
+		MainWindow mw = new MainWindow();
+		CardData rinoa = makeForward("Rinoa", "Ice", 4, 7000);
+		CardData lb = makeDrawingLbForward("Lightning");
+		CardData plain = makeForward("Plain", "Ice", 4, 7000);
+		mw.suppressAutoAbilityForNextCards = 3;   // the board, without its arrivals
+		for (CardData c : List.of(rinoa, lb, plain)) placeP2Forward(mw, c);
+		mw.gameState.getP2LbDeck().add(lb);
+
+		resolveSourcedAsP2(mw, rinoa, RINOA_6_041L_EFFECT, 0);
+
+		assertTrue(mw.p2ForwardCards.contains(lb), "the trip would end in the LB deck");
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(mw.p2ForwardCards.indexOf(plain)));
 	}
 
 	// =========================================================================================

@@ -12226,6 +12226,52 @@ final class ActionResolverPatterns {
         + "|cannot(?!\\s+be\\s+chosen\\s+by\\s+your\\s+opponent)|removes?\\s+it|return\\s+it"
         + "|power\\s+becomes?|put\\s+it\\s+into)\\b");
     /**
+     * A "choose …" whose very next sentence spends the pick: "Break it.", "Put it into the Break
+     * Zone." or "Remove it from the game.", with or without "You may" in front (Fordola 8-147S).
+     * Only the sentence straight after the choice counts, so a later "break it" belonging to a
+     * second choice in the same text does not. See {@code ActionResolver.chooseEffectSpendsTarget}.
+     */
+    static final Pattern CHOOSE_FOLLOWUP_SPENDS_TARGET = Pattern.compile(
+        "(?i)\\bchoose\\s[^.]*\\.\\s+(?:you\\s+may\\s+)?(?:break\\s+(?:it|them)"
+        + "|put\\s+(?:it|them)\\s+into\\s+the\\s+Break\\s+Zone|remove\\s+(?:it|them)\\s+from\\s+the\\s+game)\\b");
+    /**
+     * A card coming back onto the field later in the same ability: "Then, play the removed
+     * Forward onto the field dull." (Rinoa 6-041L, Time Mage 3-043C), "Play it onto the field at
+     * the end of the turn." (Kytes 15-047R). What turns a removal into a blink.
+     */
+    static final Pattern REMOVED_CARD_RETURNS_TO_FIELD = Pattern.compile(
+        "(?i)\\bplay\\s+(?:it|them|the\\s+removed\\s+(?:Forward|Character|Monster|Backup)s?)\\s+onto\\s+the\\s+field\\b");
+    /**
+     * A blink: a "choose …" whose pick is removed from the game and, in the very next sentence,
+     * played back onto the field — Rinoa 6-041L, Time Mage 3-043C, Unei 10-023H ("Then, play the
+     * removed Forward onto the field dull"), Kytes 15-047R, Ghost (VII) 20-046C, Cactuar Conductor
+     * 26-049R ("Play it onto the field at the end of the turn"). Unlike
+     * {@link #REMOVED_CARD_RETURNS_TO_FIELD}, nothing may stand between the two: Hojo 14-072R's
+     * "When you do so, choose 1 Forward in your Break Zone … Play it onto the field." plays a
+     * different card.
+     */
+    static final Pattern CHOOSE_FOLLOWUP_BLINKS_TARGET = Pattern.compile(
+        "(?i)\\bchoose\\s[^.]*\\.\\s+remove\\s+(?:it|them)\\s+from\\s+the\\s+game\\.\\s+(?:Then,?\\s+)?"
+        + "play\\s+(?:it|them|the\\s+removed\\s+(?:Forward|Character|Monster|Backup)s?)\\s+onto\\s+the\\s+field\\b");
+    /**
+     * An auto ability whose whole effect is a price its controller pays and nothing more, read end
+     * to end with {@code matches()}: "choose 1 Character you control. Break it." (Delita 1-112R),
+     * "… Remove it from the game." (Graff 25-116H), "… Return it to its owner's hand." (Tidus
+     * 7-117C), "Dadaluma deals you 1 point of damage." (11-011R), "discard 2 cards." (Tifa
+     * 20-077L), "your opponent gains control of Leon." (6-063H), "your opponent may play 1 Backup
+     * of cost 2 or less from their hand onto the field." (Shadow Lord 12-071R). A text with any
+     * payoff after the price (Sephiroth 29-087L's "Draw 2 cards.") does not match.
+     */
+    static final Pattern EFFECT_IS_ONLY_A_PRICE = Pattern.compile(
+        "(?i)(?:choose\\s+\\d+\\s[^.]*\\byou\\s+control\\.\\s+(?:break\\s+(?:it|them)"
+        + "|remove\\s+(?:it|them)\\s+from\\s+the\\s+game"
+        + "|return\\s+(?:it|them)\\s+to\\s+(?:its|their)\\s+owners?'s?\\s+hands?"
+        + "|put\\s+(?:it|them)\\s+into\\s+the\\s+Break\\s+Zone)"
+        + "|[^.]+\\s+deals\\s+you\\s+\\d+\\s+points?\\s+of\\s+damage"
+        + "|discard\\s+\\d+\\s+cards?(?:\\s+from\\s+your\\s+hand)?"
+        + "|your\\s+opponent\\s+gains\\s+control\\s+of\\s+[^.]+"
+        + "|your\\s+opponent\\s+may\\s+play\\s+[^.]+\\s+onto\\s+the\\s+field)\\.?\\s*");
+    /**
      * Matches the boilerplate "(Units must be 1000.)" / "(damage must be in increments of 1000)"
      * clarification that appears after "divide/split damage among chosen targets as you like/wish"
      * effects (e.g. Yuffie, Faris) — purely restates the standard rounding rule.

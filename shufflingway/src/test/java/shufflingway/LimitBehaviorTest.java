@@ -2735,11 +2735,9 @@ class LimitBehaviorTest {
 	// power until the end of the turn."
 	//
 	// The arrival is a price: the Forward removed is one of his own side's, Graff himself among
-	// the candidates, and an LB card removed from the game goes back to the LB deck face up.
-	//
-	// Only the forced case is tested. Beside another Forward the CPU picks between the two at
-	// random (aiSelectCharacters treats a "you control" choice as neutral), so half the time
-	// it removes Graff rather than the weaker ally.
+	// the candidates, and an LB card removed from the game goes back to the LB deck face up. The
+	// CPU pays it with its cheapest Forward, and with Graff only when he stands alone
+	// (MainWindow.aiCheapestOwnTargets).
 	// =========================================================================================
 
 	private static final String GRAFF_25_116H = "Limit Break -- 2[[br]]When Graff enters the field, choose 1 "
@@ -2764,6 +2762,35 @@ class LimitBehaviorTest {
 		assertTrue(mw.p1ForwardCards.contains(theirs), "a Forward you control, not the opponent's");
 		assertTrue(mw.gameState.getP2RemovedFromGame().isEmpty(), "an LB card does not leave the game");
 		assertEquals(List.of(graff), mw.gameState.getP2LbDeck());
+	}
+
+	@Test
+	void besideAnAllyGraffRemovesTheAlly() {
+		MainWindow mw = new MainWindow();
+		CardData ally = makeForward("Ally", "Water", 2, 3000);
+		placeP2Forward(mw, ally);
+		CardData graff = makeGraff();
+
+		enterAsP2(mw, graff);
+
+		assertEquals(List.of(graff), mw.p2ForwardCards);
+		assertEquals(List.of(ally), mw.gameState.getP2RemovedFromGame());
+	}
+
+	@Test
+	void graffSparesHimselfEvenBesideDearerAllies() {
+		// Graff costs 3, so cost alone would pick him; the source goes last.
+		MainWindow mw = new MainWindow();
+		CardData dear    = makeForward("Dear", "Water", 5, 9000);
+		CardData cheaper = makeForward("Cheaper", "Water", 4, 7000);
+		placeP2Forward(mw, dear);
+		placeP2Forward(mw, cheaper);
+		CardData graff = makeGraff();
+
+		enterAsP2(mw, graff);
+
+		assertEquals(List.of(cheaper), mw.gameState.getP2RemovedFromGame(), "the cheapest that is not Graff");
+		assertTrue(mw.p2ForwardCards.containsAll(List.of(graff, dear)));
 	}
 
 	@Test

@@ -22496,6 +22496,83 @@ public class MainWindow {
 		return new ForwardTarget(false, chosen, ForwardTarget.CardZone.FORWARD);
 	}
 
+	/**
+	 * The {@code count} of {@code eligible}, all one side's own cards, that side's AI gives up when
+	 * a cost or an effect spends them: lowest printed cost first, the measure every payment the AI
+	 * makes with its own cards uses, and {@code spare} — the card whose ability is asking — after
+	 * every other, since giving it up undoes the play that is paying. Ties keep {@code eligible}'s
+	 * order. {@code spare} may be {@code null}.
+	 */
+	List<ForwardTarget> aiCheapestOwnTargets(List<ForwardTarget> eligible, int count, CardData spare) {
+		List<ForwardTarget> order = new ArrayList<>(eligible);
+		order.sort(Comparator.comparing((ForwardTarget t) -> targetHolds(t, spare))
+				.thenComparingInt(t -> {
+					CardData c = autoAbilityTriggers.fieldCardData(t);
+					return c == null ? 0 : c.cost();
+				}));
+		return List.copyOf(order.subList(0, Math.min(count, order.size())));
+	}
+
+	/**
+	 * The {@code count} of {@code eligible}, all one side's own cards, that side's AI blinks for
+	 * {@code blinker}: removes from the game and plays straight back (Rinoa 6-041L, Time Mage
+	 * 3-043C). A blink pays off only through what triggers on the way back, so, best first:
+	 * <ol>
+	 *   <li>a card with an enters-the-field ability that would trigger again
+	 *       ({@link AutoAbilityTriggers#selfEntryAbilitiesOnBlink}) and is more than a price
+	 *       ({@link ActionResolver#effectIsOnlyAPrice}). Dearest first, as the likelier to carry the
+	 *       bigger ability;</li>
+	 *   <li>a card with nothing that would trigger, which loses nothing but what the trip itself
+	 *       costs;</li>
+	 *   <li>a card whose only abilities that would trigger are prices (Delita 1-112R breaking one of
+	 *       her own side's), which the trip would pay again;</li>
+	 *   <li>an LB card, which goes to the LB deck as it leaves the field (rule 15.2.8.4.1), so the
+	 *       blink cannot bring it back.</li>
+	 * </ol>
+	 * Within the last three, a card already dull goes first, since it has no attack or block left
+	 * to lose to the trip, and then the cheaper. Ties keep {@code eligible}'s order.
+	 */
+	List<ForwardTarget> aiBestOwnBlinkTargets(List<ForwardTarget> eligible, int count, CardData blinker) {
+		List<ForwardTarget> order = new ArrayList<>(eligible);
+		order.sort(Comparator.comparingInt((ForwardTarget t) -> blinkTier(t, blinker))
+				.thenComparingInt(t -> blinkTier(t, blinker) == 0 ? 0 : fieldSlotStateAt(t) == CardState.DULL ? 0 : 1)
+				.thenComparingInt(t -> {
+					CardData c = autoAbilityTriggers.fieldCardData(t);
+					int cost = c == null ? 0 : c.cost();
+					return blinkTier(t, blinker) == 0 ? -cost : cost;
+				}));
+		return List.copyOf(order.subList(0, Math.min(count, order.size())));
+	}
+
+	/** Where {@code t}'s card ranks as a blink — see {@link #aiBestOwnBlinkTargets}. */
+	private int blinkTier(ForwardTarget t, CardData blinker) {
+		CardData c = autoAbilityTriggers.fieldCardData(t);
+		if (c == null) return 1;
+		if (c.isLb()) return 3;
+		List<AutoAbility> fires = autoAbilityTriggers.selfEntryAbilitiesOnBlink(c, t.isP1(), blinker);
+		if (fires.isEmpty()) return 1;
+		return fires.stream().allMatch(fa -> ActionResolver.effectIsOnlyAPrice(fa.effectText())) ? 2 : 0;
+	}
+
+	/** The active/dull state of the slot {@code t} names. */
+	private CardState fieldSlotStateAt(ForwardTarget t) {
+		return switch (t.zone()) {
+			case FORWARD -> (t.isP1() ? p1ForwardStates : p2ForwardStates).get(t.idx());
+			case BACKUP  -> (t.isP1() ? p1BackupStates  : p2BackupStates)[t.idx()];
+			case MONSTER -> (t.isP1() ? p1MonsterStates : p2MonsterStates).get(t.idx());
+			default      -> CardState.ACTIVE;
+		};
+	}
+
+	/** Whether {@code card} is the card at {@code t}, a primed Forward's top card included. */
+	private boolean targetHolds(ForwardTarget t, CardData card) {
+		if (card == null) return false;
+		if (autoAbilityTriggers.fieldCardData(t) == card) return true;
+		if (t.zone() != ForwardTarget.CardZone.FORWARD) return false;
+		List<CardData> tops = t.isP1() ? p1ForwardPrimedTop : p2ForwardPrimedTop;
+		return t.idx() < tops.size() && tops.get(t.idx()) == card;
+	}
+
 	/** The AI's cheapest {@code maxCount} Forwards and/or Monsters on {@code seatIsP1}'s side — what it gives up to a break. */
 	List<ForwardTarget> aiPickForwardsOrMonstersForBreak(boolean seatIsP1, int maxCount,
 	                                                     boolean inclForwards, boolean inclMonsters) {

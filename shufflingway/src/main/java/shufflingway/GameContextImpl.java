@@ -98,6 +98,13 @@ final class GameContextImpl implements GameContext {
 	 */
 	private int aiDamageTargetHint = 0;
 	/**
+	 * What the selection about to be made does to a pick of the AI's own, and the card whose
+	 * ability is asking — see {@link GameContext#setAiOwnPick}. Instance fields for the same reason
+	 * as {@link #aiDamageTargetHint}.
+	 */
+	private AiOwnPick aiOwnPick       = AiOwnPick.NONE;
+	private CardData  aiOwnPickSource = null;
+	/**
 	 * Budget the selection about to be made must keep its chosen Forwards' printed costs within,
 	 * or {@code -1} when the selection is unbounded. Set for the length of one call by
 	 * {@link #selectForwardsWithTotalCostAtMost} and read by {@link #selectCharacters} -- an
@@ -1765,6 +1772,18 @@ final class GameContextImpl implements GameContext {
 					List<ForwardTarget> preferred = eligible.stream()
 							.filter(t -> t.isP1() != preferOwn).toList();
 					if (!preferred.isEmpty()) pool = preferred;
+				}
+				// Every pick left is the AI's own and the effect says what it does to it. Spent: it
+				// gives up the cheapest, as every payment it makes with its own cards does, and the
+				// card whose ability is asking only when nothing else is eligible. Left to the
+				// shuffle below, Graff 25-116H removed himself as often as the ally beside him.
+				// Blinked: the card whose enters-the-field ability pays off on the way back.
+				if (aiOwnPick != AiOwnPick.NONE && pool.stream().allMatch(t -> t.isP1() == isP1)) {
+					List<ForwardTarget> picked = aiOwnPick == AiOwnPick.SPEND
+							? mw.aiCheapestOwnTargets(pool, maxCount, aiOwnPickSource)
+							: mw.aiBestOwnBlinkTargets(pool, maxCount, aiOwnPickSource);
+					picked.forEach(t -> logEntry("[AI] chose " + cardAtTarget(t).name()));
+					return picked;
 				}
 				// The selection is about to be dealt damage: aim it at an opponent's Character
 				// the damage would actually break. Left to the shuffle below, a 5000-damage
@@ -7749,6 +7768,10 @@ final class GameContextImpl implements GameContext {
 			@Override public void suppressExBurstsThisAbility() { mw.suppressExBurstsThisAbility = true; }
 			@Override public void setAiPrefersOwnTargets(boolean preferOwn) { mw.aiPrefersOwnTargets = preferOwn; }
 			@Override public void setAiDamageTargetHint(int damage) { aiDamageTargetHint = Math.max(0, damage); }
+			@Override public void setAiOwnPick(AiOwnPick pick, CardData source) {
+				aiOwnPick       = pick == null ? AiOwnPick.NONE : pick;
+				aiOwnPickSource = aiOwnPick == AiOwnPick.NONE ? null : source;
+			}
 			@Override public void grantSelfExBurstSuppression(CardData source) {
 				if (source == null) return;
 				// No printed grant wording carries a cost filter, so the grant covers any cost.
@@ -8842,12 +8865,17 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void playSourceFromRfpOntoField(CardData source) {
+				playSourceFromRfpOntoField(source, false);
+			}
+
+			@Override public void playSourceFromRfpOntoField(CardData source, boolean dull) {
 				for (boolean ownerIsP1 : new boolean[] { true, false }) {
 					List<CardData> rfp = ownerIsP1
 							? mw.gameState.getP1PermanentRfp() : mw.gameState.getP2PermanentRfp();
 					if (rfp.stream().noneMatch(c -> c == source)) continue;
 					mw.gameState.removeFromPermanentRfp(source);
-					logEntry((ownerIsP1 ? "" : "[P2] ") + source.name() + " returns from RFP → field");
+					logEntry((ownerIsP1 ? "" : "[P2] ") + source.name() + " returns from RFP → field"
+							+ (dull ? " (dull)" : ""));
 					Runnable place;
 					if (source.isBackup())
 						place = ownerIsP1 ? () -> mw.placeCardInFirstBackupSlot(source)
@@ -8858,11 +8886,31 @@ final class GameContextImpl implements GameContext {
 					else
 						place = ownerIsP1 ? () -> mw.placeCardInForwardZone(source)
 								: () -> mw.placeP2CardInForwardZone(source);
-					mw.placeFromRfgWithAnim(source, ownerIsP1, place);
+					Runnable placeDull = !dull ? place : () -> {
+						place.run();
+						dullSlotHolding(source, ownerIsP1);
+					};
+					mw.placeFromRfgWithAnim(source, ownerIsP1, placeDull);
 					return;
 				}
-				logEntry(source.name() + " is no longer removed from the game — not played");
+				// An LB card is the expected case: it left the field for the LB deck, not for here.
+				logEntry(source.name() + (source.isLb()
+						? " went to the LB deck as it left the field — nothing comes back"
+						: " is no longer removed from the game — not played"));
 				markEffectFizzled();
+			}
+
+			/** Dulls whichever slot {@code card} now occupies on {@code isP1}'s field. */
+			private void dullSlotHolding(CardData card, boolean isP1) {
+				ForwardTarget slot = mw.findFieldSlot(card, isP1);
+				if (slot == null) return;
+				switch (slot.zone()) {
+					case FORWARD -> (isP1 ? mw.p1ForwardStates : mw.p2ForwardStates).set(slot.idx(), CardState.DULL);
+					case BACKUP  -> (isP1 ? mw.p1BackupStates  : mw.p2BackupStates)[slot.idx()] = CardState.DULL;
+					case MONSTER -> (isP1 ? mw.p1MonsterStates : mw.p2MonsterStates).set(slot.idx(), CardState.DULL);
+					default      -> { return; }
+				}
+				mw.refreshFieldSlotFor(card, isP1);
 			}
 
 			@Override public void playNamedFromHoldingZoneOntoField(String cardName) {
@@ -8877,38 +8925,6 @@ final class GameContextImpl implements GameContext {
 				}
 				logEntry("[Warning] playNamedFromHoldingZoneOntoField: \"" + cardName
 						+ "\" is in neither the RFG zone nor the Break Zone");
-			}
-
-			@Override public void playLastRemovedFromRfpOntoField(boolean dull) {
-				List<CardData> rfp = isP1 ? mw.gameState.getP1PermanentRfp() : mw.gameState.getP2PermanentRfp();
-				if (rfp.isEmpty()) {
-					logEntry("[Warning] playLastRemovedFromRfpOntoField: RFP zone is empty");
-					return;
-				}
-				CardData card = rfp.get(rfp.size() - 1);
-				if (isP1) {
-					mw.gameState.removeFromPermanentRfp(card);
-					logEntry(card.name() + " returns from RFP → P1 field" + (dull ? " (dull)" : ""));
-					mw.placeFromRfgWithAnim(card, true, () -> {
-						mw.placeCardInForwardZone(card);
-						if (dull) {
-							int newIdx = mw.p1ForwardCards.size() - 1;
-							mw.p1ForwardStates.set(newIdx, CardState.DULL);
-							mw.refreshP1ForwardSlot(newIdx);
-						}
-					});
-				} else {
-					mw.gameState.removeFromPermanentRfp(card);
-					logEntry(card.name() + " returns from RFP → P2 field" + (dull ? " (dull)" : ""));
-					mw.placeFromRfgWithAnim(card, false, () -> {
-						mw.placeP2CardInForwardZone(card);
-						if (dull) {
-							int newIdx = mw.p2ForwardCards.size() - 1;
-							mw.p2ForwardStates.set(newIdx, CardState.DULL);
-							mw.refreshP2ForwardSlot(newIdx);
-						}
-					});
-				}
 			}
 
 			@Override public boolean returnCardToOwnersHandIfOnField(CardData card) {

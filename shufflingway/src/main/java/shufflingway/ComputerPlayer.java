@@ -1058,8 +1058,10 @@ class ComputerPlayer implements OpponentController {
 	 *       play at all, which is a board evaluation rather than an affordability sum — this cost
 	 *       replaces the CP cost outright, so it is available at zero CP and the question is never
 	 *       "can P2 pay" but "should it";</li>
-	 *   <li>a choice of <em>which</em> cards to hand over (weakest first is the obvious start, but
-	 *       a Backup supplying CP or an ability is worth more than its power suggests);</li>
+	 *   <li>a choice of <em>which</em> cards to hand over. {@link MainWindow#aiCheapestOwnTargets}
+	 *       is the AI's pick for every other cost and effect that spends its own cards — lowest
+	 *       printed cost first, the source last — so use it here too, unless the board evaluation
+	 *       above learns to tell a Backup supplying CP or an ability from its printed cost;</li>
 	 *   <li>a field on {@code P2Plan} to carry the picks, since the plan record models only CP
 	 *       payment (backups dulled, cards discarded);</li>
 	 *   <li>a branch in {@code executeP2HandPlay} that spends them through

@@ -2663,6 +2663,32 @@ public interface GameContext {
      */
     void setAiDamageTargetHint(int damage);
 
+    /** What a "choose …" effect does to a pick that is its controller's own card — see {@link #setAiOwnPick}. */
+    enum AiOwnPick {
+        /** Nothing the AI's pick among its own cards is steered by. */
+        NONE,
+        /**
+         * Spent for good: broken, put into the Break Zone, removed from the game
+         * ({@link ActionResolver#chooseEffectSpendsTarget}). The AI gives up its cheapest
+         * ({@link MainWindow#aiCheapestOwnTargets}).
+         */
+        SPEND,
+        /**
+         * Removed and played straight back ({@link ActionResolver#chooseEffectBlinksTarget}). The AI
+         * blinks the card whose enters-the-field ability pays off ({@link MainWindow#aiBestOwnBlinkTargets}).
+         */
+        BLINK
+    }
+
+    /**
+     * Tells this context what the selection it is about to make does to a pick that is the AI
+     * controller's own card, and which card's ability is asking: Graff 25-116H's "choose 1 Forward
+     * you control. Remove it from the game." spends the pick, Rinoa 6-041L's "… Then, play the
+     * removed Forward onto the field dull." blinks it. {@link AiOwnPick#NONE} clears the hint.
+     * Advisory, and scoped to this context instance: no effect on a human's choice.
+     */
+    void setAiOwnPick(AiOwnPick pick, CardData source);
+
     /**
      * Grants {@code source} "EX Bursts of cards put into the Damage Zone due to [source] cannot be
      * used" until the end of the turn (Shadow Lord 12-071R).  Broader than
@@ -3254,6 +3280,18 @@ public interface GameContext {
     void playSourceFromRfpOntoField(CardData source);
 
     /**
+     * {@link #playSourceFromRfpOntoField(CardData)}, entering dull when {@code dull} is set. The
+     * second half of a blink, handed the card the first half removed: "Remove it from the game.
+     * Then, play the removed Forward onto the field dull." (Rinoa 6-041L), "Remove Lightning from
+     * the game. Then, play Lightning onto the field dull." (Lightning 4-115L).
+     *
+     * <p>Found by identity, so only that card comes back, and only if it is in a removed zone. An LB
+     * card never gets there: it leaves the field for the LB deck (rule 15.2.8.4.1), so blinking one
+     * takes it off the field and returns nothing — no other removed card in its place.
+     */
+    void playSourceFromRfpOntoField(CardData source, boolean dull);
+
+    /**
      * Plays {@code source} itself from the ability controller's hand onto their field. Marks the
      * effect fizzled when it is no longer there. 24-070L Lightning's hand ability: "Play Lightning
      * onto the field. You can only use this ability if Lightning is in your hand."
@@ -3270,12 +3308,6 @@ public interface GameContext {
      * put into the Break Zone. Logs a warning and does nothing when neither zone holds it.
      */
     void playNamedFromHoldingZoneOntoField(String cardName);
-
-    /**
-     * Plays the most recently removed card from the active player's permanent RFP zone back onto
-     * the field. If {@code dull} is true, the card enters dull.
-     */
-    void playLastRemovedFromRfpOntoField(boolean dull);
 
     /**
      * Searches the field for a card matching {@code cardName} and returns it to its owner's hand.
