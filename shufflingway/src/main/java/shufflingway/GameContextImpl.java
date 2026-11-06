@@ -11651,23 +11651,25 @@ final class GameContextImpl implements GameContext {
 	// Monsters as temporary Forwards; special abilities
 	// =========================================================================================
 			@Override public void makeMonsterTemporaryForward(CardData source, int power) {
+				// By identity: two copies of a Multi-card Monster (4-018R Bomb) are equal records,
+				// and the one promoted is the one whose ability it was.
 				if (isP1) {
-					int idx = mw.p1MonsterCards.indexOf(source);
+					int idx = mw.identityIndexOf(mw.p1MonsterCards, source);
 					if (idx < 0) { mw.makeP1BackupTemporaryForward(source, power); return; }
 					mw.p1MonsterTempForwardPower.put(source, power);
 					mw.endOfTurnEffects.add(ctx -> {
 						mw.p1MonsterTempForwardPower.remove(source);
-						int stillIdx = mw.p1MonsterCards.indexOf(source);
+						int stillIdx = mw.identityIndexOf(mw.p1MonsterCards, source);
 						if (stillIdx >= 0) mw.refreshP1MonsterSlot(stillIdx);
 					});
 					mw.refreshP1MonsterSlot(idx);
 				} else {
-					int idx = mw.p2MonsterCards.indexOf(source);
+					int idx = mw.identityIndexOf(mw.p2MonsterCards, source);
 					if (idx < 0) { mw.makeP2BackupTemporaryForward(source, power); return; }
 					mw.p2MonsterTempForwardPower.put(source, power);
 					mw.endOfTurnEffects.add(ctx -> {
 						mw.p2MonsterTempForwardPower.remove(source);
-						int stillIdx = mw.p2MonsterCards.indexOf(source);
+						int stillIdx = mw.identityIndexOf(mw.p2MonsterCards, source);
 						if (stillIdx >= 0) mw.refreshP2MonsterSlot(stillIdx);
 					});
 					mw.refreshP2MonsterSlot(idx);

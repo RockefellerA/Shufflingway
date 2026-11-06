@@ -176,9 +176,11 @@ public enum ActionType {
                     //   index is a party attack, which is always FORWARD. "power" is the sender's
                     //   effective total, carried only so the receiver can cross-check it.
     BLOCK,          // payload: { "blocked": bool, "zone": "...", "idx": n,
-                    //            "damage": { "<attackerIdx>": amount } }
+                    //            "damage": { "<attackerIdx>": amount }, "blockerLeft": bool }
                     //   The answer to an ATTACK. "damage" is the blocker's spread across a blocked
                     //   party and is absent otherwise. When "blocked" is false the rest is absent.
+                    //   "blockerLeft" answers a party whose blocker left the field before damage:
+                    //   still blocked, nothing dealt, and no zone or idx, there being no slot to name.
     CHOICE,         // payload: { "kind": "<ChoiceKind>", "indices": [n, ...] }
                     //   One player's answer to a decision the other is parked on while an effect
                     //   resolves. See ChoiceKind for what each kind's integers index, and which

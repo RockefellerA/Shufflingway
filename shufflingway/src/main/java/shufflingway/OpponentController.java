@@ -50,13 +50,21 @@ interface OpponentController {
 	}
 
 	/**
+	 * What {@link #requestPartyBlocker} hands back for a block whose blocker left the field before
+	 * damage: the party is still blocked, but there is no slot left to name. Only a remote opponent
+	 * sends it, since a remote party block is answered after the blocking client has resolved it.
+	 */
+	int PARTY_BLOCKER_LEFT = Integer.MIN_VALUE;
+
+	/**
 	 * Asks the opponent to declare a blocker against a party attack.
 	 *
 	 * @param attackerIndices slot codes ({@link ForwardTarget#slotCode()}) of P1's attacking party
 	 * @param combinedPower   the party's combined power
 	 * @param forcedBlock     true when a party member carries a "must block if possible" ability
 	 * @param onChosen        receives the blocker's slot code ({@link ForwardTarget#slotCode()}) — a P2
-	 *                        Forward, or a Monster or Backup acting as one — or {@code null} for no block
+	 *                        Forward, or a Monster or Backup acting as one — {@code null} for no block,
+	 *                        or {@link #PARTY_BLOCKER_LEFT}
 	 */
 	void requestPartyBlocker(List<Integer> attackerIndices, int combinedPower, boolean forcedBlock,
 	                         Consumer<Integer> onChosen);

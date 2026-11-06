@@ -640,6 +640,11 @@ class RemoteOpponent implements OpponentController {
 			pendingPartyBlock = null;
 			pendingPartyAttackers = List.of();
 			if (!blocked) { resume.accept(null); return; }
+			// Blocked, but the blocker left the field before damage: no slot to name, nothing dealt.
+			if (payload.optBoolean("blockerLeft", false)) {
+				resume.accept(OpponentController.PARTY_BLOCKER_LEFT);
+				return;
+			}
 			ForwardTarget blocker = blockerOf(payload);
 			if (blocker == null) { resume.accept(null); return; }
 			partyDamageAnswer = damageSpread(payload);
@@ -1506,6 +1511,14 @@ class RemoteOpponent implements OpponentController {
 			}
 		}
 		return GameAction.of(ActionType.BLOCK, payload);
+	}
+
+	/**
+	 * Builds a BLOCK answering a party attack whose blocker left the field before damage. The
+	 * party stays blocked, so it must not read as a declined block, and there is no slot to name.
+	 */
+	static GameAction partyBlockerLeftAction() {
+		return GameAction.of(ActionType.BLOCK, new JSONObject().put("blocked", true).put("blockerLeft", true));
 	}
 
 	/** Builds a DISCARD_HAND for hand cards the local player is discarding without payment. */

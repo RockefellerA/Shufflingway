@@ -254,6 +254,19 @@ class WireProtocolTest {
     }
 
     @Test
+    void aPartyBlockWhoseBlockerLeftResumesTheAttackAsBlockedRatherThanDeclined() {
+        MainWindow mw = networkedWindow();
+        RemoteOpponent remote = (RemoteOpponent) mw.opponent;
+        List<Integer> chosen = new ArrayList<>();
+        remote.requestPartyBlocker(List.of(0, 1), 8000, false, chosen::add);
+
+        remote.onActionReceived(RemoteOpponent.partyBlockerLeftAction());
+
+        assertEquals(List.of(OpponentController.PARTY_BLOCKER_LEFT), chosen,
+                "a null here reads as no block, and the party would go on to hit the player");
+    }
+
+    @Test
     void aSoloGameIgnoresTheWholeThing() {
         MainWindow solo = new MainWindow();   // opponent is the built-in AI
         solo.onOpponentDisconnected("Connection closed");

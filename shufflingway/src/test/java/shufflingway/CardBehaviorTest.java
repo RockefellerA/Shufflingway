@@ -17,6 +17,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -4267,16 +4269,14 @@ public class CardBehaviorTest {
     // survive its spread strike back.
     // =========================================================================================
 
-    private static final ForwardTarget P2_FORWARD_0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
-
     /**
-     * Resolves {@code blocker} in P2's Forward slot 0 blocking P1's party in Forward slots 0 and
-     * 1, with the blocker's controller answering {@code spread}. Returns the spread that landed.
+     * Resolves {@code blocker} on P2's side blocking P1's party in Forward slots 0 and 1, with the
+     * blocker's controller answering {@code spread}. Returns the spread that landed.
      */
-    private static Map<Integer, Integer> p2BlocksP1Party(MainWindow mw, CardData blocker, int combinedPower,
+    private static Map<Integer, Integer> p2BlocksP1Party(MainWindow mw, CardData blocker,
             Map<Integer, Integer> spread) {
         List<Map<Integer, Integer>> landed = new ArrayList<>();
-        mw.resolvePartyBlockDamage(true, List.of(0, 1), combinedPower, blocker, P2_FORWARD_0,
+        mw.resolvePartyBlockDamage(true, mw.partyMemberBaseCards(true, List.of(0, 1)), blocker,
                 (live, power, onSpread) -> onSpread.accept(spread), landed::add);
         assertEquals(1, landed.size(), "the resolution completes exactly once");
         return landed.get(0);
@@ -4294,7 +4294,7 @@ public class CardBehaviorTest {
         placeP1Forward(mw, yuna);
         placeP2Forward(mw, hugh);
 
-        p2BlocksP1Party(mw, hugh, 14000, Map.of(0, 7000, 1, 1000));
+        p2BlocksP1Party(mw, hugh, Map.of(0, 7000, 1, 1000));
 
         assertTrue(mw.gameState.getP2BreakZone().contains(hugh), "the party's 14000 breaks the blocker");
         assertEquals(List.of(yuzuki, yuna), mw.p1ForwardCards, "both members survive");
@@ -4305,12 +4305,12 @@ public class CardBehaviorTest {
     @Test
     void yuzukiBlockingAPartyTakesItsCombinedPowerLess2000AndKeepsTheDamage() {
         MainWindow mw = new MainWindow();
-        placeP1Forward(mw, makeForward("Ally A", "Earth", 3, 9000));
-        placeP1Forward(mw, makeForward("Ally B", "Earth", 3, 9000));
+        placeP1Forward(mw, makeForward("Ally A", "Earth", 3, 4000));
+        placeP1Forward(mw, makeForward("Ally B", "Earth", 3, 4000));
         CardData yuzuki = makeFieldAbilityCard("Yuzuki", "Water/Fire", "Forward", YUZUKI_TEXT);
         placeP2Forward(mw, yuzuki);
 
-        p2BlocksP1Party(mw, yuzuki, 8000, Map.of(0, 7000));
+        p2BlocksP1Party(mw, yuzuki, Map.of(0, 3000));
 
         assertTrue(mw.p2ForwardCards.contains(yuzuki), "8000 less Yuzuki's own 2000 is 6000, short of her 7000 power");
         assertEquals(6000, mw.p2ForwardDamage.get(0), "the surviving blocker keeps the damage it took");
@@ -4319,20 +4319,19 @@ public class CardBehaviorTest {
     @Test
     void aPartyBreaksABlockerThatAlreadyCarriesDamage() {
         MainWindow mw = new MainWindow();
-        placeP2Forward(mw, makeForward("Rival A", "Fire", 3, 9000));
-        placeP2Forward(mw, makeForward("Rival B", "Fire", 3, 9000));
+        placeP2Forward(mw, makeForward("Rival A", "Fire", 3, 3000));
+        placeP2Forward(mw, makeForward("Rival B", "Fire", 3, 3000));
         CardData blocker = makeForward("Blocker", "Earth", 4, 8000);
         placeP1Forward(mw, blocker);
         mw.p1ForwardDamage.set(0, 3000);
 
         List<Map<Integer, Integer>> landed = new ArrayList<>();
-        mw.resolvePartyBlockDamage(false, List.of(0, 1), 6000, blocker,
-                new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD),
-                (live, power, onSpread) -> onSpread.accept(Map.of(0, 8000)), landed::add);
+        mw.resolvePartyBlockDamage(false, mw.partyMemberBaseCards(false, List.of(0, 1)), blocker,
+                (live, power, onSpread) -> onSpread.accept(Map.of(0, 2000)), landed::add);
 
         assertFalse(mw.p1ForwardCards.contains(blocker), "3000 already on it plus the party's 6000 reaches its 8000 power");
         assertTrue(mw.gameState.getP1BreakZone().contains(blocker));
-        assertEquals(8000, mw.p2ForwardDamage.get(0), "a blocker broken by the party still deals its damage back");
+        assertEquals(2000, mw.p2ForwardDamage.get(0), "a blocker broken by the party still deals its damage back");
     }
 
     private static final String GLADIOLUS_TEXT =
@@ -4350,7 +4349,7 @@ public class CardBehaviorTest {
         placeP1Forward(mw, yuna);
         placeP2Forward(mw, glad);
 
-        p2BlocksP1Party(mw, glad, 14000, Map.of(0, 7000, 1, 2000));
+        p2BlocksP1Party(mw, glad, Map.of(0, 7000, 1, 2000));
 
         assertTrue(mw.gameState.getP1BreakZone().contains(yuzuki), "7000 + 2000 - 2000 is Yuzuki's 7000 power");
         assertEquals(List.of(yuna), mw.p1ForwardCards);
@@ -4370,7 +4369,7 @@ public class CardBehaviorTest {
         mw.nextOutgoingDmgZeroSet.add(glad);
 
         List<Map<Integer, Integer>> landed = new ArrayList<>();
-        mw.resolvePartyBlockDamage(true, List.of(0, 1), 10000, glad, P2_FORWARD_0,
+        mw.resolvePartyBlockDamage(true, mw.partyMemberBaseCards(true, List.of(0, 1)), glad,
                 (live, power, onSpread) -> fail("no damage is left to spread"), landed::add);
 
         assertEquals(List.of(Map.of()), landed, "the resolution completes with nothing spread");
@@ -4388,7 +4387,7 @@ public class CardBehaviorTest {
         placeP2Forward(mw, hugh);
         mw.nextOutgoingDmgDoublerSet.add(hugh);
 
-        p2BlocksP1Party(mw, hugh, 18000, Map.of(0, 3000, 1, 2000));
+        p2BlocksP1Party(mw, hugh, Map.of(0, 3000, 1, 2000));
 
         assertEquals(List.of(6000, 4000), mw.p1ForwardDamage, "both shares are doubled");
         assertFalse(mw.nextOutgoingDmgDoublerSet.contains(hugh), "off one use");
@@ -4406,7 +4405,7 @@ public class CardBehaviorTest {
         CardData blocker = makeTraitForward("Blocker", "Earth", 4, 8000, CardData.Trait.FIRST_STRIKE);
         placeP2Forward(mw, blocker);
 
-        p2BlocksP1Party(mw, blocker, 10000, Map.of(0, 5000, 1, 3000));
+        p2BlocksP1Party(mw, blocker, Map.of(0, 5000, 1, 3000));
 
         assertTrue(mw.gameState.getP1BreakZone().contains(allyA), "the First Strike share breaks Ally A");
         assertEquals(List.of(allyB), mw.p1ForwardCards);
@@ -4423,7 +4422,7 @@ public class CardBehaviorTest {
         CardData blocker = makeTraitForward("Blocker", "Earth", 4, 10000, CardData.Trait.FIRST_STRIKE);
         placeP2Forward(mw, blocker);
 
-        p2BlocksP1Party(mw, blocker, 10000, Map.of(0, 5000, 1, 5000));
+        p2BlocksP1Party(mw, blocker, Map.of(0, 5000, 1, 5000));
 
         assertEquals(List.of(), mw.p1ForwardCards, "both members are broken by the first strike");
         assertTrue(mw.p2ForwardCards.contains(blocker));
@@ -4439,11 +4438,93 @@ public class CardBehaviorTest {
         CardData blocker = makeTraitForward("Blocker", "Earth", 4, 8000, CardData.Trait.FIRST_STRIKE);
         placeP2Forward(mw, blocker);
 
-        p2BlocksP1Party(mw, blocker, 10000, Map.of(0, 5000, 1, 3000));
+        p2BlocksP1Party(mw, blocker, Map.of(0, 5000, 1, 3000));
 
         assertTrue(mw.gameState.getP1BreakZone().contains(allyA));
         assertTrue(mw.gameState.getP2BreakZone().contains(blocker),
                 "neither side strikes first, so Ally A's power still counts toward the 10000");
+    }
+
+    @Test
+    void aPartysPowerIsReadWhenItsDamageIsDealtNotWhenItAttacked() {
+        // Two 4000 Forwards attack as a party into a 9000 blocker. A +2000 given to one of them in
+        // a priority round after the attack was declared makes the blow 10000, which breaks it.
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, makeForward("Ally A", "Wind", 3, 4000));
+        placeP1Forward(mw, makeForward("Ally B", "Wind", 3, 4000));
+        CardData blocker = makeForward("Blocker", "Earth", 4, 9000);
+        placeP2Forward(mw, blocker);
+        assertEquals(8000, mw.partyPower(true, List.of(0, 1)), "the party's power as it attacks");
+
+        mw.p1ForwardPowerBoost.set(0, 2000);
+        p2BlocksP1Party(mw, blocker, Map.of(0, 1000));
+
+        assertTrue(mw.gameState.getP2BreakZone().contains(blocker), "the boosted 10000 reaches its 9000 power");
+    }
+
+    @Test
+    void aPartyMemberThatLeavesBeforeDamageDoesNotHandItsPlaceToTheForwardBehindIt() {
+        // Ally A and Ally B attack as a party, and Bystander, who did not attack, stands behind
+        // them. Ally A is broken before damage, so the row closes up: Ally B moves to slot 0 and
+        // Bystander to slot 1, where Ally B was declared. Only Ally B is still in the battle.
+        MainWindow mw = new MainWindow();
+        CardData allyA     = makeForward("Ally A", "Wind", 3, 4000);
+        CardData allyB     = makeForward("Ally B", "Wind", 3, 5000);
+        CardData bystander = makeForward("Bystander", "Wind", 3, 9000);
+        placeP1Forward(mw, allyA);
+        placeP1Forward(mw, allyB);
+        placeP1Forward(mw, bystander);
+        CardData blocker = makeForward("Blocker", "Earth", 4, 8000);
+        placeP2Forward(mw, blocker);
+        List<CardData> party = mw.partyMemberBaseCards(true, List.of(0, 1));
+
+        mw.breakP1Forward(0);
+        List<List<Integer>> offered = new ArrayList<>();
+        mw.resolvePartyBlockDamage(true, party, blocker,
+                (live, power, onSpread) -> { offered.add(live); onSpread.accept(Map.of(0, 3000)); }, spread -> { });
+
+        assertEquals(List.of(List.of(0)), offered, "only Ally B, now in slot 0, is offered a share");
+        assertEquals(5000, mw.p2ForwardDamage.get(0), "Ally B's 5000 alone reaches the blocker, not Bystander's with it");
+        assertEquals(List.of(allyB, bystander), mw.p1ForwardCards);
+        assertEquals(3000, mw.p1ForwardDamage.get(0), "the share lands on Ally B");
+        assertEquals(0,    mw.p1ForwardDamage.get(1), "Bystander was never in the battle");
+    }
+
+    @Test
+    void aBlockerWhoseRowClosesUpBeforeDamageIsStillTheOneHit() {
+        // The blocker stands in P2's slot 1. The Forward in slot 0 leaves before damage, so the
+        // blocker moves up to slot 0 and is found there.
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, makeForward("Ally A", "Wind", 3, 4000));
+        placeP1Forward(mw, makeForward("Ally B", "Wind", 3, 4000));
+        CardData blocker = makeForward("Blocker", "Earth", 4, 9000);
+        placeP2Forward(mw, makeForward("Other", "Earth", 3, 3000));
+        placeP2Forward(mw, blocker);
+
+        mw.breakP2Forward(0);
+        p2BlocksP1Party(mw, blocker, Map.of(0, 1000));
+
+        assertEquals(List.of(blocker), mw.p2ForwardCards);
+        assertEquals(8000, mw.p2ForwardDamage.get(0), "the party's 8000 lands on the blocker in its new slot");
+        assertEquals(1000, mw.p1ForwardDamage.get(0), "and its spread still comes back");
+    }
+
+    @Test
+    void aBlockerThatLeavesBeforeDamageLeavesThePartyBlockedAndUnhurt() {
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, makeForward("Ally A", "Wind", 3, 4000));
+        placeP1Forward(mw, makeForward("Ally B", "Wind", 3, 4000));
+        CardData blocker = makeForward("Blocker", "Earth", 4, 9000);
+        placeP2Forward(mw, blocker);
+        List<CardData> party = mw.partyMemberBaseCards(true, List.of(0, 1));
+
+        mw.breakP2Forward(0);
+        List<Map<Integer, Integer>> landed = new ArrayList<>();
+        mw.resolvePartyBlockDamage(true, party, blocker,
+                (live, power, onSpread) -> fail("no blocker is left to spread anything"), landed::add);
+
+        assertEquals(List.of(Map.of()), landed, "the resolution completes with nothing dealt");
+        assertEquals(List.of(0, 0), mw.p1ForwardDamage);
     }
 
     // =========================================================================================
@@ -18324,12 +18405,257 @@ public class CardBehaviorTest {
 		placeP1MonsterForward(mw, chocobo, 5000);
 
 		// First Strike throughout the party and a blocker it breaks: no return damage to assign.
-		Map<Integer, Integer> spread = mw.resolveP1BlockVsP2Party(
-				new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER), chocobo, List.of(0, 1), 14000);
+		Map<Integer, Integer> spread = mw.resolveP1BlockVsP2Party(chocobo, mw.partyMemberBaseCards(false, List.of(0, 1)));
 
 		assertTrue(spread.isEmpty(), "the party struck first, so the Monster dealt nothing back");
 		assertFalse(mw.p1MonsterCards.contains(chocobo), "the Monster that blocked is broken");
 		assertTrue(mw.gameState.getP1BreakZone().contains(chocobo));
+	}
+
+	@Test
+	void aPrimedForwardThatAttacksIsStillAnAttackerAfterThePriorityRound() {
+		// A primed Forward attacks as its top card, which is what the declaration records — and
+		// the top card is not in the Forward row's own list, only stacked on the card that is.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Base", "Fire", 3, 7000));
+		CardData top = makeForward("Top", "Fire", 5, 9000);
+		mw.p1ForwardPrimedTop.set(0, top);
+
+		mw.executeP1Attack(List.of(0));
+
+		assertEquals(List.of(top), mw.p1DeclaredAttackers, "declared by its top card");
+		assertEquals(List.of(top), mw.survivingDeclaredAttackers(true),
+				"still on the field, so its attack goes on to the block step");
+	}
+
+	@Test
+	void anAttackerThatLeavesTheFieldIsNoLongerASurvivingAttacker() {
+		MainWindow mw = new MainWindow();
+		CardData attacker = makeForward("Attacker", "Fire", 3, 7000);
+		placeP1Forward(mw, attacker);
+		mw.executeP1Attack(List.of(0));
+
+		mw.breakP1Forward(0);
+
+		assertEquals(List.of(), mw.survivingDeclaredAttackers(true));
+	}
+
+	@Test
+	void anUnblockedAttackerThatLeftTheFieldDealsNoDamage() {
+		MainWindow mw = chosenByBoard();   // decks, so damage has somewhere to come from
+		CardData attacker = makeForward("Attacker", "Fire", 3, 7000);
+		placeP1Forward(mw, attacker);
+		mw.breakP1Forward(0);
+		boolean[] carriedOn = { false };
+
+		mw.unblockedAttackerHits(attacker, true, () -> carriedOn[0] = true);
+
+		assertEquals(0, mw.gameState.getP2DamageZone().size(), "an attacker no longer on the field deals no damage");
+		assertTrue(carriedOn[0], "and combat carries on without it");
+	}
+
+	@Test
+	void anUnblockedCpuAttackerThatLeftTheFieldDealsNoDamageEither() {
+		MainWindow mw = chosenByBoard();
+		CardData attacker = makeForward("Raider", "Ice", 3, 7000);
+		placeP2Forward(mw, attacker);
+		mw.breakP2Forward(0);
+
+		mw.unblockedAttackerHits(attacker, false, () -> { });
+
+		assertEquals(0, mw.gameState.getP1DamageZone().size());
+	}
+
+	@Test
+	void anUnblockedAttackerStillOnTheFieldDealsItsDamage() {
+		MainWindow mw = chosenByBoard();
+		placeP1Forward(mw, makeForward("Attacker", "Fire", 3, 7000));
+
+		mw.unblockedAttackerHits(mw.p1ForwardCards.get(0), true, () -> { });
+
+		assertEquals(1, mw.gameState.getP2DamageZone().size());
+	}
+
+	@Test
+	void anUnblockedPartyWithNoMemberLeftDealsNoDamage() {
+		MainWindow mw = chosenByBoard();
+		placeP1Forward(mw, makeForward("Ally A", "Fire", 3, 4000));
+		placeP1Forward(mw, makeForward("Ally B", "Fire", 3, 4000));
+		List<CardData> party = mw.partyMemberBaseCards(true, List.of(0, 1));
+		mw.breakP1Forward(1);
+		mw.breakP1Forward(0);
+		boolean[] carriedOn = { false };
+
+		mw.unblockedPartyHits(true, party, () -> carriedOn[0] = true);
+
+		assertEquals(0, mw.gameState.getP2DamageZone().size());
+		assertTrue(carriedOn[0], "and combat carries on");
+	}
+
+	@Test
+	void anUnblockedPartyThatLostAMemberStillDealsItsDamage() {
+		MainWindow mw = chosenByBoard();
+		placeP1Forward(mw, makeForward("Ally A", "Fire", 3, 4000));
+		placeP1Forward(mw, makeForward("Ally B", "Fire", 3, 4000));
+		List<CardData> party = mw.partyMemberBaseCards(true, List.of(0, 1));
+		mw.breakP1Forward(0);
+
+		mw.unblockedPartyHits(true, party, () -> { });
+
+		assertEquals(1, mw.gameState.getP2DamageZone().size(), "the survivor deals it");
+	}
+
+	@Test
+	void aFirstStrikeThatFailsToBreakStillLeavesItsDamageInActingCombat() {
+		// A 5000 First Strike Monster attacks into an 8000 Forward: its strike lands first and is not
+		// lethal, so the Forward keeps that damage and strikes back, breaking the Monster.
+		MainWindow mw = new MainWindow();
+		CardData wyvern = makeTraitForward("Wyvern", "Wind", 2, 5000, CardData.Trait.FIRST_STRIKE);
+		placeP1MonsterForward(mw, wyvern, 5000);
+		CardData wall = makeForward("Wall", "Earth", 4, 8000);
+		placeP2Forward(mw, wall);
+
+		mw.resolveActingCombat(wyvern, true, wall, false);
+
+		assertTrue(mw.p2ForwardCards.contains(wall), "5000 is short of the Forward's 8000");
+		assertEquals(5000, mw.p2ForwardDamage.get(0), "the first strike's damage stays on the Forward");
+		assertTrue(mw.gameState.getP1BreakZone().contains(wyvern), "the return strike breaks the Monster");
+	}
+
+	@Test
+	void aMonsterThatSurvivesAFirstStrikeKeepsItsDamageInActingCombat() {
+		// The mirror: a 9000 Monster attacks into a 4000 First Strike Forward. The 4000 lands first
+		// and does not break it, so it keeps that damage while its own 9000 breaks the Forward.
+		MainWindow mw = new MainWindow();
+		CardData golem = makeForward("Golem", "Earth", 2, 9000);
+		placeP1MonsterForward(mw, golem, 9000);
+		CardData duelist = makeTraitForward("Duelist", "Fire", 3, 4000, CardData.Trait.FIRST_STRIKE);
+		placeP2Forward(mw, duelist);
+
+		mw.resolveActingCombat(golem, true, duelist, false);
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(duelist), "the Monster's 9000 breaks the Forward");
+		assertTrue(mw.p1MonsterCards.contains(golem), "4000 is short of the Monster's 9000");
+		assertEquals(4000, mw.p1MonsterDamage.get(0), "the first strike's damage stays on the Monster");
+	}
+
+	@Test
+	void actingCombatFindsABlockerWhoseRowClosedUpBeforeDamage() {
+		// The Forward blocking a Monster stands in P2's slot 1. The Forward in slot 0 leaves in the
+		// priority round before damage, so the blocker moves up to slot 0 — and is found there.
+		MainWindow mw = new MainWindow();
+		CardData wyvern = makeForward("Wyvern", "Wind", 2, 5000);
+		placeP1MonsterForward(mw, wyvern, 5000);
+		CardData wall = makeForward("Wall", "Earth", 4, 8000);
+		placeP2Forward(mw, makeForward("Other", "Earth", 3, 3000));
+		placeP2Forward(mw, wall);
+
+		mw.breakP2Forward(0);
+		mw.resolveActingCombat(wyvern, true, wall, false);
+
+		assertEquals(List.of(wall), mw.p2ForwardCards);
+		assertEquals(5000, mw.p2ForwardDamage.get(0), "the Monster's 5000 lands on the blocker in its new slot");
+		assertTrue(mw.gameState.getP1BreakZone().contains(wyvern), "and the blocker's 8000 comes back");
+	}
+
+	private static final String BOMB_4_018R = "《Fire》: Until the end of the turn, Bomb also becomes a Forward with "
+			+ "5000 power and \"Put Bomb into the Break Zone: Deal 4000 damage to all Forwards.\" You can only use "
+			+ "this ability once per turn.";
+
+	/** A copy of 4-018R Bomb: a Multi-card, which is what lets two of them share the field. */
+	private static CardData makeBomb() {
+		return new CardData(null, "Bomb", "Fire", 2, 0, "Monster", false, 0, false, true,
+				Set.of(), 0, List.of(), null, List.of(),
+				CardData.parseActionAbilities(BOMB_4_018R), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				"Bomb", "FFT", null, BOMB_4_018R);
+	}
+
+	@Test
+	void oneBombsAbilityPromotesAndArmsThatBombOnlyNotItsTwin() {
+		MainWindow mw = new MainWindow();
+		CardData first  = makeBomb();
+		CardData second = makeBomb();
+		assertEquals(first, second, "two copies of one printing are equal records — the trap");
+		for (CardData bomb : List.of(first, second)) {
+			mw.gameState.getIdentity().put(bomb, true);
+			mw.placeCardInMonsterZone(bomb);
+		}
+		assertEquals(2, mw.p1MonsterCards.size(), "a Multi-card, so both stay");
+		assertSame(second, mw.p1MonsterCards.get(1));
+		String effect = CardData.parseActionAbilities(BOMB_4_018R).get(0).effectText();
+
+		// The second copy activates — the one an equality lookup would never find.
+		ActionResolver.parse(effect, second).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.isP1MonsterTemporarilyForward(1), "the Bomb whose ability it was becomes a Forward");
+		assertFalse(mw.isP1MonsterTemporarilyForward(0), "its twin does not");
+		assertEquals(1, mw.p1TempGrantedAbilities.get(second).size(), "and only it gains the Break Zone ability");
+		assertNull(mw.p1TempGrantedAbilities.get(first));
+	}
+
+	@Test
+	void actingCombatIsSkippedWhenTheBlockerHasLeftTheField() {
+		MainWindow mw = new MainWindow();
+		CardData wyvern = makeForward("Wyvern", "Wind", 2, 5000);
+		placeP1MonsterForward(mw, wyvern, 5000);
+		CardData wall = makeForward("Wall", "Earth", 4, 8000);
+		placeP2Forward(mw, wall);
+
+		mw.breakP2Forward(0);
+		mw.resolveActingCombat(wyvern, true, wall, false);
+
+		assertTrue(mw.p1MonsterCards.contains(wyvern), "nothing is left to strike it");
+		assertEquals(0, mw.p1MonsterDamage.get(0));
+	}
+
+	@Test
+	void anUnblockedAttackerThatDealsNoDamageFiresNoDealsDamageAbility() {
+		MainWindow mw = chosenByBoard();
+		CardData ignacio = makeForwardWithText("Ignacio", "Fire", 5, 9000, IGNACIO_10_001H);
+		placeP1Forward(mw, ignacio);
+		mw.dealsNoCombatDamageSet.add(ignacio);
+
+		mw.unblockedAttackerHits(ignacio, true, () -> { });
+
+		assertEquals(0, mw.gameState.getP2DamageZone().size(), "it deals no damage this battle");
+		assertEquals(0, mw.gameState.getP1Hand().size(), "so \"when Ignacio deals damage\" has nothing to answer");
+		assertTrue(mw.gameState.getStack().isEmpty());
+	}
+
+	@Test
+	void anUnblockedAttackerWhoseDamageBecomesZeroFiresNoDealsDamageAbility() {
+		MainWindow mw = chosenByBoard();
+		CardData ignacio = makeForwardWithText("Ignacio", "Fire", 5, 9000, IGNACIO_10_001H);
+		placeP1Forward(mw, ignacio);
+		mw.allOutgoingDmgZeroThisTurnSet.add(ignacio);   // 23-024R Shiva: damage to a player becomes 0
+
+		mw.unblockedAttackerHits(ignacio, true, () -> { });
+
+		assertEquals(0, mw.gameState.getP2DamageZone().size());
+		assertEquals(0, mw.gameState.getP1Hand().size());
+		assertTrue(mw.gameState.getStack().isEmpty());
+	}
+
+	@Test
+	void yourUnblockedPartyFiresItsMembersDealsDamageAbilities() throws Exception {
+		// The CPU's unblocked party always fired these; P1's never did.
+		MainWindow mw = chosenByBoard();
+		CardData ignacio = makeForwardWithText("Ignacio", "Fire", 5, 9000, IGNACIO_10_001H);
+		placeP1Forward(mw, ignacio);
+		placeP1Forward(mw, makeForward("Ally", "Fire", 3, 5000));
+		List<CardData> party = mw.partyMemberBaseCards(true, List.of(0, 1));
+
+		// The abilities fire once the damage card's reveal has played out, on a Swing timer.
+		CountDownLatch done = new CountDownLatch(1);
+		SwingUtilities.invokeAndWait(() -> mw.unblockedPartyHits(true, party, done::countDown));
+		assertTrue(done.await(10, TimeUnit.SECONDS), "the damage resolves and combat carries on");
+		SwingUtilities.invokeAndWait(() -> { });
+
+		assertEquals(1, mw.gameState.getP2DamageZone().size());
+		assertEquals(1, mw.gameState.getP1Hand().size(),
+				"Ignacio's \"deals damage to your opponent\" ability fired and drew");
 	}
 
 	@Test
@@ -71176,7 +71502,7 @@ public class CardBehaviorTest {
 		assertNull(mw.partyWithJoiners(false, List.of(0)), "the joiner is spent once read");
 
 		placeP1Forward(mw, makeForward("Blocker", "Fire", 3, 7000));
-		mw.openP1BlockVsParty(party, 14000, () -> { });
+		mw.openP1BlockVsParty(party, () -> { });
 		assertEquals(List.of(0, 1), mw.pendingP2PartyIndices, "P1 blocks a party of two");
 	}
 

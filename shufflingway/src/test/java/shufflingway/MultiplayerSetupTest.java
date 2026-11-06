@@ -324,6 +324,17 @@ class MultiplayerSetupTest {
     }
 
     @Test
+    void aPartyBlockWhoseBlockerLeftStaysBlockedAndNamesNoSlot() {
+        JSONObject left = RemoteOpponent.partyBlockerLeftAction().payload();
+        assertTrue(left.getBoolean("blocked"),
+                "the party is still blocked, so this must not read as a declined block");
+        assertTrue(left.getBoolean("blockerLeft"));
+        assertFalse(left.has("zone"), "there is no slot left to name");
+        assertFalse(left.has("idx"));
+        assertEquals(Map.of(), RemoteOpponent.damageSpread(left), "and nothing to spread");
+    }
+
+    @Test
     void aPartyBlocksDamageSpreadSurvivesItsStringKeys() {
         Map<Integer, Integer> spread = new LinkedHashMap<>();
         spread.put(0, 3000);

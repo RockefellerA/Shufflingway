@@ -235,8 +235,9 @@ class DamageResolver {
 
 		}
 
-		// Passive field ability: nullify battle damage from a Forward with specific traits (e.g. Haste, First Strike)
-		if (!fromAbility && mw.currentBattleAttacker != null) {
+		// Passive field ability: nullify battle damage from a Forward with specific traits (e.g. Haste, First Strike).
+		// The traits are read off the opposing Forward's slot, so one already gone from the field has none to read.
+		if (!fromAbility && mw.currentBattleAttacker != null && mw.currentBattleAttackerIdx >= 0) {
 			for (FieldAbility fa : card.fieldAbilities()) {
 				Matcher fam = AutoAbilityTriggers.FA_NULLIFY_TRAIT_FORWARD_DAMAGE.matcher(fa.effectText());
 				if (!fam.find() || !fam.group("card").trim().equalsIgnoreCase(card.name())) continue;
@@ -1253,20 +1254,24 @@ class DamageResolver {
 		return sourceHasOutgoingDmgToOpponentDoubler(attacker) ? 2 : 1;
 	}
 
-	/** Deals combat damage to the opponent — normally 1 point, but an outgoing-damage doubler or
-	 *  "the damage becomes N instead" ability on the attacker changes the count (N may be 0) —
-	 *  calling {@code afterDamage} after all damage points and any EX bursts have resolved. */
-	void dealCombatDamageToOpponent(CardData attacker, boolean attackerIsP1, Runnable afterDamage) {
+	/**
+	 * Deals combat damage to the opponent — normally 1 point, but an outgoing-damage doubler or
+	 * "the damage becomes N instead" ability on the attacker changes the count (N may be 0) —
+	 * then hands {@code afterDamage} whether any was dealt, once every point and any EX Burst has
+	 * resolved. An attacker that "deals no damage" this battle, or whose count came to 0, dealt
+	 * none, so its "deals damage to your opponent" abilities have nothing to answer.
+	 */
+	void dealCombatDamageToOpponent(CardData attacker, boolean attackerIsP1, Consumer<Boolean> afterDamage) {
 		if (mw.dealsNoCombatDamageSet.contains(attacker)) {
 			mw.logEntry((attackerIsP1 ? "" : "[P2] ") + attacker.name() + " deals no damage this battle");
-			afterDamage.run();
+			afterDamage.accept(false);
 			return;
 		}
 		int points = combatDamagePointsToOpponent(attacker);
 		if (points != 1)
 			mw.logEntry((attackerIsP1 ? "" : "[P2] ") + attacker.name()
 					+ " — combat damage to opponent is " + points + " instead of 1");
-		dealOpponentDamagePoints(attacker, attackerIsP1, points, afterDamage);
+		dealOpponentDamagePoints(attacker, attackerIsP1, points, () -> afterDamage.accept(points > 0));
 	}
 
 	/**
@@ -1308,6 +1313,7 @@ class DamageResolver {
 		                   : (isP1 ? mw.effectiveP1MonsterPower(idx) : mw.effectiveP2MonsterPower(idx));
 		mw.logEntry((isP1 ? "" : "[P2] ") + mons.get(idx).name() + " takes " + amount + " damage"
 				+ (effPow > 0 ? " (" + (effPow - accum) + " remaining)" : ""));
+		mw.floatDamage(mons.get(idx), isP1, amount);
 		if (effPow > 0 && accum >= effPow) {
 			if (isP1) mw.autoAbilityTriggers.breakP1MonsterSlot(idx); else mw.breakP2MonsterSlot(idx);
 		} else {
@@ -1364,6 +1370,8 @@ class DamageResolver {
 			int effPow = isP1 ? mw.effectiveP1ForwardPower(idx) : mw.effectiveP2ForwardPower(idx);
 			mw.logEntry((isP1 ? "" : "[P2] ") + fwds.get(idx).name() + " takes " + amount + " damage"
 					+ (effPow > 0 ? " (" + (effPow - accum) + " remaining)" : ""));
+			// Ahead of the triggers below, which can move the card or break it.
+			mw.floatDamage(fwds.get(idx), isP1, amount);
 			// Fires on being dealt damage, so before the break check below — 28-043R Gi Nattak's
 			// trigger still resolves when the damage is lethal.
 			CardData damagedCard = fwds.get(idx);
@@ -1582,6 +1590,7 @@ class DamageResolver {
 		int effPow = isP1 ? mw.p1BackupForwardPower(idx) : mw.p2BackupForwardPower(idx);
 		mw.logEntry((isP1 ? "" : "[P2] ") + c.name() + " takes " + amount + " damage"
 				+ (effPow > 0 ? " (" + (effPow - accum) + " remaining)" : ""));
+		mw.floatDamage(c, isP1, amount);
 		// See applyDamageToForward: a Backup acting as a Forward can carry the grant too.
 		if (mw.breakOnDealtDamageGrant(isP1, ForwardTarget.CardZone.BACKUP, idx, c, amount)) return;
 		if (effPow > 0 && accum >= effPow) {
