@@ -2103,9 +2103,11 @@ final class AutoAbilityTriggers {
 				executeWithEnteredCard(fa, watcher, watcherIsP1, enteringCard);
 				continue;
 			}
-			// Otherwise only the "if your opponent doesn't pay 《N》, [action]" form (Remedi) is wired,
-			// resolved inline with the entering card as its target; any other watcher stays dormant.
-			if (!ActionResolver.isIfOppNotPayAction(fa.effectText())) continue;
+			// Otherwise the "if your opponent doesn't pay 《N》, [action]" form (Remedi) and a bare
+			// action on the entering card (30-108R Lightning's "break that Forward") are wired,
+			// resolved inline with the entering card as their target; any other watcher stays dormant.
+			if (!ActionResolver.isIfOppNotPayAction(fa.effectText())
+					&& !ActionResolver.isWatcherBreakEnteringForward(fa.effectText(), watcher)) continue;
 			Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), watcher);
 			if (effect == null) continue;
 			if (enteringTarget == null) {
@@ -2210,7 +2212,9 @@ final class AutoAbilityTriggers {
 			// target of its own — it means the card that just arrived. Run it inline with that card
 			// preloaded, exactly as the "enters opponent's field" watchers already do for their own
 			// pronoun forms; everything else keeps the normal stack path.
-			if (ActionResolver.isTriggeredTargetAction(fa.effectText())) {
+			// So does 30-082H Barbara's "until the end of the turn, it gains +2000 power and Haste."
+			if (ActionResolver.isTriggeredTargetAction(fa.effectText())
+					|| ActionResolver.isWatcherEnteringCardGrant(fa.effectText(), watcher)) {
 				runWithEnteringCardAsTarget(fa, watcher, enteringIsP1,
 						enteringCardTarget(enteringCard, enteringIsP1));
 				continue;
@@ -2358,6 +2362,10 @@ final class AutoAbilityTriggers {
 	private static final Pattern SUBJECT_OF_YOUR_OPPONENT = Pattern.compile(
 			"(?i)^(.+?)\\s+of\\s+your\\s+opponent$");
 
+	/** "a Forward with 《LB》" — group 1 is the subject without the LB mark. */
+	private static final Pattern SUBJECT_WITH_LB = Pattern.compile(
+			"(?i)^(.+?)\\s+with\\s+《LB》$");
+
 	/**
 	 * Returns {@code true} if {@code enteringCard} matches the watcher's subject phrase.
 	 * Compound disjunctive subjects ("X or a Y or a Card Name Z") produced by
@@ -2389,11 +2397,29 @@ final class AutoAbilityTriggers {
 					return true;
 			return false;
 		}
+		// "A or B other than X": the exclusion closes the whole list, not just its last item.
+		Matcher listExcl = SUBJECT_LIST_OTHER_THAN.matcher(subject.trim());
+		if (listExcl.matches()) {
+			String tail = " other than " + listExcl.group("excl").trim();
+			for (String part : listExcl.group("head").split("(?i)\\s+or\\s+"))
+				if (matchesSingleSubject(part.trim() + tail, enteringCard, self)) return true;
+			return false;
+		}
 		for (String part : subject.split("(?i)\\s+or\\s+")) {
 			if (matchesSingleSubject(part.trim(), enteringCard, self)) return true;
 		}
 		return false;
 	}
+
+	/**
+	 * "a Job Dragoon Forward or a Card Name Dragoon Forward other than Barbara" (30-082H), "a Job
+	 * Ninja or a Card Name Ninja other than Edge" (11-045H), and Ayame 22-003R's Samurai twin. Split
+	 * on "or" as written, the exclusion stayed on the last item, and each card — a Dragoon, a Ninja,
+	 * a Samurai by Job — fired its own watcher on arriving. The head is greedy, so it ends at the
+	 * last "other than" and an exclusion that itself reads "Light or Dark" is left whole.
+	 */
+	private static final Pattern SUBJECT_LIST_OTHER_THAN = Pattern.compile(
+			"(?i)^(?<head>.+\\s+or\\s+.+)\\s+other\\s+than\\s+(?<excl>.+)$");
 
 	/**
 	 * @param self the card that owns the trigger (the "source"); used to resolve "other than
@@ -2449,6 +2475,10 @@ final class AutoAbilityTriggers {
 		// "of your opponent" says only which side, which the trigger itself already says.
 		Matcher sideM = SUBJECT_OF_YOUR_OPPONENT.matcher(subject);
 		if (sideM.matches()) return matchesSingleSubject(sideM.group(1).trim(), enteringCard, self);
+		// "a Forward with 《LB》" (30-048R Malebranche) — a card from the LB deck.
+		Matcher lbM = SUBJECT_WITH_LB.matcher(subject);
+		if (lbM.matches())
+			return enteringCard.isLb() && matchesSingleSubject(lbM.group(1).trim(), enteringCard, self);
 		// "a [X] other than [Name]" — match base subject but exclude the named card
 		Matcher otherThanM = java.util.regex.Pattern.compile(
 				"(?i)^(.+?)\\s+other\\s+than\\s+(.+)$").matcher(subject);

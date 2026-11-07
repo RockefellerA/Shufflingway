@@ -73,6 +73,12 @@ class LimitBehaviorTest {
 				false, 0, false, "", false, job, category, null));
 	}
 
+	/** A main-deck Forward built the same way, every property read off its printed {@code text}. */
+	private static CardData makeMainDeckForward(String name, String element, int cost, int power, String text) {
+		return MainWindow.buildCardData(new DeckCardDetail(null, name, element, cost, power, "Forward",
+				false, 0, false, text, false, null, null, null));
+	}
+
 	/** Plays {@code card} onto P2's field and resolves what its arrival put on the Stack. */
 	private static void enterAsP2(MainWindow mw, CardData card) {
 		resolveWhatQueues(mw, card, () -> placeP2Forward(mw, card));
@@ -4428,5 +4434,209 @@ class LimitBehaviorTest {
 
 		assertEquals(8000, mw.effectiveP2ForwardPower(a), "you control");
 		assertFalse(mw.effectiveP2HasTrait(a, CardData.Trait.BRAVE));
+	}
+
+	// =========================================================================================
+	// 30-128S Ysayle (LB 2): "When Ysayle enters the field, choose up to the same number of
+	// Characters as the Category XIV Characters you control. Freeze them."
+	//
+	// Ysayle is Category XIV herself, so she counts. No side is printed on what is chosen, and a
+	// Freeze is aimed at the opponent's board.
+	// =========================================================================================
+
+	private static final String YSAYLE_30_128S = "Limit Break -- 2[[br]]When Ysayle enters the field, choose up to the "
+			+ "same number of Characters as the Category XIV Characters you control. Freeze them.";
+
+	private static CardData makeYsayle() {
+		return makeLbForward("Ysayle", "Ice", 7, 5000, 2, "Lady Iceheart", "XIV", YSAYLE_30_128S);
+	}
+
+	/** How many of P1's Forwards are frozen. */
+	private static long frozenP1Forwards(MainWindow mw) {
+		return mw.p1ForwardFrozen.stream().filter(f -> f).count();
+	}
+
+	@Test
+	void ysayleFreezesOneCharacterForEachCategoryXivCharacterYouControl() {
+		MainWindow mw = new MainWindow();
+		CardData ownBackup  = makePlainCard("Alisaie", "Ice", "Backup", 2, 0, null, "XIV");
+		CardData ownForward = makePlainCard("Vivi", "Fire", "Forward", 2, 5000, null, "IX");
+		placeP2Backup(mw, ownBackup);
+		placeP2Forward(mw, ownForward);
+		placeP1Forward(mw, makePlainCard("Thancred", "Water", "Forward", 3, 7000, null, "XIV"));
+		placeP1Forward(mw, makeForward("Theirs A", "Water", 3, 7000));
+		placeP1Forward(mw, makeForward("Theirs B", "Water", 3, 7000));
+
+		enterAsP2(mw, makeYsayle());
+
+		assertEquals(2, frozenP1Forwards(mw), "Ysayle and the Backup; another Category and the opponent's XIV "
+				+ "Forward do not count");
+		assertFalse(mw.p2BackupFrozen[0]);
+		assertFalse(mw.p2ForwardFrozen.get(mw.p2ForwardCards.indexOf(ownForward)), "aimed at the opponent");
+		for (CardState s : mw.p1ForwardStates) assertEquals(CardState.ACTIVE, s, "freezing does not dull");
+	}
+
+	@Test
+	void ysayleAloneFreezesOne() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Theirs A", "Water", 3, 7000));
+		placeP1Forward(mw, makeForward("Theirs B", "Water", 3, 7000));
+
+		enterAsP2(mw, makeYsayle());
+
+		assertEquals(1, frozenP1Forwards(mw));
+	}
+
+	// =========================================================================================
+	// 30-129S Alphinaud (LB 1): "When Alphinaud enters the field, reveal the top 2 cards of your
+	// deck. Add 1 Category XIV Character among them to your hand and return the other cards to the
+	// bottom of your deck in any order."
+	// =========================================================================================
+
+	private static final String ALPHINAUD_30_129S = "Limit Break -- 1[[br]]When Alphinaud enters the field, reveal the "
+			+ "top 2 cards of your deck. Add 1 Category XIV Character among them to your hand and return the other "
+			+ "cards to the bottom of your deck in any order.";
+
+	private static CardData makeAlphinaud() {
+		return makeLbForward("Alphinaud", "Lightning", 5, 6000, 1, "Scion of the Seventh Dawn", "XIV",
+				ALPHINAUD_30_129S);
+	}
+
+	@Test
+	void alphinaudAddsACategoryXivCharacterFromTheTopTwo() {
+		MainWindow mw = new MainWindow();
+		CardData third   = makePlainCard("Y'shtola", "Water", "Forward", 3, 7000, null, "XIV");
+		putOnTopOfDeck(mw, third, false);
+		CardData backup  = makePlainCard("Tataru", "Lightning", "Backup", 2, 0, null, "XIV");
+		CardData summon  = makePlainCard("Shiva", "Ice", "Summon", 2, 0, null, "XIV");
+		putOnTopOfDeck(mw, backup, false);
+		putOnTopOfDeck(mw, summon, false);
+
+		enterAsP2(mw, makeAlphinaud());
+
+		assertEquals(List.of(backup), mw.gameState.getP2Hand(), "a Character, Backups included, not the Summon; "
+				+ "the third card is out of reach");
+		assertSame(third, mw.gameState.getP2MainDeck().peekFirst(), "the Summon went under it");
+		assertEquals(List.of(third, summon), List.copyOf(mw.gameState.getP2MainDeck()));
+	}
+
+	@Test
+	void alphinaudAddsNothingWhenTheTopTwoHoldNoCategoryXivCharacter() {
+		MainWindow mw = new MainWindow();
+		CardData third   = makePlainCard("Y'shtola", "Water", "Forward", 3, 7000, null, "XIV");
+		putOnTopOfDeck(mw, third, false);
+		CardData outside = makePlainCard("Tidus", "Water", "Forward", 3, 7000, null, "X");
+		CardData summon  = makePlainCard("Shiva", "Ice", "Summon", 2, 0, null, "XIV");
+		putOnTopOfDeck(mw, outside, false);
+		putOnTopOfDeck(mw, summon, false);
+
+		enterAsP2(mw, makeAlphinaud());
+
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+		assertSame(third, mw.gameState.getP2MainDeck().peekFirst(), "both went to the bottom");
+		assertEquals(3, mw.gameState.getP2MainDeck().size());
+	}
+
+	// =========================================================================================
+	// 30-130S Estinien (LB 2): "If your opponent controls a Forward of power 9000 or more,
+	// Estinien gains Haste.[[br]]When Estinien attacks, choose 1 Forward opponent controls. If you
+	// control 4 or more Category XIV Characters, break it."
+	//
+	// Estinien is Category XIV himself, so he is one of the four. The opposing Forward's power is
+	// read as it stands, boosts and reductions included.
+	// =========================================================================================
+
+	private static final String ESTINIEN_30_130S = "Limit Break -- 2[[br]]If your opponent controls a Forward of power "
+			+ "9000 or more, Estinien gains Haste.[[br]]When Estinien attacks, choose 1 Forward opponent controls. If "
+			+ "you control 4 or more Category XIV Characters, break it.";
+
+	private static CardData makeEstinien() {
+		return makeLbForward("Estinien", "Lightning", 7, 8000, 2, "Dragoon", "XIV", ESTINIEN_30_130S);
+	}
+
+	@Test
+	void estinienGainsHasteWhileTheOpponentControlsAForwardOf9000OrMore() {
+		MainWindow mw = new MainWindow();
+		CardData estinien = makeEstinien();
+		placeP2Forward(mw, estinien);
+		placeP2Forward(mw, makeForward("Own Big", "Lightning", 6, 10000));
+		placeP1Forward(mw, makeForward("Theirs Small", "Water", 5, 8000));
+		int e = mw.p2ForwardCards.indexOf(estinien);
+
+		assertFalse(mw.effectiveP2HasTrait(e, CardData.Trait.HASTE),
+				"8000 is under 9000, and his own side's 10000 is not the opponent's");
+		placeP1Forward(mw, makeForward("Theirs Big", "Water", 6, 9000));
+		assertTrue(mw.effectiveP2HasTrait(e, CardData.Trait.HASTE));
+	}
+
+	@Test
+	void estinienReadsTheOpposingForwardsCurrentPower() {
+		MainWindow mw = new MainWindow();
+		CardData estinien = makeEstinien();
+		placeP2Forward(mw, estinien);
+		placeP1Forward(mw, makeForward("Theirs", "Water", 5, 8000));
+		int e = mw.p2ForwardCards.indexOf(estinien);
+
+		mw.p1ForwardPowerBoost.set(0, 1000);
+		assertTrue(mw.effectiveP2HasTrait(e, CardData.Trait.HASTE), "boosted to 9000");
+		mw.p1ForwardPowerBoost.set(0, 0);
+		mw.p1ForwardPowerReduction.set(0, 1000);
+		assertFalse(mw.effectiveP2HasTrait(e, CardData.Trait.HASTE), "reduced to 7000");
+	}
+
+	@Test
+	void estinienCanReadAnOpponentWhosePowersDependOnEachOther() {
+		// Prishe's power depends on Yenke's and Yenke's on Prishe's. Asking for either one has to
+		// settle both rather than ask back and forth.
+		MainWindow mw = new MainWindow();
+		CardData estinien = makeEstinien();
+		placeP2Forward(mw, estinien);
+		placeP1Forward(mw, makeMainDeckForward("Prishe", "Earth", 2, 5000, "If you control a Forward of power 9000 "
+				+ "or more other than Prishe, Prishe gains +3000 power."));
+		placeP1Forward(mw, makeMainDeckForward("Yenke", "Earth", 3, 5000, "If you control a Forward of power 9000 "
+				+ "or more other than Yenke, Yenke gains +2000 power."));
+		int e = mw.p2ForwardCards.indexOf(estinien);
+		assertFalse(mw.effectiveP2HasTrait(e, CardData.Trait.HASTE), "5000 and 5000");
+
+		mw.p1ForwardPowerBoost.set(0, 4000);
+		assertTrue(mw.effectiveP2HasTrait(e, CardData.Trait.HASTE), "Prishe pumped to 9000");
+	}
+
+	/** Estinien attacking from P2's field beside {@code allies}, at a P1 Forward; returns that Forward. */
+	private static CardData estinienAttacksBeside(MainWindow mw, CardData... allies) {
+		CardData estinien = makeEstinien();
+		placeP2Forward(mw, estinien);
+		for (CardData ally : allies) {
+			if (ally.isBackup()) placeP2Backup(mw, ally); else placeP2Forward(mw, ally);
+		}
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		attackAsP2(mw, estinien);
+		return theirs;
+	}
+
+	@Test
+	void estinienBreaksWithThreeOtherCategoryXivCharacters() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = estinienAttacksBeside(mw,
+				makePlainCard("Alphinaud", "Lightning", "Forward", 3, 7000, null, "XIV"),
+				makePlainCard("Alisaie", "Fire", "Forward", 3, 7000, null, "XIV"),
+				makePlainCard("Tataru", "Lightning", "Backup", 2, 0, null, "XIV"));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs), "four Characters, a Backup and Estinien among them");
+	}
+
+	@Test
+	void estinienBreaksNothingWithOnlyThreeCategoryXivCharacters() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makePlainCard("Thancred", "Water", "Forward", 3, 7000, null, "XIV"));
+		CardData theirs = estinienAttacksBeside(mw,
+				makePlainCard("Alphinaud", "Lightning", "Forward", 3, 7000, null, "XIV"),
+				makePlainCard("Tataru", "Lightning", "Backup", 2, 0, null, "XIV"),
+				makePlainCard("Vivi", "Fire", "Forward", 2, 5000, null, "IX"));
+
+		assertTrue(mw.p1ForwardCards.contains(theirs),
+				"three: another Category and the opponent's XIV Forward do not count");
+		assertEquals(2, mw.p1ForwardCards.size(), "whichever of the two was chosen");
 	}
 }

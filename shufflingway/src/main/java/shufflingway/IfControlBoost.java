@@ -143,6 +143,12 @@ public record IfControlBoost(
         };
     }
 
+    /** Whether any of this boost's conditions asks about a card's power ({@link ControlCondition#readsPower}). */
+    public boolean readsPower() {
+        for (ControlCondition c : conditions) if (c.readsPower()) return true;
+        return false;
+    }
+
     /**
      * Compatibility constructor preserving the prior 18-arg signature; defaults
      * {@code chosenImmunityOpponentOnly} to {@code false}. That default is the safe one: a grant

@@ -1940,19 +1940,30 @@ final class GameContextImpl implements GameContext {
 				}
 				int     maxCount = first.maxCount();
 				boolean upTo     = first.upTo();
+				// The taunt rule over the whole choice. Each half was narrowed on its own, so a
+				// taunting card in one half left the other half free; it must still win over both.
+				List<ForwardTarget> compelled = pool.stream()
+						.filter(t -> t.isP1() != isP1)
+						.filter(t -> mw.mustBeChosenByOpponent(cardAtTarget(t), mw.currentResolutionIsSummon))
+						.toList();
+				if (!compelled.isEmpty() && maxCount <= compelled.size()) pool.retainAll(compelled);
 				return fireChosenByOpponentTriggers(mw.selectChosenTargets(isP1, pool, maxCount,
 						title, "Waiting for your opponent to choose targets...",
 						() -> mw.showForwardSelectDialog(pool, maxCount, upTo, title),
 						() -> {
 							// The AI's pick, on the same reasoning selectCharacters uses for a break:
-							// the dearest board presence the choice reaches is the one worth removing.
-							// Both descriptions this shape is printed with name the opponent's cards,
-							// so there is no side preference left to express.
-							List<ForwardTarget> byCostDesc = new ArrayList<>(pool);
-							byCostDesc.sort(Comparator.comparingInt(
-									(ForwardTarget t) -> cardAtTarget(t).cost()).reversed());
+							// the dearest of the opponent's cards the choice reaches is the one worth
+							// removing. Only when the choice reaches none of theirs does it spend one
+							// of its own, and then the cheapest — 30-026R Zenos's "1 Forward you
+							// control or 1 Job Warrior of Light Forward opponent controls".
+							List<ForwardTarget> theirs = new ArrayList<>(pool.stream()
+									.filter(t -> t.isP1() != isP1).toList());
+							List<ForwardTarget> ranked = theirs.isEmpty() ? new ArrayList<>(pool) : theirs;
+							Comparator<ForwardTarget> byCost = Comparator.comparingInt(
+									(ForwardTarget t) -> cardAtTarget(t).cost());
+							ranked.sort(theirs.isEmpty() ? byCost : byCost.reversed());
 							List<ForwardTarget> picked =
-									List.copyOf(byCostDesc.subList(0, Math.min(maxCount, byCostDesc.size())));
+									List.copyOf(ranked.subList(0, Math.min(maxCount, ranked.size())));
 							picked.forEach(t -> logEntry("[AI] chose " + cardAtTarget(t).name()));
 							return picked;
 						}));
@@ -6519,6 +6530,21 @@ final class GameContextImpl implements GameContext {
 				return removed;
 			}
 
+			@Override public List<CardData> opponentRemovesTopCardsOfDeckFromGame(int count) {
+				boolean oppIsP1 = !isP1;
+				Deque<CardData> deck = oppIsP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				List<CardData> removed = new ArrayList<>();
+				for (int i = 0; i < count && !deck.isEmpty(); i++) {
+					CardData c = deck.pollFirst();
+					mw.gameState.addToPermanentRfp(c, oppIsP1);
+					logEntry(c.name() + " → Removed From Game (top of opponent's deck)");
+					removed.add(c);
+				}
+				if (oppIsP1) { mw.refreshP1DeckLabel(); mw.refreshP1WarpZoneUI(); }
+				else         { mw.refreshP2DeckLabel(); mw.refreshP2WarpZoneUI(); }
+				return removed;
+			}
+
 			@Override public int ownDeckSize() {
 				return (isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).size();
 			}
@@ -10903,6 +10929,12 @@ final class GameContextImpl implements GameContext {
 				mw.endOfTurnEffects.add(ctx -> mw.activeCostReductions.remove(modifier));
 			}
 
+			@Override public void allowNextCastAnyElement(CostReductionModifier filter) {
+				List<CostReductionModifier> pending = mw.turn(isP1).nextCastAnyElement;
+				pending.add(filter);
+				mw.endOfTurnEffects.add(ctx -> pending.remove(filter));
+			}
+
 
 	// =========================================================================================
 	// Break Zone salvage and cast-from-Break-Zone
@@ -11680,6 +11712,12 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : mw.attacksMadeThisTurn.keySet())
 					if (CardFilters.meetsCategoryFilter(c, categoryFilter)) n++;
 				return n;
+			}
+
+			@Override public boolean characterYouControlledAttackedThisTurn(Predicate<CardData> test) {
+				if (isP1 != (mw.gameState.getCurrentPlayer() == GameState.Player.P1)) return false;
+				for (CardData c : mw.attacksMadeThisTurn.keySet()) if (test.test(c)) return true;
+				return false;
 			}
 
 			@Override public int ownFieldCount(String cardType) {
@@ -12650,6 +12688,19 @@ final class GameContextImpl implements GameContext {
 				Consumer<CardData> playOntoField = revealPlacement();
 				mw.lookDialogs().revealPlayPerTypeQuotaTotalCostOntoField(peeked, deck, isP1,
 						types, totalCost, rest, playOntoField);
+			}
+
+			@Override public void revealTopNPlayPerQuotaOntoField(int reveal, List<RevealQuota> quotas,
+					RevealRest rest) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				mw.lookDialogs().revealPlayPerQuotaOntoField(peeked, deck, isP1, quotas, rest,
+						revealPlacement());
 			}
 
 			@Override public void revealTopNPlayTypeCostOrNamedCostOntoFieldRestBottom(

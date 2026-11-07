@@ -147,16 +147,18 @@ final class ActionResolverCost {
     }
 
     /**
-     * Parses "[you may pay 《X》.] if you don't pay 《X》, [consequence]". The consequence must itself
-     * be a supported effect — otherwise the whole ability stays unparsed rather than silently
-     * resolving as an unconditional consequence, which is what the bare consequence patterns would
-     * do if this gate let the text through.
+     * Parses "[you may pay 《X》.] if you don't pay 《X》, [consequence]", and Opus 30's "you pay 《X》
+     * or [consequence]" (30-077R Zack). The consequence must itself be a supported effect —
+     * otherwise the whole ability stays unparsed rather than silently resolving as an unconditional
+     * consequence, which is what the bare consequence patterns would do if this gate let the text
+     * through.
      */
     static Consumer<GameContext> tryParseIfNotPayOrElse(String text, CardData source, int xValue) {
         Matcher m = IF_NOT_PAY_OR_ELSE.matcher(text.trim());
         if (!m.matches()) return null;
-        String cost            = m.group("cost").trim();
-        String consequenceText = m.group("consequence").trim();
+        boolean newWording     = m.group("paycost") != null;
+        String cost            = (newWording ? m.group("paycost") : m.group("cost")).trim();
+        String consequenceText = (newWording ? m.group("payconsequence") : m.group("consequence")).trim();
         Consumer<GameContext> consequence = parse(consequenceText, source, xValue);
         if (consequence == null) return null;
 
@@ -216,7 +218,8 @@ final class ActionResolverCost {
     }
     /**
      * Parses the "Choose 1 [Summon/ability type(s)] [optional 'opponent's']. If your opponent
-     * doesn't pay 《N》, cancel its effect." family (Dull's active/action-ability cost form). Builds
+     * doesn't pay 《N》, cancel its effect." family (Dull's active/action-ability cost form), and
+     * its Opus 30 wording "Your opponent pays 《N》 or cancel its effect." (30-027C Celes). Builds
      * the target filter the same way as {@link #tryParseCancelAbilityOnStack}, additionally
      * restricting to the opponent's entries when "opponent's" qualifies the type — composed at
      * resolution time since the canceller's side is only known once the effect actually runs.
@@ -226,7 +229,7 @@ final class ActionResolverCost {
         if (!m.find()) return null;
         String types = m.group("types").trim();
         boolean opponentsOnly = m.group("opponents") != null;
-        int cost = Integer.parseInt(m.group("cost"));
+        int cost = cancelUnlessPayCost(m);
         java.util.function.Predicate<StackEntry> baseFilter = parseAbilityTypeFilter(types);
         String prompt = "Choose 1 " + (opponentsOnly ? "opponent's " : "") + types + " to threaten:";
         return ctx -> {
@@ -236,6 +239,11 @@ final class ActionResolverCost {
             ctx.logEntry("Effect: Choose 1 " + types + " — cancel unless opponent pays 《" + cost + "》");
             ctx.cancelFilteredAbilityOnStackUnlessOpponentPays(filter, prompt, cost);
         };
+    }
+    /** The CP a {@link ActionResolverPatterns#CANCEL_STACK_ENTRY_UNLESS_PAY} match asks for, in either wording. */
+    static int cancelUnlessPayCost(Matcher m) {
+        String cost = m.group("cost");
+        return Integer.parseInt(cost != null ? cost : m.group("paycost"));
     }
     /**
      * Parses the standalone "If your opponent doesn't pay 《N》[ or 《C》…], cancel its/their effect(s)."
@@ -493,6 +501,43 @@ final class ActionResolverCost {
         return ctx -> {
             ctx.logEntry("Effect: " + logDesc);
             ctx.applyNextCastCostReduction(modifier);
+        };
+    }
+    /**
+     * Parses "During this turn, the cost required to cast your next [filter] can be paid with CP of
+     * any Element." — 30-037H Aerith. The filter is read into the same {@link CostReductionModifier}
+     * the next-cast reductions use, with nothing taken off, so the next cast it matches is the one
+     * that spends it.
+     */
+    static Consumer<GameContext> tryParseNextCastAnyElementThisTurn(String text) {
+        Matcher m = NEXT_CAST_ANY_ELEMENT_THIS_TURN.matcher(text.trim());
+        if (!m.matches()) return null;
+        String cardname = m.group("cardname") != null ? m.group("cardname").trim() : null;
+        String typeRaw  = m.group("type");
+        boolean inclForwards, inclBackups, inclMonsters, inclSummons;
+        if (cardname != null) {
+            inclForwards = inclBackups = inclMonsters = inclSummons = true;
+        } else {
+            String t = typeRaw.toLowerCase(java.util.Locale.ROOT);
+            inclForwards = t.matches("forwards?|characters?|card");
+            inclBackups  = t.matches("backups?|characters?|card");
+            inclMonsters = t.matches("monsters?|characters?|card");
+            inclSummons  = t.matches("summons?|card");
+        }
+        String element  = m.group("element")  != null ? m.group("element").trim()  : null;
+        String category = m.group("category") != null ? m.group("category").trim() : null;
+        String job      = m.group("job")      != null ? m.group("job").trim()      : null;
+        CostReductionModifier filter = new CostReductionModifier(0, false, true,
+                inclForwards, inclBackups, inclMonsters, inclSummons, element, job, cardname, category, false);
+        String desc = "During this turn, your next "
+                + (element  != null ? element + " " : "")
+                + (category != null ? "Category " + category + " " : "")
+                + (job      != null ? "Job " + job + " " : "")
+                + (cardname != null ? "Card Name " + cardname : typeRaw)
+                + " can be paid with CP of any Element";
+        return ctx -> {
+            ctx.logEntry("Effect: " + desc);
+            ctx.allowNextCastAnyElement(filter);
         };
     }
     static Consumer<GameContext> tryParsePlayCostReductionThisTurn(String text) {

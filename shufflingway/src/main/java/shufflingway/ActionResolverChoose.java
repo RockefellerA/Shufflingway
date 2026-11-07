@@ -5821,6 +5821,27 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- Turn-long incoming-damage replacement, standalone (30-057H Kimahri, 30-091C White Mage) ---
+        // The incoming twin of the branch above, and the sentence 9-068H Mist Dragon prints after its
+        // dull. "By abilities" leaves Summons and battle damage alone.
+        Matcher inZeroM = FOLLOWUP_INCOMING_DMG_ZERO_THIS_TURN.matcher(primaryFollowup.trim());
+        if (inZeroM.matches()) {
+            final boolean abilitiesOnly = inZeroM.group("abilities") != null;
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — damage dealt to it"
+                        + (abilitiesOnly ? " by abilities" : "") + " becomes 0 for the rest of the turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                for (ForwardTarget t : ts) {
+                    if (abilitiesOnly) ctx.shieldAbilityOnlyDamage(t);
+                    else               ctx.shieldAllIncomingDamageThisTurn(t);
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Return to hand, then bar every copy of it until the end of the next turn (19-101R Leviathan) ---
         // Read off the whole followup: "it" in the second sentence names the card the first has
         // already put in hand, so split, the ban reaches the secondary parser with no referent and

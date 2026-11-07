@@ -7,7 +7,9 @@ import static shufflingway.ActionResolver.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.function.ToIntFunction;
 import java.util.regex.Matcher;
 
@@ -288,6 +290,97 @@ final class ActionResolverGate {
     static boolean forwardsAttackingGateUnreadable(String text, CardData source, int xValue) {
         return IF_FORWARDS_ATTACKING_THIS_TURN_GATE.matcher(text.trim()).matches()
                 && tryParseForwardsAttackingThisTurnGate(text, source, xValue) == null;
+    }
+
+    /**
+     * "If a &lt;subject&gt; you controlled attacked this turn, &lt;effect&gt;." — 30-040C Chocobo,
+     * 16-042R Lasswell. Declines unless both the subject and the payoff read; the dispatch then
+     * stops on {@link #youControlledAttackedGateUnreadable} rather than running the payoff ungated.
+     */
+    static Consumer<GameContext> tryParseYouControlledAttackedGate(String text, CardData source, int xValue) {
+        Matcher m = IF_CHARACTER_YOU_CONTROLLED_ATTACKED_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        String subject = m.group("subject").trim();
+        Predicate<CardData> test = attackerSubject(subject);
+        if (test == null) return null;
+        Consumer<GameContext> inner = parse(m.group("effect").trim() + ".", source, xValue);
+        if (inner == null) return null;
+        String label = "a " + subject + " you controlled attacked this turn";
+        return ctx -> {
+            if (ctx.characterYouControlledAttackedThisTurn(test)) {
+                ctx.logEntry("Effect: " + label + " — condition met");
+                inner.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: " + label + " — not met, skipped");
+            }
+        };
+    }
+
+    /**
+     * "Choose 1 &lt;filter&gt; you control or 1 &lt;filter&gt; opponent controls. &lt;action&gt;." —
+     * 30-026R Zenos. Each half is decoded as the standalone choose it would be, so its side and
+     * filter come from the same reader every other choose uses; the choice is then made among both
+     * pools at once ({@link GameContext#selectCharactersEitherSpec}, Gnash 7-057R's primitive).
+     * Gnash's own text, two cost-bounded halves on one side, stays with
+     * {@link ActionResolverBreak#tryParseChooseEitherCostSpecBreak}, which is tried first.
+     *
+     * <p>Declines unless both halves and the action read: a half this cannot decode would otherwise
+     * leave the choice wider or narrower than printed.
+     */
+    static Consumer<GameContext> tryParseChooseOneFromEitherPool(String text, CardData source, int xValue) {
+        Matcher m = CHOOSE_ONE_FROM_EITHER_POOL.matcher(text.trim());
+        if (!m.matches()) return null;
+        // Each half re-read as the standalone sentence it would be; the decoder wants the followup
+        // after the choose, so the printed one goes with each.
+        String actionText = m.group("action").trim();
+        TargetSpec first  = targetSpec("Choose 1 " + m.group("first").trim() + ". " + actionText, source);
+        TargetSpec second = targetSpec("Choose 1 " + m.group("second").trim() + ". " + actionText, source);
+        if (first == null || second == null || first.zone() != null || second.zone() != null) return null;
+        BiConsumer<GameContext, List<ForwardTarget>> action = parseTargetAction(actionText, xValue);
+        if (action == null) return null;
+        String title = "Choose 1 " + m.group("first").trim() + " or 1 " + m.group("second").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: " + title + " — " + actionText);
+            List<ForwardTarget> ts = ctx.selectCharactersEitherSpec(first, second, title);
+            if (ts.isEmpty()) {
+                ctx.markEffectFizzled();
+                return;
+            }
+            ctx.recordChosenTargets(ts);
+            action.accept(ctx, ts);
+        };
+    }
+
+    /** True when {@code text} is that gate with a subject or payoff no parser reads. */
+    static boolean youControlledAttackedGateUnreadable(String text, CardData source, int xValue) {
+        return IF_CHARACTER_YOU_CONTROLLED_ATTACKED_GATE.matcher(text.trim()).matches()
+                && tryParseYouControlledAttackedGate(text, source, xValue) == null;
+    }
+
+    /**
+     * The attacker test for {@link #tryParseYouControlledAttackedGate}'s subject: "Job Knight",
+     * "Job Chocobo or a Card Name Chocobo", "Forward". {@code null} when any alternative is a shape
+     * this does not read, so the whole gate declines.
+     */
+    private static Predicate<CardData> attackerSubject(String subject) {
+        Predicate<CardData> any = null;
+        for (String part : subject.split("(?i)\\s+or\\s+an?\\s+")) {
+            String p = part.trim();
+            Predicate<CardData> one;
+            if (p.regionMatches(true, 0, "Job ", 0, 4)) {
+                String job = p.substring(4).trim();
+                one = c -> CardFilters.meetsJobFilter(c, job);
+            } else if (p.regionMatches(true, 0, "Card Name ", 0, 10)) {
+                String name = p.substring(10).trim();
+                one = c -> CardFilters.meetsCardNameFilter(c, name);
+            } else if (p.equalsIgnoreCase("Forward") || p.equalsIgnoreCase("Character")) {
+                one = c -> true;   // only Characters attack
+            } else {
+                return null;
+            }
+            any = any == null ? one : any.or(one);
+        }
+        return any;
     }
 
     static Consumer<GameContext> tryParseControlConditionGate(String text, CardData source, int xValue) {

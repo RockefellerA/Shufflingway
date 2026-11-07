@@ -112,6 +112,27 @@ class PlayerTurnState {
 	}
 
 	/**
+	 * Pending "the cost required to cast your next [filter] can be paid with CP of any Element"
+	 * permissions (30-037H Aerith), one per resolution, in the order granted. Read by
+	 * {@code MainWindow.isAnyElementCast}; the next matching cast spends one
+	 * ({@link #spendNextCastAnyElement}), and an unspent one is removed at the end of the turn by the
+	 * effect that granted it.
+	 */
+	final List<CostReductionModifier> nextCastAnyElement = new ArrayList<>();
+
+	/** Whether a pending any-Element permission covers casting {@code card}. */
+	boolean nextCastMayPayAnyElement(CardData card) {
+		for (CostReductionModifier m : nextCastAnyElement) if (m.matches(card)) return true;
+		return false;
+	}
+
+	/** Spends the first pending any-Element permission {@code card} matches, as it is cast. */
+	void spendNextCastAnyElement(CardData card) {
+		for (int i = 0; i < nextCastAnyElement.size(); i++)
+			if (nextCastAnyElement.get(i).matches(card)) { nextCastAnyElement.remove(i); return; }
+	}
+
+	/**
 	 * Cards whose "you can cast [what] removed by [self]'s abilities" permission this player has
 	 * already used this turn. Only a printing that caps itself at once per turn reads it (Setzer
 	 * 21-031H does, Rinoa 21-038R does not), and it is keyed by the remover so that spending one

@@ -11244,4 +11244,237 @@ class SummonBehaviorTest {
 		assertEquals(List.of(8000, 8000), mw.p1ForwardDamage, "nothing removed, so \"if not\"");
 		assertTrue(mw.gameState.getP2RemovedFromGame().isEmpty());
 	}
+
+	// =========================================================================================
+	// 30-002C Ifrit: "EX BURST Choose 1 Forward. Deal it 5000 damage. If it is a Multi-Element
+	// Forward, deal it 8000 damage instead."
+	// =========================================================================================
+
+	private static final String IFRIT_30_002C = "[[ex]]EX BURST[[/]] Choose 1 Forward. Deal it 5000 damage. If it is a "
+			+ "Multi-Element Forward, deal it 8000 damage instead.";
+
+	@Test
+	void ifrit30Deals5000ToASingleElementForward() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+		castAsP2(mw, makeSummon("Ifrit", "Fire", 2, IFRIT_30_002C));
+		assertEquals(5000, damageOn(mw, theirs));
+	}
+
+	@Test
+	void ifrit30Deals8000InsteadToAMultiElementForward() {
+		MainWindow mw = new MainWindow();
+		CardData twin = makeForward("Twin", "Water/Wind", 5, 9000);
+		placeP1Forward(mw, twin);
+		castAsP2(mw, makeSummon("Ifrit", "Fire", 2, IFRIT_30_002C));
+		assertEquals(8000, damageOn(mw, twin), "8000 instead of the 5000, not on top of it");
+	}
+
+	// =========================================================================================
+	// 30-024C Styx: "Choose 1 Ice Forward in your Break Zone. Add it to your hand."
+	// =========================================================================================
+
+	private static final String STYX_30_024C = "Choose 1 Ice Forward in your Break Zone. Add it to your hand.";
+
+	@Test
+	void styxReturnsAnIceForwardFromYourBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData ice       = makeForward("Ice One", "Ice", 3, 7000);
+		CardData fire      = makeForward("Fire One", "Fire", 3, 7000);
+		CardData iceBackup = makeBackup("Ice Aide", "Ice", 2);
+		for (CardData c : List.of(fire, iceBackup, ice)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2BreakZone().add(c);
+		}
+		CardData theirIce = makeForward("Their Ice", "Ice", 3, 7000);
+		mw.gameState.getIdentity().put(theirIce, true);
+		mw.gameState.getP1BreakZone().add(theirIce);
+
+		castAsP2(mw, makeSummon("Styx", "Ice", 1, STYX_30_024C));
+
+		assertEquals(List.of(ice), mw.gameState.getP2Hand());
+		assertEquals(List.of(fire, iceBackup), mw.gameState.getP2BreakZone(), "Ice, and a Forward");
+		assertEquals(List.of(theirIce), mw.gameState.getP1BreakZone(), "your Break Zone");
+	}
+
+	@Test
+	void styxFindsNothingWithoutAnIceForwardInYourBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData fire      = makeForward("Fire One", "Fire", 3, 7000);
+		CardData iceBackup = makeBackup("Ice Aide", "Ice", 2);
+		for (CardData c : List.of(fire, iceBackup)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2BreakZone().add(c);
+		}
+		CardData theirIce = makeForward("Their Ice", "Ice", 3, 7000);
+		mw.gameState.getIdentity().put(theirIce, true);
+		mw.gameState.getP1BreakZone().add(theirIce);
+
+		castAsP2(mw, makeSummon("Styx", "Ice", 1, STYX_30_024C));
+
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "not another Element, not a Backup");
+		assertEquals(List.of(fire, iceBackup), mw.gameState.getP2BreakZone());
+		assertEquals(List.of(theirIce), mw.gameState.getP1BreakZone(), "not the opponent's Break Zone");
+		assertTrue(mw.gameState.getP1Hand().isEmpty());
+	}
+
+	// =========================================================================================
+	// 30-042C Dryad: "EX BURST Your opponent selects 1 Forward of cost 5 or more they control. Put
+	// it into the Break Zone."
+	//
+	// Cast from P1's seat, so the CPU does the selecting among its own Forwards.
+	// =========================================================================================
+
+	private static final String DRYAD_30_042C = "[[ex]]EX BURST[[/]] Your opponent selects 1 Forward of cost 5 or more "
+			+ "they control. Put it into the Break Zone.";
+
+	@Test
+	void dryadMakesTheOpponentPutAForwardOfCostFiveOrMoreIntoTheBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData four = makeForward("Four", "Water", 4, 8000);
+		CardData five = makeForward("Five", "Water", 5, 9000);
+		placeP2Forward(mw, four);
+		placeP2Forward(mw, five);
+		CardData mine = makeForward("Mine", "Wind", 6, 9000);
+		placeP1Forward(mw, mine);
+
+		castAsP1(mw, makeSummon("Dryad", "Wind", 3, DRYAD_30_042C));
+
+		assertEquals(List.of(five), mw.gameState.getP2BreakZone());
+		assertEquals(List.of(four), mw.p2ForwardCards, "cost 4 is under 5");
+		assertEquals(List.of(mine), mw.p1ForwardCards, "they control");
+	}
+
+	@Test
+	void dryadDoesNothingWhenTheOpponentHasNoForwardOfCostFiveOrMore() {
+		MainWindow mw = new MainWindow();
+		CardData four = makeForward("Four", "Water", 4, 8000);
+		placeP2Forward(mw, four);
+		placeP1Forward(mw, makeForward("Mine", "Wind", 6, 9000));
+
+		castAsP1(mw, makeSummon("Dryad", "Wind", 3, DRYAD_30_042C));
+
+		assertEquals(List.of(four), mw.p2ForwardCards);
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+		assertEquals(1, mw.p1ForwardCards.size(), "the caster's own cost-6 Forward is not the fallback");
+	}
+
+	// =========================================================================================
+	// 30-064C Fenrir: "Reveal the top 4 cards of your deck. Add 1 Character among them to your hand
+	// and return the other cards to the bottom of your deck in any order."
+	// =========================================================================================
+
+	private static final String FENRIR_30_064C = "Reveal the top 4 cards of your deck. Add 1 Character among them to "
+			+ "your hand and return the other cards to the bottom of your deck in any order.";
+
+	@Test
+	void fenrirAddsTheCharacterAmongTheTopFourAndBottomsTheRest() {
+		MainWindow mw = new MainWindow();
+		CardData summonA = makeSummon("Summon A", "Fire", 2, "Draw 1 card.");
+		CardData summonB = makeSummon("Summon B", "Ice", 2, "Draw 1 card.");
+		CardData backup  = makeBackup("Backup", "Earth", 2);
+		CardData summonC = makeSummon("Summon C", "Wind", 2, "Draw 1 card.");
+		CardData fifth   = makeForward("Fifth", "Earth", 3, 7000);
+		for (CardData c : List.of(summonA, summonB, backup, summonC, fifth)) mw.gameState.getP2MainDeck().add(c);
+
+		castAsP2(mw, makeSummon("Fenrir", "Earth", 1, FENRIR_30_064C));
+
+		assertEquals(List.of(backup), mw.gameState.getP2Hand(), "a Backup is a Character; the fifth card is out of reach");
+		assertSame(fifth, mw.gameState.getP2MainDeck().peekFirst(), "the rest went to the bottom");
+		assertEquals(Set.of(summonA, summonB, summonC),
+				Set.copyOf(List.copyOf(mw.gameState.getP2MainDeck()).subList(1, 4)));
+	}
+
+	@Test
+	void fenrirAddsNothingWhenTheTopFourHoldNoCharacter() {
+		MainWindow mw = new MainWindow();
+		List<CardData> summons = new ArrayList<>();
+		for (int i = 0; i < 4; i++) summons.add(makeSummon("Summon " + i, "Fire", 2, "Draw 1 card."));
+		CardData fifth = makeForward("Fifth", "Earth", 3, 7000);
+		for (CardData c : summons) mw.gameState.getP2MainDeck().add(c);
+		mw.gameState.getP2MainDeck().add(fifth);
+
+		castAsP2(mw, makeSummon("Fenrir", "Earth", 1, FENRIR_30_064C));
+
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+		assertSame(fifth, mw.gameState.getP2MainDeck().peekFirst(), "all four went to the bottom");
+		assertEquals(5, mw.gameState.getP2MainDeck().size());
+	}
+
+	// =========================================================================================
+	// 30-072C Ixion: "EX BURST Choose 1 Forward. It loses 3000 power until the end of the turn.
+	// Draw 1 card."
+	// =========================================================================================
+
+	private static final String IXION_30_072C = "[[ex]]EX BURST[[/]] Choose 1 Forward. It loses 3000 power until the end "
+			+ "of the turn. Draw 1 card.";
+
+	@Test
+	void ixionShrinksAnOpposingForwardAndDraws() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Theirs", "Water", 4, 7000));
+		placeP2Forward(mw, makeForward("Mine", "Lightning", 4, 7000));
+		fillP2Deck(mw, 2);
+
+		castAsP2(mw, makeSummon("Ixion", "Lightning", 1, IXION_30_072C));
+
+		assertEquals(4000, mw.effectiveP1ForwardPower(0));
+		assertEquals(7000, mw.effectiveP2ForwardPower(0), "a power loss is aimed at the opponent");
+		assertEquals(1, mw.gameState.getP2Hand().size());
+		assertEquals(1, mw.gameState.getP2MainDeck().size());
+	}
+
+	@Test
+	void ixionStillDrawsWithNoForwardToChoose() {
+		MainWindow mw = new MainWindow();
+		fillP2Deck(mw, 2);
+
+		castAsP2(mw, makeSummon("Ixion", "Lightning", 1, IXION_30_072C));
+
+		assertEquals(1, mw.gameState.getP2Hand().size(), "the draw is its own sentence");
+	}
+
+	// =========================================================================================
+	// 30-097C Leviathan: "Choose 1 Forward of cost 4 opponent controls. Return it to its owner's
+	// hand." Exactly cost 4, where 27-108H prints "cost 4 or less".
+	// =========================================================================================
+
+	private static final String LEVIATHAN_30_097C = "Choose 1 Forward of cost 4 opponent controls. Return it to its "
+			+ "owner's hand.";
+
+	@Test
+	void leviathan30ReturnsAForwardOfExactlyCostFour() {
+		MainWindow mw = new MainWindow();
+		CardData three = makeForward("Three", "Fire", 3, 7000);
+		CardData four  = makeForward("Four", "Fire", 4, 8000);
+		CardData five  = makeForward("Five", "Fire", 5, 9000);
+		for (CardData c : List.of(three, four, five)) placeP1Forward(mw, c);
+		CardData mine = makeForward("Mine", "Water", 4, 8000);
+		placeP2Forward(mw, mine);
+
+		castAsP2(mw, makeSummon("Leviathan", "Water", 1, LEVIATHAN_30_097C));
+
+		assertEquals(List.of(four), mw.gameState.getP1Hand());
+		assertEquals(List.of(three, five), mw.p1ForwardCards, "neither cost 3 nor cost 5");
+		assertEquals(List.of(mine), mw.p2ForwardCards, "opponent controls");
+	}
+
+	@Test
+	void leviathan30ReturnsNothingWithoutAnOpposingForwardOfCostFour() {
+		MainWindow mw = new MainWindow();
+		CardData three = makeForward("Three", "Fire", 3, 7000);
+		CardData five  = makeForward("Five", "Fire", 5, 9000);
+		placeP1Forward(mw, three);
+		placeP1Forward(mw, five);
+		CardData mine = makeForward("Mine", "Water", 4, 8000);
+		placeP2Forward(mw, mine);
+
+		castAsP2(mw, makeSummon("Leviathan", "Water", 1, LEVIATHAN_30_097C));
+
+		assertTrue(mw.gameState.getP1Hand().isEmpty());
+		assertEquals(List.of(three, five), mw.p1ForwardCards);
+		assertEquals(List.of(mine), mw.p2ForwardCards, "the caster's own cost-4 Forward is not the fallback");
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+	}
 }

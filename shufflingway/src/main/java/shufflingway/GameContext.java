@@ -208,12 +208,17 @@ public interface GameContext {
     /**
      * Lets the resolving player pick from the union of two independent target descriptions —
      * Gnash 7-057R's "choose 1 Forward of cost 1 opponent controls or 1 Monster of cost 2 or less
-     * opponent controls".
+     * opponent controls", and 30-026R Zenos's "choose 1 Forward you control or 1 Job Warrior of
+     * Light Forward opponent controls", whose halves name different sides.
      *
      * <p>Cannot be expressed as one {@link #selectCharacters} call: its filters are a conjunction
      * narrowing a single pool, and this offers two pools whose card type and cost ceiling travel
      * together. Each spec is resolved through the same eligibility rules a lone
-     * {@code selectCharacters} would apply, so the "cannot be chosen" shields on either half hold.
+     * {@code selectCharacters} would apply, so the "cannot be chosen" shields on either half hold,
+     * and a taunting card in either half narrows the whole choice.
+     *
+     * <p>Both printings break what they choose, and the AI answers for that: the opponent's dearest
+     * card the choice reaches, or, when it reaches none of theirs, the cheapest of its own.
      *
      * <p>How many to pick and whether the count is a ceiling are read from {@code first}; the
      * second spec contributes only its filters. A card answering both descriptions is offered once.
@@ -1146,6 +1151,17 @@ public interface GameContext {
      */
     List<CardData> removeTopCardsOfDeckFromGame(int count, CardData source);
 
+    /**
+     * The opposing mirror of {@link #removeTopCardsOfDeckFromGame}: removes the top {@code count}
+     * cards of the opponent's deck from the game — "Your opponent removes the top card of their
+     * deck from the game." (30-011R Blank), "… the top 3 cards …" (30-103L Ultima Weapon). The
+     * opponent owns them, so they go to the opponent's removed-from-game zone, and nothing is made
+     * castable; that is {@link #opponentRfpTopDeckMakeCastable}.
+     *
+     * @return the cards removed, top first; fewer than {@code count} when the deck ran out
+     */
+    List<CardData> opponentRemovesTopCardsOfDeckFromGame(int count);
+
     /** The number of cards in the acting player's deck — "until there are only 3 cards left in the deck" (24-014H Bahamut). */
     int ownDeckSize();
 
@@ -1816,7 +1832,12 @@ public interface GameContext {
      */
     void putCardRemovedBySourceIntoBreakZone(CardData source);
 
-    /** Damage from the opponent's abilities (not Summons) to target becomes 0 until end of turn. */
+    /**
+     * Damage from abilities (not Summons, not battle) to target becomes 0 until end of turn — either
+     * player's abilities, which is 30-091C White Mage's "if it is dealt damage by abilities".
+     * 17-127H Engelbert grants this for "your opponent's abilities", which it reads more widely
+     * than printed: the shield does not ask whose ability it is.
+     */
     void shieldAbilityOnlyDamage(ForwardTarget t);
 
     /** Next damage target deals to a Forward becomes 0 (consumed on first hit). */
@@ -2207,6 +2228,17 @@ public interface GameContext {
      * N or more Category XIII Forwards were attacking this turn". {@code null} counts every one.
      */
     int forwardsAttackingThisTurnCount(String categoryFilter);
+
+    /**
+     * Whether a Character this context's player controlled declared an attack this turn and passes
+     * {@code test} — "if a Job Chocobo or a Card Name Chocobo you controlled attacked this turn"
+     * (30-040C Chocobo), "if a Job Knight you controlled attacked this turn" (16-042R Lasswell).
+     *
+     * <p>Read off the record behind {@link #forwardsAttackingThisTurnCount()}, so a Character that
+     * has since left the field still counts. That record does not keep sides; it does not need to,
+     * since only the turn player declares attacks, and on the other player's turn the answer is no.
+     */
+    boolean characterYouControlledAttackedThisTurn(Predicate<CardData> test);
 
 
     /**
@@ -4360,6 +4392,18 @@ public interface GameContext {
             int totalCost, RevealRest rest);
 
     /**
+     * Reveals the top {@code reveal} cards of the active player's deck. The player plays up to one
+     * card per allowance in {@code quotas} among them onto the field for free; the rest go where
+     * {@code rest} says. "Play up to 1 Category FFBE Character of cost 2 or less and up to 1
+     * Category FFBE Character of cost 4 or less among them onto the field. Then, shuffle the other
+     * cards and return them to the bottom of your deck." — Jayden Rundall 30-104H.
+     *
+     * <p>The play-onto-field sibling of {@link #revealTopAddPerElementQuota}, and like it matched as
+     * a whole haul: the allowances overlap, so a card that fills both still spends only one.
+     */
+    void revealTopNPlayPerQuotaOntoField(int reveal, List<RevealQuota> quotas, RevealRest rest);
+
+    /**
      * <p><b>Unused.</b> Nothing calls this convenience, and a Mockito mock cannot see through it to
      * the method above, so a test that named it would pass against a real context and fail against
      * a mock. Left in step with its delegate rather than trusted.
@@ -5324,6 +5368,18 @@ public interface GameContext {
      * automatically at end of turn if unused.
      */
     void applyNextCastCostReduction(CostReductionModifier modifier);
+
+    /**
+     * "During this turn, the cost required to cast your next [filter] can be paid with CP of any
+     * Element." — 30-037H Aerith. Lets this context's player pay for the next card they cast that
+     * {@code filter} matches with CP of any Element; that cast spends it, and it ends with the turn
+     * if unused. Only {@link CostReductionModifier#matches} is read — nothing is taken off the cost.
+     *
+     * <p>Kept against the player, unlike {@link #applyNextCastCostReduction}: "your next" is the
+     * player's own cast, and the opponent casting a matching card first must neither use it nor
+     * spend it.
+     */
+    void allowNextCastAnyElement(CostReductionModifier filter);
 
     /**
      * Prompts the ability user to choose 1 Summon from their own Break Zone and adds it to their hand.

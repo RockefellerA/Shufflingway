@@ -762,10 +762,13 @@ final class ActionResolverPatterns {
     /**
      * Matches the "Choose 1 [Summon/ability type(s)] [optional 'opponent's']. If your opponent
      * doesn't pay 《N》, cancel its effect." family — a conditional cancel gated on an unpaid CP cost
-     * (Dull's active/action-ability cost form). Group {@code opponents} — present when the target
-     * must belong to the opponent (e.g. "opponent's auto-ability"). Group {@code types} — same
-     * vocabulary as {@link #CANCEL_ABILITY_ON_STACK} plus {@code Summon}. Group {@code cost} — the
-     * CP amount that must be paid in full to prevent the cancellation.
+     * (Dull's active/action-ability cost form). Opus 30 prints the same effect as "Your opponent
+     * pays 《N》 or cancel its effect." (30-027C Celes): the same payer, and the same choice to pay or
+     * let it be cancelled. Group {@code opponents} — present when the target must belong to the
+     * opponent (e.g. "opponent's auto-ability"). Group {@code types} — same vocabulary as
+     * {@link #CANCEL_ABILITY_ON_STACK} plus {@code Summon}. Group {@code cost}, or {@code paycost}
+     * in the newer wording — the CP amount that must be paid in full to prevent the cancellation;
+     * read through {@link ActionResolverCost#cancelUnlessPayCost}.
      */
     static final Pattern CANCEL_STACK_ENTRY_UNLESS_PAY = Pattern.compile(
         "(?i)Choose\\s+(?:1\\s+|an?\\s+)?" +
@@ -773,7 +776,8 @@ final class ActionResolverPatterns {
         "(?<types>(?:Summon|auto[- ]ability|action\\s+ability|special\\s+ability|ability)" +
         "(?:\\s+or\\s+(?:Summon|auto[- ]ability|action\\s+ability|special\\s+ability))?)" +
         "(?:\\s+that\\s+(?:is\\s+)?choosing\\s+(?<tgtFilter>[^.]+?))?" +
-        "\\.\\s*If\\s+your\\s+opponent\\s+doesn'?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》,?\\s*" +
+        "\\.\\s*(?:If\\s+your\\s+opponent\\s+doesn'?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》,?\\s*" +
+        "|Your\\s+opponent\\s+pays\\s*《\\s*(?<paycost>\\d+)\\s*》\\s+or\\s+)" +
         "cancel\\s+its\\s+effect[.!]?"
     );
     /**
@@ -1829,6 +1833,15 @@ final class ActionResolverPatterns {
         "(?i)^Break\\s+that\\s+Character\\s*[.!]?$"
     );
     /**
+     * "Break that Forward." — the wording kept out of {@link #FOLLOWUP_BREAK_DEMONSTRATIVE} because
+     * Breaktouch prints it. Read only by {@link ActionResolverState#tryParseWatcherBreakEnteringForward},
+     * which takes it solely as the whole effect of the source's own enters-field watcher (30-108R
+     * Lightning).
+     */
+    static final Pattern WATCHER_BREAK_ENTERING_FORWARD = Pattern.compile(
+        "(?i)^Break\\s+that\\s+Forward\\s*[.!]?$"
+    );
+    /**
      * Matches "Break the chosen Forward." — the payoff half of 4-087R Delita, whose sentence
      * points back at the Forward the same ability chose two clauses earlier rather than at
      * anything the followup selects for itself.
@@ -2751,6 +2764,17 @@ final class ActionResolverPatterns {
     static final Pattern REMOVE_TOP_OF_DECK_FROM_GAME = Pattern.compile(
         "(?i)Remove\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of\\s+your\\s+deck\\s+from\\s+(?:the\\s+)?game" +
         "(?:\\s+until\\s+there\\s+(?:are|is)\\s+only\\s+(?<left>\\d+)\\s+cards?\\s+left\\s+in\\s+(?:the|your)\\s+deck)?\\.?"
+    );
+    /**
+     * "Your opponent removes the top [card | N cards] of their deck from the game." — 30-011R Blank,
+     * and 30-103L Ultima Weapon's last sentence. The opposing mirror of
+     * {@link #REMOVE_TOP_OF_DECK_FROM_GAME}. Anchored end to end: 12-018H Lani's "… face down" and
+     * 16-048H Zidane's "… You can cast it …" go on to make the card castable, which is
+     * {@link #OPP_RFP_TOPDECK_CASTABLE}'s effect, not this one. Group {@code count}, absent for 1.
+     */
+    static final Pattern OPP_REMOVES_TOP_OF_DECK_FROM_GAME = Pattern.compile(
+        "(?i)^\\s*Your\\s+opponent\\s+removes\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards|card)\\s+of\\s+their\\s+deck" +
+        "\\s+from\\s+the\\s+game[.!]?\\s*$"
     );
     /**
      * Matches "Remove the top [N cards|card] of your deck from the game. You can cast [it|them] [at
@@ -4371,6 +4395,21 @@ final class ActionResolverPatterns {
         "(?:\\s+this\\s+turn)?,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead[.!]?\\s*$"
     );
     /**
+     * The incoming twin of {@link #FOLLOWUP_OUTGOING_DMG_ZERO_THIS_TURN}: "During this turn, if it
+     * is dealt damage[ by abilities], the damage becomes 0 instead." printed on its own, where
+     * {@link #FOLLOWUP_DULL_THEN_DAMAGE_SHIELD} wants a dull in front of it.
+     *
+     * <p>Two scopes. Bare (30-057H Kimahri), every damage the chosen card is dealt for the rest of
+     * the turn. With {@code abilities} (30-091C White Mage), only damage from abilities, either
+     * player's: Summons and battle damage go through. Anchored end to end, so 5-136C Flintlock's
+     * "dealt damage less than its power" and 5-081C Cockatrice's attack-and-block lock in front are
+     * left to their own readers.
+     */
+    static final Pattern FOLLOWUP_INCOMING_DMG_ZERO_THIS_TURN = Pattern.compile(
+        "(?i)^During\\s+this\\s+turn,\\s+if\\s+(?:it|they)\\s+(?:is|are)\\s+dealt\\s+damage" +
+        "(?<abilities>\\s+by\\s+abilities)?,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead[.!]?\\s*$"
+    );
+    /**
      * Matches "Return it to its owner's hand. Until the end of the next turn, your opponent cannot
      * cast any copies of it." — 19-101R Leviathan, the corpus's only printing of a cast ban that
      * outlives the turn it is set in.
@@ -5350,6 +5389,15 @@ final class ActionResolverPatterns {
     static final Pattern REVEAL_ONE_PER_TYPE_QUOTA = Pattern.compile(
         "(?i)1\\s+(?<type>Forward|Backup|Monster|Summon)"
     );
+
+    /** The Elements a reveal allowance may name: "Wind", "Wind or Lightning", "Multi-Element". */
+    static final String REVEAL_QUOTA_ELEMENTS =
+        "(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element)" +
+        "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element))*";
+    /** One allowance in a reveal's quota list: "up to 1 Wind card", "up to 1 Forward". */
+    static final String REVEAL_QUOTA =
+        "up\\s+to\\s+\\d+\\s+(?:" + REVEAL_QUOTA_ELEMENTS + "\\s+cards?" +
+        "|(?:Forward|Backup|Monster|Character|Summon)s?)";
     /**
      * Matches "Reveal the top N cards of your deck. Add up to M [Element] card and up to M
      * [Element] card among them to your hand and [return the other cards to the bottom of your
@@ -5373,20 +5421,30 @@ final class ActionResolverPatterns {
      *
      * <p>Group {@code quotas} holds the whole list; the parser splits it with
      * {@link #REVEAL_ONE_PER_ELEMENT_QUOTA}, which keeps the pattern from naming a fixed number
-     * of allowances.
+     * of allowances. An allowance names Elements, "Multi-Element" among them (Cid Garlond 30-079C),
+     * or a card type (Fickblix 30-044L's "up to 1 Forward and up to 1 Monster").
+     *
+     * <p>The pattern takes a single allowance too, for Edgar 30-003H's "Add up to 2 Fire cards …
+     * put the rest of the cards into the Break Zone". The parser keeps only that one-allowance
+     * shape and declines the rest, which the flat reveals below already read.
      */
     static final Pattern REVEAL_TOP_N_ADD_PER_ELEMENT_QUOTA = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Add\\s+(?<quotas>up\\s+to\\s+\\d+\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*\\s+cards?(?:\\s+and\\s+up\\s+to\\s+\\d+\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*\\s+cards?)+)\\s+" +
+        "Add\\s+(?<quotas>" + REVEAL_QUOTA + "(?:\\s+and\\s+" + REVEAL_QUOTA + ")*)\\s+" +
         "among\\s+them\\s+to\\s+your\\s+hand,?\\s+and\\s+" +
         "(?:return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?" +
         "|(?<bz>put\\s+the\\s+rest\\s+(?:of\\s+the\\s+cards?\\s+)?into\\s+the\\s+Break\\s+Zone))" +
         "[.!]?\\s*$"
     );
 
-    /** One "up to N [Element(s)] card" allowance inside {@link #REVEAL_TOP_N_ADD_PER_ELEMENT_QUOTA}'s list. */
+    /**
+     * One "up to N [Element(s)] card" or "up to N [Type]" allowance inside
+     * {@link #REVEAL_TOP_N_ADD_PER_ELEMENT_QUOTA}'s list. Group {@code elems} or {@code type} says
+     * which kind it is.
+     */
     static final Pattern REVEAL_ONE_PER_ELEMENT_QUOTA = Pattern.compile(
-        "(?i)up\\s+to\\s+(?<count>\\d+)\\s+(?<elems>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+cards?"
+        "(?i)up\\s+to\\s+(?<count>\\d+)\\s+(?:(?<elems>" + REVEAL_QUOTA_ELEMENTS + ")\\s+cards?" +
+        "|(?<type>Forward|Backup|Monster|Character|Summon)s?)"
     );
     /**
      * "Reveal the top N cards of your deck. Play as many Job [J] [Type]s as you want — or up to
@@ -5420,6 +5478,32 @@ final class ActionResolverPatterns {
      * so the pattern does not name a fixed number of allowances. Two are required — a single "play
      * up to 1 Forward with a total cost of …" is the sibling above's shape, not this one's.
      */
+    /**
+     * "Reveal the top N cards of your deck. Play up to 1 [Category C] [Type] [of cost K or less] and
+     * up to 1 … among them onto the field. Then, shuffle the other cards and return them to the
+     * bottom of your deck." — Jayden Rundall 30-104H, the corpus's one printing.
+     *
+     * <p>A quota list with no budget, which is what separates it from
+     * {@link #REVEAL_PLAY_PER_TYPE_QUOTA_TOTAL_COST}; and the quotas overlap (Jayden's two cost bands
+     * share a Category and a type), so they are read into {@link RevealQuota}s and matched as a
+     * haul. Two or more allowances are required: a single one is the plain reveal-and-play family's
+     * shape. Group {@code quotas} is split by {@link #REVEAL_PLAY_ONE_QUOTA}.
+     */
+    static final String REVEAL_PLAY_QUOTA =
+        "up\\s+to\\s+\\d+\\s+(?:Category\\s+\\S+\\s+)?(?:Forward|Backup|Monster|Character)s?" +
+        "(?:\\s+of\\s+cost\\s+\\d+\\s+or\\s+less)?";
+    static final Pattern REVEAL_PLAY_PER_QUOTA_REST_SHUFFLED_BOTTOM = Pattern.compile(
+        "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Play\\s+(?<quotas>" + REVEAL_PLAY_QUOTA + "(?:\\s+and\\s+" + REVEAL_PLAY_QUOTA + ")+)\\s+" +
+        "among\\s+them\\s+onto\\s+(?:the\\s+)?field[.!]\\s+" +
+        "Then,?\\s+shuffle\\s+the\\s+other\\s+cards?(?:\\s+revealed)?\\s+and\\s+" +
+        "return\\s+them\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck[.!]?\\s*$"
+    );
+    /** One "up to N [Category C] [Type] [of cost K or less]" allowance, its parts captured. */
+    static final Pattern REVEAL_PLAY_ONE_QUOTA = Pattern.compile(
+        "(?i)up\\s+to\\s+(?<count>\\d+)\\s+(?:Category\\s+(?<cat>\\S+)\\s+)?" +
+        "(?<type>Forward|Backup|Monster|Character)s?(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less)?"
+    );
     static final Pattern REVEAL_PLAY_PER_TYPE_QUOTA_TOTAL_COST = Pattern.compile(
         "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
         "Play\\s+(?<quotas>up\\s+to\\s+\\d+\\s+(?:Forward|Backup|Monster|Character)s?" +
@@ -7449,9 +7533,10 @@ final class ActionResolverPatterns {
         // Shelke 2-035H, Ghis 2-126R) are worded "play a Forward of any Element except X",
         // so the group was written, wired through to the executor, and unreachable.
         "(?i)Play\\s+(?:1|an?)\\s+" +
-        // Element(s) before any filter (e.g. "Ice" in "Play 1 Ice Forward")
-        "(?:(?<preelems>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
-            "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
+        // Element(s) before any filter (e.g. "Ice" in "Play 1 Ice Forward"), "Multi-Element"
+        // among them (30-100L Refia), which the hand filter reads through containsElement.
+        "(?:(?<preelems>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element)" +
+            "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element))*)\\s+)?" +
         "(?:" +
             // Bracket filter(s): [Job (x)] and/or [Card Name (x)]
             "(?<f1>\\[(?:Job|Card\\s+Name)\\s+\\([^)]+\\)\\])" +
@@ -10298,7 +10383,10 @@ final class ActionResolverPatterns {
         "(?<traits>(?:\\s+and\\s+(?:Haste|First\\s+Strike|Brave))+)?" +
         "(?:\\s+and\\s+\"(?<grant>[^\"]+)\")?[.!]?\\s*" +
         "\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?" +
-        "(?:\\s*This\\s+ability\\s+will\\s+not\\s+trigger\\s+if\\s+[^.]+?\\s+is\\s+a\\s+Forward\\.?)?\\)\\s*$"
+        "(?:\\s*This\\s+ability\\s+will\\s+not\\s+trigger\\s+if\\s+[^.]+?\\s+is\\s+a\\s+Forward\\.?)?\\)" +
+        // Opus 30 prints the guard after the reminder rather than inside it: 30-048R Malebranche,
+        // 30-119S Yeti.
+        "(?:\\s*This\\s+ability\\s+will\\s+not\\s+trigger\\s+if\\s+[^.]+?\\s+is\\s+a\\s+Forward\\.?)?\\s*$"
     );
 
     /**
@@ -10739,14 +10827,19 @@ final class ActionResolverPatterns {
      * <p>The comma after the cost is required: it separates this gate from Ultimecia 27-092H's
      * "if you don't pay 《1》 for each CP required to cast chosen Forward…", whose per-CP cost this
      * pattern must not claim.
+     * <p>Opus 30 prints the same choice as "you pay 《X》 or [consequence]" (30-077R Zack's "you pay
+     * 《3》 or put Zack into the Break Zone"): the same payer, deciding the same way. That wording
+     * takes the {@code paycost} and {@code payconsequence} groups; read either through
+     * {@link ActionResolverCost#tryParseIfNotPayOrElse}.
      * <ul>
      *   <li>Group {@code cost}        — the token inside 《》: a number, an element name, or "C"</li>
      *   <li>Group {@code consequence} — what happens when the cost goes unpaid</li>
      * </ul>
      */
     static final Pattern IF_NOT_PAY_OR_ELSE = Pattern.compile(
-        "(?i)^(?:you\\s+may\\s+)?(?:pay\\s+《[^》]+》[.!]?\\s+)?" +
-        "if\\s+you\\s+don'?t\\s+pay\\s+《(?<cost>[^》]+)》\\s*,\\s+(?<consequence>.+)$",
+        "(?i)^(?:(?:you\\s+may\\s+)?(?:pay\\s+《[^》]+》[.!]?\\s+)?" +
+        "if\\s+you\\s+don'?t\\s+pay\\s+《(?<cost>[^》]+)》\\s*,\\s+(?<consequence>.+)" +
+        "|you\\s+pay\\s+《(?<paycost>[^》]+)》\\s+or\\s+(?<payconsequence>.+))$",
         Pattern.DOTALL
     );
     /**
@@ -11518,6 +11611,20 @@ final class ActionResolverPatterns {
         "(?<floorone>\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"
     );
     /**
+     * "During this turn, the cost required to cast your next [filter] can be paid with CP of any
+     * Element." — 30-037H Aerith's "your next Category VII Character". The payment twin of
+     * {@link #COST_REDUCTION_THIS_TURN}, with the same filter vocabulary and groups; anchored, so it
+     * claims only the sentence on its own.
+     */
+    static final Pattern NEXT_CAST_ANY_ELEMENT_THIS_TURN = Pattern.compile(
+        "(?i)^During\\s+this\\s+turn,\\s+the\\s+cost\\s+required\\s+to\\s+cast\\s+your\\s+next\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:Category\\s+(?<category>\\S+)\\s+)?" +
+        "(?:Job\\s+(?<job>.+?)\\s+)?" +
+        "(?:Card\\s+Name\\s+(?<cardname>\\S+)|(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?|card))\\s+" +
+        "can\\s+be\\s+paid\\s+with\\s+CP\\s+of\\s+any\\s+Element[.!]?\\s*$"
+    );
+    /**
      * Matches "The cost required to play your [filter] onto the field this turn is reduced by N
      * [(it cannot become 0)][.]" — applies to all matching plays this turn (not consumed on use).
      */
@@ -12213,7 +12320,10 @@ final class ActionResolverPatterns {
         + "|\\bthe\\s+next\\s+damage\\s+dealt\\s+to\\s+(?:it|them)\\s+(?:(?:is|are)\\s+reduced|becomes?\\s+0)\\b"
         // 20-081H Fenrir: "It gains "This Forward cannot be chosen by your opponent's Summons.""
         + "|\\b(?:it|they)\\s+gains?\\s+[\"']This\\s+(?:Forward|Character)\\s+cannot\\s+be\\s+chosen\\s+by\\s+"
-        + "your\\s+opponent's\\b");
+        + "your\\s+opponent's\\b"
+        // 30-057H Kimahri, which prints no side: the turn-long shield goes on the AI's own Forward.
+        + "|\\bif\\s+(?:it|they)\\s+(?:is|are)\\s+dealt\\s+damage(?:\\s+by\\s+abilities)?,\\s+"
+        + "the\\s+damage\\s+becomes\\s+0\\b");
     /**
      * Followup wordings that harm the chosen target.  Checked first so a mixed effect
      * ("Deal it 5000 damage … it gains …") is never treated as a pure buff.
@@ -12739,6 +12849,33 @@ final class ActionResolverPatterns {
     static final Pattern IF_FORWARDS_ATTACKING_THIS_TURN_GATE = Pattern.compile(
         "(?is)^If\\s+(?<count>\\d+)\\s+or\\s+more\\s+(?:Category\\s+(?<cat>\\S+)\\s+)?" +
         "Forwards\\s+were\\s+attacking\\s+this\\s+turn,\\s*(?<effect>[^.]+)[.]?\\s*$"
+    );
+    /**
+     * "If a &lt;subject&gt; you controlled attacked this turn, &lt;effect&gt;." — 30-040C Chocobo's
+     * "if a Job Chocobo or a Card Name Chocobo you controlled attacked this turn, draw 1 card." and
+     * 16-042R Lasswell's "if a Job Knight you controlled attacked this turn, your opponent discards 1
+     * card from their hand."
+     *
+     * <p>Anchored, and one sentence: the payoffs find() on their own, and Lasswell's opponent was
+     * discarding at the end of every one of his turns with the condition dropped. Groups:
+     * {@code subject} — what attacked, alternatives joined by "or a"; {@code effect} — the payoff.
+     */
+    /**
+     * "Choose 1 &lt;filter&gt; you control or 1 &lt;filter&gt; opponent controls. &lt;action&gt;." —
+     * 30-026R Zenos's "choose 1 Forward you control or 1 Job Warrior of Light Forward opponent
+     * controls. Break it." One choice from two pools, each with its own side and filter.
+     *
+     * <p>Anchored end to end: CHOOSE_CHARACTER_PATTERN find()s the first half on its own and would
+     * break any Forward you control, with the opponent's half dropped. Groups: {@code first},
+     * {@code second} — each half from the filter to "controls"; {@code action} — the followup.
+     */
+    static final Pattern CHOOSE_ONE_FROM_EITHER_POOL = Pattern.compile(
+        "(?i)^choose\\s+1\\s+(?<first>[^.]+?\\s+(?:you|(?:your\\s+)?opponent)\\s+controls?)\\s+or\\s+" +
+        "1\\s+(?<second>[^.]+?\\s+(?:you|(?:your\\s+)?opponent)\\s+controls?)[.!]\\s+(?<action>[^.]+[.!]?)\\s*$"
+    );
+    static final Pattern IF_CHARACTER_YOU_CONTROLLED_ATTACKED_GATE = Pattern.compile(
+        "(?i)^If\\s+an?\\s+(?<subject>[^,]+?)\\s+you\\s+controlled\\s+attacked\\s+this\\s+turn,\\s*" +
+        "(?<effect>[^.]+)[.!]?\\s*$"
     );
     /**
      * Matches "if you control N or less/fewer [Forwards/Backups/Monsters/Characters], [effect]."

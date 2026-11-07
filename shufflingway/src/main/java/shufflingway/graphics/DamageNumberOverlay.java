@@ -64,16 +64,12 @@ public class DamageNumberOverlay extends JComponent {
 		final BufferedImage img;
 		/** Top-left of {@link #img} at the start of the run, in overlay coordinates. */
 		final int x, y;
-		/** Which way is up on the card, as a unit step on screen: the way the number rises. */
-		final int dx, dy;
 		final long startNs = System.nanoTime();
 
-		Burst(BufferedImage img, int x, int y, int dx, int dy) {
+		Burst(BufferedImage img, int x, int y) {
 			this.img = img;
 			this.x   = x;
 			this.y   = y;
-			this.dx  = dx;
-			this.dy  = dy;
 		}
 
 		double progress() {
@@ -84,7 +80,7 @@ public class DamageNumberOverlay extends JComponent {
 		Rectangle sweep() {
 			int rise = (int) Math.ceil(RISE);
 			Rectangle r = new Rectangle(x, y, img.getWidth(), img.getHeight());
-			r.add(new Rectangle(x + dx * rise, y + dy * rise, img.getWidth(), img.getHeight()));
+			r.add(new Rectangle(x, y - rise, img.getWidth(), img.getHeight()));
 			r.grow(OverlayDirtyRegion.PAD, OverlayDirtyRegion.PAD);
 			return r;
 		}
@@ -119,11 +115,11 @@ public class DamageNumberOverlay extends JComponent {
 	}
 
 	/**
-	 * Floats {@code amount} up off the card in {@code slot}. It starts centred across the card, a
-	 * quarter of the way up from its bottom edge, and rises toward the card's top. A dull card is
-	 * turned clockwise (see {@link CardAnimation#renderBackupCard}), and the number is turned with
-	 * it: the same point on the card is a quarter of the way in from the slot's left, centred top
-	 * to bottom, and the number rises to the right.
+	 * Floats {@code amount} up off the card in {@code slot}. It starts centred across the card as
+	 * drawn, a quarter of the way up from its bottom edge, and rises straight up the screen. A dull
+	 * card is drawn turned clockwise ({@link CardAnimation#renderBackupCard}), so its number starts
+	 * from that wider, shorter footprint; the digits stay upright and rise the same way as on an
+	 * active card.
 	 *
 	 * @param lift how far the slot is drawn above its laid-out position, by {@link SlotLiftOverlay}
 	 */
@@ -140,17 +136,17 @@ public class DamageNumberOverlay extends JComponent {
 	/** The burst for {@code amount} over a slot canvas whose top-left is at {@code canvas}. */
 	Burst burstAt(Point canvas, CardState state, int amount) {
 		Text t = renderNumber(String.valueOf(amount));
-		// Top-left of the number in the card's own upright frame, with the digits centred on the
-		// starting point.
-		int ix = (int) Math.round(CardAnimation.CARD_W / 2.0 - t.centerX);
-		int iy = (int) Math.round(CardAnimation.CARD_H * (1 - START_UP) - t.centerY);
-		if (state != CardState.DULL)
-			return new Burst(t.img, canvas.x + CardAnimation.LEFT_GUTTER + ix, canvas.y + iy, 0, -1);
-		// Turned clockwise with the card and placed through the transform CardAnimation draws a dull
-		// card's pills with, (x, y) -> (CARD_H - y, LEFT_GUTTER + x). The card's top faces right.
-		BufferedImage turned = CardAnimation.rotateCW90(t.img);
-		return new Burst(turned, canvas.x + CardAnimation.CARD_H - iy - t.img.getHeight(),
-				canvas.y + CardAnimation.LEFT_GUTTER + ix, 1, 0);
+		// The card's footprint on the slot canvas, as CardAnimation#renderBackupCard draws it:
+		// upright past the tab gutter, or turned clockwise and pinned left below it when dull.
+		boolean dull = state == CardState.DULL;
+		int cx = dull ? 0 : CardAnimation.LEFT_GUTTER;
+		int cy = dull ? CardAnimation.LEFT_GUTTER : 0;
+		int cw = dull ? CardAnimation.CARD_H : CardAnimation.CARD_W;
+		int ch = dull ? CardAnimation.CARD_W : CardAnimation.CARD_H;
+		// Top-left of the number, with the digits centred on the starting point.
+		int ix = (int) Math.round(cx + cw / 2.0 - t.centerX);
+		int iy = (int) Math.round(cy + ch * (1 - START_UP) - t.centerY);
+		return new Burst(t.img, canvas.x + ix, canvas.y + iy);
 	}
 
 	/**
@@ -216,7 +212,7 @@ public class DamageNumberOverlay extends JComponent {
 		Graphics2D g2 = (Graphics2D) g.create();
 		try {
 			g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) alpha));
-			g2.drawImage(b.img, (int) Math.round(b.x + b.dx * up), (int) Math.round(b.y + b.dy * up), null);
+			g2.drawImage(b.img, b.x, (int) Math.round(b.y - up), null);
 		} finally {
 			g2.dispose();
 		}

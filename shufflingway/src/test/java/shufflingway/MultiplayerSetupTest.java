@@ -742,7 +742,7 @@ class MultiplayerSetupTest {
         List<CardData> cards = List.of(typedCard("F1", "Forward", 1),
                 typedCard("F2", "Forward", 2), typedCard("F3", "Forward", 3));
         DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(
-                cards, ONE_EACH.size(), 8, ANY, RevealRest.BREAK_ZONE, ONE_EACH);
+                cards, ONE_EACH.size(), 8, ANY, RevealRest.BREAK_ZONE, LookAtDeckDialogs.typeQuotaRule(ONE_EACH));
 
         assertEquals(List.of(2), d.toField(), "the dearest Forward, and only one of them");
         assertEquals(List.of(0, 1), d.toBreak(), "the spares are broken, not bottomed");
@@ -754,7 +754,7 @@ class MultiplayerSetupTest {
         List<CardData> cards = List.of(typedCard("F", "Forward", 3),
                 typedCard("B", "Backup", 2), typedCard("M", "Monster", 2));
         DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(
-                cards, ONE_EACH.size(), 8, ANY, RevealRest.BREAK_ZONE, ONE_EACH);
+                cards, ONE_EACH.size(), 8, ANY, RevealRest.BREAK_ZONE, LookAtDeckDialogs.typeQuotaRule(ONE_EACH));
 
         assertEquals(Set.of(0, 1, 2), Set.copyOf(d.toField()), "one of each, all three played");
         assertTrue(d.toBreak().isEmpty());
@@ -767,7 +767,7 @@ class MultiplayerSetupTest {
         List<CardData> cards = List.of(typedCard("F", "Forward", 5),
                 typedCard("B", "Backup", 3), typedCard("M", "Monster", 4));
         DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(
-                cards, ONE_EACH.size(), 8, ANY, RevealRest.BREAK_ZONE, ONE_EACH);
+                cards, ONE_EACH.size(), 8, ANY, RevealRest.BREAK_ZONE, LookAtDeckDialogs.typeQuotaRule(ONE_EACH));
 
         assertEquals(List.of(0, 1), d.toField(),
                 "the cost-5 Forward, then the cost-3 Backup that still fits");
@@ -778,7 +778,7 @@ class MultiplayerSetupTest {
     void aCardOfNoNamedTypeIsNeverOffered() {
         List<CardData> cards = List.of(typedCard("S", "Summon", 1), typedCard("F", "Forward", 1));
         DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(
-                cards, ONE_EACH.size(), 8, ANY, RevealRest.BREAK_ZONE, ONE_EACH);
+                cards, ONE_EACH.size(), 8, ANY, RevealRest.BREAK_ZONE, LookAtDeckDialogs.typeQuotaRule(ONE_EACH));
 
         assertEquals(List.of(1), d.toField(), "a Summon fills none of the three quotas");
         assertEquals(List.of(0), d.toBreak());

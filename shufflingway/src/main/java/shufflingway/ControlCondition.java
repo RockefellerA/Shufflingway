@@ -276,6 +276,19 @@ public record ControlCondition(
     /** Returns {@code true} when this condition reads the Damage Zone rather than the field. */
     public boolean isDamageZoneMode() { return !damageZoneCardNames.isEmpty(); }
 
+    /**
+     * Whether this condition, or any part it is built from, asks about a card's power — "a Forward
+     * of power 9000 or more". Power moves with the boosts such a condition can switch on, so a
+     * boost gated on one is settled together with the others rather than read on its own
+     * ({@code MainWindow.settledPowerGates}).
+     */
+    public boolean readsPower() {
+        if (minPower > 0) return true;
+        for (ControlCondition alt : orAlternatives) if (alt.readsPower()) return true;
+        for (ControlCondition part : andConditions) if (part.readsPower()) return true;
+        return false;
+    }
+
     @Override
     public String toString() {
         if (isDamageZoneMode()) return "damageZone(" + String.join(" & ", damageZoneCardNames) + ")";

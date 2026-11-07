@@ -1431,6 +1431,60 @@ final class ActionResolverState {
     }
 
     /**
+     * "Until the end of the turn, it gains +N power and Haste." as the whole effect of an
+     * enters-field watcher — 30-082H Barbara's "When a Job Dragoon Forward or a Card Name Dragoon
+     * Forward other than Barbara enters your field, until the end of the turn, it gains +2000 power
+     * and Haste." "It" is the Forward that arrived, which {@code AutoAbilityTriggers} preloads.
+     *
+     * <p>The sentence is the Choose family's followup wording too, and three printings reach
+     * {@link ActionResolver#parse} with it as a choose secondary (see
+     * {@link ActionResolverPatterns#PAY_GATED_ENTERING_CARD_GRANT}), where "it" is the card they
+     * chose. So it is claimed only when {@code source} prints it as the entire effect of one of its
+     * own watchers of another card's arrival — the one position where "it" can mean nothing else.
+     */
+    static Consumer<GameContext> tryParseWatcherEnteringCardGrant(String text, CardData source) {
+        String t = text.trim();
+        return isOwnEntersWatcherEffect(t, source) ? tryParsePayGatedEnteringCardGrant(t) : null;
+    }
+
+    /**
+     * "Break that Forward." as the whole effect of an enters-field watcher — 30-108R Lightning's
+     * "When a Forward enters your opponent's field other than from their hand, break that Forward."
+     * "That Forward" is the one that arrived, which {@code AutoAbilityTriggers} preloads.
+     *
+     * <p>Not an arm of {@link ActionResolverPatterns#TRIGGERED_TARGET_ACTION_BARE}: the sentence is
+     * Breaktouch's printed wording too, and {@code DamageResolver} tells Breaktouch apart by asking
+     * that pattern (see {@link ActionResolverPatterns#FOLLOWUP_BREAK_DEMONSTRATIVE}). Tied instead to
+     * the printing watcher, which a Breaktouch — a damage trigger — never is.
+     */
+    static Consumer<GameContext> tryParseWatcherBreakEnteringForward(String text, CardData source) {
+        String t = text.trim();
+        if (!WATCHER_BREAK_ENTERING_FORWARD.matcher(t).matches() || !isOwnEntersWatcherEffect(t, source))
+            return null;
+        return ctx -> {
+            List<ForwardTarget> ts = ctx.consumePreloadedTargets();
+            if (ts == null || ts.isEmpty()) {
+                ctx.logEntry("Triggered break: no preloaded target — skipped");
+                return;
+            }
+            ctx.logEntry("Effect: break the Forward that entered");
+            for (ForwardTarget ft : ts) ctx.breakTarget(ft);
+        };
+    }
+
+    /**
+     * Whether {@code text} is the entire effect of one of {@code source}'s own watchers of another
+     * card's arrival ("When a … enters your / your opponent's field, …"), where "it" and "that
+     * Forward" can mean nothing but the card that arrived.
+     */
+    private static boolean isOwnEntersWatcherEffect(String text, CardData source) {
+        if (source == null) return false;
+        return source.autoAbilities().stream().anyMatch(aa ->
+                aa.trigger().startsWith("enters ") && !aa.trigger().startsWith("enters the field")
+                        && aa.effectText().trim().equalsIgnoreCase(text));
+    }
+
+    /**
      * "Until the end of the turn, it gains +N power and Haste." as the followup of a "pay 《…》. When
      * you do so, …" trigger — 13-009H Selphie, where "it" is the Forward that entered the field.
      *

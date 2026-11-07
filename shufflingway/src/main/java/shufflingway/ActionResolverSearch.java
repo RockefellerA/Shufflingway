@@ -341,6 +341,29 @@ final class ActionResolverSearch {
         };
     }
 
+    /**
+     * Parses "Reveal the top N cards of your deck. Play up to 1 [quota] and up to 1 [quota] among
+     * them onto the field. Then, shuffle the other cards and return them to the bottom of your
+     * deck." — Jayden Rundall 30-104H. Each quota names a type, and may name a Category and a cost
+     * ceiling; see {@link ActionResolverPatterns#REVEAL_PLAY_PER_QUOTA_REST_SHUFFLED_BOTTOM}.
+     */
+    static Consumer<GameContext> tryParseRevealPlayPerQuotaRestShuffledBottom(String text) {
+        Matcher m = REVEAL_PLAY_PER_QUOTA_REST_SHUFFLED_BOTTOM.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n = Integer.parseInt(m.group("n"));
+        List<RevealQuota> quotas = new ArrayList<>();
+        Matcher q = REVEAL_PLAY_ONE_QUOTA.matcher(m.group("quotas"));
+        while (q.find())
+            quotas.add(new RevealQuota(Integer.parseInt(q.group("count")), null, cap(q.group("type")),
+                    q.group("cat"), q.group("cost") != null ? Integer.parseInt(q.group("cost")) : -1));
+        if (quotas.size() < 2) return null;
+        String desc = RevealQuota.describeAll(quotas);
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — play " + desc + "; rest shuffled to bottom");
+            ctx.revealTopNPlayPerQuotaOntoField(n, quotas, RevealRest.SHUFFLED_BOTTOM);
+        };
+    }
+
     static Consumer<GameContext> tryParseRevealPlayNamedOrJobMaxCostRestBottom(String text) {
         Matcher m = REVEAL_PLAY_NAMED_OR_JOB_MAX_COST_REST_BOTTOM.matcher(text.trim());
         if (!m.matches()) return null;
@@ -1214,9 +1237,13 @@ final class ActionResolverSearch {
      * alternation <em>inside</em> one allowance -- so the list is a conjunction of disjunctions,
      * and both levels have to survive to the executor.
      *
-     * <p>Returns {@code null} when fewer than two allowances survive. The pattern requires two, so
-     * this cannot fire; it keeps the parser honest about what it needs, as its per-type sibling
-     * below does.
+     * <p>An allowance may name a card type instead (Fickblix 30-044L: "up to 1 Forward and up to 1
+     * Monster"), and "Multi-Element" is an Element here (Cid Garlond 30-079C).
+     *
+     * <p>Declines a single allowance, which is one filter with a count and is read by the flat
+     * reveals after this one — all but Edgar 30-003H's "up to 2 Fire cards … put the rest of the
+     * cards into the Break Zone", the one single-allowance shape none of them reads: the Break
+     * Zone reveal takes a Category or a type, never an Element.
      */
     static Consumer<GameContext> tryParseRevealTopNAddPerElementQuota(String text) {
         Matcher m = REVEAL_TOP_N_ADD_PER_ELEMENT_QUOTA.matcher(text.trim());
@@ -1225,10 +1252,14 @@ final class ActionResolverSearch {
         boolean restToBz = m.group("bz") != null;
         List<RevealQuota> quotas = new ArrayList<>();
         Matcher q = REVEAL_ONE_PER_ELEMENT_QUOTA.matcher(m.group("quotas"));
-        while (q.find())
-            quotas.add(new RevealQuota(Integer.parseInt(q.group("count")),
-                    elementListFilter(q.group("elems"))));
-        if (quotas.size() < 2) return null;
+        while (q.find()) {
+            int count = Integer.parseInt(q.group("count"));
+            quotas.add(q.group("type") != null
+                    ? new RevealQuota(count, null, cap(q.group("type")))
+                    : new RevealQuota(count, elementListFilter(q.group("elems"))));
+        }
+        if (quotas.isEmpty()) return null;
+        if (quotas.size() == 1 && !(restToBz && quotas.get(0).elementFilter() != null)) return null;
         String desc = RevealQuota.describeAll(quotas);
         return ctx -> {
             ctx.logEntry("Effect: Reveal top " + n + " — add " + desc + " to hand, rest to "
@@ -1634,6 +1665,20 @@ final class ActionResolverSearch {
             // Recorded against the source so a later ability on the same card can call them back
             // ("cards removed by the previous effect" — Libroarian 8-084R).
             ctx.removeTopCardsOfDeckFromGame(count, source);
+        };
+    }
+    /**
+     * Parses "Your opponent removes the top [card | N cards] of their deck from the game." — 30-011R
+     * Blank, and the last sentence of 30-103L Ultima Weapon, which reaches here as its choose
+     * followup's secondary. See {@link ActionResolverPatterns#OPP_REMOVES_TOP_OF_DECK_FROM_GAME}.
+     */
+    static Consumer<GameContext> tryParseOpponentRemovesTopOfDeckFromGame(String text) {
+        Matcher m = OPP_REMOVES_TOP_OF_DECK_FROM_GAME.matcher(text);
+        if (!m.matches()) return null;
+        int count = m.group("count") != null ? Integer.parseInt(m.group("count")) : 1;
+        return ctx -> {
+            ctx.logEntry("Effect: Opponent removes the top " + count + " card(s) of their deck from the game");
+            ctx.opponentRemovesTopCardsOfDeckFromGame(count);
         };
     }
     /**

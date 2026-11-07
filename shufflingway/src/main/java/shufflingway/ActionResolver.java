@@ -251,6 +251,13 @@ public class ActionResolver {
         if (result != null) return claim("ForwardsAttackingThisTurnGate", result);
         if (forwardsAttackingGateUnreadable(effectText, source, xValue)) return null;
 
+        // Here for the same reason, and anchored the same way: 16-042R Lasswell's payoff ("your
+        // opponent discards 1 card") find()s on its own and ran with "if a Job Knight you
+        // controlled attacked this turn" dropped. 30-040C Chocobo prints the same gate.
+        result = tryParseYouControlledAttackedGate(effectText, source, xValue);
+        if (result != null) return claim("YouControlledAttackedGate", result);
+        if (youControlledAttackedGateUnreadable(effectText, source, xValue)) return null;
+
         // Anchored on the permanence reminder, so it claims nothing else. Here because every
         // find()-ing parser below sees the quoted grant some of the cycle prints (7-026R Gremlin's
         // "choose 1 Forward … Dull it and Freeze it") and ran it as the trigger's effect; and
@@ -831,6 +838,12 @@ public class ActionResolver {
         result = tryParseChooseEitherCostSpecBreak(effectText);
         if (result != null) return claim("ChooseEitherCostSpecBreak", result);
 
+        // The general form of the line above, whose two halves may name different sides and any
+        // filter the choose chain reads (30-026R Zenos). After it, so Gnash keeps his own parser,
+        // and before tryParseChooseCharacter for the same reason. Declines unless both halves read.
+        result = tryParseChooseOneFromEitherPool(effectText, source, xValue);
+        if (result != null) return claim("ChooseOneFromEitherPool", result);
+
         // Must precede tryParseChooseCharacter for a related reason: that chain makes the whole
         // selection in one dialog and hands its followup an unordered set, with nothing to say
         // which pick takes which of the three amounts. It claimed this text and then found no
@@ -1041,6 +1054,13 @@ public class ActionResolver {
 
         result = tryParseTriggeredTargetAction(effectText, xValue);
         if (result != null) return claim("TriggeredTargetAction", result);
+
+        // Claimed only as the whole effect of the source's own enters-field watcher; see the
+        // parser for why it cannot stand on the chain unqualified.
+        result = tryParseWatcherEnteringCardGrant(effectText, source);
+        if (result != null) return claim("WatcherEnteringCardGrant", result);
+        result = tryParseWatcherBreakEnteringForward(effectText, source);
+        if (result != null) return claim("WatcherBreakEnteringForward", result);
 
         result = tryParseCancelChosenTargetBare(effectText);
         if (result != null) return claim("CancelChosenTargetBare", result);
@@ -2095,6 +2115,8 @@ public class ActionResolver {
 
         result = tryParseCostReductionThisTurn(effectText);
         if (result != null) return claim("CostReductionThisTurn", result);
+        result = tryParseNextCastAnyElementThisTurn(effectText);
+        if (result != null) return claim("NextCastAnyElementThisTurn", result);
 
         result = tryParsePlayCostReductionThisTurn(effectText);
         if (result != null) return claim("PlayCostReductionThisTurn", result);
@@ -2229,6 +2251,8 @@ public class ActionResolver {
         if (result != null) return claim("RemoveTopOfDeckCastableThisGame", result);
         result = tryParseRemoveTopOfDeckFromGame(effectText, source);
         if (result != null) return claim("RemoveTopOfDeckFromGame", result);
+        result = tryParseOpponentRemovesTopOfDeckFromGame(effectText);
+        if (result != null) return claim("OpponentRemovesTopOfDeckFromGame", result);
 
         result = tryParseAddRemovedByPreviousEffectToHand(effectText, source);
         if (result != null) return claim("AddRemovedByPreviousEffectToHand", result);
@@ -2240,6 +2264,11 @@ public class ActionResolver {
         // over the whole budget, and Mid Previa 26-115H names a quota per card type.
         result = tryParseRevealPlayPerTypeQuotaTotalCost(effectText);
         if (result != null) return claim("RevealPlayPerTypeQuotaTotalCost", result);
+
+        // Its budget-free sibling (Jayden Rundall 30-104H), whose quotas overlap. Anchored, and
+        // claims only a list of two or more, which no single-filter reveal-and-play reads.
+        result = tryParseRevealPlayPerQuotaRestShuffledBottom(effectText);
+        if (result != null) return claim("RevealPlayPerQuotaRestShuffledBottom", result);
 
         result = tryParseRevealPlayJobTypeTotalCostRestBottom(effectText);
         if (result != null) return claim("RevealPlayJobTypeTotalCostRestBottom", result);
@@ -3020,6 +3049,12 @@ public class ActionResolver {
             if (outZeroM.matches())
                 return outZeroM.group("nonbattle") != null
                         ? "ZeroOutgoingAbilityDamageToForwards" : "ZeroAllOutgoingDamage";
+            // Its incoming twin, named the same way: 30-091C White Mage stops only ability damage,
+            // where 30-057H Kimahri stops everything.
+            Matcher inZeroM = FOLLOWUP_INCOMING_DMG_ZERO_THIS_TURN.matcher(followupText.trim());
+            if (inZeroM.matches())
+                return inZeroM.group("abilities") != null
+                        ? "ZeroIncomingAbilityDamage" : "ZeroAllIncomingDamage";
         }
         if (FOLLOWUP_POWER_REDUCE.matcher(followupText).find())                       return "PowerReduce";
         if (FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH_HAND.matcher(followupText).find())  return "PowerReduceUntilForEachHand";
@@ -7123,6 +7158,20 @@ public class ActionResolver {
      */
     static boolean isEnteredUnpaidDamage(String text) {
         return tryParseTriggeredDamageInsteadIfEnteredUnpaid(text) != null;
+    }
+
+    /**
+     * True for 30-082H Barbara's "until the end of the turn, it gains +2000 power and Haste." as the
+     * whole effect of {@code source}'s enters-field watcher — a grant to the card that arrived, and so
+     * one more effect that has to run with that card preloaded.
+     */
+    static boolean isWatcherEnteringCardGrant(String text, CardData source) {
+        return tryParseWatcherEnteringCardGrant(text, source) != null;
+    }
+
+    /** True for 30-108R Lightning's "break that Forward." as the whole effect of {@code source}'s watcher. */
+    static boolean isWatcherBreakEnteringForward(String text, CardData source) {
+        return tryParseWatcherBreakEnteringForward(text, source) != null;
     }
 
     /**

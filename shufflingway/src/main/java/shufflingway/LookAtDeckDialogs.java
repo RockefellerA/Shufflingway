@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
+import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -2425,7 +2426,30 @@ class LookAtDeckDialogs {
         Predicate<CardData> eligible = c -> revealTypeOf(c, types) != null;
         // Every printing is an "up to", so taking nothing is a legal answer.
         resolveRevealPlayOntoField(cards, deck, isP1, types.size(), totalCost, typeLabel,
-                eligible, rest, playOntoField, RevealTake.FIELD, false, types);
+                eligible, rest, playOntoField, RevealTake.FIELD, false, typeQuotaRule(types));
+    }
+
+    /**
+     * "Play up to 1 [quota] and up to 1 [quota] among them onto the field. Then, shuffle the other
+     * cards and return them to the bottom of your deck." — Jayden Rundall 30-104H, whose two quotas
+     * are "Category FFBE Character of cost 2 or less" and "… of cost 4 or less".
+     *
+     * <p>The quotas overlap — a cost-1 FFBE Character fills either — so a haul is admitted by
+     * {@link #quotasAdmit}, the matching the add-to-hand quotas already use, rather than by type.
+     * Two cost-4 Characters are not a legal haul; a cost-4 and a cost-1 are.
+     */
+    void revealPlayPerQuotaOntoField(List<CardData> cards, Deque<CardData> deck, boolean isP1,
+            List<RevealQuota> quotas, RevealRest rest, Consumer<CardData> playOntoField) {
+        Predicate<CardData> eligible = c -> quotas.stream().anyMatch(q -> q.accepts(c));
+        // "Play up to": taking nothing is a legal answer.
+        resolveRevealPlayOntoField(cards, deck, isP1, RevealQuota.totalCount(quotas), -1,
+                RevealQuota.describeAll(quotas), eligible, rest, playOntoField, RevealTake.FIELD, false,
+                (taken, c) -> quotasAdmit(taken, c, quotas));
+    }
+
+    /** Mid Previa 26-115H's per-type quotas as a haul rule: room left in the quota {@code c} fills. */
+    static BiPredicate<List<CardData>, CardData> typeQuotaRule(List<String> types) {
+        return (taken, c) -> typeQuotaHasRoom(c, taken, types);
     }
 
     /** The printed quota list as one phrase: "up to 1 Forward, up to 1 Backup, up to 1 Monster". */
@@ -2568,16 +2592,18 @@ class LookAtDeckDialogs {
     }
 
     /**
-     * As above, for an effect printing a quota per card type as well — Mid Previa 26-115H. Every
-     * other caller passes {@code null} and is bounded by {@code maxPlay} alone.
+     * As above, for an effect printing quotas as well — Mid Previa 26-115H's one per card type,
+     * Jayden Rundall 30-104H's overlapping two. {@code haulRule} answers whether the cards taken so
+     * far plus one more are still a legal haul. Every other caller passes {@code null} and is
+     * bounded by {@code maxPlay} alone.
      */
     private void resolveRevealPlayOntoField(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxPlay, int costBudget, String typeLabel,
             Predicate<CardData> eligible, RevealRest rest, Consumer<CardData> takeCard,
-            RevealTake take, boolean mustPlay, List<String> typeQuotas) {
+            RevealTake take, boolean mustPlay, BiPredicate<List<CardData>, CardData> haulRule) {
         resolveReveal(cards, deck, isP1,
-                () -> askRevealPlayOntoField(cards, maxPlay, costBudget, typeLabel, eligible, rest, take, mustPlay, typeQuotas),
-                () -> cpuRevealPlayOntoField(cards, maxPlay, costBudget, eligible, rest, typeQuotas),
+                () -> askRevealPlayOntoField(cards, maxPlay, costBudget, typeLabel, eligible, rest, take, mustPlay, haulRule),
+                () -> cpuRevealPlayOntoField(cards, maxPlay, costBudget, eligible, rest, haulRule),
                 takeCard, take);
     }
 
@@ -2604,11 +2630,13 @@ class LookAtDeckDialogs {
     }
 
     /**
-     * As above, honouring a quota per card type when the effect prints one — the same rule the
-     * dialog offers a human, so the two seats are choosing from the same cards.
+     * As above, honouring the effect's quotas when it prints them — the same rule the dialog offers
+     * a human, so the two seats are choosing from the same cards. Dearest-first stays exact under
+     * overlapping quotas for the reason {@link #cpuRevealAddPerQuotaRestBz} gives.
      */
     static DeckLookDecision cpuRevealPlayOntoField(List<CardData> cards, int maxPlay,
-            int costBudget, Predicate<CardData> eligible, RevealRest rest, List<String> typeQuotas) {
+            int costBudget, Predicate<CardData> eligible, RevealRest rest,
+            BiPredicate<List<CardData>, CardData> haulRule) {
         List<Integer> playable = new ArrayList<>();
         for (int i = 0; i < cards.size(); i++)
             if (eligible.test(cards.get(i))) playable.add(i);
@@ -2621,7 +2649,7 @@ class LookAtDeckDialogs {
             if (toField.size() >= maxPlay) break;
             CardData c = cards.get(i);
             if (costBudget >= 0 && spent + c.cost() > costBudget) continue;
-            if (!typeQuotaHasRoom(c, taken, typeQuotas)) continue;
+            if (haulRule != null && !haulRule.test(taken, c)) continue;
             toField.add(i);
             taken.add(c);
             spent += c.cost();
@@ -2675,19 +2703,19 @@ class LookAtDeckDialogs {
     }
 
     /**
-     * As above, for an effect that also prints a quota per card type — Mid Previa 26-115H's "up to
-     * 1 Forward, up to 1 Backup and up to 1 Monster".
+     * As above, for an effect that also prints quotas — Mid Previa 26-115H's "up to 1 Forward, up
+     * to 1 Backup and up to 1 Monster", Jayden Rundall 30-104H's two FFBE cost bands.
      *
-     * <p>Needs the cards taken rather than how many, because a per-type quota is spent by the
-     * types of the picks and not by their number: filling the Forward slot must leave the Backup
-     * one open, which a running total cannot express. {@code typeQuotas} of {@code null} is an
-     * effect printing no quotas, where this is the rule above and nothing more.
+     * <p>Needs the cards taken rather than how many, because a quota is spent by what the picks
+     * are and not by their number: filling the Forward slot must leave the Backup one open, which a
+     * running total cannot express. {@code haulRule} of {@code null} is an effect printing no
+     * quotas, where this is the rule above and nothing more.
      */
     static boolean revealTakeStillOffered(CardData c, List<CardData> taken, int maxPlay,
-            int costBudget, Predicate<CardData> eligible, List<String> typeQuotas) {
+            int costBudget, Predicate<CardData> eligible, BiPredicate<List<CardData>, CardData> haulRule) {
         int spent = taken.stream().mapToInt(CardData::cost).sum();
         return revealTakeStillOffered(c, taken.size(), spent, maxPlay, costBudget, eligible)
-                && typeQuotaHasRoom(c, taken, typeQuotas);
+                && (haulRule == null || haulRule.test(taken, c));
     }
 
     /**
@@ -2706,7 +2734,8 @@ class LookAtDeckDialogs {
 
     private DeckLookDecision askRevealPlayOntoField(List<CardData> cards,
             int maxPlay, int costBudget, String typeLabel, Predicate<CardData> eligible,
-            RevealRest rest, RevealTake take, boolean mustPlay, List<String> typeQuotas) {
+            RevealRest rest, RevealTake take, boolean mustPlay,
+            BiPredicate<List<CardData>, CardData> haulRule) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame, take.title(maxPlay, typeLabel, rest), true);
         dlg.setResizable(false);
@@ -2739,7 +2768,7 @@ class LookAtDeckDialogs {
                 // selection could never be undone.
                 fieldBtns[j].setEnabled(inField
                         ? eligible.test(c)
-                        : revealTakeStillOffered(c, fieldSel, maxPlay, costBudget, eligible, typeQuotas));
+                        : revealTakeStillOffered(c, fieldSel, maxPlay, costBudget, eligible, haulRule));
             }
             // "Play 1 Forward …" is an instruction, not an offer, so Confirm stays shut while the
             // player could still add a card they are obliged to play. Read off the buttons rather

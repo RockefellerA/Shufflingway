@@ -12774,6 +12774,8 @@ public class MainWindow {
 		// played, which the board walk below cannot see — it is still in hand, not on the field.
 		if (selfGrantsAnyElement(card, casterIsP1)) return true;
 		if (anyElementHandCasts.contains(card)) return true;
+		// "your next [filter]" this turn — 30-037H Aerith. Spent by the cast it covers.
+		if (turn(casterIsP1).nextCastMayPayAnyElement(card)) return true;
 		for (int s = 0; s < 2; s++) {
 			boolean sIsP1 = s == 0;
 			List<CardData> fwds = sIsP1 ? p1ForwardCards : p2ForwardCards;
@@ -13066,6 +13068,7 @@ public class MainWindow {
 		if (isP1) { gameState.removeFromHand(cardHandIdx);   refreshP1HandLabel(); }
 		else      { gameState.removeP2FromHand(cardHandIdx); refreshP2HandCountLabel(); }
 		activeCostReductions.removeIf(m -> m.consumeOnUse() && m.matches(card));
+		turn(isP1).spendNextCastAnyElement(card);
 		if (rfgAfterUseHandCasts.remove(card)) rfgAfterUseSummons.add(card);
 		PlayerTurnState playerTurn = turn(isP1);
 		noteCardCast(card, isP1);
@@ -13341,6 +13344,7 @@ public class MainWindow {
 		refreshPlayableCardsButton();
 
 		activeCostReductions.removeIf(m -> m.consumeOnUse() && m.matches(card));
+		turn(isP1).spendNextCastAnyElement(card);
 		noteCardCast(card, isP1);
 		if (card.isSummon()) {
 			turn(isP1).summonCastThisTurn = true;
@@ -14535,6 +14539,7 @@ public class MainWindow {
 		// 4 or less cast from your hand", and this is the LB deck. executePlayFromBzP1 leaves it
 		// alone for the same reason.
 		activeCostReductions.removeIf(m -> m.consumeOnUse() && m.matches(card));
+		turn(isP1).spendNextCastAnyElement(card);
 		PlayerTurnState playerTurn = turn(isP1);
 		noteCardCast(card, isP1);
 		if (card.isSummon()) {
@@ -16485,7 +16490,7 @@ public class MainWindow {
 		if (cond.excludeElement() != null &&  effectiveContainsElement(card, cond.excludeElement())) return false;
 		if (cond.job()            != null && !meetsJobFilterEffective(card, cond.job()))   return false;
 		if (cond.category() != null && !meetsCategoryFilter(card, cond.category())) return false;
-		if (cond.minPower() > 0     && card.power() < cond.minPower())         return false;
+		if (cond.minPower() > 0     && powerOnField(card) < cond.minPower())   return false;
 		if (cond.minCost()  > 0     && card.cost()  < cond.minCost())          return false;
 		if (cond.maxCost()  > 0     && card.cost()  > cond.maxCost())          return false;
 		return true;
@@ -17095,6 +17100,95 @@ public class MainWindow {
 	}
 
 	// -------------------------------------------------------------------------
+	// Power-gated boosts, settled together
+	// -------------------------------------------------------------------------
+
+	/**
+	 * {@code card}'s power as it stands on the field, or its printed power when it is on neither
+	 * side — a departed card counted back onto the board for a leaves-the-field trigger.
+	 */
+	private int powerOnField(CardData card) {
+		Boolean side = fieldSideOf(card);
+		return side == null ? card.power() : fieldGrantCalculator.currentPower(card, side);
+	}
+
+	/**
+	 * One power-gated {@link IfControlBoost} on the field: the card printing it, the side it is on,
+	 * and its place in that card's list. The card is compared by identity: {@link CardData} is a
+	 * record, so two copies of one printing are {@code equals()}, and each carries its own gate.
+	 */
+	private record PowerGate(CardData src, boolean isP1, int index) {
+		IfControlBoost boost() { return src.ifControlBoosts().get(index); }
+
+		@Override public boolean equals(Object o) {
+			return o instanceof PowerGate g && g.src == src && g.isP1 == isP1 && g.index == index;
+		}
+
+		@Override public int hashCode() {
+			return (System.identityHashCode(src) * 31 + index) * 2 + (isP1 ? 1 : 0);
+		}
+	}
+
+	/** Non-null while {@link #settledPowerGates} runs: the gates it has switched on so far. */
+	private Set<PowerGate> powerGatesAssumedOn;
+
+	/**
+	 * Whether {@code gate} is on, as the power calculation sees it: whatever a running settle has
+	 * switched on so far, or else the outcome of a fresh one.
+	 */
+	private boolean powerGateOn(PowerGate gate) {
+		Set<PowerGate> on = powerGatesAssumedOn != null ? powerGatesAssumedOn : settledPowerGates();
+		return on.contains(gate);
+	}
+
+	/**
+	 * The power-granting boosts on the field whose condition asks about power, and which of them
+	 * are on — "If you control a Forward of power 9000 or more other than Prishe, Prishe gains +3000
+	 * power." (Prishe 10-081R, and the same sentence on Yenke 30-054C and Biran 30-063C).
+	 *
+	 * <p>Read one at a time these never finish. Prishe's condition asks for Yenke's power, Yenke's
+	 * power depends on Yenke's condition, and that asks for Prishe's. So they are settled together:
+	 * every gate starts off, each pass reads the powers with only the gates switched on so far and
+	 * switches on any whose condition now holds, and the settle ends on a pass that switches nothing
+	 * on. Every printed gate adds power and asks for power "or more", so switching one on never
+	 * makes another's condition false, and nothing is ever switched back off. The result is the
+	 * least set that holds itself up. A chain is followed: with Prishe pumped to 9000 and Yenke to
+	 * 7000, Yenke's +2000 switches on, which takes her to 9000 and switches Prishe's +3000 on in
+	 * turn. A boost that could only be held on by itself stays off.
+	 *
+	 * <p>A gate that grants no power cannot move anyone's power, so it is not settled here and is
+	 * read directly wherever it is asked about (Estinien 30-130S's Haste). Recomputed on every query
+	 * rather than cached: almost every board has no gate at all and returns at once.
+	 */
+	private Set<PowerGate> settledPowerGates() {
+		List<PowerGate> gates = new ArrayList<>();
+		for (boolean side : new boolean[] { true, false })
+			for (CardData src : fieldCardsFor(side)) {
+				if (lostAbilitiesCards.contains(src)) continue;
+				List<IfControlBoost> boosts = src.ifControlBoosts();
+				for (int i = 0; i < boosts.size(); i++)
+					if (boosts.get(i).powerBonus() != 0 && boosts.get(i).readsPower())
+						gates.add(new PowerGate(src, side, i));
+			}
+		Set<PowerGate> on = new HashSet<>();
+		if (gates.isEmpty()) return on;
+		powerGatesAssumedOn = on;
+		try {
+			for (boolean changed = true; changed; ) {
+				changed = false;
+				for (PowerGate gate : gates)
+					if (!on.contains(gate) && icbConditionsMet(gate.boost(), gate.isP1())) {
+						on.add(gate);
+						changed = true;
+					}
+			}
+		} finally {
+			powerGatesAssumedOn = null;
+		}
+		return on;
+	}
+
+	// -------------------------------------------------------------------------
 	// Field power grants and boost contribution
 	// -------------------------------------------------------------------------
 
@@ -17320,9 +17414,15 @@ public class MainWindow {
 	private int fieldBoostContribution(CardData src, CardData target, boolean isP1) {
 		if (lostAbilitiesCards.contains(src)) return 0;
 		int boost = 0;
-		for (IfControlBoost icb : src.ifControlBoosts())
-			if (icb.appliesToCard(target, jobsStripped(target)) && icbConditionsMet(icb, isP1))
-				boost += icb.powerBonus();
+		List<IfControlBoost> boosts = src.ifControlBoosts();
+		for (int i = 0; i < boosts.size(); i++) {
+			IfControlBoost icb = boosts.get(i);
+			if (icb.powerBonus() == 0 || !icb.appliesToCard(target, jobsStripped(target))) continue;
+			// A power-gated boost is never read off its own condition here: that condition asks for
+			// powers this very calculation is producing (settledPowerGates).
+			boolean on = icb.readsPower() ? powerGateOn(new PowerGate(src, isP1, i)) : icbConditionsMet(icb, isP1);
+			if (on) boost += icb.powerBonus();
+		}
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
 			if (!fpg.affectsOpponent()
 					&& fpg.appliesToCard(target, fpgTargetTraits(fpg, target, isP1), jobsStripped(target))
