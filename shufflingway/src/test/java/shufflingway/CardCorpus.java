@@ -3,6 +3,7 @@ package shufflingway;
 import java.io.File;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -20,10 +21,13 @@ final class CardCorpus {
 	/** One card plus the serial it was loaded under, which CardData itself does not carry. */
 	record Entry(String serial, CardData card) {}
 
-	private static final String SELECT_ALL =
+	private static final String COLUMNS =
 			"SELECT serial, name_en, element, cost, power, type_en, ex_burst, multicard, " +
-			"limit_break, lb_cost, image_url, text_en, job_en, category_1, category_2 " +
-			"FROM cards ORDER BY serial";
+			"limit_break, lb_cost, image_url, text_en, job_en, category_1, category_2 FROM cards";
+
+	private static final String SELECT_ALL = COLUMNS + " ORDER BY serial";
+
+	private static final String SELECT_ONE = COLUMNS + " WHERE serial = ?";
 
 	private CardCorpus() {}
 
@@ -47,6 +51,25 @@ final class CardCorpus {
 			}
 		}
 		return out;
+	}
+
+	/**
+	 * The card printed as {@code serial}, built exactly as {@link #load()} builds it; {@code null}
+	 * when the database is absent or has no such card. For a test that needs one printed record:
+	 * the whole corpus takes seconds to parse, and this reads a single row.
+	 */
+	static CardData bySerial(String serial) throws Exception {
+		File db = dbFile();
+		if (!db.exists()) return null;
+		try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + db.getAbsolutePath());
+		     PreparedStatement st = conn.prepareStatement(SELECT_ONE)) {
+			st.setString(1, serial);
+			try (ResultSet rs = st.executeQuery()) {
+				if (!rs.next()) return null;
+				String textEn = rs.getString("text_en");
+				return build(rs, textEn == null ? "" : textEn);
+			}
+		}
 	}
 
 	private static CardData build(ResultSet rs, String textEn) throws Exception {

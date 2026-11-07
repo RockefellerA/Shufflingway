@@ -3043,12 +3043,13 @@ final class AutoAbilityTriggers {
 			return broken.name().equalsIgnoreCase(name) && partyMembers.contains(broken);
 		}
 
-		// "a Forward forming a party with Bobby Corwen" — another forward in source's party was broken
+		// "a Forward forming a party with Bobby Corwen" — another member of source's party was
+		// broken. Every member attacked as a Forward, so a Monster or Backup acting as one answers
+		// although its printed type is not Forward, and the card has left the field that made it one.
 		Matcher partyMemberM = BZ_SUBJECT_PARTY_MEMBER.matcher(subject);
 		if (partyMemberM.matches()) {
 			String sourceName = partyMemberM.group("name").trim();
-			return broken.isForward()
-				&& !broken.name().equalsIgnoreCase(sourceName)
+			return !broken.name().equalsIgnoreCase(sourceName)
 				&& partyMembers.contains(broken)
 				&& partyMembers.contains(source);
 		}
@@ -3091,8 +3092,8 @@ final class AutoAbilityTriggers {
 	 * Fires "put into break zone" field abilities on all field cards whose subject matches
 	 * the card that just broke.  Must be called after the card is removed from the field.
 	 *
-	 * @param partyMembers the set of CardData objects that were in the attacking party at the time
-	 *                     of the break; empty when the break did not occur during a party attack
+	 * @param partyMembers the party the broken card was forming as it left, held by identity
+	 *                     ({@link MainWindow#partyOf}); empty when it was in none
 	 */
 	void triggerAutoAbilitiesForBreakZone(CardData broken, boolean brokenIsP1,
 			Set<CardData> partyMembers) {
@@ -8107,6 +8108,7 @@ final class AutoAbilityTriggers {
 	void breakP1BackupSlot(int idx) {
 		CardData c = mw.p1BackupCards[idx];
 		if (c == null) return;
+		Set<CardData> party = mw.partyOf(true, c);
 		mw.startBreakAnim(mw.p1BackupLabels[idx]);
 		mw.logEntry(c.name() + " → Break Zone");
 		mw.addToBreakZone(c, true);
@@ -8124,13 +8126,14 @@ final class AutoAbilityTriggers {
 		mw.syncBzForwardPlayables(true);
 		mw.refreshP1BreakLabel();
 		triggerAutoAbilitiesForLeavesField(c, true);
-		triggerAutoAbilitiesForBreakZone(c, true, Collections.emptySet());
+		triggerAutoAbilitiesForBreakZone(c, true, party);
 	}
 
 	void breakP1MonsterSlot(int idx) {
 		if (idx >= mw.p1MonsterCards.size()) return;
 		mw.startBreakAnim(mw.p1MonsterLabels.get(idx));
 		CardData c = mw.p1MonsterCards.get(idx);
+		Set<CardData> party = mw.partyOf(true, c);
 		mw.logEntry(c.name() + " → Break Zone");
 		mw.addToBreakZone(c, true);
 		mw.p1MonsterTempForwardPower.remove(c);
@@ -8151,7 +8154,7 @@ final class AutoAbilityTriggers {
 		mw.syncBzForwardPlayables(true);
 		mw.refreshP1BreakLabel();
 		triggerAutoAbilitiesForLeavesField(c, true);
-		triggerAutoAbilitiesForBreakZone(c, true, Collections.emptySet());
+		triggerAutoAbilitiesForBreakZone(c, true, party);
 	}
 
 

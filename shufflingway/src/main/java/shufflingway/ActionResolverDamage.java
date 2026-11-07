@@ -9,6 +9,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.function.ToIntFunction;
 import java.util.regex.Matcher;
 
@@ -150,6 +151,8 @@ final class ActionResolverDamage {
                     if (p1) { if (idx < ctx.p1ForwardCount()) ctx.damageP1Forward(idx, damage); }
                     else    { if (idx < ctx.p2ForwardCount()) ctx.damageP2Forward(idx, damage); }
                 }
+                damageActingForwards(ctx, p1, damage, false, af -> byJob
+                        ? ctx.effectiveHasJob(af.card(), named) : ctx.effectiveHasElement(af.card(), named));
             }
         };
     }
@@ -189,6 +192,11 @@ final class ActionResolverDamage {
             String unredLabel  = unreduced ? " (cannot be reduced)" : "";
             ctx.logEntry("Effect: Deal " + damage + " damage to "
                     + scopeLabel + condLabel + "Forwards" + costLabel + exclLabel + unredLabel);
+            // The Forward row's filters, for the Monsters and Backups acting as Forwards.
+            Predicate<GameContext.ActingForward> acting = meeting(condition).and(af ->
+                    meetsCostFilter(af.card().cost(), costVal, costCmp)
+                    && !(excludeJob != null && ctx.effectiveHasJob(af.card(), excludeJob))
+                    && !(excludeName != null && excludeName.equalsIgnoreCase(af.card().name())));
 
             // --- P2 forwards (included when not opponent-only, or when opponent IS P2) ---
             if (!opponentOnly || oppIsP2) {
@@ -210,6 +218,7 @@ final class ActionResolverDamage {
                         else           ctx.damageP2Forward(idx, damage);
                     }
                 }
+                damageActingForwards(ctx, false, damage, unreduced, acting);
             }
 
             // --- P1 forwards (included when not opponent-only, or when opponent IS P1) ---
@@ -232,9 +241,58 @@ final class ActionResolverDamage {
                         else           ctx.damageP1Forward(idx, damage);
                     }
                 }
+                damageActingForwards(ctx, true, damage, unreduced, acting);
             }
             if (afterDamage != null) afterDamage.accept(ctx);
         };
+    }
+
+    /**
+     * The rest of an "all the Forwards" damage sweep on one side, after its Forward row: the
+     * Monsters and Backups acting as Forwards there, each a Forward for every eligible purpose
+     * ({@link GameContext#actingForwards}). Each one {@code include} admits is dealt
+     * {@code damageFor} of it. Taken from the end of the list back, so breaking a Monster does not
+     * shift the slot of one still to be hit.
+     */
+    private static void damageActingForwards(GameContext ctx, boolean p1Side, boolean unreduced,
+            Predicate<GameContext.ActingForward> include, ToIntFunction<GameContext.ActingForward> damageFor) {
+        List<GameContext.ActingForward> acting = ctx.actingForwards(p1Side);
+        for (int i = acting.size() - 1; i >= 0; i--) {
+            GameContext.ActingForward af = acting.get(i);
+            if (!include.test(af)) continue;
+            int dmg = damageFor.applyAsInt(af);
+            if (unreduced) ctx.damageTargetUnreduced(af.slot(), dmg);
+            else           ctx.damageTarget(af.slot(), dmg);
+        }
+    }
+
+    /** {@link #damageActingForwards} dealing each the same {@code damage}. */
+    private static void damageActingForwards(GameContext ctx, boolean p1Side, int damage, boolean unreduced,
+            Predicate<GameContext.ActingForward> include) {
+        damageActingForwards(ctx, p1Side, unreduced, include, af -> damage);
+    }
+
+    /** Admits an acting Forward meeting a sweep's state condition — "dull", "damaged", … — or any, for none. */
+    private static Predicate<GameContext.ActingForward> meeting(String condition) {
+        return af -> meetsCondition(af.state(), af.damage(), af.attacking(), af.blocking(), condition);
+    }
+
+    private static final Predicate<GameContext.ActingForward> ANY_ACTING_FORWARD = af -> true;
+
+    /**
+     * {@link #tryParseDealSameAmountToAllForwardsExcept}'s sweep over the acting Forwards on one
+     * side, each copy of the excepted card spared, and each armed for the removal rider before its
+     * hit — as the Forward row is, since a lethal hit breaks it inside the call.
+     */
+    private static void sameAmountToActingForwards(GameContext ctx, boolean p1Side, int amount,
+            String excluded, boolean rfgRider) {
+        List<GameContext.ActingForward> acting = ctx.actingForwards(p1Side);
+        for (int i = acting.size() - 1; i >= 0; i--) {
+            GameContext.ActingForward af = acting.get(i);
+            if (excluded.equalsIgnoreCase(af.card().name())) continue;
+            if (rfgRider) ctx.markTargetRfgInsteadOfBzThisTurn(af.slot());
+            ctx.damageTarget(af.slot(), amount);
+        }
     }
     /**
      * Parses Shantotto 4-083L: "deal the same amount of damage to all the Forwards other than
@@ -272,12 +330,14 @@ final class ActionResolverDamage {
                 if (rfgRider) ctx.markTargetRfgInsteadOfBzThisTurn(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
                 ctx.damageP2Forward(i, xValue);
             }
+            sameAmountToActingForwards(ctx, false, xValue, excluded, rfgRider);
             for (int i = ctx.p1ForwardCount() - 1; i >= 0; i--) {
                 CardData c = ctx.p1Forward(i);
                 if (c == null || excluded.equalsIgnoreCase(c.name())) continue;
                 if (rfgRider) ctx.markTargetRfgInsteadOfBzThisTurn(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
                 ctx.damageP1Forward(i, xValue);
             }
+            sameAmountToActingForwards(ctx, true, xValue, excluded, rfgRider);
         };
     }
 
@@ -297,6 +357,7 @@ final class ActionResolverDamage {
             for (int i = (oppIsP1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount()) - 1; i >= 0; i--) {
                 if (oppIsP1) ctx.damageP1Forward(i, damage); else ctx.damageP2Forward(i, damage);
             }
+            damageActingForwards(ctx, oppIsP1, damage, false, ANY_ACTING_FORWARD);
         };
     }
 
@@ -311,10 +372,12 @@ final class ActionResolverDamage {
                 if (ctx.fieldCardHasElement(ctx.p2Forward(i), excludeElem)) continue;
                 ctx.damageP2Forward(i, damage);
             }
+            damageActingForwards(ctx, false, damage, false, af -> !ctx.fieldCardHasElement(af.card(), excludeElem));
             for (int i = ctx.p1ForwardCount() - 1; i >= 0; i--) {
                 if (ctx.fieldCardHasElement(ctx.p1Forward(i), excludeElem)) continue;
                 ctx.damageP1Forward(i, damage);
             }
+            damageActingForwards(ctx, true, damage, false, af -> !ctx.fieldCardHasElement(af.card(), excludeElem));
         };
     }
     static Consumer<GameContext> tryParseDealDamageToForwardsForEach(String text) {
@@ -376,6 +439,7 @@ final class ActionResolverDamage {
                         else           ctx.damageP2Forward(idx, damage);
                     }
                 }
+                damageActingForwards(ctx, false, damage, unreduced, meeting(condition));
             }
             if (!opponentOnly || oppIsP1) {
                 List<Integer> p1Targets = new ArrayList<>();
@@ -391,6 +455,7 @@ final class ActionResolverDamage {
                         else           ctx.damageP1Forward(idx, damage);
                     }
                 }
+                damageActingForwards(ctx, true, damage, unreduced, meeting(condition));
             }
         };
     }
@@ -414,10 +479,12 @@ final class ActionResolverDamage {
             if (!opponentOnly || oppIsP2) {
                 for (int i = ctx.p2ForwardCount() - 1; i >= 0; i--)
                     if (i < ctx.p2ForwardCount()) ctx.damageP2Forward(i, damage);
+                damageActingForwards(ctx, false, damage, false, ANY_ACTING_FORWARD);
             }
             if (!opponentOnly || oppIsP1) {
                 for (int i = ctx.p1ForwardCount() - 1; i >= 0; i--)
                     if (i < ctx.p1ForwardCount()) ctx.damageP1Forward(i, damage);
+                damageActingForwards(ctx, true, damage, false, ANY_ACTING_FORWARD);
             }
         };
     }
@@ -440,10 +507,12 @@ final class ActionResolverDamage {
             if (!opponentOnly || oppIsP2) {
                 for (int i = ctx.p2ForwardCount() - 1; i >= 0; i--)
                     if (i < ctx.p2ForwardCount()) ctx.damageP2Forward(i, damage);
+                damageActingForwards(ctx, false, damage, false, ANY_ACTING_FORWARD);
             }
             if (!opponentOnly || oppIsP1) {
                 for (int i = ctx.p1ForwardCount() - 1; i >= 0; i--)
                     if (i < ctx.p1ForwardCount()) ctx.damageP1Forward(i, damage);
+                damageActingForwards(ctx, true, damage, false, ANY_ACTING_FORWARD);
             }
         };
     }
@@ -474,6 +543,7 @@ final class ActionResolverDamage {
                     if (idx < ctx.p2ForwardCount())
                         ctx.damageP2Forward(idx, halfPowerDamage(ctx.p2Forward(idx).power()));
                 }
+                damageActingForwards(ctx, false, false, meeting(condition), af -> halfPowerDamage(af.power()));
             }
 
             if (!opponentOnly || oppIsP1) {
@@ -488,6 +558,7 @@ final class ActionResolverDamage {
                     if (idx < ctx.p1ForwardCount())
                         ctx.damageP1Forward(idx, halfPowerDamage(ctx.p1Forward(idx).power()));
                 }
+                damageActingForwards(ctx, true, false, meeting(condition), af -> halfPowerDamage(af.power()));
             }
         };
     }
@@ -519,6 +590,7 @@ final class ActionResolverDamage {
                     if (idx < ctx.p2ForwardCount())
                         ctx.damageP2Forward(idx, Math.max(0, ctx.p2Forward(idx).power() - reduction));
                 }
+                damageActingForwards(ctx, false, false, meeting(condition), af -> Math.max(0, af.power() - reduction));
             }
 
             if (!opponentOnly || oppIsP1) {
@@ -533,6 +605,7 @@ final class ActionResolverDamage {
                     if (idx < ctx.p1ForwardCount())
                         ctx.damageP1Forward(idx, Math.max(0, ctx.p1Forward(idx).power() - reduction));
                 }
+                damageActingForwards(ctx, true, false, meeting(condition), af -> Math.max(0, af.power() - reduction));
             }
         };
     }
@@ -568,6 +641,7 @@ final class ActionResolverDamage {
                     if (idx < ctx.p2ForwardCount())
                         ctx.damageP2Forward(idx, damage);
                 }
+                damageActingForwards(ctx, false, damage, false, meeting(condition));
             }
 
             if (!opponentOnly || oppIsP1) {
@@ -582,6 +656,7 @@ final class ActionResolverDamage {
                     if (idx < ctx.p1ForwardCount())
                         ctx.damageP1Forward(idx, damage);
                 }
+                damageActingForwards(ctx, true, damage, false, meeting(condition));
             }
         };
     }

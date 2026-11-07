@@ -762,6 +762,23 @@ public interface GameContext {
     void damageTarget(ForwardTarget t, int amount);
 
     /**
+     * A Monster or Backup that is a Forward right now, with what an "all the Forwards" sweep reads
+     * off a Forward: its card, state, damage, power as a Forward, and whether it is attacking or
+     * blocking.
+     */
+    record ActingForward(ForwardTarget slot, CardData card, CardState state, int damage, int power,
+            boolean attacking, boolean blocking) {}
+
+    /**
+     * The Monsters and Backups on {@code p1Side}'s field that are Forwards right now. One acting as
+     * a Forward is a Forward for every eligible purpose, so a sweep over "all the Forwards" reaches
+     * them as well as the Forward row — 4-018R Bomb's granted 4000 to all Forwards hits a Monster
+     * another effect has made a Forward. Monsters first, then Backups, each in slot order, so a
+     * sweep that may break them works from the end of the list back.
+     */
+    List<ActingForward> actingForwards(boolean p1Side);
+
+    /**
      * Like {@link #damageP1Forward} but the damage bypasses all reduction effects.
      * One-shot shields are still consumed; persistent shields remain but provide no reduction.
      */

@@ -18595,6 +18595,138 @@ public class CardBehaviorTest {
 		assertNull(mw.p1TempGrantedAbilities.get(first));
 	}
 
+	/**
+	 * One copy of a printing on each side — the uniqueness rule is per player — and equal records,
+	 * so any per-card state kept by equality reads across both.
+	 */
+	private static CardData[] twinsOnBothSides(MainWindow mw) {
+		CardData mine   = makeForward("Twin", "Fire", 3, 7000);
+		CardData theirs = makeForward("Twin", "Fire", 3, 7000);
+		assertEquals(mine, theirs, "equal records — the trap");
+		placeP1Forward(mw, mine);
+		placeP2Forward(mw, theirs);
+		return new CardData[] { mine, theirs };
+	}
+
+	@Test
+	void aDamageShieldOnOneCopyOfACardDoesNotShieldTheOther() {
+		MainWindow mw = new MainWindow();
+		CardData[] twins = twinsOnBothSides(mw);
+		mw.nextIncomingDmgZeroSet.add(twins[0]);
+
+		mw.applyDamageToForward(false, 0, 3000, true, false);
+
+		assertEquals(3000, mw.p2ForwardDamage.get(0), "the unshielded copy takes the damage");
+		assertTrue(mw.nextIncomingDmgZeroSet.contains(twins[0]), "and the shielded one keeps its shield");
+	}
+
+	@Test
+	void cannotBeChosenOnOneCopyOfACardLeavesTheOtherChoosable() {
+		MainWindow mw = new MainWindow();
+		CardData[] twins = twinsOnBothSides(mw);
+		mw.cannotBeChosenBySummonsAnyone.add(twins[0]);
+
+		assertTrue(mw.isProtectedFromChoice(twins[0], true, false, true, null));
+		assertFalse(mw.isProtectedFromChoice(twins[1], false, true, true, null),
+				"the other copy was given nothing");
+	}
+
+	@Test
+	void aSweepOverAllTheForwardsReachesAMonsterActingAsOne() {
+		// Bomb's granted "Deal 4000 damage to all Forwards." against a Monster another effect made
+		// a Forward: a Forward for every eligible purpose, so the sweep hits it. A Monster that is
+		// not a Forward is not one of "all the Forwards".
+		MainWindow mw = new MainWindow();
+		CardData wyvern = makeForward("Wyvern", "Wind", 2, 5000);
+		placeP1MonsterForward(mw, wyvern, 5000);
+		CardData idle = makeFieldAbilityCard("Idle", "Wind", "Monster", "");
+		mw.gameState.getIdentity().put(idle, true);
+		mw.placeCardInMonsterZone(idle);
+		placeP2Forward(mw, makeForward("Rival", "Fire", 3, 7000));
+
+		ActionResolver.parse("Deal 4000 damage to all Forwards.", makeForward("Bomb", "Fire", 2, 5000))
+				.accept(mw.buildGameContext(false));
+
+		assertEquals(4000, mw.p1MonsterDamage.get(mw.identityIndexOf(mw.p1MonsterCards, wyvern)),
+				"the Monster acting as a Forward takes the sweep");
+		assertEquals(0, mw.p1MonsterDamage.get(mw.identityIndexOf(mw.p1MonsterCards, idle)),
+				"the one that is not a Forward does not");
+		assertEquals(4000, mw.p2ForwardDamage.get(0), "and the Forward row is hit as before");
+	}
+
+	@Test
+	void aSweepOverAllTheForwardsReachesABackupActingAsOne() {
+		MainWindow mw = new MainWindow();
+		CardData scholar = makeIcbCard("Scholar", "Earth", "Backup", "");
+		mw.gameState.getIdentity().put(scholar, true);
+		mw.placeCardInFirstBackupSlot(scholar);
+		mw.makeP1BackupTemporaryForward(scholar, 8000);
+
+		ActionResolver.parse("Deal 4000 damage to all Forwards.", makeForward("Bomb", "Fire", 2, 5000))
+				.accept(mw.buildGameContext(false));
+
+		assertEquals(4000, mw.p1BackupForwardDamage.getOrDefault(scholar, 0));
+	}
+
+	@Test
+	void aBreakSweepOverAllTheForwardsTakesAMonsterActingAsOne() {
+		// The break, dull, freeze, activate, return and remove sweeps read "all the Forwards" the
+		// way the damage sweeps do.
+		MainWindow mw = new MainWindow();
+		CardData wyvern = makeForward("Wyvern", "Wind", 2, 5000);
+		placeP1MonsterForward(mw, wyvern, 5000);
+		CardData idle = makeFieldAbilityCard("Idle", "Wind", "Monster", "");
+		mw.gameState.getIdentity().put(idle, true);
+		mw.placeCardInMonsterZone(idle);
+		placeP2Forward(mw, makeForward("Rival", "Fire", 3, 7000));
+		GameContext ctx = mw.buildGameContext(false);
+
+		ActionResolver.parse("Break all the Forwards.", makeForward("Caster", "Fire", 2, 5000)).accept(ctx);
+
+		assertEquals(-1, MainWindow.identityIndexOf(mw.p1MonsterCards, wyvern),
+				"the Monster acting as a Forward is broken");
+		assertEquals(List.of(idle), mw.p1MonsterCards, "the one that is not a Forward stays");
+		assertEquals(0, mw.p2ForwardCards.size(), "and the Forward row is swept as before");
+		assertEquals(2, ctx.lastMassBreakForwardCount(), "both count as Forwards put into the Break Zone");
+	}
+
+	@Test
+	void aDullAndFreezeSweepOverTheOpponentsForwardsTakesABackupActingAsOne() {
+		MainWindow mw = new MainWindow();
+		CardData scholar = makeIcbCard("Scholar", "Earth", "Backup", "");
+		CardData clerk = makeIcbCard("Clerk", "Earth", "Backup", "");
+		placeBackup(mw, scholar, true);
+		placeBackup(mw, clerk, true);
+		mw.makeP1BackupTemporaryForward(scholar, 8000);
+		int s = mw.findFieldSlot(scholar, true).idx(), c = mw.findFieldSlot(clerk, true).idx();
+
+		ActionResolver.parse("Dull and Freeze all the Forwards opponent controls.",
+				makeForward("Caster", "Ice", 2, 5000)).accept(mw.buildGameContext(false));
+
+		assertEquals(CardState.DULL, mw.p1BackupStates[s], "the Backup acting as a Forward is dulled");
+		assertTrue(mw.p1BackupFrozen[s], "and frozen");
+		assertEquals(CardState.ACTIVE, mw.p1BackupStates[c], "the Backup that is not a Forward is not");
+		assertFalse(mw.p1BackupFrozen[c]);
+	}
+
+	@Test
+	void aMonsterSweepOnP2sSideKeepsItsJobFilter() {
+		// P1's Monster arm read the job and category filters and P2's did not, so a sweep of one
+		// job's Monsters took every Monster the opponent had.
+		MainWindow mw = new MainWindow();
+		CardData bomb = makeJobCard("Bomb", "Fire", "Monster", "Bomb");
+		CardData ahriman = makeJobCard("Ahriman", "Dark", "Monster", "Ahriman");
+		for (CardData m : List.of(bomb, ahriman)) {
+			mw.gameState.getIdentity().put(m, false);
+			mw.placeP2CardInMonsterZone(m);
+		}
+
+		mw.buildGameContext(true).applyMassFieldEffect(GameContext.MassAction.BREAK,
+				false, false, true, true, false, null, -1, null, -1, "Bomb", null);
+
+		assertEquals(List.of(ahriman), mw.p2MonsterCards, "only the Job Bomb Monster is broken");
+	}
+
 	@Test
 	void actingCombatIsSkippedWhenTheBlockerHasLeftTheField() {
 		MainWindow mw = new MainWindow();
@@ -23430,6 +23562,135 @@ public class CardBehaviorTest {
 		mw.lostAbilitiesCards.add(kalmia);
 
 		assertFalse(mw.bzCardsProtectedFromOppChoice(true));
+	}
+
+	// =========================================================================================
+	// "Forming a party" as a break reads it: Bobby Corwen 11-059C and Chocobo 25-045C
+	//
+	// A party member is broken by the battle's damage, so the party has to be read from the
+	// attackers held for the whole combat, not from the selection the Attack button empties when
+	// it declares them. And it is held by identity: the watchers checked against it are the cards
+	// on both fields, and the opponent's copy of Bobby Corwen is equal to his but not in his party.
+	// A Monster or Backup acting as a Forward is a Forward forming the party too, though the break
+	// takes it from a row of its own and its printed type says otherwise.
+	// =========================================================================================
+
+	private static final String BOBBY_CORWEN_11_059C =
+			"When a Forward forming a party with Bobby Corwen is put from the field into the Break Zone, "
+			+ "draw 2 cards.";
+
+	// Each battle runs on the EDT, as it does in play: a declared attacker is drawn raised, and the
+	// overlay animating that ticks on the EDT, so a battle driven from the test thread races it.
+	// P1's own trigger resolves as soon as it is on the Stack, the CPU passing on it, so the P1-side
+	// cases read what it did rather than the Stack.
+
+	@Test
+	void bobbyCorwenAnswersForAMemberOfHisPartyBrokenInTheBattle() throws Exception {
+		MainWindow mw = boardWithP1Deck();
+		CardData bobby = makeAutoAbilityForward("Bobby Corwen", "Wind", 5000, BOBBY_CORWEN_11_059C);
+		CardData ally  = makeForward("Ally", "Fire", 3, 3000);
+		placeP1Forward(mw, bobby);
+		placeP1Forward(mw, ally);
+		placeP2Forward(mw, makeForward("Blocker", "Earth", 5, 9000));
+		// As the declaration records them; the Attack button has already emptied the selection.
+		mw.p1DeclaredAttackers.addAll(List.of(bobby, ally));
+
+		SwingUtilities.invokeAndWait(() -> p2BlocksP1Party(mw, mw.p2ForwardCards.get(0), Map.of(1, 3000)));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(ally), "the blocker's share finishes the Ally");
+		assertEquals(2, mw.gameState.getP1Hand().size(), "Bobby Corwen drew 2");
+	}
+
+	@Test
+	void theOpponentsCopyOfBobbyCorwenIsNotInHisParty() throws Exception {
+		MainWindow mw = boardWithP1Deck();
+		CardData bobby = makeAutoAbilityForward("Bobby Corwen", "Wind", 5000, BOBBY_CORWEN_11_059C);
+		CardData ally  = makeForward("Ally", "Fire", 3, 3000);
+		CardData standingBack = makeAutoAbilityForward("Bobby Corwen", "Wind", 5000, BOBBY_CORWEN_11_059C);
+		assertEquals(bobby, standingBack, "one printing on each side");
+		placeP2Forward(mw, bobby);
+		placeP2Forward(mw, ally);
+		CardData blocker = makeForward("Blocker", "Earth", 5, 9000);
+		placeP1Forward(mw, blocker);
+		placeP1Forward(mw, standingBack);
+		mw.p2DeclaredAttackers.addAll(List.of(bobby, ally));
+
+		SwingUtilities.invokeAndWait(() ->
+				mw.resolvePartyBlockDamage(false, mw.partyMemberBaseCards(false, List.of(0, 1)), blocker,
+						(live, power, onSpread) -> onSpread.accept(Map.of(1, 3000)), spread -> { }));
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(ally));
+		List<CardData> fired = triggeredSources(mw);
+		assertEquals(1, fired.size(), "one Bobby Corwen answered");
+		assertSame(bobby, fired.get(0), "the one in the party; the copies are equal, so only identity tells");
+		assertEquals(0, mw.gameState.getP1Hand().size(), "P1's Bobby Corwen formed no party and drew nothing");
+	}
+
+	@Test
+	void chocoboBrokenInItsPartysBattleAnswersForItself() throws Exception {
+		// Chocobo 25-045C's subject over an effect with no "you may", which would stop to ask.
+		MainWindow mw = boardWithP1Deck();
+		CardData chocobo = makeAutoAbilityForward("Chocobo", "Wind", 3000,
+				"When Chocobo forming a party is put from the field into the Break Zone, "
+				+ "Chocobo deals you 1 point of damage.");
+		placeP1Forward(mw, makeForward("Ally", "Fire", 3, 5000));
+		placeP1Forward(mw, chocobo);
+		placeP2Forward(mw, makeForward("Blocker", "Earth", 5, 9000));
+		mw.p1DeclaredAttackers.addAll(List.of(mw.p1ForwardCards.get(0), chocobo));
+
+		SwingUtilities.invokeAndWait(() -> p2BlocksP1Party(mw, mw.p2ForwardCards.get(0), Map.of(1, 3000)));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(chocobo));
+		assertEquals(1, mw.gameState.getP1DamageZone().size(), "Chocobo's own trigger dealt its point");
+	}
+
+	/**
+	 * Bobby Corwen and a 3000-power Monster or Backup acting as a Forward attack as a party on
+	 * {@code partyIsP1}'s side, and the blocker's share breaks that member — each side and row
+	 * taking its own break path. Returns the board once the battle has landed.
+	 */
+	private static MainWindow bobbysPartyLosesAnActingMember(boolean partyIsP1, ForwardTarget.CardZone zone,
+			CardData bobby) throws Exception {
+		MainWindow mw = boardWithP1Deck();
+		boolean monster = zone == ForwardTarget.CardZone.MONSTER;
+		CardData member  = makeFieldAbilityCard("Member", "Earth", monster ? "Monster" : "Backup", "");
+		CardData blocker = makeForward("Blocker", "Earth", 5, 9000);
+		if (partyIsP1) { placeP1Forward(mw, bobby); placeP2Forward(mw, blocker); }
+		else           { placeP2Forward(mw, bobby); placeP1Forward(mw, blocker); }
+		if (monster) {
+			mw.gameState.getIdentity().put(member, partyIsP1);
+			if (partyIsP1) mw.placeCardInMonsterZone(member); else mw.placeP2CardInMonsterZone(member);
+			(partyIsP1 ? mw.p1MonsterTempForwardPower : mw.p2MonsterTempForwardPower).put(member, 3000);
+		} else {
+			placeBackup(mw, member, partyIsP1);
+			if (partyIsP1) mw.makeP1BackupTemporaryForward(member, 3000);
+			else           mw.makeP2BackupTemporaryForward(member, 3000);
+		}
+		(partyIsP1 ? mw.p1DeclaredAttackers : mw.p2DeclaredAttackers).addAll(List.of(bobby, member));
+		int memberCode = ForwardTarget.slotCode(zone, 0);
+
+		SwingUtilities.invokeAndWait(() ->
+				mw.resolvePartyBlockDamage(partyIsP1, mw.partyMemberBaseCards(partyIsP1, List.of(0, memberCode)),
+						blocker, (live, power, onSpread) -> onSpread.accept(Map.of(memberCode, 3000)), spread -> { }));
+
+		assertTrue((partyIsP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone()).contains(member),
+				"the blocker's share breaks the " + zone);
+		return mw;
+	}
+
+	@Test
+	void aMonsterOrBackupActingAsAForwardInBobbyCorwensPartyIsAForwardFormingIt() throws Exception {
+		for (ForwardTarget.CardZone zone : List.of(ForwardTarget.CardZone.MONSTER, ForwardTarget.CardZone.BACKUP)) {
+			CardData mine = makeAutoAbilityForward("Bobby Corwen", "Wind", 5000, BOBBY_CORWEN_11_059C);
+			MainWindow p1Party = bobbysPartyLosesAnActingMember(true, zone, mine);
+			assertEquals(2, p1Party.gameState.getP1Hand().size(), "P1's Bobby Corwen drew 2 for the " + zone);
+
+			CardData theirs = makeAutoAbilityForward("Bobby Corwen", "Wind", 5000, BOBBY_CORWEN_11_059C);
+			MainWindow p2Party = bobbysPartyLosesAnActingMember(false, zone, theirs);
+			List<CardData> fired = triggeredSources(p2Party);
+			assertEquals(1, fired.size(), "P2's Bobby Corwen answered for the " + zone);
+			assertSame(theirs, fired.get(0));
+		}
 	}
 
 	// =========================================================================================
@@ -67264,8 +67525,7 @@ public class CardBehaviorTest {
 	void gilgameshGainsBraveAndASecondAttackAtDamageThree() throws Exception {
 		// His printed record, so the field ability is read exactly as the game reads it:
 		// "Damage 3 -- Gilgamesh gains Brave and "Gilgamesh can attack twice in the same turn.""
-		CardData gilgamesh = CardCorpus.load().stream()
-				.filter(e -> e.serial().equals("18-074L")).map(CardCorpus.Entry::card).findFirst().orElse(null);
+		CardData gilgamesh = CardCorpus.bySerial("18-074L");
 		Assumptions.assumeTrue(gilgamesh != null, "needs shufflingway.db");
 		MainWindow mw = new MainWindow();
 		placeP2Forward(mw, gilgamesh);
@@ -67286,8 +67546,7 @@ public class CardBehaviorTest {
 
 	@Test
 	void shadowLordBecomesDarkWithPowerAndBraveAtDamageFive() throws Exception {
-		CardData lord = CardCorpus.load().stream()
-				.filter(e -> e.serial().equals("17-079L")).map(CardCorpus.Entry::card).findFirst().orElse(null);
+		CardData lord = CardCorpus.bySerial("17-079L");
 		Assumptions.assumeTrue(lord != null, "needs shufflingway.db");
 		MainWindow mw = new MainWindow();
 		// His enters-the-field "name 1 Job" would put a modal naming dialog in front of P1 and

@@ -1328,8 +1328,8 @@ class DamageResolver {
 		// One-time damage redirect: "the next damage dealt to A is received by B instead"
 		CardData redirectTarget = mw.nextIncomingDmgRedirectMap.remove(fwds.get(idx));
 		if (redirectTarget != null) {
-			int p1RedirIdx = mw.p1ForwardCards.indexOf(redirectTarget);
-			int p2RedirIdx = mw.p2ForwardCards.indexOf(redirectTarget);
+			int p1RedirIdx = mw.identityIndexOf(mw.p1ForwardCards, redirectTarget);
+			int p2RedirIdx = mw.identityIndexOf(mw.p2ForwardCards, redirectTarget);
 			if (p1RedirIdx >= 0) {
 				mw.logEntry(fwds.get(idx).name() + " — damage redirected to " + redirectTarget.name());
 				applyDamageToForward(true, p1RedirIdx, rawAmount, fromAbility, unreduced);

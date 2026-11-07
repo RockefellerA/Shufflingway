@@ -327,11 +327,8 @@ class StackResponseWindowTest {
     private record Cards(CardData reeve, CardData yshtola) {}
 
     private static Cards cards() throws Exception {
-        CardData reeve = null, yshtola = null;
-        for (CardCorpus.Entry e : CardCorpus.load()) {
-            if (e.serial().equals("16-104R")) reeve   = e.card();
-            if (e.serial().equals("5-068L"))  yshtola = e.card();
-        }
+        CardData reeve   = CardCorpus.bySerial("16-104R");
+        CardData yshtola = CardCorpus.bySerial("5-068L");
         Assumptions.assumeTrue(reeve != null && yshtola != null, "needs shufflingway.db");
         return new Cards(reeve, yshtola);
     }

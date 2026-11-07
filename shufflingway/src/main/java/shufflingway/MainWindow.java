@@ -594,9 +594,26 @@ public class MainWindow {
 	/** Turn number on which each backup slot was last filled (0 = empty/unknown). */
 	private final int[] p1BackupPlayedOnTurn = new int[5];
 
+	/**
+	 * A set of cards compared by identity, as every set and map of per-card state here is:
+	 * {@code CardData} is a record, so two copies of one printing are equal, and an entry made for
+	 * one copy would read as the other's too — a shield, a grant, a mark on one of two 4-018R Bombs
+	 * landing on both. Iteration order is unspecified, so walk the field rather than the set where
+	 * order matters.
+	 */
+	static Set<CardData> cardIdentitySet() {
+		return Collections.newSetFromMap(new IdentityHashMap<>());
+	}
+
+	/** {@link #cardIdentitySet()} holding {@code cards}. */
+	static Set<CardData> cardIdentitySet(Collection<CardData> cards) {
+		Set<CardData> set = cardIdentitySet();
+		set.addAll(cards);
+		return set;
+	}
+
 	// State for Backups temporarily acting as Forwards (e.g. 17-012R). Keyed by card identity, as is
-	// the Monster and granted-ability state below: CardData is a record, so two copies of one
-	// printing are equal, and an equality-keyed entry put on one copy reads as the other's too.
+	// all per-card state — see cardIdentitySet.
 	final Map<CardData, Integer> p1BackupTempForwardPower = new IdentityHashMap<>();
 	final Map<CardData, Integer> p2BackupTempForwardPower = new IdentityHashMap<>();
 	/**
@@ -795,7 +812,7 @@ public class MainWindow {
 	 * {@link #p1BlockingIdx} it covers Monsters and Backups, and it does not drift if a slot index
 	 * shifts during the priority round.
 	 */
-	private CardData      p1DeclaredBlocker       = null;
+	CardData              p1DeclaredBlocker       = null;
 	List<Integer>         pendingP2PartyIndices   = null; // slot codes; set while P1 declares blocker vs P2 party
 
 	// Blocking-target tracking: set between "Blocker Declared" and resolveCombat so that
@@ -852,13 +869,13 @@ public class MainWindow {
 	private Runnable      p1CombatPriorityOnPass = null;
 
 	// Damage-shield / damage-modifier state (keyed by CardData identity; cleared at end of turn)
-	final Set<CardData>          nextIncomingDmgZeroSet        = new HashSet<>();
+	final Set<CardData>          nextIncomingDmgZeroSet        = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
 	 * The unspent twin of {@link #nextIncomingDmgZeroSet}: 5-081C Cockatrice zeroes <em>every</em>
 	 * damage the chosen Forward is dealt for the rest of the turn, not the next one only, so this
 	 * set is read without being removed from and is emptied with the rest at the end of the turn.
 	 */
-	final Set<CardData>          allIncomingDmgZeroThisTurnSet = new HashSet<>();
+	final Set<CardData>          allIncomingDmgZeroThisTurnSet = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
 	 * The source-scoped twin of {@link #nextIncomingDmgZeroSet} — Auron 22-001R shields "the next
 	 * damage dealt to it <em>by your opponent's Summons or abilities</em>", so combat damage neither
@@ -867,15 +884,15 @@ public class MainWindow {
 	 * <p>Separate from the unqualified set rather than a flag on it: the two differ in what spends
 	 * them, and a shield spent by the wrong kind of damage is a shield that was never there.
 	 */
-	final Set<CardData>          nextOppEffectDmgZeroSet       = new HashSet<>();
-	final Map<CardData, CardData> nextIncomingDmgRedirectMap   = new HashMap<>();
-	final Map<CardData, Integer> nextIncomingDmgReduceMap      = new HashMap<>();
+	final Set<CardData>          nextOppEffectDmgZeroSet       = Collections.newSetFromMap(new IdentityHashMap<>());
+	final Map<CardData, CardData> nextIncomingDmgRedirectMap   = new IdentityHashMap<>();
+	final Map<CardData, Integer> nextIncomingDmgReduceMap      = new IdentityHashMap<>();
 	/**
 	 * The bill attached to a one-shot reduction in {@link #nextIncomingDmgReduceMap} — Cecil
 	 * 9-109H's "reduce it by 4000 instead and deal Cecil 4000 damage". Keyed by the shielded card;
 	 * removed in step with the reduction it belongs to.
 	 */
-	final Map<CardData, ShieldKickback> nextIncomingDmgReduceKickbackMap = new HashMap<>();
+	final Map<CardData, ShieldKickback> nextIncomingDmgReduceKickbackMap = new IdentityHashMap<>();
 	/**
 	 * Kickbacks whose shields have just been spent, waiting for the damage that spent them to
 	 * finish resolving. Drained by {@link #fireShieldKickbacks()} at the end of
@@ -885,19 +902,19 @@ public class MainWindow {
 	final List<ShieldKickback> pendingShieldKickbacks = new ArrayList<>();
 	/** What a damage-reduction shield costs the card that lent it, and which side that card is on. */
 	record ShieldKickback(boolean bearerIsP1, CardData bearer, int damage) {}
-	final Map<CardData, Integer> nextAbilityDmgReduceMap       = new HashMap<>();
-	final Map<CardData, Integer> incomingDmgIncreaseMap   = new HashMap<>();
+	final Map<CardData, Integer> nextAbilityDmgReduceMap       = new IdentityHashMap<>();
+	final Map<CardData, Integer> incomingDmgIncreaseMap   = new IdentityHashMap<>();
 	int globalForwardIncomingDmgIncrease = 0; // flat increase applied to ALL Forwards' incoming damage this turn
 	boolean allForwardsCannotBeBlockedByHigherCostThisTurn = false;
-	final Set<CardData>          nullifyAbilityDmgSet     = new HashSet<>();
-	final Set<CardData>          nullifyAbilityOnlyDmgSet = new HashSet<>();
+	final Set<CardData>          nullifyAbilityDmgSet     = Collections.newSetFromMap(new IdentityHashMap<>());
+	final Set<CardData>          nullifyAbilityOnlyDmgSet = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
 	 * The mirror of {@link #nullifyAbilityOnlyDmgSet}: damage from a Summon becomes 0, damage from
 	 * any other ability does not. 6-125R Leviathan's third option says "by a Summon" and stops
 	 * there, where its B-047 reprint says "by a Summon or an ability" and takes the wider set.
 	 */
-	final Set<CardData>          nullifySummonOnlyDmgSet  = new HashSet<>();
-	final Set<CardData>          nextOutgoingDmgZeroSet      = new HashSet<>();
+	final Set<CardData>          nullifySummonOnlyDmgSet  = Collections.newSetFromMap(new IdentityHashMap<>());
+	final Set<CardData>          nextOutgoingDmgZeroSet      = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
 	 * The unspent twin of {@link #nextOutgoingDmgZeroSet}, and the outgoing mirror of
 	 * {@link #allIncomingDmgZeroThisTurnSet}: 23-024R Shiva zeroes <em>every</em> damage the
@@ -922,7 +939,7 @@ public class MainWindow {
 			Collections.newSetFromMap(new IdentityHashMap<>());
 	final Map<CardData, Integer> outgoingDmgMultiplierMap    = new IdentityHashMap<>();
 	final Map<CardData, Integer> outgoingDmgFlatBoostMap     = new IdentityHashMap<>();
-	final Set<CardData>          nextOutgoingDmgDoublerSet   = new HashSet<>();
+	final Set<CardData>          nextOutgoingDmgDoublerSet   = Collections.newSetFromMap(new IdentityHashMap<>());
 	final Map<CardData, Integer> perCardIncomingDmgMultiplierMap = new IdentityHashMap<>();
 	// Set by resolveCombat before modifyIncomingDamage so field abilities can inspect the attacker's traits
 	CardData currentBattleAttacker      = null;
@@ -930,7 +947,7 @@ public class MainWindow {
 	int      currentBattleAttackerIdx   = -1;
 	// Zone of the current battle attacker so trait checks work when it is a Monster/Backup acting as a Forward
 	ForwardTarget.CardZone currentBattleAttackerZone = ForwardTarget.CardZone.FORWARD;
-	final Set<CardData>          perCardNonLethalDmgSet      = new HashSet<>();
+	final Set<CardData>          perCardNonLethalDmgSet      = Collections.newSetFromMap(new IdentityHashMap<>());
 	// Power and name of the card most recently discarded as part of resolving an ability.
 	int      lastDiscardedForwardPower    = 0;
 	String   lastDiscardedCardName        = null;
@@ -1454,17 +1471,17 @@ public class MainWindow {
 	final Set<CardData> specialSCostWaivedThisTurn = Collections.newSetFromMap(new IdentityHashMap<>());
 
 	/** Forwards that cannot be selected as targets by the opponent's Summons this turn. */
-	final Set<CardData> cannotBeChosenBySummons        = new HashSet<>();
+	final Set<CardData> cannotBeChosenBySummons        = Collections.newSetFromMap(new IdentityHashMap<>());
 	/** Forwards that cannot be selected as targets by the opponent's abilities this turn. */
-	final Set<CardData> cannotBeChosenByAbilities      = new HashSet<>();
+	final Set<CardData> cannotBeChosenByAbilities      = Collections.newSetFromMap(new IdentityHashMap<>());
 	/** Forwards that cannot be selected as targets by either player's Summons this turn. */
-	final Set<CardData> cannotBeChosenBySummonsAnyone  = new HashSet<>();
+	final Set<CardData> cannotBeChosenBySummonsAnyone  = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
 	 * The ability half of the shield above — "cannot be chosen by a Summon or an ability this turn"
 	 * (2-065L Balthier). Symmetric like its twin, and for the same reason: the sentence names no
 	 * player, so neither may choose the card.
 	 */
-	final Set<CardData> cannotBeChosenByAbilitiesAnyone = new HashSet<>();
+	final Set<CardData> cannotBeChosenByAbilitiesAnyone = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
 	 * "All Forwards cannot be chosen by Summons' EX Bursts or Characters' EX Bursts this turn"
 	 * — 5-075L Wol's fourth option. Held as a flag rather than as a set of the Forwards standing
@@ -1481,7 +1498,7 @@ public class MainWindow {
 	 */
 	boolean forwardsCannotBeChosenByExBurstThisTurn = false;
 	/** One Forward's form of the flag above, for this turn — 21-048L Princess Sarah. */
-	final Set<CardData> cannotBeChosenByExBurstThisTurn = new HashSet<>();
+	final Set<CardData> cannotBeChosenByExBurstThisTurn = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
 	 * Forwards shielded from the opponent's Summons / abilities until the beginning of their
 	 * controller's next turn -- 14-126C Aerith's second option, the only printing of that duration
@@ -1514,13 +1531,13 @@ public class MainWindow {
 	}
 
 	/** Maps a card to an element: that card cannot be chosen by Summons/abilities of that element this turn. */
-	final Map<CardData, String> cannotBeChosenByElement = new HashMap<>();
+	final Map<CardData, String> cannotBeChosenByElement = new IdentityHashMap<>();
 	/** Maps a card to an element: damage dealt to that card by Summons/abilities of that element becomes 0 this turn. */
-	final Map<CardData, String> nullifyElementDamageMap = new HashMap<>();
+	final Map<CardData, String> nullifyElementDamageMap = new IdentityHashMap<>();
 	/** Maps a card to an element: damage dealt to that card by abilities (not Summons) of that element becomes 0 this turn. */
-	final Map<CardData, String> nullifyElementDamageAbilityOnlyMap = new HashMap<>();
+	final Map<CardData, String> nullifyElementDamageAbilityOnlyMap = new IdentityHashMap<>();
 	/** Cards marked (by a targeted ability) to be removed from the game instead of put into the Break Zone, if that happens from the field this turn. */
-	final Set<CardData> rfgInsteadOfBzThisTurn = new HashSet<>();
+	final Set<CardData> rfgInsteadOfBzThisTurn = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
 	 * Which cards dealt damage to which Forward this turn, for the "a Forward damaged by [X] …
 	 * on the same turn" printings (Susano, Lord of the Revel 14-011H).
@@ -1556,7 +1573,7 @@ public class MainWindow {
 	 * choice of two. Keyed by card because the mark rides the specific card instance, and holding a
 	 * list keeps two marks on the same card from cancelling.
 	 */
-	final Map<CardData, List<PendingBzEffect>> effectOnFieldToBzThisTurn = new HashMap<>();
+	final Map<CardData, List<PendingBzEffect>> effectOnFieldToBzThisTurn = new IdentityHashMap<>();
 	/**
 	 * Cards marked so that when they leave the field this turn, the cards listed against them are
 	 * put into the Break Zone — 7-055R Chocobo, which lends a Forward +3000 power and follows it
@@ -1648,14 +1665,14 @@ public class MainWindow {
 	}
 
 	/** Maps a card to a permanent element override (Kam'lanaut ability); persists across turns. */
-	final Map<CardData, String> elementOverrideMap      = new HashMap<>();
+	final Map<CardData, String> elementOverrideMap      = new IdentityHashMap<>();
 	// Elements a card gains, in addition to its own, until the end of the turn — 2-087R Hashmal's
 	// "gain … the named Element". By identity: two copies of a printing are equal records.
 	final Map<CardData, Set<String>> tempGainedElements = new IdentityHashMap<>();
 	/** Maps a card to a permanently-granted extra job (e.g. Bartz ability); persists across turns. */
-	final Map<CardData, String> permanentExtraJobMap    = new HashMap<>();
+	final Map<CardData, String> permanentExtraJobMap    = new IdentityHashMap<>();
 	/** Forwards that have Breaktouch (battle damage) until end of turn. */
-	final Set<CardData> breaktouchBattleSet       = new HashSet<>();
+	final Set<CardData> breaktouchBattleSet       = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
 	 * Forwards holding "When this Forward is dealt damage, break this Forward." until end of turn
 	 * — Vallaide 22-020R's grant, and the copy Hades 16-079H hands out while it is a Forward.
@@ -1663,13 +1680,13 @@ public class MainWindow {
 	 * <p>Keyed by card rather than by slot, like {@link #breaktouchBattleSet} beside it, so the
 	 * grant follows the Forward through row compaction. Cleared with it at end of turn.
 	 */
-	final Set<CardData> breakWhenDealtDamageSet   = new HashSet<>();
+	final Set<CardData> breakWhenDealtDamageSet   = Collections.newSetFromMap(new IdentityHashMap<>());
 	/** Cards that have escaped from the current Battle via an Escape ability — combat is skipped for their pairing. */
-	final Set<CardData> escapedFromBattle         = new HashSet<>();
+	final Set<CardData> escapedFromBattle         = Collections.newSetFromMap(new IdentityHashMap<>());
 	/** Cards that deal no damage in the battle they are currently in (Vincent 2-078R). */
-	final Set<CardData> dealsNoCombatDamageSet    = new HashSet<>();
+	final Set<CardData> dealsNoCombatDamageSet    = Collections.newSetFromMap(new IdentityHashMap<>());
 	/** Cards to break once the battle they are in finishes, whether or not it broke them (Vincent 2-078R). */
-	final Set<CardData> breakAfterCombatSet       = new HashSet<>();
+	final Set<CardData> breakAfterCombatSet       = Collections.newSetFromMap(new IdentityHashMap<>());
 	/** The Summon card currently resolving (from the stack or as an EX Burst); null otherwise. */
 	CardData currentSummonSource    = null;
 	/** {@code true} if {@link #currentSummonSource} belongs to P1. */
@@ -5425,11 +5442,7 @@ public class MainWindow {
 		boolean  hadGrants      = !card.fieldPowerGrants().isEmpty();
 		boolean  hadCostReduces = !card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers();
 		CardData topCard = p1ForwardPrimedTop.get(idx);
-		Set<CardData> partySnapshot = Collections.emptySet();
-		if (p1AttackSelection.contains(idx)) {
-			partySnapshot = new HashSet<>();
-			partySnapshot.addAll(partyMemberBaseCards(true, p1AttackSelection));
-		}
+		Set<CardData> partySnapshot = partyOf(true, card);
 
 		if (toRfg) {
 			fileForwardRemovedFromGame(card, topCard, true);
@@ -5448,40 +5461,7 @@ public class MainWindow {
 
 		removeP1ForwardSlotState(idx);
 
-		if (p1ForwardPanel != null) {
-			p1ForwardPanel.removeAll();
-			p1ForwardLabels.clear();
-			for (int i = 0; i < p1ForwardCards.size(); i++) {
-				final int fi = i;
-				JLabel lbl = newFieldSlotLabel();
-				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
-				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
-				lbl.setOpaque(false);
-				lbl.setForeground(Color.DARK_GRAY);
-				lbl.setFont(FontLoader.loadPixelFont(11));
-				lbl.setBorder(BorderFactory.createEmptyBorder());
-				lbl.addMouseListener(new MouseAdapter() {
-					@Override public void mousePressed(MouseEvent e) {
-						if (lbl.getIcon() == null) return;
-						if (SwingUtilities.isLeftMouseButton(e)
-								&& p1ForwardClickSelectsCombat()) {
-							handleP1ForwardLeftClick(fi);
-						}
-					}
-					@Override public void mouseEntered(MouseEvent e) {
-						if (lbl.getIcon() == null) return;
-						CardData top = p1ForwardPrimedTop.get(fi);
-						showZoomAt(top != null ? top.imageUrl() : p1ForwardUrls.get(fi));
-					}
-					@Override public void mouseExited(MouseEvent e) { hideZoom(); }
-				});
-				p1ForwardLabels.add(lbl);
-				p1ForwardPanel.add(lbl);
-			}
-			p1ForwardPanel.revalidate();
-			p1ForwardPanel.repaint();
-			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
-		}
+		rebuildP1ForwardPanel();
 		if (hadGrants) for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
 		if (hadCostReduces) refreshHandCardStates();
 		if (isBreak) p2Turn.turnOpponentFwdBroken = true;
@@ -5527,11 +5507,7 @@ public class MainWindow {
 		boolean hadGrants      = !card.fieldPowerGrants().isEmpty();
 		boolean hadCostReduces = !card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers();
 		CardData topCard = p2ForwardPrimedTop.get(idx);
-		Set<CardData> partySnapshot = Collections.emptySet();
-		if (pendingP2PartyIndices != null && pendingP2PartyIndices.contains(idx)) {
-			partySnapshot = new HashSet<>();
-			partySnapshot.addAll(partyMemberBaseCards(false, pendingP2PartyIndices));
-		}
+		Set<CardData> partySnapshot = partyOf(false, card);
 
 		if (toRfg) {
 			fileForwardRemovedFromGame(card, topCard, false);
@@ -5549,30 +5525,7 @@ public class MainWindow {
 
 		removeP2ForwardSlotState(idx);
 
-		if (p2ForwardPanel != null) {
-			p2ForwardPanel.removeAll();
-			p2ForwardLabels.clear();
-			for (int i = 0; i < p2ForwardCards.size(); i++) {
-				final int fi = i;
-				JLabel lbl = newFieldSlotLabel();
-				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
-				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
-				lbl.setOpaque(false);
-				lbl.setFont(FontLoader.loadPixelFont(11));
-				lbl.setBorder(BorderFactory.createEmptyBorder());
-				lbl.addMouseListener(new MouseAdapter() {
-					@Override public void mouseEntered(MouseEvent e) {
-						if (lbl.getIcon() != null) showZoomAt(p2ForwardUrls.get(fi));
-					}
-					@Override public void mouseExited(MouseEvent e) { hideZoom(); }
-				});
-				p2ForwardLabels.add(lbl);
-				p2ForwardPanel.add(lbl);
-			}
-			p2ForwardPanel.revalidate();
-			p2ForwardPanel.repaint();
-			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
-		}
+		rebuildP2ForwardPanel();
 		if (hadGrants) for (int i = 0; i < p2MonsterCards.size(); i++) refreshP2MonsterSlot(i);
 		if (hadCostReduces) refreshHandCardStates();
 		if (isBreak) p1Turn.turnOpponentFwdBroken = true;
@@ -5613,11 +5566,13 @@ public class MainWindow {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Rebuilds all P2 forward JLabels from scratch to match the current {@code p2ForwardCards} list.
-	 * Must be called after any modification to the list so the panel stays in sync.
+	 * Rebuilds all P1 forward JLabels from scratch to match the current {@code p1ForwardCards} list.
+	 * Must be called after any modification to the list so the panel stays in sync. Each surviving
+	 * card keeps its art across the rebuild; see {@link #SLOT_ART}.
 	 */
 	private void rebuildP1ForwardPanel() {
 		if (p1ForwardPanel == null) return;
+		Map<CardData, SlotArt> art = slotArtByCard(p1ForwardPanel);
 		p1ForwardPanel.removeAll();
 		p1ForwardLabels.clear();
 		for (int i = 0; i < p1ForwardCards.size(); i++) {
@@ -5629,6 +5584,7 @@ public class MainWindow {
 			lbl.setForeground(Color.DARK_GRAY);
 			lbl.setFont(FontLoader.loadPixelFont(11));
 			lbl.setBorder(BorderFactory.createEmptyBorder());
+			carrySlotArt(lbl, art.get(p1ForwardCards.get(i)));
 			lbl.addMouseListener(new MouseAdapter() {
 				@Override public void mousePressed(MouseEvent e) {
 					if (lbl.getIcon() == null) return;
@@ -5652,8 +5608,10 @@ public class MainWindow {
 		for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 	}
 
+	/** The P2 counterpart of {@link #rebuildP1ForwardPanel}. */
 	private void rebuildP2ForwardPanel() {
 		if (p2ForwardPanel == null) return;
+		Map<CardData, SlotArt> art = slotArtByCard(p2ForwardPanel);
 		p2ForwardPanel.removeAll();
 		p2ForwardLabels.clear();
 		for (int i = 0; i < p2ForwardCards.size(); i++) {
@@ -5664,6 +5622,7 @@ public class MainWindow {
 			lbl.setOpaque(false);
 			lbl.setFont(FontLoader.loadPixelFont(11));
 			lbl.setBorder(BorderFactory.createEmptyBorder());
+			carrySlotArt(lbl, art.get(p2ForwardCards.get(i)));
 			lbl.addMouseListener(new MouseAdapter() {
 				@Override public void mouseEntered(MouseEvent e) {
 					if (lbl.getIcon() != null) showZoomAt(p2ForwardUrls.get(fi));
@@ -6194,40 +6153,7 @@ public class MainWindow {
 
 		removeP1ForwardSlotState(idx);
 
-		if (p1ForwardPanel != null) {
-			p1ForwardPanel.removeAll();
-			p1ForwardLabels.clear();
-			for (int i = 0; i < p1ForwardCards.size(); i++) {
-				final int fi = i;
-				JLabel lbl = newFieldSlotLabel();
-				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
-				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
-				lbl.setOpaque(false);
-				lbl.setForeground(Color.DARK_GRAY);
-				lbl.setFont(FontLoader.loadPixelFont(11));
-				lbl.setBorder(BorderFactory.createEmptyBorder());
-				lbl.addMouseListener(new MouseAdapter() {
-					@Override public void mousePressed(MouseEvent e) {
-						if (lbl.getIcon() == null) return;
-						if (SwingUtilities.isLeftMouseButton(e)
-								&& p1ForwardClickSelectsCombat()) {
-							handleP1ForwardLeftClick(fi);
-						}
-					}
-					@Override public void mouseEntered(MouseEvent e) {
-						if (lbl.getIcon() == null) return;
-						CardData top = p1ForwardPrimedTop.get(fi);
-						showZoomAt(top != null ? top.imageUrl() : p1ForwardUrls.get(fi));
-					}
-					@Override public void mouseExited(MouseEvent e) { hideZoom(); }
-				});
-				p1ForwardLabels.add(lbl);
-				p1ForwardPanel.add(lbl);
-			}
-			p1ForwardPanel.revalidate();
-			p1ForwardPanel.repaint();
-			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
-		}
+		rebuildP1ForwardPanel();
 		if (player1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, true);
@@ -6254,30 +6180,7 @@ public class MainWindow {
 
 		removeP2ForwardSlotState(idx);
 
-		if (p2ForwardPanel != null) {
-			p2ForwardPanel.removeAll();
-			p2ForwardLabels.clear();
-			for (int i = 0; i < p2ForwardCards.size(); i++) {
-				final int fi = i;
-				JLabel lbl = newFieldSlotLabel();
-				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
-				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
-				lbl.setOpaque(false);
-				lbl.setFont(FontLoader.loadPixelFont(11));
-				lbl.setBorder(BorderFactory.createEmptyBorder());
-				lbl.addMouseListener(new MouseAdapter() {
-					@Override public void mouseEntered(MouseEvent e) {
-						if (lbl.getIcon() != null) showZoomAt(p2ForwardUrls.get(fi));
-					}
-					@Override public void mouseExited(MouseEvent e) { hideZoom(); }
-				});
-				p2ForwardLabels.add(lbl);
-				p2ForwardPanel.add(lbl);
-			}
-			p2ForwardPanel.revalidate();
-			p2ForwardPanel.repaint();
-			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
-		}
+		rebuildP2ForwardPanel();
 		if (player1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, false);
 		autoAbilityTriggers.triggerAutoAbilitiesForPutIntoDeck(card);
@@ -6325,40 +6228,7 @@ public class MainWindow {
 
 		removeP1ForwardSlotState(idx);
 
-		if (p1ForwardPanel != null) {
-			p1ForwardPanel.removeAll();
-			p1ForwardLabels.clear();
-			for (int i = 0; i < p1ForwardCards.size(); i++) {
-				final int fi = i;
-				JLabel lbl = newFieldSlotLabel();
-				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
-				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
-				lbl.setOpaque(false);
-				lbl.setForeground(Color.DARK_GRAY);
-				lbl.setFont(FontLoader.loadPixelFont(11));
-				lbl.setBorder(BorderFactory.createEmptyBorder());
-				lbl.addMouseListener(new MouseAdapter() {
-					@Override public void mousePressed(MouseEvent e) {
-						if (lbl.getIcon() == null) return;
-						if (SwingUtilities.isLeftMouseButton(e)
-								&& p1ForwardClickSelectsCombat()) {
-							handleP1ForwardLeftClick(fi);
-						}
-					}
-					@Override public void mouseEntered(MouseEvent e) {
-						if (lbl.getIcon() == null) return;
-						CardData top = p1ForwardPrimedTop.get(fi);
-						showZoomAt(top != null ? top.imageUrl() : p1ForwardUrls.get(fi));
-					}
-					@Override public void mouseExited(MouseEvent e) { hideZoom(); }
-				});
-				p1ForwardLabels.add(lbl);
-				p1ForwardPanel.add(lbl);
-			}
-			p1ForwardPanel.revalidate();
-			p1ForwardPanel.repaint();
-			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
-		}
+		rebuildP1ForwardPanel();
 		if (player1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, true);
@@ -6381,30 +6251,7 @@ public class MainWindow {
 
 		removeP2ForwardSlotState(idx);
 
-		if (p2ForwardPanel != null) {
-			p2ForwardPanel.removeAll();
-			p2ForwardLabels.clear();
-			for (int i = 0; i < p2ForwardCards.size(); i++) {
-				final int fi = i;
-				JLabel lbl = newFieldSlotLabel();
-				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
-				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
-				lbl.setOpaque(false);
-				lbl.setFont(FontLoader.loadPixelFont(11));
-				lbl.setBorder(BorderFactory.createEmptyBorder());
-				lbl.addMouseListener(new MouseAdapter() {
-					@Override public void mouseEntered(MouseEvent e) {
-						if (lbl.getIcon() != null) showZoomAt(p2ForwardUrls.get(fi));
-					}
-					@Override public void mouseExited(MouseEvent e) { hideZoom(); }
-				});
-				p2ForwardLabels.add(lbl);
-				p2ForwardPanel.add(lbl);
-			}
-			p2ForwardPanel.revalidate();
-			p2ForwardPanel.repaint();
-			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
-		}
+		rebuildP2ForwardPanel();
 		if (player1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, false);
 		autoAbilityTriggers.triggerAutoAbilitiesForPutIntoDeck(card);
@@ -7217,40 +7064,7 @@ public class MainWindow {
 
 		removeP1ForwardSlotState(idx);
 
-		if (p1ForwardPanel != null) {
-			p1ForwardPanel.removeAll();
-			p1ForwardLabels.clear();
-			for (int i = 0; i < p1ForwardCards.size(); i++) {
-				final int fi = i;
-				JLabel lbl = newFieldSlotLabel();
-				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
-				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
-				lbl.setOpaque(false);
-				lbl.setForeground(Color.DARK_GRAY);
-				lbl.setFont(FontLoader.loadPixelFont(11));
-				lbl.setBorder(BorderFactory.createEmptyBorder());
-				lbl.addMouseListener(new MouseAdapter() {
-					@Override public void mousePressed(MouseEvent e) {
-						if (lbl.getIcon() == null) return;
-						if (SwingUtilities.isLeftMouseButton(e)
-								&& p1ForwardClickSelectsCombat()) {
-							handleP1ForwardLeftClick(fi);
-						}
-					}
-					@Override public void mouseEntered(MouseEvent e) {
-						if (lbl.getIcon() == null) return;
-						CardData top = p1ForwardPrimedTop.get(fi);
-						showZoomAt(top != null ? top.imageUrl() : p1ForwardUrls.get(fi));
-					}
-					@Override public void mouseExited(MouseEvent e) { hideZoom(); }
-				});
-				p1ForwardLabels.add(lbl);
-				p1ForwardPanel.add(lbl);
-			}
-			p1ForwardPanel.revalidate();
-			p1ForwardPanel.repaint();
-			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
-		}
+		rebuildP1ForwardPanel();
 		if (hadGrants) for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
 		if (player1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
@@ -7281,30 +7095,7 @@ public class MainWindow {
 
 		removeP2ForwardSlotState(idx);
 
-		if (p2ForwardPanel != null) {
-			p2ForwardPanel.removeAll();
-			p2ForwardLabels.clear();
-			for (int i = 0; i < p2ForwardCards.size(); i++) {
-				final int fi = i;
-				JLabel lbl = newFieldSlotLabel();
-				lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
-				lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
-				lbl.setOpaque(false);
-				lbl.setFont(FontLoader.loadPixelFont(11));
-				lbl.setBorder(BorderFactory.createEmptyBorder());
-				lbl.addMouseListener(new MouseAdapter() {
-					@Override public void mouseEntered(MouseEvent e) {
-						if (lbl.getIcon() != null) showZoomAt(p2ForwardUrls.get(fi));
-					}
-					@Override public void mouseExited(MouseEvent e) { hideZoom(); }
-				});
-				p2ForwardLabels.add(lbl);
-				p2ForwardPanel.add(lbl);
-			}
-			p2ForwardPanel.revalidate();
-			p2ForwardPanel.repaint();
-			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
-		}
+		rebuildP2ForwardPanel();
 		if (hadGrants) for (int i = 0; i < p2MonsterCards.size(); i++) refreshP2MonsterSlot(i);
 		if (player1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1Turn.forwardsLeftFieldThisTurn++;
@@ -15619,6 +15410,7 @@ public class MainWindow {
 	void breakP2BackupSlot(int idx) {
 		CardData c = p2BackupCards[idx];
 		if (c == null) return;
+		Set<CardData> party = partyOf(false, c);
 		startBreakAnim(p2BackupLabels[idx]);
 		logEntry("[P2] " + c.name() + " → Break Zone");
 		addToBreakZone(c, true);
@@ -15636,13 +15428,14 @@ public class MainWindow {
 		syncBzForwardPlayables(false);
 		refreshP2BreakLabel();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, false);
-		autoAbilityTriggers.triggerAutoAbilitiesForBreakZone(c, false, Collections.emptySet());
+		autoAbilityTriggers.triggerAutoAbilitiesForBreakZone(c, false, party);
 	}
 
 	void breakP2MonsterSlot(int idx) {
 		if (idx >= p2MonsterCards.size()) return;
 		startBreakAnim(p2MonsterLabels.get(idx));
 		CardData c = p2MonsterCards.get(idx);
+		Set<CardData> party = partyOf(false, c);
 		logEntry("[P2] " + c.name() + " → Break Zone");
 		addToBreakZone(c, true);
 		p2MonsterTempForwardPower.remove(c);
@@ -15663,7 +15456,7 @@ public class MainWindow {
 		syncBzForwardPlayables(false);
 		refreshP2BreakLabel();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, false);
-		autoAbilityTriggers.triggerAutoAbilitiesForBreakZone(c, false, Collections.emptySet());
+		autoAbilityTriggers.triggerAutoAbilitiesForBreakZone(c, false, party);
 	}
 
 	// -------------------------------------------------------------------------
@@ -17421,6 +17214,28 @@ public class MainWindow {
 	List<CardData> currentPartyMembers(boolean isP1) {
 		List<CardData> declared = declaredAttackers(isP1);
 		return declared.size() >= 2 ? declared : List.of();
+	}
+
+	/**
+	 * The party {@code card} is forming on {@code isP1}'s side, or empty when it is in none — what
+	 * a "forming a party" Break Zone subject asks of a departure (Chocobo 25-045C, Bobby Corwen
+	 * 11-059C). Read while the card is still seated, so a primed member is matched through its slot.
+	 *
+	 * <p>Held by identity: the watchers checked against it are the cards on both fields, and an
+	 * equal copy of a member — the opponent's own Bobby Corwen — is not in the party. A primed member
+	 * was declared as its top card while its row holds the card beneath, so the set has both.
+	 */
+	Set<CardData> partyOf(boolean isP1, CardData card) {
+		if (!isFormingParty(card, isP1)) return Collections.emptySet();
+		Set<CardData> party = Collections.newSetFromMap(new IdentityHashMap<>());
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		List<CardData> tops = isP1 ? p1ForwardPrimedTop : p2ForwardPrimedTop;
+		for (CardData member : currentPartyMembers(isP1)) {
+			party.add(member);
+			for (int i = 0; i < fwds.size() && i < tops.size(); i++)
+				if (tops.get(i) == member) party.add(fwds.get(i));
+		}
+		return party;
 	}
 
 	private boolean isDeclaredAttacker(CardData target, boolean isP1) {
@@ -19352,6 +19167,37 @@ public class MainWindow {
 	/** Client-property key naming the most recent render of a card slot; see {@link #markSlotRender}. */
 	private static final String SLOT_RENDER_TOKEN = "shufflingway.slotRenderToken";
 
+	/**
+	 * Client-property key holding a Forward slot's last finished render, as a {@link SlotArt}.
+	 *
+	 * <p>A Forward row is rebuilt with fresh labels whenever a card leaves it, and a fresh label
+	 * shows the placeholder until its background render lands. The rebuild hands each surviving
+	 * card the art its old slot showed, so the row does not flash to placeholders — and so a break
+	 * later in the same event, the next Forward a sweep breaks, animates the card rather than the
+	 * placeholder. Art is matched to cards by identity: two copies of one printing are
+	 * {@code equals()}, and each must keep its own render.
+	 */
+	static final String SLOT_ART = "shufflingway.slotArt";
+
+	/** A Forward slot's last finished render and the card it shows. */
+	record SlotArt(CardData card, Icon icon) {}
+
+	/** Each card's last finished render among {@code row}'s slots, keyed by identity. */
+	private static Map<CardData, SlotArt> slotArtByCard(Container row) {
+		Map<CardData, SlotArt> art = new IdentityHashMap<>();
+		for (Component c : row.getComponents())
+			if (c instanceof JComponent jc && jc.getClientProperty(SLOT_ART) instanceof SlotArt a)
+				art.put(a.card(), a);
+		return art;
+	}
+
+	/** Shows {@code art} in a freshly built slot until that slot's own render lands; no-op when null. */
+	private static void carrySlotArt(JLabel slot, SlotArt art) {
+		if (art == null) return;
+		slot.setIcon(art.icon());
+		slot.putClientProperty(SLOT_ART, art);
+	}
+
 	// -------------------------------------------------------------------------
 	// Forward and Monster zones - panels, placement, slot rendering
 	// -------------------------------------------------------------------------
@@ -19844,7 +19690,11 @@ public class MainWindow {
 				if (slotRenderSuperseded(slot, renderToken)) return;
 				try {
 					ImageIcon icon = get();
-					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
+					if (icon != null) {
+						slot.setIcon(icon);
+						slot.setText(null);
+						slot.putClientProperty(SLOT_ART, new SlotArt(fwdCard, icon));
+					}
 					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, countersMap);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
@@ -21647,12 +21497,17 @@ public class MainWindow {
 	void resolvePostCombatBreaks() {
 		dealsNoCombatDamageSet.clear();
 		if (breakAfterCombatSet.isEmpty()) return;
-		List<CardData> pending = new ArrayList<>(breakAfterCombatSet);
+		// In field order — P1's row, then P2's — rather than the set's, which has none: both clients
+		// of a networked game have to break them in the same order. A card no longer in either row
+		// was already broken or otherwise left.
+		List<CardData> pending = new ArrayList<>();
+		for (CardData c : p1ForwardCards) if (breakAfterCombatSet.contains(c)) pending.add(c);
+		for (CardData c : p2ForwardCards) if (breakAfterCombatSet.contains(c)) pending.add(c);
 		breakAfterCombatSet.clear();
 		for (CardData card : pending) {
-			int p1Idx = p1ForwardCards.indexOf(card);
-			int p2Idx = p2ForwardCards.indexOf(card);
-			if (p1Idx < 0 && p2Idx < 0) continue;   // already broken or otherwise gone
+			int p1Idx = identityIndexOf(p1ForwardCards, card);
+			int p2Idx = identityIndexOf(p2ForwardCards, card);
+			if (p1Idx < 0 && p2Idx < 0) continue;   // broken by an earlier one's leaving
 			logEntry((p1Idx >= 0 ? "" : "[P2] ") + card.name() + " breaks after the battle");
 			if (p1Idx >= 0) breakP1Forward(p1Idx); else breakP2Forward(p2Idx);
 		}
@@ -23969,7 +23824,11 @@ public class MainWindow {
 				if (slotRenderSuperseded(slot, renderToken)) return;
 				try {
 					ImageIcon icon = get();
-					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
+					if (icon != null) {
+						slot.setIcon(icon);
+						slot.setText(null);
+						slot.putClientProperty(SLOT_ART, new SlotArt(fwdCard, icon));
+					}
 					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, countersMap);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}

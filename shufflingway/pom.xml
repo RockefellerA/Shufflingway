@@ -13,6 +13,8 @@
   <properties>
     <maven.compiler.release>25</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Test JVMs run side by side; see the surefire configuration. -->
+    <forkCount>4</forkCount>
   </properties>
 
   <build>
@@ -55,6 +57,10 @@
           <!-- Mockito's inline mock maker otherwise self-attaches its agent at runtime,
                which the JDK now warns about and will eventually refuse. -->
           <argLine>--enable-native-access=ALL-UNNAMED -javaagent:${net.bytebuddy:byte-buddy-agent:jar}</argLine>
+          <!-- Test classes are spread over four JVMs, each running its share one class at a time.
+               Methods within a class never run concurrently: the board tests share the Swing
+               event thread and MainWindow's static state. Override with -DforkCount=1. -->
+          <forkCount>${forkCount}</forkCount>
         </configuration>
       </plugin>
       <plugin>

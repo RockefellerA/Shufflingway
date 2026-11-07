@@ -631,6 +631,42 @@ final class GameContextImpl implements GameContext {
 				else          damageP2ForwardUnreduced(t.idx(), amount);
 			}
 
+			@Override public List<ActingForward> actingForwards(boolean p1Side) {
+				List<ActingForward> out = new ArrayList<>();
+				List<CardData> declared = p1Side ? mw.p1DeclaredAttackers : mw.p2DeclaredAttackers;
+				List<CardData> monsters = p1Side ? mw.p1MonsterCards : mw.p2MonsterCards;
+				for (int i = 0; i < monsters.size(); i++) {
+					if (!(p1Side ? mw.isP1MonsterTemporarilyForward(i) : mw.isP2MonsterTemporarilyForward(i))) continue;
+					CardData c = monsters.get(i);
+					out.add(new ActingForward(new ForwardTarget(p1Side, i, ForwardTarget.CardZone.MONSTER), c,
+							(p1Side ? mw.p1MonsterStates : mw.p2MonsterStates).get(i),
+							mw.fieldCombatDamage(p1Side, ForwardTarget.CardZone.MONSTER, i),
+							mw.fieldForwardPower(p1Side, ForwardTarget.CardZone.MONSTER, i),
+							MainWindow.identityIndexOf(declared, c) >= 0, actingForwardBlocking(p1Side, c)));
+				}
+				CardData[] backups = p1Side ? mw.p1BackupCards : mw.p2BackupCards;
+				for (int i = 0; i < backups.length; i++) {
+					if (backups[i] == null) continue;
+					if (!(p1Side ? mw.isP1BackupTemporarilyForward(i) : mw.isP2BackupTemporarilyForward(i))) continue;
+					CardData c = backups[i];
+					out.add(new ActingForward(new ForwardTarget(p1Side, i, ForwardTarget.CardZone.BACKUP), c,
+							(p1Side ? mw.p1BackupStates : mw.p2BackupStates)[i],
+							mw.fieldCombatDamage(p1Side, ForwardTarget.CardZone.BACKUP, i),
+							mw.fieldForwardPower(p1Side, ForwardTarget.CardZone.BACKUP, i),
+							MainWindow.identityIndexOf(declared, c) >= 0, actingForwardBlocking(p1Side, c)));
+				}
+				return out;
+			}
+
+			/**
+			 * Whether {@code card}, a Monster or Backup acting as a Forward, is blocking. Only P1's
+			 * declared blocker is recorded for these rows; the Forward row's blockers are read by
+			 * index instead.
+			 */
+			private boolean actingForwardBlocking(boolean p1Side, CardData card) {
+				return p1Side && card == mw.p1DeclaredBlocker;
+			}
+
 
 	// =========================================================================================
 	// Damage shields: reduction, redirection and negation
@@ -854,7 +890,10 @@ final class GameContextImpl implements GameContext {
 	// Delayed marks armed on a target
 	// =========================================================================================
 			@Override public void markTargetRfgInsteadOfBzThisTurn(ForwardTarget t) {
-				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
+				// Any card on the field: a Monster or Backup acting as a Forward is swept with the
+				// Forwards, and every field row's break files through addToBreakZone(card, true).
+				if (t.zone() != ForwardTarget.CardZone.FORWARD && t.zone() != ForwardTarget.CardZone.MONSTER
+						&& t.zone() != ForwardTarget.CardZone.BACKUP) return;
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
 				if (c == null) return;
 				mw.rfgInsteadOfBzThisTurn.add(c);
@@ -1305,14 +1344,16 @@ final class GameContextImpl implements GameContext {
 				final Set<CardData> summonImmuneFromOpp;
 				final Set<CardData> abilityImmuneFromOpp;
 				{
-					Set<CardData> sumTmp = new HashSet<>(mw.cannotBeChosenBySummonsAnyone);
+					// Identity sets, as the ones they copy are: a shield on one of two copies of a card
+					// must not shield the other (see MainWindow.cardIdentitySet).
+					Set<CardData> sumTmp = MainWindow.cardIdentitySet(mw.cannotBeChosenBySummonsAnyone);
 					// Balthier 2-065L's turn-scoped shield is the one that names no player, so it
 					// seeds the symmetric ability set rather than the opponent-scoped one below.
-					Set<CardData> ablTmp = new HashSet<>(mw.cannotBeChosenByAbilitiesAnyone);
+					Set<CardData> ablTmp = MainWindow.cardIdentitySet(mw.cannotBeChosenByAbilitiesAnyone);
 					// The turn-scoped shields are all printed "by your opponent's ...", so they seed
 					// the opponent-scoped sets rather than the symmetric ones.
-					Set<CardData> sumOpp = new HashSet<>(mw.cannotBeChosenBySummons);
-					Set<CardData> ablOpp = new HashSet<>(mw.cannotBeChosenByAbilities);
+					Set<CardData> sumOpp = MainWindow.cardIdentitySet(mw.cannotBeChosenBySummons);
+					Set<CardData> ablOpp = MainWindow.cardIdentitySet(mw.cannotBeChosenByAbilities);
 					// Their outlasts-the-turn twins: 23-100L Young Excenmille's self-shield, and
 					// the one 15-125R Lunafreya hands a Forward for as long as she is on the field.
 					// Also printed "by your opponent's ...", so they seed the same opponent-scoped
@@ -1400,7 +1441,7 @@ final class GameContextImpl implements GameContext {
 				// chosen", and a select is not a choose. See selectionIsSelectNotChoose.
 				final Set<CardData> immuneOwn = selectionIsSelectNotChoose ? Set.of()
 						: mw.currentResolutionIsSummon ? summonImmuneAnyone : abilityImmuneAnyone;
-				final Set<CardData> immuneOpp = new HashSet<>(immuneOwn);
+				final Set<CardData> immuneOpp = MainWindow.cardIdentitySet(immuneOwn);
 				if (!selectionIsSelectNotChoose)
 					immuneOpp.addAll(mw.currentResolutionIsSummon ? summonImmuneFromOpp : abilityImmuneFromOpp);
 				// "own" = cards belonging to effect controller; "opp" = other player's cards.
@@ -10004,6 +10045,65 @@ final class GameContextImpl implements GameContext {
 				return pass;
 			}
 
+			/**
+			 * The Monsters and Backups acting as Forwards on one side ({@link #actingForwards}) that
+			 * {@code include} admits, in field order: to a sweep that names Forwards they are
+			 * Forwards. A row the sweep names itself is left out, since its own arm takes every card
+			 * in it.
+			 */
+			private List<CardData> massSweepActingForwards(boolean p1Side, boolean monstersSwept,
+					boolean backupsSwept, Predicate<ActingForward> include) {
+				List<CardData> picked = new ArrayList<>();
+				for (ActingForward af : actingForwards(p1Side)) {
+					boolean monster = af.slot().zone() == ForwardTarget.CardZone.MONSTER;
+					if (monster ? monstersSwept : backupsSwept) continue;
+					if (include.test(af)) picked.add(af.card());
+				}
+				return picked;
+			}
+
+			/** Whether the Monster or Backup in {@code t} has any trait in {@code traitFilter}; true for an empty filter. */
+			private boolean actingForwardHasAnyTrait(ForwardTarget t, EnumSet<CardData.Trait> traitFilter) {
+				if (traitFilter.isEmpty()) return true;
+				for (CardData.Trait trait : traitFilter) {
+					boolean has = t.zone() == ForwardTarget.CardZone.MONSTER
+							? mw.effectiveMonsterHasTrait(t.isP1(), t.idx(), trait)
+							: mw.effectiveBackupHasTrait(t.isP1(), t.idx(), trait);
+					if (has) return true;
+				}
+				return false;
+			}
+
+			/**
+			 * A sweep's {@code action} on the acting Forwards {@link #massSweepActingForwards} picked,
+			 * from the last back. Each is found again by identity first, because the arms that ran
+			 * before can shift its row; one that has since left the field is passed over. Counted as
+			 * Forwards, for {@link #lastMassBreakForwardCount} as for everything else.
+			 */
+			private void massActOnActingForwards(GameContext.MassAction action, boolean p1Side,
+					List<CardData> picked) {
+				for (int k = picked.size() - 1; k >= 0; k--) {
+					CardData c = picked.get(k);
+					ForwardTarget slot = mw.findFieldSlot(c, p1Side);
+					if (slot == null || slot.zone() == ForwardTarget.CardZone.FORWARD) continue;
+					boolean monster = slot.zone() == ForwardTarget.CardZone.MONSTER;
+					switch (action) {
+						case BREAK          -> { breakTarget(slot);
+						                         if (mw.findFieldSlot(c, p1Side) == null) mw.lastMassBreakForwardCount++; }
+						case DULL           -> dullTarget(slot);
+						case FREEZE         -> freezeTarget(slot);
+						case DULL_AND_FREEZE -> { dullTarget(slot); freezeTarget(slot); }
+						case ACTIVATE       -> { if (targetState(slot) == CardState.DULL) mw.lastMassActivateCount++;
+						                         activateTarget(slot); }
+						case RETURN_TO_HAND -> {
+							if (monster) { if (p1Side) returnP1MonsterToHand(slot.idx()); else returnP2MonsterToHand(slot.idx()); }
+							else         { if (p1Side) returnP1BackupToHand(slot.idx());  else returnP2BackupToHand(slot.idx()); }
+						}
+						case REMOVE_FROM_GAME -> removeTargetFromGame(slot);
+					}
+				}
+			}
+
 			@Override
 			public void applyMassFieldEffect(GameContext.MassAction action,
 					boolean forwards, boolean backups, boolean monsters,
@@ -10017,6 +10117,27 @@ final class GameContextImpl implements GameContext {
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				Set<CardData> extraPass = extraFilter == null ? null
 						: massSweepExtraPass(touchP1, touchP2, extraFilter);
+				// The Forward row's filters, for the Monsters and Backups acting as Forwards. They
+				// are picked on both sides before anything is touched, as extraPass is.
+				Predicate<ActingForward> actingPasses = af -> {
+					CardData c = af.card();
+					if (element != null && !mw.effectiveContainsElement(c, element)) return false;
+					if (!meetsCostConstraint(c.cost(), costVal, costCmp)) return false;
+					if (excludeCostVal >= 0 && c.cost() == excludeCostVal) return false;
+					if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) return false;
+					if (mw.excludedByOtherThanClause(c, excludeName)) return false;
+					if (!meetsNameFilter(c, nameFilter)) return false;
+					if (extraPass != null && !extraPass.contains(c)) return false;
+					if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) return false;
+					if (!mw.meetsJobFilterEffective(c, job)) return false;
+					if (!meetsCategoryFilter(c, category)) return false;
+					if (!meetsStateFilter(af.state(), stateFilter)) return false;
+					return actingForwardHasAnyTrait(af.slot(), traitFilter);
+				};
+				List<CardData> actingP1 = forwards && touchP1
+						? massSweepActingForwards(true, monsters, backups, actingPasses) : List.of();
+				List<CardData> actingP2 = forwards && touchP2
+						? massSweepActingForwards(false, monsters, backups, actingPasses) : List.of();
 				// Reset for every action, not just ACTIVATE, so a later sweep of any kind cannot
 				// leave an earlier one's tally standing to be read as its own.
 				mw.lastMassActivateCount = 0;
@@ -10054,6 +10175,7 @@ final class GameContextImpl implements GameContext {
 							}
 						}
 					}
+					massActOnActingForwards(action, true, actingP1);
 					if (backups) {
 						for (int i = 0; i < mw.p1BackupCards.length; i++) {
 							if (mw.p1BackupCards[i] == null) continue;
@@ -10147,6 +10269,7 @@ final class GameContextImpl implements GameContext {
 							}
 						}
 					}
+					massActOnActingForwards(action, false, actingP2);
 					if (backups) {
 						for (int i = 0; i < mw.p2BackupCards.length; i++) {
 							if (mw.p2BackupCards[i] == null) continue;
@@ -10187,6 +10310,8 @@ final class GameContextImpl implements GameContext {
 							if (!meetsNameFilter(c, nameFilter)) continue;
 							if (extraPass != null && !extraPass.contains(c)) continue;
 							if (excludeJob != null && mw.meetsJobFilterEffective(c, excludeJob)) continue;
+							if (!mw.meetsJobFilterEffective(c, job)) continue;
+							if (!meetsCategoryFilter(c, category)) continue;
 							if (!meetsStateFilter(mw.p2MonsterStates.get(i), stateFilter)) continue;
 							ForwardTarget slot = new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER);
 							switch (action) {
@@ -11654,22 +11779,22 @@ final class GameContextImpl implements GameContext {
 				// By identity: two copies of a Multi-card Monster (4-018R Bomb) are equal records,
 				// and the one promoted is the one whose ability it was.
 				if (isP1) {
-					int idx = mw.identityIndexOf(mw.p1MonsterCards, source);
+					int idx = MainWindow.identityIndexOf(mw.p1MonsterCards, source);
 					if (idx < 0) { mw.makeP1BackupTemporaryForward(source, power); return; }
 					mw.p1MonsterTempForwardPower.put(source, power);
 					mw.endOfTurnEffects.add(ctx -> {
 						mw.p1MonsterTempForwardPower.remove(source);
-						int stillIdx = mw.identityIndexOf(mw.p1MonsterCards, source);
+						int stillIdx = MainWindow.identityIndexOf(mw.p1MonsterCards, source);
 						if (stillIdx >= 0) mw.refreshP1MonsterSlot(stillIdx);
 					});
 					mw.refreshP1MonsterSlot(idx);
 				} else {
-					int idx = mw.identityIndexOf(mw.p2MonsterCards, source);
+					int idx = MainWindow.identityIndexOf(mw.p2MonsterCards, source);
 					if (idx < 0) { mw.makeP2BackupTemporaryForward(source, power); return; }
 					mw.p2MonsterTempForwardPower.put(source, power);
 					mw.endOfTurnEffects.add(ctx -> {
 						mw.p2MonsterTempForwardPower.remove(source);
-						int stillIdx = mw.identityIndexOf(mw.p2MonsterCards, source);
+						int stillIdx = MainWindow.identityIndexOf(mw.p2MonsterCards, source);
 						if (stillIdx >= 0) mw.refreshP2MonsterSlot(stillIdx);
 					});
 					mw.refreshP2MonsterSlot(idx);
