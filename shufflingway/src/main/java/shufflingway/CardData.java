@@ -3769,7 +3769,8 @@ public record CardData(
             // the plain Summon arm, which keeps "casts a Summon," for itself.
             // Not "… for the first time in that turn" (20-114L The Fiend), which its own mechanism reads.
             "|casts?\\s+an?\\s+(?!card\\s+removed\\b)(?![^,.]*\\bfor\\s+the\\s+first\\s+time\\b)[^,.]+?" +
-            "|is\\s+put\\s+into\\s+(?:your\\s+)?Damage\\s+Zone" +
+            // "… into your opponent's Damage Zone" — 30-083H Ravana, watching for EX Burst cards.
+            "|is\\s+put\\s+into\\s+(?:your\\s+(?:opponent's\\s+)?)?Damage\\s+Zone" +
             "|is\\s+removed\\s+from\\s+the\\s+game\\s+due\\s+to\\s+Warp" +
             // "[Self] in any zone is removed from the game" (28-115L Lightning) and "[Self] on the
             // field is removed from the game" (29-063R Exdeath). The zone phrase sits in the trigger
@@ -4458,9 +4459,23 @@ public record CardData(
         // The same split with one subject — 17-082R Lich's "When Lich deals damage to a Forward or
         // is dealt damage by a Forward, break that Forward.": Breaktouch's trigger, and the
         // dealt-damage one whose "that Forward" is the dealer.
-        return DEALS_OR_DEALT_DAMAGE_TRIGGER.matcher(sb.toString()).replaceAll(
+        String split = DEALS_OR_DEALT_DAMAGE_TRIGGER.matcher(sb.toString()).replaceAll(
                 "When ${subj} deals damage to a Forward, ${effect}[[br]]When ${subj} is dealt damage by a Forward, ${effect}");
+        // And with two subjects, each with its own "is put" clause and no second "when" — 30-083H
+        // Ravana's "When a card with EX Burst is put into your opponent's Damage Zone or a Character
+        // is put from the field into the Break Zone, activate …".
+        return TWO_PUT_EVENTS_TRIGGER.matcher(split).replaceAll(
+                "When ${first}, ${effect}[[br]]When ${second}, ${effect}");
     }
+
+    /**
+     * "When [a X is put …] or [a Y is put …], E" — see expandAlternativeTriggers. Both halves must
+     * be whole "a/an … is put into/from …" clauses, which keeps a single subject list sharing one
+     * verb ("When Cloud or a Job SOLDIER is put …") out of it: that is {@link #MULTI_SUBJECT_TRIGGER}'s.
+     */
+    private static final Pattern TWO_PUT_EVENTS_TRIGGER = Pattern.compile(
+        "(?i)\\bWhen\\s+(?<first>an?\\s+[^,.]+?\\s+is\\s+put\\s+(?:from|into)\\s+[^,.]+?)\\s+or\\s+" +
+        "(?<second>an?\\s+[^,.]+?\\s+is\\s+put\\s+(?:from|into)\\s+[^,.]+?),\\s+(?<effect>[^.]+\\.)");
 
     /** "When X deals damage to a Forward or is dealt damage by a Forward, E" — see expandAlternativeTriggers. */
     private static final Pattern DEALS_OR_DEALT_DAMAGE_TRIGGER = Pattern.compile(
@@ -5115,6 +5130,9 @@ public record CardData(
             else if (triggerRaw.contains("chosen") && triggerRaw.contains("abilit"))                        trigger = "chosen by opponent's summon or ability";
             else if (triggerRaw.contains("chosen"))                                                         trigger = "chosen by opponent's summon";
             else if (triggerRaw.contains("summon"))                                                         trigger = castSummonTrigger(card);
+            // A watcher on the other player's Damage Zone, and on the card that lands there (30-083H
+            // Ravana). Ahead of the plain branch, which is the damaged player's own.
+            else if (triggerRaw.contains("into your opponent's damage zone"))                                trigger = "card into opponent damage zone";
             else if (triggerRaw.contains("damage zone"))                                                    trigger = "damage zone";
             else if (triggerRaw.contains("leaves"))                                                         trigger = "leaves the field";
             // 7-111R Geosgaeno's watcher, and the passive "is returned from the field" wording. The

@@ -3143,6 +3143,12 @@ final class AutoAbilityTriggers {
 			return matchesEntersFieldSubject(subject.substring(0, ctrlM.start()), broken, source);
 		}
 
+		// A filter that names no side is either player's card: "a Character" (14-087L / 30-083H
+		// Ravana, 17-104C Learte), "a Backup" (14-007L Garland), "a Forward" (18-140S Ardyn), "a
+		// Forward other than Vargas" (15-010R Vargas, 30-026R Zenos). Read as an entering-field
+		// subject is, which also takes "other than [its own name]" to mean the watcher alone.
+		if (subject.matches("(?i)^an?\\s.+")) return matchesEntersFieldSubject(subject, broken, source);
+
 		// Fall back to named card match (handles "Geomancer", etc.)
 		return broken.name().equalsIgnoreCase(subject);
 	}
@@ -4132,6 +4138,32 @@ final class AutoAbilityTriggers {
 	/** Fires "damage zone" field abilities for all field cards belonging to the player who took damage. */
 	void triggerAutoAbilitiesForDamageZone(boolean isP1) {
 		triggerAutoAbilitiesForEvent("damage zone", isP1);
+	}
+
+	/**
+	 * "When a card with EX Burst is put into your opponent's Damage Zone" — 30-083H Ravana. Fires
+	 * the watchers across the table from the Damage Zone {@code card} landed in, each against the
+	 * card itself: its subject "a card with EX Burst" asks for an EX Burst, and a bare "a card" for
+	 * nothing. Called as the card lands, beside the damaged player's own Damage Zone triggers.
+	 */
+	void triggerAutoAbilitiesForCardIntoOpponentDamageZone(CardData card, boolean zoneIsP1) {
+		if (card == null) return;
+		boolean watcherIsP1 = !zoneIsP1;
+		withBatch(() -> {
+			for (CardData watcher : fieldCards(watcherIsP1))
+				for (AutoAbility fa : mw.effectiveAutoAbilities(watcher))
+					if (fa.trigger().equals("card into opponent damage zone")
+							&& damageZoneSubjectAdmits(fa.triggerCard(), card))
+						executeAutoAbility(fa, watcher, watcherIsP1, false, card);
+		});
+		mw.showStackWindowIfNeeded();
+	}
+
+	/** Whether {@code card} is what a Damage Zone watcher's subject names; any other subject declines. */
+	private static boolean damageZoneSubjectAdmits(String subject, CardData card) {
+		String s = subject == null ? "" : subject.trim().toLowerCase(Locale.ROOT);
+		if (s.matches("an?\\s+card\\s+with\\s+ex\\s+burst")) return card.exBurst();
+		return s.isEmpty() || s.matches("an?\\s+card");
 	}
 
 	/** Fires "beginning of attack phase" auto-abilities on all field cards belonging to the active player. */

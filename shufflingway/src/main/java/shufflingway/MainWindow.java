@@ -5203,6 +5203,7 @@ public class MainWindow {
 		boolean lost = idx + 1 >= 7 && playerLoses(true, P1_DAMAGE_LOSS);
 		if (!lost) {
 			autoAbilityTriggers.triggerAutoAbilitiesForDamageZone(true);
+			autoAbilityTriggers.triggerAutoAbilitiesForCardIntoOpponentDamageZone(drawn, true);
 			autoAbilityTriggers.triggerAutoAbilitiesForEitherPlayerReceivesDamage();
 			autoAbilityTriggers.triggerAutoAbilitiesForYouReceiveDamage(true);
 			if (gameState.getP1DamageZone().size() == 5) autoAbilityTriggers.triggerAutoAbilitiesForFifthDamage(true);
@@ -5306,6 +5307,7 @@ public class MainWindow {
 		boolean lost = points >= 7 && playerLoses(false, P2_DAMAGE_LOSS);
 		if (!lost) {
 			autoAbilityTriggers.triggerAutoAbilitiesForDamageZone(false);
+			autoAbilityTriggers.triggerAutoAbilitiesForCardIntoOpponentDamageZone(drawn, false);
 			autoAbilityTriggers.triggerAutoAbilitiesForEitherPlayerReceivesDamage();
 			autoAbilityTriggers.triggerAutoAbilitiesForYouReceiveDamage(false);
 			if (points == 5) autoAbilityTriggers.triggerAutoAbilitiesForFifthDamage(false);

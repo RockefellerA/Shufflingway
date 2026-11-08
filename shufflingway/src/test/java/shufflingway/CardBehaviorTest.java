@@ -75806,4 +75806,200 @@ public class CardBehaviorTest {
 		assertTrue(mw.gameState.getP1BreakZone().contains(revealed));
 	}
 
+	// =========================================================================================
+	// 30-036L Bismarck, Lord of the Mists: "When Bismarck, Lord of the Mists enters the field,
+	// choose 1 Character opponent controls. If your opponent controls 4 or more Characters, return
+	// it to its owner's hand." and "When a Character is returned from the field to its owner's hand,
+	// draw 1 card. This effect will trigger only once per turn." (Board behaviour.) On P2's side so
+	// the AI does the choosing.
+	// =========================================================================================
+
+	private static final String BISMARCK_30_036L = "When Bismarck, Lord of the Mists enters the field, choose 1 "
+			+ "Character opponent controls. If your opponent controls 4 or more Characters, return it to its "
+			+ "owner's hand.[[br]]When a Character is returned from the field to its owner's hand, draw 1 card. "
+			+ "This effect will trigger only once per turn.";
+
+	/** Bismarck on P2's field, his arrival held back, facing {@code forwards} P1 Forwards and one P1 Backup. */
+	private static CardData bismarckFacing(MainWindow mw, int forwards) {
+		for (int i = 0; i < 4; i++) {
+			CardData c = makeForward("P2 Deck " + i, "Wind", 2, 5000);
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+		CardData bismarck = makeTextCard("Bismarck, Lord of the Mists", "Wind", "Forward", 5, 9000, "Primal",
+				BISMARCK_30_036L);
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, bismarck);
+		for (int i = 0; i < forwards; i++) placeP1Forward(mw, makeForward("Mine " + i, "Fire", 3, 7000));
+		TestCards.placeP1Backup(mw, TestCards.makeBackup("My Backup", "Fire", 2));
+		return bismarck;
+	}
+
+	@Test
+	void bismarckReturnsAnOpposingCharacterWhenTheyControlFour() {
+		MainWindow mw = new MainWindow();
+		CardData bismarck = bismarckFacing(mw, 3);                     // 3 Forwards + 1 Backup = 4
+		int handBefore = mw.gameState.getP2Hand().size();
+
+		resolveAutoAs(mw, false, bismarck, 0);
+		resolveStack(mw);
+
+		assertEquals(1, mw.gameState.getP1Hand().size(), "returned to its owner's hand");
+		long left = mw.p1ForwardCards.size() + Arrays.stream(mw.p1BackupCards).filter(Objects::nonNull).count();
+		assertEquals(3, left);
+		assertEquals(handBefore + 1, mw.gameState.getP2Hand().size(), "and the return draws Bismarck's controller 1");
+	}
+
+	@Test
+	void bismarckReturnsNothingBelowFour() {
+		MainWindow mw = new MainWindow();
+		CardData bismarck = bismarckFacing(mw, 2);                     // 2 Forwards + 1 Backup = 3
+		int handBefore = mw.gameState.getP2Hand().size();
+
+		resolveAutoAs(mw, false, bismarck, 0);
+		resolveStack(mw);
+
+		assertTrue(mw.gameState.getP1Hand().isEmpty(), "3 Characters is short of 4");
+		assertEquals(2, mw.p1ForwardCards.size());
+		assertEquals(handBefore, mw.gameState.getP2Hand().size(), "nothing returned, nothing drawn");
+	}
+
+	@Test
+	void bismarcksDrawTriggersOnlyOncePerTurn() {
+		MainWindow mw = new MainWindow();
+		bismarckFacing(mw, 3);
+		int handBefore = mw.gameState.getP2Hand().size();
+		GameContext theirs = mw.buildGameContext(false);
+
+		ActionResolver.returnTargetsToOwnersHand(theirs, List.of(fwd(true, 0)));
+		resolveStack(mw);
+		ActionResolver.returnTargetsToOwnersHand(theirs, List.of(fwd(true, 0)));
+		resolveStack(mw);
+
+		assertEquals(2, mw.gameState.getP1Hand().size());
+		assertEquals(handBefore + 1, mw.gameState.getP2Hand().size(), "only once per turn");
+	}
+
+	// =========================================================================================
+	// 30-083H Ravana, Savior of the Gnath: "When a card with EX Burst is put into your opponent's
+	// Damage Zone or a Character is put from the field into the Break Zone, activate Ravana,
+	// Savior of the Gnath." (Board behaviour.) Two events sharing one effect, read as two abilities
+	// (CardData.expandAlternativeTriggers); the first watches the other player's Damage Zone and
+	// asks the card that lands there for its EX Burst.
+	// =========================================================================================
+
+	private static final String RAVANA_30_083H_ACTIVATE = "When a card with EX Burst is put into your opponent's "
+			+ "Damage Zone or a Character is put from the field into the Break Zone, activate Ravana, Savior of the "
+			+ "Gnath.";
+
+	/** A dull Ravana on P1's field, with {@code top} on top of P2's deck. */
+	private static MainWindow dullRavanaOver(CardData top) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeTextCard("Ravana, Savior of the Gnath", "Lightning", "Forward", 5, 9000, "Primal",
+				RAVANA_30_083H_ACTIVATE));
+		mw.p1ForwardStates.set(0, CardState.DULL);
+		if (top != null) {
+			mw.gameState.getIdentity().put(top, false);
+			mw.gameState.getP2MainDeck().addFirst(top);
+		}
+		return mw;
+	}
+
+	/** A Forward with the EX Burst mark and no EX Burst effect to resolve. */
+	private static CardData exBurstMarked(String name) {
+		return MainWindow.buildCardData(new DeckCardDetail(null, name, "Fire", 2, 5000, "Forward",
+				false, 0, true, "", false, null, null, null));
+	}
+
+	@Test
+	void ravanasSentenceIsTwoAbilities() {
+		CardData ravana = makeTextCard("Ravana, Savior of the Gnath", "Lightning", "Forward", 5, 9000, "Primal",
+				RAVANA_30_083H_ACTIVATE);
+		assertEquals(List.of("card into opponent damage zone", "put into break zone"),
+				ravana.autoAbilities().stream().map(AutoAbility::trigger).toList());
+		assertEquals("a card with EX Burst", ravana.autoAbilities().get(0).triggerCard());
+		assertEquals("a Character", ravana.autoAbilities().get(1).triggerCard());
+	}
+
+	@Test
+	void anExBurstCardInTheOpponentsDamageZoneActivatesRavana() {
+		MainWindow mw = dullRavanaOver(exBurstMarked("Burst"));
+		mw.p2TakeDamage(null);
+		resolveStack(mw);
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0));
+	}
+
+	@Test
+	void aCardWithoutExBurstDoesNot() {
+		MainWindow mw = dullRavanaOver(makeForward("Plain", "Fire", 2, 5000));
+		mw.p2TakeDamage(null);
+		resolveStack(mw);
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0), "\"a card with EX Burst\"");
+	}
+
+	@Test
+	void anExBurstCardInHerOwnControllersDamageZoneDoesNot() {
+		MainWindow mw = dullRavanaOver(null);
+		CardData burst = exBurstMarked("Own Burst");
+		mw.gameState.getIdentity().put(burst, true);
+		mw.gameState.getP1MainDeck().addFirst(burst);
+
+		mw.p1TakeDamage(null);
+		resolveStack(mw);
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0), "\"your opponent's\" Damage Zone");
+	}
+
+	@Test
+	void aCharacterPutIntoTheBreakZoneFromEitherFieldActivatesRavana() {
+		MainWindow mw = dullRavanaOver(null);
+		placeP2Forward(mw, makeForward("Theirs", "Fire", 3, 7000));
+		mw.buildGameContext(true).breakTarget(fwd(false, 0));
+		resolveStack(mw);
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0), "the opponent's Character");
+
+		mw.p1ForwardStates.set(0, CardState.DULL);
+		placeP1Forward(mw, makeForward("Mine", "Fire", 3, 7000));
+		mw.buildGameContext(false).breakTarget(fwd(true, 1));
+		resolveStack(mw);
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0), "and her own side's");
+	}
+
+	// The same sideless subject on the other printings that use it — before, every one of them fell
+	// through to a card-name comparison and never fired.
+
+	@Test
+	void vargasGainsPowerWhenAnotherForwardOnEitherSideIsBroken() {
+		// 15-010R Vargas: "When a Forward other than Vargas is put from the field into the Break Zone,
+		// Vargas gains +3000 power until the end of the turn."
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeTextCard("Vargas", "Fire", "Forward", 5, 9000, null, "When a Forward other than "
+				+ "Vargas is put from the field into the Break Zone, Vargas gains +3000 power until the end of the turn."));
+		placeP2Forward(mw, makeForward("Theirs", "Fire", 3, 7000));
+		TestCards.placeP2Backup(mw, TestCards.makeBackup("Their Backup", "Fire", 2));
+
+		mw.buildGameContext(true).breakTarget(new ForwardTarget(false, 0, ForwardTarget.CardZone.BACKUP));
+		resolveStack(mw);
+		assertEquals(9000, mw.effectiveP1ForwardPower(0), "a Backup is not a Forward");
+
+		mw.buildGameContext(true).breakTarget(fwd(false, 0));
+		resolveStack(mw);
+		assertEquals(12000, mw.effectiveP1ForwardPower(0));
+	}
+
+	@Test
+	void garlandDrawsWhenABackupOnEitherSideIsBroken() {
+		// 14-007L Garland: "When a Backup is put from the field into the Break Zone, draw 1 card."
+		MainWindow mw = new MainWindow();
+		fillP1Deck(mw, 3);
+		placeP1Forward(mw, makeTextCard("Garland", "Fire", "Forward", 5, 9000, null,
+				"When a Backup is put from the field into the Break Zone, draw 1 card."));
+		TestCards.placeP2Backup(mw, TestCards.makeBackup("Their Backup", "Fire", 2));
+
+		mw.buildGameContext(true).breakTarget(new ForwardTarget(false, 0, ForwardTarget.CardZone.BACKUP));
+		resolveStack(mw);
+
+		assertEquals(1, mw.gameState.getP1Hand().size());
+	}
+
 }
