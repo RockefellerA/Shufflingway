@@ -36,5 +36,7 @@ Once the application has been installed, you can update to any new releases from
 
 # Notes:
 
-* Opus 29 is now live! Cards can be fetched via the Card Browser card update button. New overpayment rules have been implemented.
-* Remote play and Title format have now been added.
+* Opus 30 is now live! Cards can be fetched via the Card Browser card update button.
+* Some basic audio support has been added.
+* An animation occurs when damage is incurred.
+* There is now a visual for a win/lose state at the end of a game.
