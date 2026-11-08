@@ -75750,4 +75750,60 @@ public class CardBehaviorTest {
 		assertTrue(mw.gameState.getP2BreakZone().contains(cadet));
 	}
 
+	// =========================================================================================
+	// "Put from the deck into the Break Zone" triggers fire wherever a deck card lands there, and
+	// only if it does. (Board behaviour.) MainWindow.addToBreakZoneFromDeck is the one route every
+	// mill, look and reveal takes, so 10-050C Thief, 22-084R Fujin, 29-043R Aerith and 12-074H Argy
+	// hear all of them — and none of a card 15-127H Ace removes from the game instead.
+	// =========================================================================================
+
+	/** Thief on P2's field, watching P1's deck. */
+	private static MainWindow thiefWatchingP1sDeck() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeTextCard("Thief", "Wind", "Forward", 2, 5000, "Thief", THIEF_10_050C));
+		fillP1Deck(mw, 3);
+		return mw;
+	}
+
+	@Test
+	void aMillOfTheOpposingDeckTriggersThief() {
+		MainWindow mw = thiefWatchingP1sDeck();
+		mw.buildGameContext(false).opponentMillCards(1);
+		resolveStack(mw);
+		assertEquals(7000, mw.effectiveP2ForwardPower(0));
+	}
+
+	@Test
+	void aCardAceRemovesInsteadTriggersNothing() {
+		MainWindow mw = thiefWatchingP1sDeck();
+		placeP1Forward(mw, dealt("Ace", "Fire", "Forward", 3, 7000, null, null, ACE_BZ_REPLACEMENT));
+
+		mw.buildGameContext(false).opponentMillCards(1);
+		resolveStack(mw);
+
+		assertEquals(5000, mw.effectiveP2ForwardPower(0), "the card never reached the Break Zone");
+		assertEquals(1, mw.gameState.getP1PermanentRfp().size());
+	}
+
+	@Test
+	void aMillOutsideMillTopTriggersThiefToo() {
+		// "Put the top card of your deck into the Break Zone. If it is not a Forward, cancel …" —
+		// a mill that fired no "from the deck" trigger at all before it shared the route.
+		MainWindow mw = thiefWatchingP1sDeck();
+		mw.buildGameContext(true).millTopDeckCancelChosenIfNotType("Forward");
+		resolveStack(mw);
+		assertEquals(7000, mw.effectiveP2ForwardPower(0));
+	}
+
+	@Test
+	void aRevealedCardSentToTheBreakZoneTriggersThief() {
+		// What a look or reveal does with the cards it sends to the Break Zone.
+		MainWindow mw = thiefWatchingP1sDeck();
+		CardData revealed = mw.gameState.getP1MainDeck().pollFirst();
+		mw.addToBreakZoneFromDeck(revealed);
+		resolveStack(mw);
+		assertEquals(7000, mw.effectiveP2ForwardPower(0));
+		assertTrue(mw.gameState.getP1BreakZone().contains(revealed));
+	}
+
 }

@@ -9893,13 +9893,30 @@ public class MainWindow {
 	void addToBreakZone(CardData card, boolean fromField) { addToBreakZone(card, fromField, false); }
 
 	/**
-	 * {@link #addToBreakZone(CardData)} for a card just taken off the top of its owner's deck — a
-	 * mill. The difference shows only when the card is removed from the game instead: it then leaves
-	 * the deck for the removed zone directly, which is a removal from the deck (30-011R Blank).
+	 * {@link #addToBreakZone(CardData)} for a card just taken off its owner's deck — a mill, or a
+	 * look or reveal that sends cards to the Break Zone. Every such route comes through here, so the
+	 * "put from the deck into the Break Zone" triggers are fired here, once the card has arrived:
+	 * 22-084R Fujin's own, 10-050C Thief's watch on the opposing deck, 29-043R Aerith's and 12-074H
+	 * Argy's. A card removed from the game instead (15-127H Ace) never arrived, so it fires none of
+	 * them; it left the deck for the removed zone directly, which is a removal from the deck
+	 * (30-011R Blank).
 	 */
-	void addToBreakZoneFromDeck(CardData card) { addToBreakZone(card, false, true); }
+	void addToBreakZoneFromDeck(CardData card) {
+		if (addToBreakZone(card, false, true)) fireDeckToBreakZoneTriggers(card, gameState.getIdentity().get(card));
+	}
 
-	private void addToBreakZone(CardData card, boolean fromField, boolean fromDeck)
+	/** The triggers {@link #addToBreakZoneFromDeck} fires for a card that reached the Break Zone. */
+	private void fireDeckToBreakZoneTriggers(CardData card, boolean ownerIsP1) {
+		autoAbilityTriggers.triggerAutoAbilitiesForMilled(card, ownerIsP1);
+		Boolean causeSide = resolvingEffectSide();
+		// 29-043R Aerith — anyone's Summon or ability.
+		if (causeSide != null) autoAbilityTriggers.triggerAutoAbilitiesForOwnCardToBzByEffect(card, ownerIsP1);
+		// 12-074H Argy — "in any situation", the deck included.
+		if (causeSide != null && causeSide != ownerIsP1)
+			autoAbilityTriggers.triggerAutoAbilitiesForPutIntoBzByOpponent(card, ownerIsP1);
+	}
+
+	private boolean addToBreakZone(CardData card, boolean fromField, boolean fromDeck)
 	{
 		entryOrigin.remove(card);
 		leftHandAwaitingArrival.remove(card);
@@ -9911,7 +9928,7 @@ public class MainWindow {
 			else          gameState.addToPermanentRfp(card);
 			logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
 			if (player1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
-			return;
+			return false;
 		}
 
 		if (fromField) {
@@ -9922,7 +9939,7 @@ public class MainWindow {
 				gameState.addToPermanentRfp(card);
 				logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone (marked this turn)");
 				if (player1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
-				return;
+				return false;
 			}
 
 			// FA3: "If a damaged Forward opponent controls is put from the field into the Break Zone, remove it from the game instead."
@@ -9931,7 +9948,7 @@ public class MainWindow {
 				gameState.addToPermanentRfp(card);
 				logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
 				if (player1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
-				return;
+				return false;
 			}
 
 			// FA4: "If a Forward damaged by [self] is put from the field into the Break Zone on the
@@ -9942,7 +9959,7 @@ public class MainWindow {
 				gameState.addToPermanentRfp(card);
 				logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
 				if (player1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
-				return;
+				return false;
 			}
 
 			// FA2: "If a Character is put from the field into the Break Zone, you may remove it from the game instead."
@@ -9961,7 +9978,7 @@ public class MainWindow {
 						gameState.addToPermanentRfp(card);
 						logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
 						if (player1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
-						return;
+						return false;
 					}
 				}
 			}
@@ -9988,6 +10005,7 @@ public class MainWindow {
 		if (player1) refreshP1BreakLabel(); else refreshP2BreakLabel();
 		syncBzForwardPlayables(player1);
 		if (fromField) fireFieldToBzEffectTriggers(card);
+		return true;
 	}
 
 	/**

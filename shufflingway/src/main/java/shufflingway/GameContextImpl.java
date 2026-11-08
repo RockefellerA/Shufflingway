@@ -4028,15 +4028,8 @@ final class GameContextImpl implements GameContext {
 					if (deckIsP1) { mw.refreshP1DeckLabel(); mw.refreshP1BreakLabel(); }
 					else          { mw.refreshP2DeckLabel(); mw.refreshP2BreakLabel(); }
 				}
-				Boolean causeSide = mw.resolvingEffectSide();
-				for (CardData card : milled) {
-					mw.autoAbilityTriggers.triggerAutoAbilitiesForMilled(card, deckIsP1);
-					// 29-043R Aerith — anyone's Summon or ability.
-					if (causeSide != null) mw.autoAbilityTriggers.triggerAutoAbilitiesForOwnCardToBzByEffect(card, deckIsP1);
-					// 12-074H Argy — "in any situation", the deck included.
-					if (causeSide != null && causeSide != deckIsP1)
-						mw.autoAbilityTriggers.triggerAutoAbilitiesForPutIntoBzByOpponent(card, deckIsP1);
-				}
+				// The "put from the deck into the Break Zone" triggers fired as each card arrived
+				// (MainWindow.addToBreakZoneFromDeck), and only for the ones that did.
 				return milled;
 			}
 
