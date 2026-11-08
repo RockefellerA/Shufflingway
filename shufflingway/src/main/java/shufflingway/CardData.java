@@ -624,6 +624,18 @@ public record CardData(
     );
 
     /**
+     * "You can remove N [cards] in your Break Zone from the game (instead of paying the CP cost) to
+     * cast X." — 30-105L Sephiroth's "2 Card Name Sephiroth". {@link #ALT_COST_BZ_REMOVE_REDUCE}'s
+     * price buying the whole CP cost, the way {@link #ALT_COST_REMOVE_FIELD_INSTEAD} is Sonon's field
+     * removal with no CP left over. Read into the same {@link AltBzRemovalReduction}, its reduction
+     * the card's printed cost.
+     */
+    private static final Pattern ALT_COST_BZ_REMOVE_INSTEAD = Pattern.compile(
+        "(?i)You\\s+can\\s+remove\\s+(?<what>.+?)\\s+in\\s+your\\s+Break\\s+Zone\\s+from\\s+the\\s+game\\s+" +
+        "\\(instead\\s+of\\s+paying\\s+the\\s+CP\\s+cost\\)\\s+to\\s+cast\\s+\\S[^.]*\\.?"
+    );
+
+    /**
      * "3 Summons each of a different Element", "a total of 2 Earth and/or Water Summons" — the count,
      * the "and/or" union of filters, and Minwu's distinct-Element clause. "a total of" pools the
      * union, which is how every printing counts it anyway.
@@ -708,18 +720,40 @@ public record CardData(
 
     /** This card's {@link AltBzRemovalReduction}, or {@code null} when it prints none it can read. */
     public AltBzRemovalReduction altBzRemovalReduction() {
-        return parseAltBzRemovalReduction(textEn);
+        return parseAltBzRemovalReduction(textEn, cost);
     }
 
     /**
      * Reads the Break Zone reduction out of {@code text}, or {@code null}. A description that does
      * not read whole gives {@code null} rather than a looser filter: a card could otherwise be cast
      * for less than it prints.
+     *
+     * <p>Without the card's cost, an "instead of paying the CP cost" removal is read with a reduction
+     * no cost exceeds — enough to tell the line is an alternate cost, which is what the one caller
+     * without a card asks.
      */
     static AltBzRemovalReduction parseAltBzRemovalReduction(String text) {
+        return parseAltBzRemovalReduction(text, Integer.MAX_VALUE);
+    }
+
+    /**
+     * {@link #parseAltBzRemovalReduction(String)} for a card whose printed cost is
+     * {@code printedCost}, which is what an "instead of paying the CP cost" removal takes off.
+     */
+    static AltBzRemovalReduction parseAltBzRemovalReduction(String text, int printedCost) {
+        String whatText;
+        int reduction;
         Matcher m = ALT_COST_BZ_REMOVE_REDUCE.matcher(text);
-        if (!m.find()) return null;
-        Matcher what = BZ_REMOVAL_WHAT.matcher(m.group("what").trim());
+        if (m.find()) {
+            whatText  = m.group("what");
+            reduction = Integer.parseInt(m.group("reduction"));
+        } else {
+            Matcher instead = ALT_COST_BZ_REMOVE_INSTEAD.matcher(text);
+            if (!instead.find()) return null;
+            whatText  = instead.group("what");
+            reduction = printedCost;
+        }
+        Matcher what = BZ_REMOVAL_WHAT.matcher(whatText.trim());
         if (!what.matches()) return null;
         String[] parts = what.group("filters").split("(?i)\\s+and/or\\s+");
         List<String[]> read = new ArrayList<>();
@@ -739,7 +773,7 @@ public record CardData(
         List<BzRemovalFilter> filters = new ArrayList<>();
         for (String[] r : read) filters.add(new BzRemovalFilter(r[0], r[1], r[2], r[3]));
         return new AltBzRemovalReduction(Integer.parseInt(what.group("count")), List.copyOf(filters),
-                what.group("distinct") != null, Integer.parseInt(m.group("reduction")));
+                what.group("distinct") != null, reduction);
     }
 
     /**
@@ -2050,6 +2084,30 @@ public record CardData(
     record SelfPowerGatedGrant(int minPower, String remainder) {}
 
     /**
+     * "If [Self] has received N damage or more, put [Self] into the Break Zone." — 30-081R Don
+     * Tonberry. Both names are the carrier's; group {@code dmg} is N.
+     */
+    private static final Pattern SELF_DAMAGE_CAP_PUT = Pattern.compile(
+        "(?i)^If\\s+(?<n1>.+?)\\s+has\\s+received\\s+(?<dmg>\\d+)\\s+damage\\s+or\\s+more,\\s+" +
+        "put\\s+(?<n2>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
+    );
+
+    /**
+     * The damage at which {@code text} puts the card named {@code selfName} into the Break Zone, or
+     * {@code -1} when it is not that card's {@link #SELF_DAMAGE_CAP_PUT}. A standing check rather
+     * than a trigger: the rule-process sweep reads it against the damage the card holds, and a
+     * "put" is not a break, so "cannot be broken" does not stop it — which is Don Tonberry's design,
+     * since at Damage 5 he cannot be broken and this is the only way he leaves.
+     */
+    static int parseSelfDamageCapPut(String text, String selfName) {
+        if (text == null || selfName == null) return -1;
+        Matcher m = SELF_DAMAGE_CAP_PUT.matcher(text.trim());
+        if (!m.matches() || !m.group("n1").trim().equalsIgnoreCase(selfName)
+                || !m.group("n2").trim().equalsIgnoreCase(selfName)) return -1;
+        return Integer.parseInt(m.group("dmg"));
+    }
+
+    /**
      * "[Self] gains [traits] and can attack twice in the same turn." — the multi-attack permission
      * printed bare rather than quoted (Gilgamesh 7-088L). Traits only before the permission, so a
      * grant carrying anything else is not rewritten and stays unread.
@@ -2413,12 +2471,13 @@ public record CardData(
     }
 
     /**
-     * "If a [Card Name X] Forward you control [other than Y] is dealt damage, the damage is dealt
-     * to Y instead." — Daisy 18-060H (bare, with an exclusion) and Tidus 26-112H (Card Name
-     * filtered, no exclusion).
+     * "If a [Card Name X | Category X] Forward you control [other than Y] is dealt damage, the
+     * damage is dealt to Y instead." — Daisy 18-060H (bare, with an exclusion), Tidus 26-112H (Card
+     * Name filtered, no exclusion) and Daisy 30-060H (Category filtered, with the exclusion).
      */
     private static final Pattern FRIENDLY_DAMAGE_REDIRECT = Pattern.compile(
-        "(?i)^If\\s+a\\s+(?:Card\\s+Name\\s+(?<cardname>[A-Za-z][A-Za-z0-9''\\-\\s()]*?)\\s+)?" +
+        "(?i)^If\\s+a\\s+(?:Card\\s+Name\\s+(?<cardname>[A-Za-z][A-Za-z0-9''\\-\\s()]*?)\\s+" +
+        "|Category\\s+(?<category>\\S+)\\s+)?" +
         "Forward\\s+you\\s+control(?:\\s+other\\s+than\\s+(?<except>[A-Za-z][A-Za-z0-9''\\-\\s()]*?))?\\s+" +
         "is\\s+dealt\\s+damage,\\s+the\\s+damage\\s+is\\s+dealt\\s+to\\s+(?<to>[A-Za-z][A-Za-z0-9''\\-\\s()]*?)\\s+instead[.!]?$"
     );
@@ -2427,12 +2486,13 @@ public record CardData(
      * Which of its controller's Forwards a {@link #parseDamageRedirectGrant} printing stands in for.
      * The stand-in is always the printing card itself, so only the filter is carried.
      */
-    record DamageRedirectGrant(String cardNameFilter, String exceptCardName) {
+    record DamageRedirectGrant(String cardNameFilter, String categoryFilter, String exceptCardName) {
         /** Whether damage dealt to {@code c} is taken by the printing card instead. */
         boolean coversCard(CardData c) {
             if (c == null || !c.isForward()) return false;
             if (exceptCardName != null && CardFilters.meetsCardNameFilter(c, exceptCardName)) return false;
-            return CardFilters.meetsCardNameFilter(c, cardNameFilter);
+            return CardFilters.meetsCardNameFilter(c, cardNameFilter)
+                    && CardFilters.meetsCategoryFilter(c, categoryFilter);
         }
     }
 
@@ -2446,6 +2506,7 @@ public record CardData(
         if (!m.matches() || !m.group("to").trim().equalsIgnoreCase(cardName)) return null;
         return new DamageRedirectGrant(
                 m.group("cardname") != null ? m.group("cardname").trim() : null,
+                m.group("category") != null ? m.group("category").trim() : null,
                 m.group("except")   != null ? m.group("except").trim()   : null);
     }
 
@@ -3714,6 +3775,9 @@ public record CardData(
             // field is removed from the game" (29-063R Exdeath). The zone phrase sits in the trigger
             // so the subject stays the card's name. After the Warp arm, which needs its own tail.
             "|(?:in\\s+any\\s+zone|on\\s+the\\s+field)\\s+is\\s+removed\\s+from\\s+the\\s+game" +
+            // "When a card is removed from your opponent's deck from the game" — 30-011R Blank. A
+            // watcher, not a card's own removal: the subject is any card leaving that deck.
+            "|is\\s+removed\\s+from\\s+your\\s+opponent's\\s+deck\\s+from\\s+the\\s+game" +
             // "deals damage to your opponent or to a Forward" — 10-001H Ignacio, 7-013R Berserker,
             // 7-018L Lann. Ahead of the arm below, which reads its head and then fails on the comma.
             "|deals?\\s+damage\\s+to\\s+your\\s+opponent\\s+or\\s+to\\s+a\\s+Forward" +
@@ -4901,6 +4965,8 @@ public record CardData(
             // The card's own removal. Ahead of the Warp and cast branches, which also say "removed".
             else if (triggerRaw.equals("in any zone is removed from the game"))                          trigger = "removed from game";
             else if (triggerRaw.equals("on the field is removed from the game"))                         trigger = "removed from game from field";
+            // Any card leaving the opponent's deck for the removed-from-game zone (30-011R Blank).
+            else if (triggerRaw.equals("is removed from your opponent's deck from the game"))            trigger = "card removed from opponent's deck";
             // Draw watchers. Only the two printings: "you" and "your opponent … outside of … Draw Phase".
             else if (triggerRaw.matches("draws?\\s+a\\s+card") && card.equalsIgnoreCase("you"))      trigger = "you draw a card";
             else if (triggerRaw.startsWith("draws a card outside of") && card.equalsIgnoreCase("your opponent"))
@@ -6188,6 +6254,17 @@ public record CardData(
         "\\s*[.!]?\\s*$"
     );
 
+    /**
+     * "If you control X, [Self] cannot be broken." — 30-096L Yuna's "If you control 2 or more Job
+     * Guardian Forwards, Yuna cannot be broken." The unqualified shield: anchored end to end, so a
+     * printing that goes on to say what it cannot be broken by stays out rather than being read as
+     * this broader one. Groups: {@code raw}, {@code target}.
+     */
+    private static final Pattern IF_CTRL_CANNOT_BE_BROKEN = Pattern.compile(
+        "(?i)^If\\s+you\\s+control\\s+(?<raw>[^,]+),\\s+(?<target>(?!it\\b).+?)\\s+cannot\\s+be\\s+broken" +
+        "\\s*[.!]?\\s*$"
+    );
+
     /** Splits a single condition part on " other than ": group(1) = condition, group(2) = excluded name. */
     private static final Pattern IF_CTRL_BOOST_EXCEPT = Pattern.compile(
         "(?i)^(.+?)\\s+other\\s+than\\s+(\\S.*)$"
@@ -6853,9 +6930,11 @@ public record CardData(
             Matcher m    = IF_CTRL_BOOST_OUTER.matcher(seg);
             Matcher cnbM = IF_CTRL_CANNOT_BE_BLOCKED.matcher(seg);
             Matcher cncM = IF_CTRL_CANNOT_BE_CHOSEN.matcher(seg);
+            Matcher cbbM = IF_CTRL_CANNOT_BE_BROKEN.matcher(seg);
 
             String rawCond, targetName, effectsStr;
             boolean isCannotBeBlocked;
+            boolean cannotBeBroken = false;
             int[]   icbCostFilter = null;
             if (m.find()) {
                 rawCond           = m.group("raw").trim();
@@ -6882,6 +6961,14 @@ public record CardData(
                 targetName        = cncM.group("target").trim();
                 effectsStr        = cncM.group("effects").trim();
                 isCannotBeBlocked = false;
+            } else if (cbbM.matches()) {
+                // The trait the grant hands over is the whole consequence, so no effects string is
+                // left for the keyword readers below.
+                rawCond           = cbbM.group("raw").trim();
+                targetName        = cbbM.group("target").trim();
+                effectsStr        = "";
+                isCannotBeBlocked = false;
+                cannotBeBroken    = true;
             } else {
                 continue;
             }
@@ -6918,6 +7005,7 @@ public record CardData(
             if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        traits.add(Trait.BRAVE);
             if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
             if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  traits.add(Trait.BACK_ATTACK);
+            if (cannotBeBroken)                                     traits.add(Trait.CANNOT_BE_BROKEN);
 
             ChosenImmunity immunity = parseChosenImmunity(effectsStr);
             boolean noChooseSummons = immunity.summons();
@@ -7233,7 +7321,10 @@ public record CardData(
         "(?:Job\\s+(?<job>[A-Za-z][A-Za-z\\s''\\-]*?)(?=\\s+Forwards?|\\s+Backups?|\\s+Monsters?|\\s+Characters?|\\s+other\\s+than|\\s+you)|" +
         "Category\\s+(?<category>\\S+))\\s*" +
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)?\\s*" +
-        "(?:other\\s+than\\s+(?<except>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+)?you\\s+control\\s+gains?\\s+" +
+        "(?:other\\s+than\\s+(?<except>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+)?you\\s+control\\s+" +
+        // The exclusion printed after "you control" instead — 30-104H Jayden Rundall's "The Category
+        // FFBE Forwards you control other than Jayden Rundall gain +1000 power". Same exclusion.
+        "(?:other\\s+than\\s+(?<except2>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*?)\\s+)?gains?\\s+" +
         "(?:\\+(?<power>\\d+)\\s+power(?:\\s+and\\s+)?)?" +
         "(?<traitstext>.+?)?[.!]?$"
     );
@@ -7588,8 +7679,10 @@ public record CardData(
      * Forwards, and so has no per-card trait to hang on.
      */
     private static final Pattern FIELD_POWER_CANNOT_BE_DECREASED = Pattern.compile(
-        "(?i)^The\\s+power\\s+of\\s+Forwards?\\s+you\\s+control\\s+cannot\\s+be\\s+decreased\\s+by\\s+" +
-        "your\\s+opponent(?:'s|s')\\s+Summons?\\s+or\\s+abilit(?:y|ies)[.!]?$"
+        // "the Category X" narrows it to 30-068L Rikku's "The power of the Category X Forwards you
+        // control …"; group {@code cat}, absent for Shelke's and Kalmia's every Forward.
+        "(?i)^The\\s+power\\s+of\\s+(?:the\\s+Category\\s+(?<cat>\\S+)\\s+)?Forwards?\\s+you\\s+control\\s+" +
+        "cannot\\s+be\\s+decreased\\s+by\\s+your\\s+opponent(?:'s|s')\\s+Summons?\\s+or\\s+abilit(?:y|ies)[.!]?$"
     );
 
     /**
@@ -7900,9 +7993,10 @@ public record CardData(
                 }
             }
 
-            if (FIELD_POWER_CANNOT_BE_DECREASED.matcher(seg).matches()) {
-                result.add(FieldPowerGrant.sameSideFiltered(true, false, false, null, 0,
-                        EnumSet.of(Trait.POWER_CANNOT_BE_DECREASED_BY_OPP), null,
+            Matcher noDecreaseM = FIELD_POWER_CANNOT_BE_DECREASED.matcher(seg);
+            if (noDecreaseM.matches()) {
+                result.add(FieldPowerGrant.sameSideFiltered(null, noDecreaseM.group("cat"), true, false, false,
+                        null, 0, EnumSet.of(Trait.POWER_CANNOT_BE_DECREASED_BY_OPP), null,
                         EnumSet.noneOf(Trait.class)));
                 continue;
             }
@@ -8259,7 +8353,7 @@ public record CardData(
             boolean inclBackups  = inclFlags[1] != 0;
             boolean inclMonsters = inclFlags[2] != 0;
 
-            String except = m.group("except");
+            String except = m.group("except") != null ? m.group("except") : m.group("except2");
             if (except != null) except = except.trim();
 
             String powerStr = m.group("power");
@@ -10335,6 +10429,10 @@ public record CardData(
         return name.trim().replaceAll("(?i)\\s+(Forwards?|Backups?|Monsters?|Characters?)$", "").trim();
     }
 
+    /** The type {@link #stripTrailingType} removes, singular: group 1 is "Forward", "Backup" or "Monster". */
+    private static final Pattern NAMED_TRAILING_TYPE =
+        Pattern.compile("(?i)\\s(Forward|Backup|Monster)s?$");
+
     /** "N or more &lt;filter&gt; and/or &lt;filter&gt;[ and/or …]" — the count applies to the union. */
     private static final Pattern CTRL_COND_UNION = Pattern.compile(
         "(?i)^(?<count>\\d+)\\s+or\\s+more\\s+(?<filters>.+?\\s+and/or\\s+.+)$"
@@ -10406,7 +10504,14 @@ public record CardData(
             // be the one carrying it.
             boolean anyOf = "or".equalsIgnoreCase(namedM.group("conj1"))
                     || "or".equalsIgnoreCase(namedM.group("conj2"));
-            return new ControlCondition(names, 0, false, null, null, null, null, 0, List.of(), anyOf);
+            // "a Card Name Zidane Forward" (30-088R Garnet): a lone name's printed type narrows it —
+            // Zidane is printed as a Backup too.
+            String namedType = null;
+            if (names.size() == 1) {
+                Matcher typeM = NAMED_TRAILING_TYPE.matcher(namedM.group("n1").trim());
+                if (typeM.find()) namedType = typeM.group(1);
+            }
+            return new ControlCondition(names, 0, false, namedType, null, null, null, 0, List.of(), anyOf);
         }
 
         // Count mode: "[N or more | only N | a] [element] [Category X] [Job name] [type] [of power P or more] [or Card Name X]"

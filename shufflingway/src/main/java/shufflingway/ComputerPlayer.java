@@ -262,6 +262,12 @@ class ComputerPlayer implements OpponentController {
 
 	/** Executes a planned P2 hand-cast: dulls backups, discards for CP, pays cost, plays the card. */
 	private void executeP2HandPlay(P2Plan plan) {
+		if (plan.discardCast()) {
+			// The same payment P1's menu item makes: the discards first, then a cast with no CP.
+			CardData card = mw.gameState.getP2Hand().get(plan.cardIdx());
+			mw.discardThenCastFree(false, card, plan.cardIdx(), plan.discardIndices());
+			return;
+		}
 		if (plan.altPayment() != null) {
 			// The cards handed over are the whole price: MainWindow.executeAltPlay puts them into
 			// the Break Zone and plays the card, the same code a networked opponent's alternate
@@ -658,12 +664,26 @@ class ComputerPlayer implements OpponentController {
 			List<Integer>          discardIndices,        // P2 hand indices to discard (2 CP each)
 			Map<Integer, String>   discardElements,       // hand idx → element of CP contributed
 			boolean                warp,                  // pay warpCost() and bank the card rather than cast it
-			AltPayment             altPayment             // cast under an alternate cost instead; null = none
+			AltPayment             altPayment,            // cast under an alternate cost instead; null = none
+			boolean                discardCast            // discardIndices are a discard-to-cast cost, not CP
 	) {
 		/** An ordinary cast or a Warp, with no alternate cost. */
 		P2Plan(int cardIdx, int reducedCost, List<Integer> dullBackups, Map<Integer, String> backupElements,
 				List<Integer> discardIndices, Map<Integer, String> discardElements, boolean warp) {
-			this(cardIdx, reducedCost, dullBackups, backupElements, discardIndices, discardElements, warp, null);
+			this(cardIdx, reducedCost, dullBackups, backupElements, discardIndices, discardElements, warp, null, false);
+		}
+
+		/** A cast under an alternate cost that hands cards over. */
+		P2Plan(int cardIdx, int reducedCost, List<Integer> dullBackups, Map<Integer, String> backupElements,
+				List<Integer> discardIndices, Map<Integer, String> discardElements, boolean warp,
+				AltPayment altPayment) {
+			this(cardIdx, reducedCost, dullBackups, backupElements, discardIndices, discardElements, warp,
+					altPayment, false);
+		}
+
+		/** A discard-to-cast: {@code discards} are the whole price (King 9-010R, 30-001H Auron). */
+		static P2Plan discardCast(int cardIdx, List<Integer> discards) {
+			return new P2Plan(cardIdx, 0, List.of(), Map.of(), discards, Map.of(), false, null, true);
 		}
 	}
 
@@ -791,6 +811,9 @@ class ComputerPlayer implements OpponentController {
 			// second route onto the field that costs no CP at all.
 			AltPayment alt = card.altPutToBzCost() != null ? p2PlanAltPutToBzCost(card) : null;
 			if (alt != null) return new P2Plan(cardIdx, 0, List.of(), Map.of(), List.of(), Map.of(), false, alt);
+			// A third: a discard-to-cast cost, whose cards are the whole price.
+			List<Integer> discardCast = p2PlanDiscardCast(card, cardIdx);
+			if (discardCast != null) return P2Plan.discardCast(cardIdx, discardCast);
 		}
 		// Nothing casts outright. A Warp card offers a second, usually far cheaper route: pay the
 		// Warp cost now and the card enters the field by itself once its counters run out. Tried
@@ -1077,6 +1100,28 @@ class ComputerPlayer implements OpponentController {
 	 * taken only when the arrival has something to break and the gain outweighs what is handed
 	 * over; three cards for one body and nothing else is never worth it.
 	 */
+	/**
+	 * The hand cards P2 would discard to cast {@code card} (at {@code cardIdx}) for free under a
+	 * discard-to-cast cost — the least valuable that qualify, as every other AI discard picks — or
+	 * {@code null} when no such cost is open to it. Only reached once the CP route has failed, so a
+	 * card P2 can pay for is never bought with cards instead.
+	 */
+	List<Integer> p2PlanDiscardCast(CardData card, int cardIdx) {
+		List<CardData> hand = mw.gameState.getP2Hand();
+		for (MainWindow.FieldDiscardCastEntry grant : mw.findDiscardCastGrants(card, false)) {
+			List<Integer> pool = new ArrayList<>(mw.discardCastEligible(grant, cardIdx, false));
+			if (pool.size() < grant.count()) continue;
+			List<Integer> picks = new ArrayList<>();
+			while (picks.size() < grant.count()) {
+				List<CardData> cards = new ArrayList<>();
+				for (int i : pool) cards.add(hand.get(i));
+				picks.add(pool.remove(MainWindow.pickWorstHandCard0(cards)));
+			}
+			return picks;
+		}
+		return null;
+	}
+
 	AltPayment p2PlanAltPutToBzCost(CardData card) {
 		CardData.AltPutToBzCost cost = card.altPutToBzCost();
 		if (cost == null || !entersBreakingAnOpposingCharacter(card)) return null;

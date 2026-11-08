@@ -303,6 +303,7 @@ class TurnPhases {
 		mw.p1DoublecastFreeSummons = false;  mw.p2DoublecastFreeSummons = false;
 		mw.p1DoublecastLastSummonCost = -1;  mw.p2DoublecastLastSummonCost = -1;
 		mw.nullifyAbilityOnlyDmgSet.clear(); mw.nullifySummonOnlyDmgSet.clear(); mw.perCardNonLethalDmgSet.clear();
+		mw.nullifyOppAbilityOnlyDmgSet.clear();
 		// The two until-end-of-turn break grants. P1's cleanup has always cleared the Breaktouch
 		// one; this side had not, so a grant made on P2's turn outlived it.
 		mw.breaktouchBattleSet.clear();      mw.breakWhenDealtDamageSet.clear();

@@ -796,6 +796,9 @@ final class GameContextImpl implements GameContext {
 			@Override public void shieldAbilityOnlyDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nullifyAbilityOnlyDmgSet.add(c);
 			}
+			@Override public void shieldOpponentAbilityOnlyDamage(ForwardTarget t) {
+				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nullifyOppAbilityOnlyDmgSet.add(c);
+			}
 			@Override public void shieldNonLethal(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.perCardNonLethalDmgSet.add(c);
 			}
@@ -1392,6 +1395,13 @@ final class GameContextImpl implements GameContext {
 								String ce = mw.effectiveElement(c);
 								if (ce != null && resElems.contains(ce)) { sumTmp.add(c); ablTmp.add(c); }
 							}
+							// 30-083H Ravana's printed self form of the EX Burst shield below: both sets,
+							// for the reason Wol's gives, and only while an EX Burst resolves.
+							if (exBurst && !mw.lostAbilitiesCards.contains(c)
+									&& ActionResolver.hasCannotBeChosenByExBurstsFieldAbility(c)) {
+								sumTmp.add(c);
+								ablTmp.add(c);
+							}
 							// Ability-only by construction: the source test rejects a Summon outright,
 							// so this seeds the ability set alone.
 							if (ActionResolver.hasCannotBeChosenByMultiElementForwardAbility(c)
@@ -1456,7 +1466,7 @@ final class GameContextImpl implements GameContext {
 							if (element != null && !mw.effectiveContainsElement(card, element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
+							if (!meetsPowerConstraint(filterPower(true, ForwardTarget.CardZone.FORWARD, i, card), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p1ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
@@ -1481,7 +1491,7 @@ final class GameContextImpl implements GameContext {
 							if (immuneOwn.contains(mw.p1BackupCards[i])) continue;
 							if (element != null && !mw.effectiveContainsElement(mw.p1BackupCards[i], element)) continue;
 							if (!meetsCostConstraint(mw.p1BackupCards[i].cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(mw.p1BackupCards[i].power(), powerVal, powerCmp)) continue;
+							if (!meetsPowerConstraint(filterPower(true, ForwardTarget.CardZone.BACKUP, i, mw.p1BackupCards[i]), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(mw.p1BackupCards[i], jobFilter, cardNameFilter, mw.p1ForwardCards)) continue;
 							if (!meetsCategoryFilter(mw.p1BackupCards[i], categoryFilter)) continue;
 							if (mw.excludedByOtherThanClause(mw.p1BackupCards[i], excludeName)) continue;
@@ -1499,7 +1509,7 @@ final class GameContextImpl implements GameContext {
 							if (element != null && !mw.effectiveContainsElement(card, element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
+							if (!meetsPowerConstraint(filterPower(true, ForwardTarget.CardZone.MONSTER, i, card), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p1ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
@@ -1519,7 +1529,7 @@ final class GameContextImpl implements GameContext {
 							if (element != null && !mw.effectiveContainsElement(card, element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
+							if (!meetsPowerConstraint(filterPower(false, ForwardTarget.CardZone.FORWARD, i, card), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p2ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
@@ -1544,7 +1554,7 @@ final class GameContextImpl implements GameContext {
 							if (immuneOwn.contains(mw.p2BackupCards[i])) continue;
 							if (element != null && !mw.effectiveContainsElement(mw.p2BackupCards[i], element)) continue;
 							if (!meetsCostConstraint(mw.p2BackupCards[i].cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(mw.p2BackupCards[i].power(), powerVal, powerCmp)) continue;
+							if (!meetsPowerConstraint(filterPower(false, ForwardTarget.CardZone.BACKUP, i, mw.p2BackupCards[i]), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(mw.p2BackupCards[i], jobFilter, cardNameFilter, mw.p2ForwardCards)) continue;
 							if (!meetsCategoryFilter(mw.p2BackupCards[i], categoryFilter)) continue;
 							if (mw.excludedByOtherThanClause(mw.p2BackupCards[i], excludeName)) continue;
@@ -1562,7 +1572,7 @@ final class GameContextImpl implements GameContext {
 							if (element != null && !mw.effectiveContainsElement(card, element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
+							if (!meetsPowerConstraint(filterPower(false, ForwardTarget.CardZone.MONSTER, i, card), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p2ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
@@ -1585,7 +1595,7 @@ final class GameContextImpl implements GameContext {
 							if (element != null && !mw.effectiveContainsElement(card, element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
+							if (!meetsPowerConstraint(filterPower(false, ForwardTarget.CardZone.FORWARD, i, card), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p2ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
@@ -1610,7 +1620,7 @@ final class GameContextImpl implements GameContext {
 							if (immuneOpp.contains(mw.p2BackupCards[i])) continue;
 							if (element != null && !mw.effectiveContainsElement(mw.p2BackupCards[i], element)) continue;
 							if (!meetsCostConstraint(mw.p2BackupCards[i].cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(mw.p2BackupCards[i].power(), powerVal, powerCmp)) continue;
+							if (!meetsPowerConstraint(filterPower(false, ForwardTarget.CardZone.BACKUP, i, mw.p2BackupCards[i]), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(mw.p2BackupCards[i], jobFilter, cardNameFilter, mw.p2ForwardCards)) continue;
 							if (!meetsCategoryFilter(mw.p2BackupCards[i], categoryFilter)) continue;
 							if (mw.excludedByOtherThanClause(mw.p2BackupCards[i], excludeName)) continue;
@@ -1628,7 +1638,7 @@ final class GameContextImpl implements GameContext {
 							if (element != null && !mw.effectiveContainsElement(card, element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
+							if (!meetsPowerConstraint(filterPower(false, ForwardTarget.CardZone.MONSTER, i, card), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p2ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
@@ -1648,7 +1658,7 @@ final class GameContextImpl implements GameContext {
 							if (element != null && !mw.effectiveContainsElement(card, element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
+							if (!meetsPowerConstraint(filterPower(true, ForwardTarget.CardZone.FORWARD, i, card), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, mw.p1ForwardCards)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
@@ -1673,7 +1683,7 @@ final class GameContextImpl implements GameContext {
 							if (immuneOpp.contains(mw.p1BackupCards[i])) continue;
 							if (element != null && !mw.effectiveContainsElement(mw.p1BackupCards[i], element)) continue;
 							if (!meetsCostConstraint(mw.p1BackupCards[i].cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(mw.p1BackupCards[i].power(), powerVal, powerCmp)) continue;
+							if (!meetsPowerConstraint(filterPower(true, ForwardTarget.CardZone.BACKUP, i, mw.p1BackupCards[i]), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(mw.p1BackupCards[i], jobFilter, cardNameFilter, mw.p1ForwardCards)) continue;
 							if (!meetsCategoryFilter(mw.p1BackupCards[i], categoryFilter)) continue;
 							if (mw.excludedByOtherThanClause(mw.p1BackupCards[i], excludeName)) continue;
@@ -1691,7 +1701,7 @@ final class GameContextImpl implements GameContext {
 							if (element != null && !mw.effectiveContainsElement(card, element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
+							if (!meetsPowerConstraint(filterPower(true, ForwardTarget.CardZone.MONSTER, i, card), powerVal, powerCmp)) continue;
 							if (!mw.meetsJobOrCardNameFilter(card, jobFilter, cardNameFilter, null)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (mw.excludedByOtherThanClause(card, excludeName)) continue;
@@ -3678,7 +3688,7 @@ final class GameContextImpl implements GameContext {
 				if (deck.isEmpty()) { logEntry("Your deck is empty — nothing to put into the Break Zone"); return; }
 				CardData top = deck.pollFirst();
 				logEntry((isP1 ? "" : "[P2] ") + top.name() + " (" + top.type() + ") → Break Zone (top of deck)");
-				mw.addToBreakZone(top);
+				mw.addToBreakZoneFromDeck(top);
 				if (isP1) { mw.refreshP1DeckLabel(); mw.refreshP1BreakLabel(); }
 				else      { mw.refreshP2DeckLabel(); mw.refreshP2BreakLabel(); }
 				if (!ComputerPlayer.cardMatchesType(top, type)) {
@@ -3722,7 +3732,7 @@ final class GameContextImpl implements GameContext {
 				if (deck.isEmpty()) return null;
 				CardData top = deck.pollFirst();
 				logEntry((sideIsP1 ? "" : "[P2] ") + top.name() + " (" + top.type() + ") → Break Zone (top of deck)");
-				mw.addToBreakZone(top);   // routed to its owner's Break Zone by card identity
+				mw.addToBreakZoneFromDeck(top);   // routed to its owner's Break Zone by card identity
 				if (sideIsP1) { mw.refreshP1DeckLabel(); mw.refreshP1BreakLabel(); }
 				else          { mw.refreshP2DeckLabel(); mw.refreshP2BreakLabel(); }
 				return top;
@@ -4009,7 +4019,7 @@ final class GameContextImpl implements GameContext {
 					CardData card = deck.pop();
 					// addToBreakZone places the card by its owner; a card in a deck belongs to that deck's player.
 					mw.gameState.getIdentity().putIfAbsent(card, deckIsP1);
-					mw.addToBreakZone(card);
+					mw.addToBreakZoneFromDeck(card);
 					logEntry((deckIsP1 ? "[P1] " : "[P2] ") + "Mill: \"" + card.name() + "\" → Break Zone");
 					mw.cardSlideAnimator.startSlide(img, start, end, i * 5);
 					milled.add(card);
@@ -5711,12 +5721,47 @@ final class GameContextImpl implements GameContext {
 				List<CardData> hand = mw.playerHand(seatIsP1);
 				int must = Math.min(count, eligible.size());
 				if (must <= 0) return List.of();
+				// An "up to" discard leaves the number to the player, which Locke's replacement then
+				// keeps; no opposing route asks for one, so it is left to the chooser below.
+				if (!upTo && discardsBecomeRandom(seatIsP1)) return randomDiscardInstead(seatIsP1, must);
 				List<Integer> picks = !upTo && eligible.size() <= must ? eligible
 						: mw.selectOwnHandCards(seatIsP1, eligible, must,
 								"Waiting for your opponent to choose cards to " + verb + "...",
 								() -> askOwnHandCards(hand, eligible, must, upTo, verb),
 								() -> worstHandCards(hand, eligible, upTo ? 0 : must));
 				return mw.discardFromHand(seatIsP1, picks, logSuffix);
+			}
+
+			/**
+			 * 30-034L Locke: "If your opponent discards any number of cards due to your Summons or
+			 * abilities, your opponent randomly discards that number of cards instead." Whether a
+			 * discard this resolution makes {@code victimIsP1} take is replaced that way — true only
+			 * for its controller's opponent, and only while the controller has a Locke on the field.
+			 *
+			 * <p>Read at every route that has the opponent discard, including the ones where this
+			 * resolution's controller would have selected the cards: the replacement names the
+			 * discard, not who chooses it.
+			 */
+			private boolean discardsBecomeRandom(boolean victimIsP1) {
+				return victimIsP1 != isP1 && mw.randomizingDiscardSource(isP1) != null;
+			}
+
+			/**
+			 * The discard {@link #discardsBecomeRandom} puts in place of a chosen one: {@code count}
+			 * cards out of {@code victimIsP1}'s whole hand, rolled through {@link #randomPicks} so both
+			 * clients take the same cards. Marked as one this resolution caused, as the chosen
+			 * discard would have been.
+			 */
+			private List<CardData> randomDiscardInstead(boolean victimIsP1, int count) {
+				CardData source = mw.randomizingDiscardSource(isP1);
+				String suffix = " (at random, " + (source != null ? source.name() : "replacement") + ")";
+				List<CardData> out = new ArrayList<>();
+				// Each roll is a position in the hand as it stands for that pick, so each is taken
+				// before the next is read.
+				for (int idx : randomPicks(count, mw.playerHand(victimIsP1).size(), "a random discard"))
+					out.addAll(mw.discardFromHand(victimIsP1, List.of(idx), suffix));
+				if (!out.isEmpty()) mw.turn(isP1).causedOpponentDiscardThisTurn = true;
+				return out;
 			}
 
 			/**
@@ -6519,7 +6564,7 @@ final class GameContextImpl implements GameContext {
 				List<CardData> removed = new ArrayList<>();
 				for (int i = 0; i < count && !deck.isEmpty(); i++) {
 					CardData c = deck.pollFirst();
-					mw.gameState.addToPermanentRfp(c, isP1);
+					mw.gameState.addToPermanentRfpFromDeck(c, isP1);
 					if (source != null)
 						mw.cardsRemovedBySource.computeIfAbsent(source, k -> new ArrayList<>()).add(c);
 					logEntry(c.name() + " → Removed From Game (top of deck)");
@@ -6536,7 +6581,7 @@ final class GameContextImpl implements GameContext {
 				List<CardData> removed = new ArrayList<>();
 				for (int i = 0; i < count && !deck.isEmpty(); i++) {
 					CardData c = deck.pollFirst();
-					mw.gameState.addToPermanentRfp(c, oppIsP1);
+					mw.gameState.addToPermanentRfpFromDeck(c, oppIsP1);
 					logEntry(c.name() + " → Removed From Game (top of opponent's deck)");
 					removed.add(c);
 				}
@@ -6554,7 +6599,7 @@ final class GameContextImpl implements GameContext {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				for (int i = 0; i < count && !deck.isEmpty(); i++) {
 					CardData c = deck.pollFirst();
-					mw.gameState.addToPermanentRfp(c);
+					mw.gameState.addToPermanentRfpFromDeck(c, isP1);
 					if (source != null)
 						mw.cardsRemovedBySource.computeIfAbsent(source, k -> new ArrayList<>()).add(c);
 					// "It cannot become 0" is a floor on the price, and the card whose price it is
@@ -6598,7 +6643,7 @@ final class GameContextImpl implements GameContext {
 				CardData removed = seen.get(answer.isEmpty() ? aiPick : answer.get(0));
 				// Out of the deck by identity: two copies of one printing are equal records.
 				for (int i = 0; i < n; i++) oppDeck.removeFirst();
-				mw.gameState.addToPermanentRfp(removed, !isP1);
+				mw.gameState.addToPermanentRfpFromDeck(removed, !isP1);
 				for (CardData c : seen) if (c != removed) oppDeck.addLast(c);
 				logEntry((isP1 ? "" : "[P2] ") + "Removes " + removed.name() + " from the top of the opponent's deck; "
 						+ (seen.size() - 1) + " other card(s) to the bottom");
@@ -6732,7 +6777,7 @@ final class GameContextImpl implements GameContext {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				if (deck.isEmpty()) { logEntry("Deck is empty — no card removed"); return 0; }
 				CardData c = deck.pollFirst();
-				mw.gameState.addToPermanentRfp(c);
+				mw.gameState.addToPermanentRfpFromDeck(c, isP1);
 				logEntry(c.name() + " → Removed From Game (top of deck, cost=" + c.cost() + ")");
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
 				return c.cost();
@@ -6742,7 +6787,7 @@ final class GameContextImpl implements GameContext {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				if (deck.isEmpty()) { logEntry("Deck is empty — no card removed"); return false; }
 				CardData c = deck.pollFirst();
-				mw.gameState.addToPermanentRfp(c);
+				mw.gameState.addToPermanentRfpFromDeck(c, isP1);
 				boolean fwd = c.isForward();
 				logEntry(c.name() + " → Removed From Game (top of deck, " + (fwd ? "Forward" : c.type()) + ")");
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
@@ -7799,7 +7844,7 @@ final class GameContextImpl implements GameContext {
 				if (picked != null) rest.remove(picked);
 				if (restToBreakZone) {
 					for (CardData c : rest) {
-						mw.addToBreakZone(c);
+						mw.addToBreakZoneFromDeck(c);
 						logEntry(c.name() + " → Break Zone");
 					}
 					if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
@@ -8148,6 +8193,23 @@ final class GameContextImpl implements GameContext {
 				return null;
 			}
 
+			/**
+			 * The power an "of power N or less / or more" target filter reads for the card at
+			 * {@code idx} in {@code zone}: its power right now, as combat and every display see it,
+			 * so a Forward its controller has boosted past the line is out of reach. A Backup or
+			 * Monster acting as a Forward is read as that Forward; one that is not keeps its printed
+			 * value, which is all the filter has ever had to go on for it.
+			 */
+			private int filterPower(boolean side, ForwardTarget.CardZone zone, int idx, CardData card) {
+				boolean asForward = switch (zone) {
+					case FORWARD -> true;
+					case BACKUP  -> side ? mw.isP1BackupTemporarilyForward(idx)  : mw.isP2BackupTemporarilyForward(idx);
+					case MONSTER -> side ? mw.isP1MonsterTemporarilyForward(idx) : mw.isP2MonsterTemporarilyForward(idx);
+					default      -> false;
+				};
+				return asForward ? mw.fieldForwardPower(side, zone, idx) : card.power();
+			}
+
 			@Override public int effectiveTargetPower(ForwardTarget t) {
 				if (t.zone() == ForwardTarget.CardZone.BACKUP) return 0;
 				if (t.zone() == ForwardTarget.CardZone.FORWARD)
@@ -8359,6 +8421,11 @@ final class GameContextImpl implements GameContext {
 					logEntry("Opponent's hand holds no " + eligibleDesc + " — nothing discarded.");
 					return;
 				}
+				if (discardsBecomeRandom(!isP1)) {
+					int would = (int) Math.min(count, hand.stream().filter(c -> eligible == null || eligible.test(c)).count());
+					randomDiscardInstead(!isP1, would);
+					return;
+				}
 				List<CardData> picked = pickFromOpponentHand(hand, eligible, count, "discard", "Discard");
 				for (CardData d : picked) {
 					int idx = indexByIdentity(hand, d);
@@ -8393,6 +8460,7 @@ final class GameContextImpl implements GameContext {
 				}
 				logEntry("[Opponent] Reveals " + revealed.size() + " card(s) from hand: " + shown);
 
+				if (discardsBecomeRandom(!isP1)) { randomDiscardInstead(!isP1, 1); return; }
 				int chosen = mw.selectRevealedHandCard(isP1, revealed);
 				if (chosen < 0) return;
 				CardData d = mw.playerBreakFromHand(!isP1, chosen);
@@ -8442,6 +8510,7 @@ final class GameContextImpl implements GameContext {
 					return;
 				}
 
+				if (discardsBecomeRandom(!isP1)) { randomDiscardInstead(!isP1, 1); return; }
 				int chosen = mw.selectRevealedHandCard(isP1, matching);
 				if (chosen < 0) return;
 				CardData d = mw.playerBreakFromHand(!isP1, chosen);
@@ -8531,13 +8600,18 @@ final class GameContextImpl implements GameContext {
 				if (hand.isEmpty()) { logEntry("Opponent's hand is empty."); return; }
 				CardData picked = pickOptionallyFromRevealedHand(hand, hand);
 				if (picked == null) return;
-				int idx = indexByIdentity(hand, picked);
-				if (idx < 0 || mw.playerBreakFromHand(!isP1, idx) == null) return;
-				logEntry("[Opponent] Discards " + picked.name() + " (selected from revealed hand)");
-				mw.turn(!isP1).discardedByEffectThisTurn = true;
-				mw.turn(isP1).causedOpponentDiscardThisTurn = true;
-				if (isP1) { mw.refreshP2HandCountLabel(); mw.refreshP2BreakLabel(); }
-				else      { mw.refreshP1HandLabel();      mw.refreshP1BreakLabel(); }
+				if (discardsBecomeRandom(!isP1)) {
+					// The pick decided that a card goes; Locke decides which.
+					if (randomDiscardInstead(!isP1, 1).isEmpty()) return;
+				} else {
+					int idx = indexByIdentity(hand, picked);
+					if (idx < 0 || mw.playerBreakFromHand(!isP1, idx) == null) return;
+					logEntry("[Opponent] Discards " + picked.name() + " (selected from revealed hand)");
+					mw.turn(!isP1).discardedByEffectThisTurn = true;
+					mw.turn(isP1).causedOpponentDiscardThisTurn = true;
+					if (isP1) { mw.refreshP2HandCountLabel(); mw.refreshP2BreakLabel(); }
+					else      { mw.refreshP1HandLabel();      mw.refreshP1BreakLabel(); }
+				}
 				drawCardsForOpponent(1);
 			}
 
@@ -11070,7 +11144,7 @@ final class GameContextImpl implements GameContext {
 				Deque<CardData> oppDeck = isP1 ? mw.gameState.getP2MainDeck() : mw.gameState.getP1MainDeck();
 				if (oppDeck.isEmpty()) { logEntry("Opponent's deck is empty — nothing removed"); return; }
 				CardData top = oppDeck.pollFirst();
-				mw.gameState.addToPermanentRfp(top);
+				mw.gameState.addToPermanentRfpFromDeck(top, !isP1);
 				if (isP1) mw.refreshP2DeckLabel(); else mw.refreshP1DeckLabel();
 				PlayableEntry entry = new PlayableEntry(PlayableEntry.SourceZone.RFP,
 						costReduction, anyElement, false, false, false);
@@ -11604,7 +11678,10 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public boolean controlConditionMetExcluding(ControlCondition cond, String excludeName) {
-				return mw.controlConditionMetExcluding(cond, excludeName, isP1);
+				// The resolving card is the one whose text this is, so "other than [its own name]" is
+				// that card alone — 2-020C Imitation Liegeman, a Multicard, counts a second copy.
+				CardData resCard = mw.currentResolutionIsSummon ? mw.currentSummonSource : mw.currentAbilitySource;
+				return mw.controlConditionMetExcluding(cond, excludeName, isP1, resCard);
 			}
 
 			@Override public boolean opponentControlsCard(String cardType, String cardCondition) {
@@ -12389,7 +12466,7 @@ final class GameContextImpl implements GameContext {
 							// The reveal has already lifted the card off the deck, so removing it is
 							// only a matter of putting it in the removed-from-game zone; the leftovers
 							// went to the bottom in the arrangement the player chose.
-							mw.gameState.addToPermanentRfp(card);
+							mw.gameState.addToPermanentRfpFromDeck(card, isP1);
 							mw.registerBorrowedPlayable(isP1, card, new PlayableEntry(
 									PlayableEntry.SourceZone.RFP, costReduction, false, false, false, true));
 							logEntry((isP1 ? "" : "[P2] ") + card.name()
@@ -12485,8 +12562,7 @@ final class GameContextImpl implements GameContext {
 					// Into the Warp zone with the counter the ability places, not the card's own
 					// Warp value. Deliberately without firing the warp-placed triggers: those
 					// belong to a card *played* via Warp, and this one was removed by an ability.
-					if (isP1) mw.gameState.addToP1WarpZone(card, counters);
-					else      mw.gameState.addToP2WarpZone(card, counters);
+					mw.gameState.addToWarpZoneFromDeck(card, counters, isP1);
 					logEntry((isP1 ? "" : "[P2] ") + card.name() + " → Removed From Game with "
 							+ counters + " Warp Counter" + (counters == 1 ? "" : "s"));
 					if (isP1) mw.refreshP1WarpZoneUI(); else mw.refreshP2WarpZoneUI();
@@ -12854,12 +12930,17 @@ final class GameContextImpl implements GameContext {
 				boolean victimIsP1 = !isP1;
 				List<CardData> hand = mw.playerHand(victimIsP1);
 				if (hand.isEmpty()) { logEntry((victimIsP1 ? "P1" : "[P2]") + " hand is empty — no card to discard"); return; }
-				int idx = pickOneOwnHandCard(victimIsP1, hand, handIndices(victimIsP1), "discard",
-						candidates -> mw.showPickOneCardDialog("Discard 1 card",
-								"Choose 1 card to discard.", candidates, "Discard", false),
-						() -> ComputerPlayer.pickWorstAvoidingType(hand, namedType));
-				if (idx < 0) { logEntry("Discard cancelled"); return; }
-				List<CardData> gone = mw.discardFromHand(victimIsP1, List.of(idx), " (forced)");
+				List<CardData> gone;
+				if (discardsBecomeRandom(victimIsP1)) {
+					gone = randomDiscardInstead(victimIsP1, 1);
+				} else {
+					int idx = pickOneOwnHandCard(victimIsP1, hand, handIndices(victimIsP1), "discard",
+							candidates -> mw.showPickOneCardDialog("Discard 1 card",
+									"Choose 1 card to discard.", candidates, "Discard", false),
+							() -> ComputerPlayer.pickWorstAvoidingType(hand, namedType));
+					if (idx < 0) { logEntry("Discard cancelled"); return; }
+					gone = mw.discardFromHand(victimIsP1, List.of(idx), " (forced)");
+				}
 				CardData discarded = gone.isEmpty() ? null : gone.get(0);
 				if (discarded != null) mw.turn(isP1).causedOpponentDiscardThisTurn = true;
 

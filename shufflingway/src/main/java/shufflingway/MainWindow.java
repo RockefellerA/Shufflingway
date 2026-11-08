@@ -909,6 +909,12 @@ public class MainWindow {
 	final Set<CardData>          nullifyAbilityDmgSet     = Collections.newSetFromMap(new IdentityHashMap<>());
 	final Set<CardData>          nullifyAbilityOnlyDmgSet = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
+	 * {@link #nullifyAbilityOnlyDmgSet} scoped to the shielded card's opponent: "If this Forward is
+	 * dealt damage by your opponent's abilities, the damage becomes 0 instead." (17-127H Engelbert,
+	 * 23-041C Jornee, 23-083H Queen). Its own controller's abilities still damage it.
+	 */
+	final Set<CardData>          nullifyOppAbilityOnlyDmgSet = Collections.newSetFromMap(new IdentityHashMap<>());
+	/**
 	 * The mirror of {@link #nullifyAbilityOnlyDmgSet}: damage from a Summon becomes 0, damage from
 	 * any other ability does not. 6-125R Leviathan's third option says "by a Summon" and stops
 	 * there, where its B-047 reprint says "by a Summon or an ability" and takes the wider set.
@@ -1968,6 +1974,7 @@ public class MainWindow {
 			leftHandAwaitingArrival.remove(c);
 			autoAbilityTriggers.triggerAutoAbilitiesForRemovedFromGame(c);
 		});
+		gameState.setRemovedFromDeckListener(autoAbilityTriggers::triggerAutoAbilitiesForRemovedFromDeck);
 		gameState.setBreakZoneLeftListener(autoAbilityTriggers::triggerAutoAbilitiesForBreakZoneLeft);
 		gameState.setHandLeftListener((c, p1) -> {
 			leftHandAwaitingArrival.add(c);
@@ -3782,7 +3789,7 @@ public class MainWindow {
 	/** "Play (Discard N Job X)": a field grant lets {@code card} be cast by discarding, and it can be now. */
 	private boolean canDiscardCastFromHand(CardData card, int handIdx, FieldDiscardCastEntry grant) {
 		return castTimingWindowOpen(card) && !characterCastConflict(card)
-				&& hasEligibleJobInHand(grant.job(), handIdx, grant.count())
+				&& discardCastEligible(grant, handIdx).size() >= grant.count()
 				&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card)
 				&& !summonCastBlocked(card, true) && !p1CastLimitReached();
 	}
@@ -3862,7 +3869,8 @@ public class MainWindow {
 		return nameConflict ? "Name conflict" : ldConflict ? "Light/Dark"
 				: noSlot ? "No slot" : summonBlocked ? "Summons blocked"
 				: noTarget ? "No target"
-				: !borrowedHandConditionMet(cd, true) ? "Hand not empty" : null;
+				: !borrowedHandConditionMet(cd, true) ? "Hand not empty"
+				: !selfCastGateOpen(cd, true) ? "Condition not met" : null;
 	}
 
 	/**
@@ -4283,6 +4291,7 @@ public class MainWindow {
                                 p1Turn.forwardsCannotBeChosenByExBurstThisTurn = false;
                                 p2Turn.forwardsCannotBeChosenByExBurstThisTurn = false;
                                 nullifyAbilityOnlyDmgSet.clear(); nullifySummonOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
+                                nullifyOppAbilityOnlyDmgSet.clear();
                                 nextOutgoingDmgZeroSet.clear();    allOutgoingDmgZeroThisTurnSet.clear();    abilityDmgToForwardZeroedThisTurnSet.clear();    outgoingDmgMultiplierMap.clear();
                                 nextOutgoingDmgDoublerSet.clear(); outgoingDmgFlatBoostMap.clear();
                                 perCardIncomingDmgMultiplierMap.clear();
@@ -6770,7 +6779,7 @@ public class MainWindow {
 				// The card never reached the field, so nothing "leaves the field" and no
 				// leaves-field trigger fires — it goes straight from the deck to the RFG zone.
 				case "removedFromGame" -> {
-					gameState.addToPermanentRfp(card);
+					gameState.addToPermanentRfpFromDeck(card, isP1);
 					logEntry((isP1 ? "" : "[P2] ") + card.name() + " → Removed From Game (search)");
 					if (isP1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
 				}
@@ -7250,18 +7259,19 @@ public class MainWindow {
 		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
 		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
-		for (CardData src : fwds) base = applyFieldGrantBasePower(src, target, base);
-		for (CardData src : bkps) if (src != null) base = applyFieldGrantBasePower(src, target, base);
-		for (CardData src : mons) base = applyFieldGrantBasePower(src, target, base);
+		boolean actsFwd = actsAsForward(target, isP1);
+		for (CardData src : fwds) base = applyFieldGrantBasePower(src, target, actsFwd, base);
+		for (CardData src : bkps) if (src != null) base = applyFieldGrantBasePower(src, target, actsFwd, base);
+		for (CardData src : mons) base = applyFieldGrantBasePower(src, target, actsFwd, base);
 		return base;
 	}
 
 	/** {@code src}'s base-power replacement for {@code target}, or {@code base} when it grants none. */
-	private int applyFieldGrantBasePower(CardData src, CardData target, int base) {
+	private int applyFieldGrantBasePower(CardData src, CardData target, boolean actsFwd, int base) {
 		if (lostAbilitiesCards.contains(src)) return base;
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
 			if (fpg.basePowerSet() > 0 && !fpg.affectsOpponent()
-					&& fpg.appliesToCard(target, jobsStripped(target)))
+					&& fpg.appliesToCard(target, src, actsFwd, jobsStripped(target)))
 				return fpg.basePowerSet();
 		return base;
 	}
@@ -7479,7 +7489,12 @@ public class MainWindow {
 		CardData card = mons.get(idx);
 		if (card.hasTrait(trait)) return true;
 		EnumSet<CardData.Trait> granted = (isP1 ? p1MonsterTempTraits : p2MonsterTempTraits).get(card);
-		return granted != null && granted.contains(trait);
+		if (granted != null && granted.contains(trait)) return true;
+		// The field grants a Forward's lookup reads, the card's own included — 30-081R Don
+		// Tonberry's "Damage 5 -- Don Tonberry cannot be broken", which a Monster acting as a
+		// Forward needs exactly as a Forward would.
+		return !lostAbilitiesCards.contains(card)
+				&& fieldGrantCalculator.computeConditionalTraitsForTarget(card, isP1).contains(trait);
 	}
 
 	/**
@@ -7580,12 +7595,12 @@ public class MainWindow {
 		int dmgToAttacker    = modifyIncomingDamage(attackerIsP1, attackerIdx, rawDmgToAttacker, false, false);
 		currentBattleAttacker = null;
 
-		List<Integer> attackerDmgList = attackerIsP1 ? p1ForwardDamage : p2ForwardDamage;
-		List<Integer> blockerDmgList  = blockerIsP1  ? p1ForwardDamage : p2ForwardDamage;
-		boolean attackerBroken = dmgToAttacker > 0
-				&& attackerDmgList.get(attackerIdx) + dmgToAttacker >= effAttackerPow;
-		boolean blockerBroken  = dmgToBlocker  > 0
-				&& blockerDmgList.get(blockerIdx)   + dmgToBlocker  >= effBlockerPow;
+		// Ahead of the First Strike test below: a first strike that cannot break its target has not
+		// ended the battle, and the return blow still lands.
+		boolean attackerBroken = combatBlowBreaks(attackerIsP1, ForwardTarget.CardZone.FORWARD, attackerIdx,
+				dmgToAttacker, effAttackerPow);
+		boolean blockerBroken  = combatBlowBreaks(blockerIsP1,  ForwardTarget.CardZone.FORWARD, blockerIdx,
+				dmgToBlocker,  effBlockerPow);
 
 		if (attackerFirst && blockerBroken) {
 			attackerBroken = false;
@@ -7803,23 +7818,24 @@ public class MainWindow {
 		if (dyn != null && blockerCostExcluded(blockerCost, dyn)) return true;
 		int[] intr = attCard.fieldCannotBeBlockedByCost();
 		if (intr != null && blockerCostExcluded(blockerCost, intr)) return true;
+		boolean attActsFwd = actsAsForward(attCard, true);
 		for (CardData src : p1ForwardCards)
 			for (IfControlBoost icb : src.ifControlBoosts())
-				if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard, jobsStripped(attCard))
-						&& icbConditionsMet(icb, true)
+				if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard, src, attActsFwd, jobsStripped(attCard))
+						&& icbConditionsMetFor(icb, true, src)
 						&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
 					return true;
 		for (CardData bkp : p1BackupCards)
 			if (bkp != null)
 				for (IfControlBoost icb : bkp.ifControlBoosts())
-					if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard, jobsStripped(attCard))
-							&& icbConditionsMet(icb, true)
+					if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard, bkp, attActsFwd, jobsStripped(attCard))
+							&& icbConditionsMetFor(icb, true, bkp)
 							&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
 						return true;
 		for (CardData mon : p1MonsterCards)
 			for (IfControlBoost icb : mon.ifControlBoosts())
-				if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard, jobsStripped(attCard))
-						&& icbConditionsMet(icb, true)
+				if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard, mon, attActsFwd, jobsStripped(attCard))
+						&& icbConditionsMetFor(icb, true, mon)
 						&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
 					return true;
 		return false;
@@ -9823,7 +9839,7 @@ public class MainWindow {
 		}
 
 		for (FieldDiscardCastEntry grant : findDiscardCastGrants(card, true)) {
-			JMenuItem dItem = new JMenuItem("Play (Discard " + grant.count() + " Job " + grant.job() + ")");
+			JMenuItem dItem = new JMenuItem("Play (Discard " + grant.count() + " " + grant.label() + ")");
 			dItem.setEnabled(canDiscardCastFromHand(card, handIdx, grant));
 			dItem.addActionListener(ae -> {
 				hideZoom();
@@ -9872,9 +9888,18 @@ public class MainWindow {
 		showZoomAt(url);
 	}
 
-	void addToBreakZone(CardData card) { addToBreakZone(card, false); }
+	void addToBreakZone(CardData card) { addToBreakZone(card, false, false); }
 
-	void addToBreakZone(CardData card, boolean fromField)
+	void addToBreakZone(CardData card, boolean fromField) { addToBreakZone(card, fromField, false); }
+
+	/**
+	 * {@link #addToBreakZone(CardData)} for a card just taken off the top of its owner's deck — a
+	 * mill. The difference shows only when the card is removed from the game instead: it then leaves
+	 * the deck for the removed zone directly, which is a removal from the deck (30-011R Blank).
+	 */
+	void addToBreakZoneFromDeck(CardData card) { addToBreakZone(card, false, true); }
+
+	private void addToBreakZone(CardData card, boolean fromField, boolean fromDeck)
 	{
 		entryOrigin.remove(card);
 		leftHandAwaitingArrival.remove(card);
@@ -9882,7 +9907,8 @@ public class MainWindow {
 
 		// FA1: "If a card is put into your Break Zone in any situation, remove it from the game instead."
 		if (playerHasBzToRfgAnySituation(player1)) {
-			gameState.addToPermanentRfp(card);
+			if (fromDeck) gameState.addToPermanentRfpFromDeck(card, player1);
+			else          gameState.addToPermanentRfp(card);
 			logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
 			if (player1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
 			return;
@@ -10797,21 +10823,32 @@ public class MainWindow {
 		Set<CardData> faSet = isP1 ? bzSelfCastFaP1 : bzSelfCastFaP2;
 		List<CardData> bz   = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
 		boolean changed = false;
-		// Prune entries whose card has left the Break Zone (cast, removed, etc.).
+		// Prune entries whose card has left the Break Zone (cast, removed, etc.), and those whose
+		// gate has shut since they were registered (30-088R Garnet's Zidane has left the field).
 		for (java.util.Iterator<CardData> it = faSet.iterator(); it.hasNext(); ) {
 			CardData card = it.next();
-			if (!bz.contains(card)) { reg.remove(card); it.remove(); changed = true; }
+			if (!bz.contains(card) || !selfCastGateOpen(card, isP1)) { reg.remove(card); it.remove(); changed = true; }
 		}
 		// Register Break Zone cards whose own ability lets them be cast from there.
 		for (CardData card : bz) {
 			if (faSet.contains(card) || reg.containsKey(card)) continue;
 			if (card.castProhibited()) continue;
 			if (!AutoAbilityTriggers.canCastSelfFromBz(card)) continue;
+			if (!selfCastGateOpen(card, isP1)) continue;
 			reg.put(card, new PlayableEntry(PlayableEntry.SourceZone.BREAK_ZONE, 0, false, false, false, false));
 			faSet.add(card);
 			changed = true;
 		}
 		if (changed) refreshPlayableCardsButton();
+	}
+
+	/**
+	 * Whether {@code card}'s gate on casting itself from the Break Zone holds for {@code isP1} —
+	 * 30-088R Garnet's "If you control a Card Name Zidane Forward". True for a card that prints no gate.
+	 */
+	boolean selfCastGateOpen(CardData card, boolean isP1) {
+		ControlCondition gate = AutoAbilityTriggers.selfCastFromBzCondition(card);
+		return gate == null || controlConditionMet(gate, isP1);
 	}
 
 	/**
@@ -11109,6 +11146,15 @@ public class MainWindow {
 			case MONSTER -> isP1 ? isP1MonsterTemporarilyForward(slot.idx()) : isP2MonsterTemporarilyForward(slot.idx());
 			default      -> false;
 		};
+	}
+
+	/**
+	 * Whether {@code card} is a Forward on {@code isP1}'s field only because an effect made it one —
+	 * the case a grant to "the Forwards you control" has to be told about, since the card's printed
+	 * type says otherwise. Free for a printed Forward, which never needs the slot lookup.
+	 */
+	boolean actsAsForward(CardData card, boolean isP1) {
+		return card != null && !card.isForward() && isFieldForward(card, isP1);
 	}
 
 	// -------------------------------------------------------------------------
@@ -12682,8 +12728,21 @@ public class MainWindow {
 		return produced;
 	}
 
-	/** Carries a field-granted "discard N Job X to cast [CardName]" alt cost entry. */
-	record FieldDiscardCastEntry(int count, String job) {}
+	/**
+	 * Carries a "discard N Job X / Category X cards to cast [CardName]" alt cost entry. Exactly one
+	 * of {@code job} and {@code category} is set.
+	 */
+	record FieldDiscardCastEntry(int count, String job, String category) {
+		/** Whether {@code c} is a card this cost may be paid with. */
+		boolean admits(CardData c) {
+			return job != null ? CardFilters.meetsJobFilter(c, job) : CardFilters.meetsCategoryFilter(c, category);
+		}
+
+		/** "Job Class Zero Cadet", "Category X" — what the cost asks for, as printed. */
+		String label() {
+			return job != null ? "Job " + job : "Category " + category;
+		}
+	}
 
 	/**
 	 * Discard-cast entries that would let {@code isP1} play {@code card} by discarding instead of
@@ -12714,42 +12773,81 @@ public class MainWindow {
 			if (!m.find()) continue;
 			String target = AutoAbilityTriggers.discardJobToCastTarget(m);
 			if (target != null && target.equalsIgnoreCase(targetCardName))
-				out.add(new FieldDiscardCastEntry(Integer.parseInt(m.group("count")), m.group("job").trim()));
+				out.add(new FieldDiscardCastEntry(Integer.parseInt(m.group("count")),
+						m.group("job") != null ? m.group("job").trim() : null,
+						m.group("category") != null ? m.group("category").trim() : null));
 		}
 	}
 
-	/** Returns true if P1's hand has at least {@code count} cards matching Job {@code job}, excluding {@code excludeIdx}. */
-	private boolean hasEligibleJobInHand(String job, int excludeIdx, int count) {
-		List<CardData> hand = gameState.getP1Hand();
-		int found = 0;
-		for (int i = 0; i < hand.size(); i++) {
-			if (i != excludeIdx && CardFilters.meetsJobFilter(hand.get(i), job)) found++;
-		}
-		return found >= count;
+	/** P1's hand indices, other than {@code excludeIdx}, of the cards {@code grant} may be paid with. */
+	List<Integer> discardCastEligible(FieldDiscardCastEntry grant, int excludeIdx) {
+		return discardCastEligible(grant, excludeIdx, true);
 	}
 
-	/** Shows the field-granted discard-cast dialog for P1: pick {@code grant.count()} Job cards to discard, then cast free. */
+	/** {@link #discardCastEligible(FieldDiscardCastEntry, int)} in {@code isP1}'s hand. */
+	List<Integer> discardCastEligible(FieldDiscardCastEntry grant, int excludeIdx, boolean isP1) {
+		List<CardData> hand = playerHand(isP1);
+		List<Integer> eligible = new ArrayList<>();
+		for (int i = 0; i < hand.size(); i++)
+			if (i != excludeIdx && grant.admits(hand.get(i))) eligible.add(i);
+		return eligible;
+	}
+
+	/** Shows the discard-cast dialog for P1: pick {@code grant.count()} matching cards to discard, then cast free. */
 	private void showFieldDiscardCastDialog(CardData card, int handIdx, FieldDiscardCastEntry grant) {
 		List<CardData> hand = gameState.getP1Hand();
-		List<Integer> eligible = new ArrayList<>();
-		for (int i = 0; i < hand.size(); i++) {
-			if (i != handIdx && CardFilters.meetsJobFilter(hand.get(i), grant.job())) eligible.add(i);
+		List<Integer> eligible = discardCastEligible(grant, handIdx);
+		if (eligible.size() < grant.count()) { logEntry("Not enough " + grant.label() + " in hand"); return; }
+		if (grant.count() == 1) {
+			HandPickDialog.showDiscardByType(frame, hand, eligible, grant.label(),
+					this::showZoomAt, this::hideZoom,
+					discardIdx -> discardThenCastFree(card, handIdx, List.of(discardIdx)), true);
+			return;
 		}
-		if (eligible.isEmpty()) { logEntry("No eligible Job " + grant.job() + " in hand"); return; }
-		HandPickDialog.showDiscardByType(frame, hand, eligible, "Job " + grant.job(),
-				this::showZoomAt, this::hideZoom, discardIdx -> {
-					// The discard is a cost the PLAY_CARD below has no field for, so it goes first as
-					// its own action; the far client then finds the hand the play's index assumes.
-					// A cost, so it is not a discard "due to an effect" and marks nothing as one.
-					sendToOpponent(RemoteOpponent.discardAction(List.of(discardIdx)));
-					CardData d = playerBreakFromHand(true, discardIdx);
-					if (d != null)
-						logEntry("Discards " + d.name() + " (alt cost — casting " + card.name() + " for free)");
-					refreshP1HandLabel();
-					refreshP1BreakLabel();
-					int adjustedHandIdx = discardIdx < handIdx ? handIdx - 1 : handIdx;
-					executePlay(card, adjustedHandIdx, Collections.emptyList(), Collections.emptyList(), Map.of());
-				});
+		// 30-001H Auron's two cards. The dialog is handed only the cards that qualify and answers in
+		// positions among them, so they are mapped back to hand indices here.
+		List<CardData> pool = new ArrayList<>();
+		for (int i : eligible) pool.add(hand.get(i));
+		HandPickDialog.showHandSelect(frame, pool, grant.count(), "discard", "Discard",
+				this::showZoomAt, this::hideZoom, picks -> {
+					List<Integer> discardIdxs = new ArrayList<>();
+					for (int p : picks) if (p >= 0 && p < eligible.size()) discardIdxs.add(eligible.get(p));
+					if (discardIdxs.size() == grant.count()) discardThenCastFree(card, handIdx, discardIdxs);
+				}, true);
+	}
+
+	/**
+	 * Pays a discard-cast cost with P1's hand cards at {@code discardIdxs}, then casts {@code card}
+	 * (at {@code handIdx} before the discard) for free.
+	 */
+	void discardThenCastFree(CardData card, int handIdx, List<Integer> discardIdxs) {
+		discardThenCastFree(true, card, handIdx, discardIdxs);
+	}
+
+	/**
+	 * {@link #discardThenCastFree(CardData, int, List)} for either seat — the AI's discard-cast
+	 * (ComputerPlayer) goes through it too, so the two seats pay the cost the same way.
+	 */
+	void discardThenCastFree(boolean isP1, CardData card, int handIdx, List<Integer> discardIdxs) {
+		// The discard is a cost the PLAY_CARD below has no field for, so it goes first as its own
+		// action; the far client then finds the hand the play's index assumes. Both sides take the
+		// indices as they stood before anything left, highest first. A cost, so it is not a discard
+		// "due to an effect" and marks nothing as one. Only the local seat's moves are sent: P2 is
+		// the AI here, or a remote player whose own client sends its moves.
+		if (isP1) sendToOpponent(RemoteOpponent.discardAction(discardIdxs));
+		List<Integer> descending = new ArrayList<>(discardIdxs);
+		descending.sort(Collections.reverseOrder());
+		for (int di : descending) {
+			CardData d = playerBreakFromHand(isP1, di);
+			if (d != null) logEntry((isP1 ? "" : "[P2] ") + "Discards " + d.name()
+					+ " (alt cost — casting " + card.name() + " for free)");
+		}
+		if (isP1) { refreshP1HandLabel();      refreshP1BreakLabel(); }
+		else      { refreshP2HandCountLabel(); refreshP2BreakLabel(); }
+		int adjustedHandIdx = handIdx - (int) discardIdxs.stream().filter(di -> di < handIdx).count();
+		// P1's own cast goes out with its PLAY_CARD; the P2 seat's is played here and sent by nobody.
+		if (isP1) executePlay(card, adjustedHandIdx, Collections.emptyList(), Collections.emptyList(), Map.of());
+		else      executePlay(false, card, adjustedHandIdx, Collections.emptyList(), Collections.emptyList(), Map.of());
 	}
 
 	/** Returns true if any field card grants any-element payment for {@code card}, cast by P1. */
@@ -15823,7 +15921,9 @@ public class MainWindow {
 
 		if (spec.element() != null && !effectiveContainsElement(card, spec.element())) return false;
 		if (!CardFilters.meetsCostConstraint(card.cost(), spec.costVal(), spec.costCmp())) return false;
-		if (!CardFilters.meetsPowerConstraint(card.power(), spec.powerVal(), spec.powerCmp())) return false;
+		// Current power, as the choose reads it (GameContextImpl.filterPower).
+		int power = isFieldForward(card, sideIsP1) ? fieldForwardPower(sideIsP1, t.zone(), i) : card.power();
+		if (!CardFilters.meetsPowerConstraint(power, spec.powerVal(), spec.powerCmp())) return false;
 		if (!meetsJobFilterEffective(card, spec.jobFilter(),
 				sideIsP1 ? p1ForwardCards : p2ForwardCards)) return false;
 		if (!CardFilters.meetsCardNameFilter(card, spec.cardNameFilter())) return false;
@@ -16408,10 +16508,13 @@ public class MainWindow {
 			return true;
 		}
 		if (cond.isNamedMode()) {
+			String type = cond.cardType();
+			boolean anyType = type == null;
 			for (String name : cond.requiredCardNames()) {
-				boolean found = fwds.stream().anyMatch(c -> c.name().equalsIgnoreCase(name))
-						|| mons.stream().anyMatch(c -> c.name().equalsIgnoreCase(name));
-				if (!found) for (CardData bkp : bkps) if (bkp != null && bkp.name().equalsIgnoreCase(name)) { found = true; break; }
+				boolean found = (anyType || type.equalsIgnoreCase("Forward")) && fwds.stream().anyMatch(c -> c.name().equalsIgnoreCase(name))
+						|| (anyType || type.equalsIgnoreCase("Monster")) && mons.stream().anyMatch(c -> c.name().equalsIgnoreCase(name));
+				if (!found && (anyType || type.equalsIgnoreCase("Backup")))
+					for (CardData bkp : bkps) if (bkp != null && bkp.name().equalsIgnoreCase(name)) { found = true; break; }
 				if (cond.anyOf()) {
 					if (found) return true;
 				} else if (!found) return false;
@@ -16502,6 +16605,15 @@ public class MainWindow {
 	 * {@link IfControlBoost}.
 	 */
 	boolean controlConditionMetExcluding(ControlCondition cond, String exceptName, boolean isP1) {
+		return controlConditionMetExcluding(cond, exceptName, isP1, null);
+	}
+
+	/**
+	 * {@link #controlConditionMetExcluding(ControlCondition, String, boolean)} for a condition
+	 * {@code owner} prints: "other than [owner's own name]" leaves out the owner alone (see
+	 * {@link #otherThan}). {@code null} reads the exclusion by name.
+	 */
+	boolean controlConditionMetExcluding(ControlCondition cond, String exceptName, boolean isP1, CardData owner) {
 		if (exceptName.isEmpty()) return controlConditionMet(cond, isP1);
 		// The same guard the unexcluded entry carries, and for the same reason: a state condition
 		// names one card, so there is no pool for the exclusion to be applied to.
@@ -16511,11 +16623,22 @@ public class MainWindow {
 		CardData[] srcBkps  = isP1 ? p1BackupCards : p2BackupCards;
 		CardData[] bkps     = Arrays.copyOf(srcBkps, srcBkps.length);
 		List<CardData> mons = new ArrayList<>(isP1 ? p1MonsterCards : p2MonsterCards);
-		fwds.removeIf(c -> c.name().equalsIgnoreCase(exceptName));
-		mons.removeIf(c -> c.name().equalsIgnoreCase(exceptName));
+		fwds.removeIf(c -> otherThan(exceptName, owner, c));
+		mons.removeIf(c -> otherThan(exceptName, owner, c));
 		for (int i = 0; i < bkps.length; i++)
-			if (bkps[i] != null && bkps[i].name().equalsIgnoreCase(exceptName)) bkps[i] = null;
+			if (bkps[i] != null && otherThan(exceptName, owner, bkps[i])) bkps[i] = null;
 		return controlConditionMetWithPools(cond, fwds, bkps, mons);
+	}
+
+	/**
+	 * Whether "other than {@code except}" printed on {@code owner} leaves {@code c} out of a control
+	 * count. A card naming itself means itself, so a second copy — a Multicard, or the opponent's
+	 * copy taken over — still counts; any other name is read by name, as is every exclusion whose
+	 * printer is unknown ({@code owner == null}).
+	 */
+	private static boolean otherThan(String except, CardData owner, CardData c) {
+		if (CardFilters.namesSource(except, owner)) return c == owner;
+		return c.name().equalsIgnoreCase(except);
 	}
 
 	/**
@@ -16639,6 +16762,16 @@ public class MainWindow {
 		for (CardData b : (isP1 ? p1BackupCards : p2BackupCards)) if (b != null) out.add(b);
 		out.addAll(isP1 ? p1MonsterCards : p2MonsterCards);
 		return out;
+	}
+
+	/**
+	 * The card on {@code controllerIsP1}'s field that turns the discards its controller's Summons and
+	 * abilities make the opponent take into random ones (30-034L Locke), or {@code null}.
+	 */
+	CardData randomizingDiscardSource(boolean controllerIsP1) {
+		for (CardData c : fieldCards(controllerIsP1))
+			if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppDiscardsRandomlyInstead(c)) return c;
+		return null;
 	}
 
 	/**
@@ -16917,7 +17050,7 @@ public class MainWindow {
 			// type admit anything, so this is a no-op for every other printing.
 			if (!icb.admitsChooserSource(chooserSource)) continue;
 			if (!icbTargetsName(icb, targetName, isP1, fwds, bkps, mons)) continue;
-			if (icbConditionsMet(icb, isP1)) return true;
+			if (icbConditionsMetFor(icb, isP1, src)) return true;
 		}
 		return false;
 	}
@@ -16948,7 +17081,16 @@ public class MainWindow {
 
 	/** Returns {@code true} when all conditions of {@code icb} are satisfied for the given player. */
 	boolean icbConditionsMet(IfControlBoost icb, boolean isP1) {
-		return icbConditionsMet(icb, isP1, null);
+		return icbConditionsMet(icb, isP1, null, null);
+	}
+
+	/**
+	 * {@link #icbConditionsMet(IfControlBoost, boolean)} for the boost {@code owner} prints, so that a
+	 * condition's "other than [owner's own name]" leaves out the owner alone: 2-112C Fleeting Flash,
+	 * a Multicard, counts a second Fleeting Flash as "a Job Manikin other than Fleeting Flash".
+	 */
+	boolean icbConditionsMetFor(IfControlBoost icb, boolean isP1, CardData owner) {
+		return icbConditionsMet(icb, isP1, null, owner);
 	}
 
 	/**
@@ -16956,8 +17098,10 @@ public class MainWindow {
 	 * {@code departed} left it — a leaves-the-field trigger looks back. The card is counted back
 	 * into the control pools: 21-079R Lich's "If you control 7 or more Earth Characters" counts
 	 * Lich, and after the break the live board is one short. {@code null} reads the live board.
+	 * {@code owner} is the card printing the boost, as {@link #icbConditionsMetFor} takes it, or
+	 * {@code null} to read the exclusion by name.
 	 */
-	boolean icbConditionsMet(IfControlBoost icb, boolean isP1, CardData departed) {
+	boolean icbConditionsMet(IfControlBoost icb, boolean isP1, CardData departed, CardData owner) {
 		for (ControlCondition cond : icb.conditions()) {
 			if (cond.requiresCrystal()) {
 				int crystals = playerCrystals(isP1);
@@ -16976,14 +17120,14 @@ public class MainWindow {
 				else if (departed.isMonster()) mons.add(departed);
 				else if (departed.isBackup())  bkps[bkps.length - 1] = departed;
 				if (!except.isEmpty()) {
-					fwds.removeIf(c -> c.name().equalsIgnoreCase(except));
-					mons.removeIf(c -> c.name().equalsIgnoreCase(except));
+					fwds.removeIf(c -> otherThan(except, owner, c));
+					mons.removeIf(c -> otherThan(except, owner, c));
 					for (int i = 0; i < bkps.length; i++)
-						if (bkps[i] != null && bkps[i].name().equalsIgnoreCase(except)) bkps[i] = null;
+						if (bkps[i] != null && otherThan(except, owner, bkps[i])) bkps[i] = null;
 				}
 				if (!controlConditionMetWithPools(cond, fwds, bkps, mons)) return false;
 			} else {
-				if (!controlConditionMetExcluding(cond, icb.exceptCardName(), isP1)) return false;
+				if (!controlConditionMetExcluding(cond, icb.exceptCardName(), isP1, owner)) return false;
 			}
 		}
 		if (icb.minRemovedFromGame() > 0) {
@@ -17177,7 +17321,7 @@ public class MainWindow {
 			for (boolean changed = true; changed; ) {
 				changed = false;
 				for (PowerGate gate : gates)
-					if (!on.contains(gate) && icbConditionsMet(gate.boost(), gate.isP1())) {
+					if (!on.contains(gate) && icbConditionsMetFor(gate.boost(), gate.isP1(), gate.src())) {
 						on.add(gate);
 						changed = true;
 					}
@@ -17202,18 +17346,19 @@ public class MainWindow {
 		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
 		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
-		for (CardData src : fwds) boost += fieldBoostContribution(src, target, isP1);
-		for (CardData bkp : bkps) if (bkp != null) boost += fieldBoostContribution(bkp, target, isP1);
-		for (CardData src : mons) boost += fieldBoostContribution(src, target, isP1);
+		boolean actsFwd = actsAsForward(target, isP1);
+		for (CardData src : fwds) boost += fieldBoostContribution(src, target, isP1, actsFwd);
+		for (CardData bkp : bkps) if (bkp != null) boost += fieldBoostContribution(bkp, target, isP1, actsFwd);
+		for (CardData src : mons) boost += fieldBoostContribution(src, target, isP1, actsFwd);
 
 		// Opposing-side debuffs ("The Forwards opponent controls lose N power") apply
 		// to this target when the source sits across the field.
 		List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
 		CardData[]     oppBkps = isP1 ? p2BackupCards  : p1BackupCards;
 		List<CardData> oppMons = isP1 ? p2MonsterCards : p1MonsterCards;
-		for (CardData src : oppFwds) boost += opposingFieldDebuffContribution(src, target, !isP1);
-		for (CardData bkp : oppBkps) if (bkp != null) boost += opposingFieldDebuffContribution(bkp, target, !isP1);
-		for (CardData src : oppMons) boost += opposingFieldDebuffContribution(src, target, !isP1);
+		for (CardData src : oppFwds) boost += opposingFieldDebuffContribution(src, target, !isP1, actsFwd);
+		for (CardData bkp : oppBkps) if (bkp != null) boost += opposingFieldDebuffContribution(bkp, target, !isP1, actsFwd);
+		for (CardData src : oppMons) boost += opposingFieldDebuffContribution(src, target, !isP1, actsFwd);
 		return boost;
 	}
 
@@ -17345,16 +17490,16 @@ public class MainWindow {
 	}
 
 	/** Sum of {@link FieldPowerGrant#powerBonus} from {@code src} for grants that target the opposing side. */
-	private int opposingFieldDebuffContribution(CardData src, CardData target, boolean isP1) {
+	private int opposingFieldDebuffContribution(CardData src, CardData target, boolean isP1, boolean actsFwd) {
 		int sum = 0;
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
 			// isP1 is the *source's* side here, so the target's traits are read from the other side.
 			if (fpg.affectsOpponent()
-					&& fpg.appliesToCard(target, fpgTargetTraits(fpg, target, !isP1), jobsStripped(target))
+					&& fpg.appliesToCard(target, src, actsFwd, fpgTargetTraits(fpg, target, !isP1), jobsStripped(target))
 					&& fpgBzConditionMet(fpg, isP1)
 					&& (!fpg.attackingOnly() || isDeclaredAttacker(target, !isP1)))
 				sum += fpg.powerBonus();
-		if (target.isForward())
+		if (target.isForward() || actsFwd)
 			for (CounterGrant cg : src.counterGrants())
 				if (cg.affectsOpponent()) sum += counterGrantPower(cg, target);
 		return sum;
@@ -17411,21 +17556,21 @@ public class MainWindow {
 		return isDeclaredAttacker(src, isP1) && isDeclaredAttacker(target, isP1);
 	}
 
-	private int fieldBoostContribution(CardData src, CardData target, boolean isP1) {
+	private int fieldBoostContribution(CardData src, CardData target, boolean isP1, boolean actsFwd) {
 		if (lostAbilitiesCards.contains(src)) return 0;
 		int boost = 0;
 		List<IfControlBoost> boosts = src.ifControlBoosts();
 		for (int i = 0; i < boosts.size(); i++) {
 			IfControlBoost icb = boosts.get(i);
-			if (icb.powerBonus() == 0 || !icb.appliesToCard(target, jobsStripped(target))) continue;
+			if (icb.powerBonus() == 0 || !icb.appliesToCard(target, src, actsFwd, jobsStripped(target))) continue;
 			// A power-gated boost is never read off its own condition here: that condition asks for
 			// powers this very calculation is producing (settledPowerGates).
-			boolean on = icb.readsPower() ? powerGateOn(new PowerGate(src, isP1, i)) : icbConditionsMet(icb, isP1);
+			boolean on = icb.readsPower() ? powerGateOn(new PowerGate(src, isP1, i)) : icbConditionsMetFor(icb, isP1, src);
 			if (on) boost += icb.powerBonus();
 		}
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
 			if (!fpg.affectsOpponent()
-					&& fpg.appliesToCard(target, fpgTargetTraits(fpg, target, isP1), jobsStripped(target))
+					&& fpg.appliesToCard(target, src, actsFwd, fpgTargetTraits(fpg, target, isP1), jobsStripped(target))
 					&& fpgBzConditionMet(fpg, isP1)
 					&& (!fpg.attackingOnly() || isDeclaredAttacker(target, isP1))
 					&& fpgPartyConditionMet(fpg, src, target, isP1)
@@ -17438,7 +17583,7 @@ public class MainWindow {
 				}
 			}
 		// Counter-conditioned power grant ("Each Forward you control with a [X] Counter on it gains +N power.")
-		if (target.isForward())
+		if (target.isForward() || actsFwd)
 			for (CounterGrant cg : src.counterGrants())
 				if (!cg.affectsOpponent()) boost += counterGrantPower(cg, target);
 		if (src == target) {
@@ -18076,7 +18221,7 @@ public class MainWindow {
 			if (!icb.targetCardName().equalsIgnoreCase(card.name())) continue;
 			List<AutoAbility> parsed = CardData.parseAutoAbilities(special);
 			if (parsed.isEmpty()) continue;
-			if (!icbConditionsMet(icb, side, departed ? card : null)) continue;
+			if (!icbConditionsMet(icb, side, departed ? card : null, card)) continue;
 			for (AutoAbility aa : parsed) {
 				if (aa.trigger().equals("attacks")) continue;
 				if (out == null) out = new ArrayList<>();
@@ -18110,7 +18255,7 @@ public class MainWindow {
 			for (FieldAbility fa : effectiveFieldAbilities(src)) {
 				CardData.FilteredAbilityGrant g =
 						CardData.parseFilteredAbilityGrant(fa.effectText());
-				if (g == null || !g.filter().appliesToCard(card, jobsStripped(card))) continue;
+				if (g == null || !g.filter().appliesToCard(card, src, actsAsForward(card, side), jobsStripped(card))) continue;
 				if (out == null) out = new ArrayList<>();
 				out.addAll(g.abilities());
 			}
@@ -18235,7 +18380,7 @@ public class MainWindow {
 			for (FieldAbility fa : effectiveFieldAbilities(src)) {
 				CardData.FilteredMaxAttacksGrant g =
 						CardData.parseFilteredMaxAttacksGrant(fa.effectText());
-				if (g != null && g.filter().appliesToCard(card, jobsStripped(card)))
+				if (g != null && g.filter().appliesToCard(card, src, actsAsForward(card, side), jobsStripped(card)))
 					best = Math.max(best, g.maxAttacks());
 			}
 		}
@@ -18616,7 +18761,8 @@ public class MainWindow {
 			// damage, so repeat until a full pass breaks nothing. The bound is a safety net only.
 			for (int pass = 0; pass < 16; pass++) {
 				// Non-short-circuiting: both sides must be swept every pass.
-				boolean brokeAny = sweepForwardBreakRuleProcess(true) | sweepForwardBreakRuleProcess(false);
+				boolean brokeAny = sweepForwardBreakRuleProcess(true) | sweepForwardBreakRuleProcess(false)
+						| sweepSelfDamageCaps(true) | sweepSelfDamageCaps(false);
 				if (!brokeAny) return;
 			}
 		} finally {
@@ -18654,6 +18800,56 @@ public class MainWindow {
 	private boolean enforcingForwardBreakRuleProcess;
 
 	/** One rule-process pass over {@code isP1}'s Forwards. Returns true if anything was broken. */
+	/**
+	 * Puts into the Break Zone every card on {@code isP1}'s field holding at least the damage its own
+	 * "If [Self] has received N damage or more, put [Self] into the Break Zone." names — 30-081R Don
+	 * Tonberry, a Monster that takes damage while acting as a Forward. Every row is read, since the
+	 * damage a card holds is kept by row ({@link #fieldCombatDamage}).
+	 *
+	 * <p>A put, not a break: "cannot be broken" does not stop it, and it does not count as broken.
+	 */
+	private boolean sweepSelfDamageCaps(boolean isP1) {
+		boolean putAny = false;
+		for (ForwardTarget.CardZone zone : List.of(ForwardTarget.CardZone.FORWARD,
+				ForwardTarget.CardZone.MONSTER, ForwardTarget.CardZone.BACKUP)) {
+			int size = switch (zone) {
+				case FORWARD -> (isP1 ? p1ForwardCards : p2ForwardCards).size();
+				case MONSTER -> (isP1 ? p1MonsterCards : p2MonsterCards).size();
+				default      -> (isP1 ? p1BackupCards : p2BackupCards).length;
+			};
+			// Downward, so a put cannot shift the slots still to be read.
+			for (int idx = size - 1; idx >= 0; idx--) {
+				CardData card = fieldCardAt(isP1, zone, idx);
+				if (card == null || lostAbilitiesCards.contains(card)) continue;
+				int cap = selfDamageCap(card);
+				if (cap <= 0) continue;
+				int held = fieldCombatDamage(isP1, zone, idx);
+				if (held < cap) continue;
+				logEntry((isP1 ? "" : "[P2] ") + card.name() + " has received " + held
+						+ " damage → put into the Break Zone");
+				pendingCostBreakDestLabel = isP1 ? p1BreakLabel : p2BreakLabel;
+				if (zone == ForwardTarget.CardZone.FORWARD) {
+					if (isP1) putP1ForwardIntoBreakZone(idx); else putP2ForwardIntoBreakZone(idx);
+				} else {
+					// The Monster and Backup rows have one way to the Break Zone, the slot move a
+					// "put it into the Break Zone" effect uses too (GameContextImpl.forceTargetToBreakZone).
+					breakFieldCard(isP1, zone, idx);
+				}
+				putAny = true;
+			}
+		}
+		return putAny;
+	}
+
+	/** The damage at which {@code card}'s own field ability puts it into the Break Zone, or -1. */
+	private static int selfDamageCap(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			int cap = CardData.parseSelfDamageCapPut(fa.effectText(), card.name());
+			if (cap > 0) return cap;
+		}
+		return -1;
+	}
+
 	private boolean sweepForwardBreakRuleProcess(boolean isP1) {
 		List<CardData> fwds = isP1 ? p1ForwardCards  : p2ForwardCards;
 		List<Integer>  dmgs = isP1 ? p1ForwardDamage : p2ForwardDamage;
@@ -19426,7 +19622,15 @@ public class MainWindow {
 		Boolean causerIsP1 = resolvingEffectController();
 		// The flag is held by the player who used Alhanalem, and bites what their opponent causes.
 		if (causerIsP1 == null || !turn(!causerIsP1).oppFieldEntryBecomesRfg) return false;
-		gameState.addToPermanentRfp(card);
+		// A card played off the top of a deck goes from that deck straight to the removed zone, so it
+		// is removed from the deck from the game, which 30-011R Blank watches for. Its owner's deck:
+		// a card in a deck belongs to that deck's player.
+		if (entryOrigin.remove(card) == EntryOrigin.DECK) {
+			Boolean owner = gameState.getIdentity().get(card);
+			gameState.addToPermanentRfpFromDeck(card, owner != null ? owner : enteringP1);
+		} else {
+			gameState.addToPermanentRfp(card);
+		}
 		logEntry((enteringP1 ? "" : "[P2] ") + card.name()
 				+ " would enter the field by your opponent's Summon or ability → Removed From Game instead");
 		// Ownership decides which zone took it, so both labels are refreshed rather than guessed at.
@@ -20544,10 +20748,11 @@ public class MainWindow {
 	 */
 	boolean attackerConditionallyUnblockable(CardData attacker, boolean attackerIsP1) {
 		if (attacker == null) return false;
+		boolean actsFwd = actsAsForward(attacker, attackerIsP1);
 		for (CardData src : fieldCardsFor(attackerIsP1))
 			for (IfControlBoost icb : src.ifControlBoosts())
-				if (icb.cannotBeBlocked() && icb.appliesToCard(attacker, jobsStripped(attacker))
-						&& icbConditionsMet(icb, attackerIsP1))
+				if (icb.cannotBeBlocked() && icb.appliesToCard(attacker, src, actsFwd, jobsStripped(attacker))
+						&& icbConditionsMetFor(icb, attackerIsP1, src))
 					return true;
 		return false;
 	}
@@ -20728,8 +20933,9 @@ public class MainWindow {
 			if (intr != null && blockerCostExcluded(blockerCost, intr)) return true;
 			for (CardData src : p2FieldCards())
 				for (IfControlBoost icb : src.ifControlBoosts())
-					if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attacker, jobsStripped(attacker))
-							&& icbConditionsMet(icb, false)
+					if (icb.cannotBeBlockedByCost() != null
+							&& icb.appliesToCard(attacker, src, actsAsForward(attacker, false), jobsStripped(attacker))
+							&& icbConditionsMetFor(icb, false, src)
 							&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
 						return true;
 		}
@@ -21829,6 +22035,25 @@ public class MainWindow {
 		}
 	}
 
+	/**
+	 * Whether {@code dmg} more battle damage breaks the combatant at ({@code isP1}, {@code zone},
+	 * {@code idx}), whose power is {@code power}: the damage it holds plus the blow reaches that
+	 * power, and nothing says the card "cannot be broken".
+	 *
+	 * <p>The trait saves the card, not the damage: it keeps the damage until the end of the turn,
+	 * exactly as it does against ability damage ({@code DamageResolver.applyDamageToForward}) and in
+	 * the rule-process sweep. Every combat resolver asks this one question, so the five places a
+	 * battle decides a break cannot disagree about it.
+	 */
+	boolean combatBlowBreaks(boolean isP1, ForwardTarget.CardZone zone, int idx, int dmg, int power) {
+		if (dmg <= 0 || fieldCombatDamage(isP1, zone, idx) + dmg < power) return false;
+		if (!fieldForwardTrait(isP1, zone, idx, CardData.Trait.CANNOT_BE_BROKEN)) return true;
+		CardData card = fieldCardAt(isP1, zone, idx);
+		logEntry((isP1 ? "" : "[P2] ") + (card != null ? card.name() : "The Forward")
+				+ " survives lethal battle damage (cannot be broken)");
+		return false;
+	}
+
 	boolean fieldForwardTrait(boolean isP1, ForwardTarget.CardZone zone, int idx, CardData.Trait trait) {
 		return switch (zone) {
 			case FORWARD -> isP1 ? effectiveP1HasTrait(idx, trait) : effectiveP2HasTrait(idx, trait);
@@ -21887,8 +22112,8 @@ public class MainWindow {
 		int dmgToAtk = modifyIncomingDamage(atkP1, atkZone, atkIdx, rawDmgToAtk, false, false);
 		currentBattleAttacker = null; currentBattleAttackerZone = ForwardTarget.CardZone.FORWARD;
 
-		boolean atkBroken = dmgToAtk > 0 && fieldCombatDamage(atkP1, atkZone, atkIdx) + dmgToAtk >= atkPow;
-		boolean blkBroken = dmgToBlk > 0 && fieldCombatDamage(blkP1, blkZone, blkIdx) + dmgToBlk >= blkPow;
+		boolean atkBroken = combatBlowBreaks(atkP1, atkZone, atkIdx, dmgToAtk, atkPow);
+		boolean blkBroken = combatBlowBreaks(blkP1, blkZone, blkIdx, dmgToBlk, blkPow);
 
 		if (atkFirst && blkBroken)      { atkBroken = false; dmgToAtk = 0; }
 		else if (blkFirst && atkBroken) { blkBroken = false; dmgToBlk = 0; }
@@ -21941,6 +22166,8 @@ public class MainWindow {
 		if (!atkBroken && !blkBroken) {
 			logEntry("Both forwards survive combat");
 		}
+		// A survivor's damage may now reach a "received N damage or more" cap (30-081R Don Tonberry).
+		enforceForwardBreakRuleProcess();
 	}
 
 	/**
@@ -22014,7 +22241,8 @@ public class MainWindow {
 		if (c == null) return 0;
 		CardData.BecomeForwardAbility bfa = c.becomeForwardAbility();
 		int base = bfa != null ? bfa.power() : p1BackupTempForwardPower.getOrDefault(c, 0);
-		return base + p1BackupForwardBoost.getOrDefault(c, 0);
+		// The field boosts as p1MonsterForwardPower adds them, for the same reason.
+		return base + computeConditionalBoostForTarget(c, true) + p1BackupForwardBoost.getOrDefault(c, 0);
 	}
 
 	int p2BackupForwardPower(int idx) {
@@ -22022,7 +22250,7 @@ public class MainWindow {
 		if (c == null) return 0;
 		CardData.BecomeForwardAbility bfa = c.becomeForwardAbility();
 		int base = bfa != null ? bfa.power() : p2BackupTempForwardPower.getOrDefault(c, 0);
-		return base + p2BackupForwardBoost.getOrDefault(c, 0);
+		return base + computeConditionalBoostForTarget(c, false) + p2BackupForwardBoost.getOrDefault(c, 0);
 	}
 
 	boolean isP1BackupTemporarilyForward(int idx) {
@@ -22054,7 +22282,11 @@ public class MainWindow {
 		CardData c = backs[idx];
 		if (c.hasTrait(trait)) return true;
 		EnumSet<CardData.Trait> granted = (isP1 ? p1BackupTempTraits : p2BackupTempTraits).get(c);
-		return granted != null && granted.contains(trait);
+		if (granted != null && granted.contains(trait)) return true;
+		// The field grants, the card's own included, read as effectiveMonsterHasTrait reads them —
+		// which is what a Backup acting as a Forward needs to be a Forward for every purpose.
+		return !lostAbilitiesCards.contains(c)
+				&& fieldGrantCalculator.computeConditionalTraitsForTarget(c, isP1).contains(trait);
 	}
 
 	/** True when a P1 backup acting as a Forward may be declared as an attacker this turn. */
@@ -22519,8 +22751,7 @@ public class MainWindow {
 		}
 		int toBlocker = partyDamageToBlocker(partyIsP1, party, partyPower(partyIsP1, party), blkSlot);
 		logEntry((partyIsP1 ? "" : "[P2] ") + "Party deals " + toBlocker + " damage to " + blocker.name());
-		boolean blockerBroken = toBlocker > 0
-				&& fieldCombatDamage(blkP1, blkSlot.zone(), blkSlot.idx()) + toBlocker >= blockerPower;
+		boolean blockerBroken = combatBlowBreaks(blkP1, blkSlot.zone(), blkSlot.idx(), toBlocker, blockerPower);
 
 		boolean noReturn = false;
 		if (partyFirst && blockerBroken) {
@@ -22589,9 +22820,8 @@ public class MainWindow {
 		List<Integer> codes = partyCodesNow(partyIsP1, survivors);
 		int toBlocker = partyDamageToBlocker(partyIsP1, codes, partyPower(partyIsP1, codes), blkSlot);
 		logEntry((partyIsP1 ? "" : "[P2] ") + "Party deals " + toBlocker + " damage to " + blocker.name());
-		boolean blockerBroken = toBlocker > 0
-				&& fieldCombatDamage(blkP1, blkSlot.zone(), blkSlot.idx()) + toBlocker
-						>= fieldForwardPower(blkP1, blkSlot.zone(), blkSlot.idx());
+		boolean blockerBroken = combatBlowBreaks(blkP1, blkSlot.zone(), blkSlot.idx(), toBlocker,
+				fieldForwardPower(blkP1, blkSlot.zone(), blkSlot.idx()));
 		dealPartyDamageToBlocker(partyIsP1, survivors, blocker, toBlocker);
 		landPartyBlockBreaks(partyIsP1, List.of(), blocker, toBlocker, blockerBroken);
 	}
@@ -22685,8 +22915,10 @@ public class MainWindow {
 		List<CardData> toBreak = new ArrayList<>();
 		for (PartyShare share : shares) {
 			ForwardTarget t = currentFieldTargetOf(share.member(), partyIsP1, -1);
+			// The share has already landed, so this is combatBlowBreaks's test with nothing left to add.
 			if (t != null && fieldCombatDamage(partyIsP1, t.zone(), t.idx())
-					>= fieldForwardPower(partyIsP1, t.zone(), t.idx()))
+					>= fieldForwardPower(partyIsP1, t.zone(), t.idx())
+					&& !fieldForwardTrait(partyIsP1, t.zone(), t.idx(), CardData.Trait.CANNOT_BE_BROKEN))
 				toBreak.add(share.member());
 		}
 		for (CardData member : toBreak) {
@@ -23664,7 +23896,8 @@ public class MainWindow {
 					this::loadCardbackImage,
 					isP1 -> animateCardDraw(isP1, 1),
 					this::animateMillOneCard,
-					this::decide));
+					this::decide,
+					this::addToBreakZoneFromDeck));
 		return lookDialogsInstance;
 	}
 

@@ -30,9 +30,10 @@ class FieldGrantCalculator {
         List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
         CardData[]     bkps = isP1 ? mw.p1BackupCards  : mw.p2BackupCards;
         List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
-        for (CardData src : fwds) collectFieldTraits(src, target, isP1, out);
-        for (CardData bkp : bkps) if (bkp != null) collectFieldTraits(bkp, target, isP1, out);
-        for (CardData src : mons) collectFieldTraits(src, target, isP1, out);
+        boolean actsFwd = mw.actsAsForward(target, isP1);
+        for (CardData src : fwds) collectFieldTraits(src, target, isP1, actsFwd, out);
+        for (CardData bkp : bkps) if (bkp != null) collectFieldTraits(bkp, target, isP1, actsFwd, out);
+        for (CardData src : mons) collectFieldTraits(src, target, isP1, actsFwd, out);
         return out;
     }
 
@@ -55,15 +56,15 @@ class FieldGrantCalculator {
         return found;
     }
 
-    private void collectFieldTraits(CardData src, CardData target, boolean isP1,
+    private void collectFieldTraits(CardData src, CardData target, boolean isP1, boolean actsFwd,
             EnumSet<CardData.Trait> out) {
         if (mw.lostAbilitiesCards.contains(src)) return;
         for (IfControlBoost icb : src.ifControlBoosts())
-            if (icb.appliesToCard(target, mw.jobsStripped(target)) && mw.icbConditionsMet(icb, isP1))
+            if (icb.appliesToCard(target, src, actsFwd, mw.jobsStripped(target)) && mw.icbConditionsMetFor(icb, isP1, src))
                 out.addAll(icb.grantedTraits());
         for (FieldPowerGrant fpg : src.fieldPowerGrants())
             if (!fpg.affectsOpponent()
-                    && fpg.appliesToCard(target, mw.fpgTargetTraits(fpg, target, isP1),
+                    && fpg.appliesToCard(target, src, actsFwd, mw.fpgTargetTraits(fpg, target, isP1),
                             mw.jobsStripped(target))
                     && mw.fpgBzConditionMet(fpg, isP1)
                     && mw.fpgPartyConditionMet(fpg, src, target, isP1)
@@ -130,6 +131,11 @@ class FieldGrantCalculator {
                 if (CardData.parseSelfNonDmgBreakShield(fa.effectText(), src.name())
                         || CardData.parseSelfNonDmgBreakShieldDirect(fa.effectText(), src.name()))
                     out.add(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG);
+                // The printed shield behind a Damage gate (30-081R Don Tonberry's "Damage 5 -- Don
+                // Tonberry cannot be broken."). The ungated sentence is a printed trait already
+                // (parseTraits); the gated one is left off it, so it is read here, past the gate.
+                if (fa.damageThreshold() > 0 && CardData.parseSelfCannotBeBroken(fa.effectText(), src.name()))
+                    out.add(CardData.Trait.CANNOT_BE_BROKEN);
                 // Job-count conditional ("If [name] has N Jobs or more, gains [traits].")
                 int threshold = CardData.parseIfSelfJobCountTraitGrantThreshold(fa.effectText(), src.name());
                 if (threshold >= 0 && countEffectiveJobs(src, isP1) >= threshold)

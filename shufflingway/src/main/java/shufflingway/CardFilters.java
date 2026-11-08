@@ -175,6 +175,17 @@ public final class CardFilters {
     }
 
     /**
+     * Whether an "other than {@code except}" clause printed on {@code source} names {@code source}
+     * itself. A card that refers to its own name refers to itself, so such a clause leaves out that
+     * one card rather than every card sharing the name — the difference shows with a Multicard
+     * (18-087C False Hero, 2-112C Fleeting Flash), an "is also Card Name" alias, or a copy whose
+     * control has changed. {@code false} when either is {@code null}.
+     */
+    public static boolean namesSource(String except, CardData source) {
+        return except != null && source != null && except.trim().equalsIgnoreCase(source.name());
+    }
+
+    /**
      * Returns {@code true} if the card's primary name or any of its "is also Card Name X"
      * aliases match {@code cardNameFilter} (case-insensitive), or if the filter is {@code null}.
      * Pipe-separated values (e.g. {@code "Ovjang|Mnejing"}) are treated as OR.

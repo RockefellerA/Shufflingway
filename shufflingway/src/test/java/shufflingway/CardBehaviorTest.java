@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 
+import scraper.DeckDatabase.DeckCardDetail;
 import shufflingway.dialog.NameSelectionDialogs;
 import shufflingway.graphics.CardAnimation;
 import shufflingway.net.ChoiceKind;
@@ -74800,6 +74801,953 @@ public class CardBehaviorTest {
 
 		mw.turn(true).spendNextCastAnyElement(cloud);
 		assertFalse(mw.isAnyElementCast(makeCategoryForward("Tifa", "Earth", "VII"), true), "spent by that cast");
+	}
+
+	// =========================================================================================
+	// 30-011R Blank, second ability: "When a card is removed from your opponent's deck from the
+	// game, choose 1 Forward opponent controls. Deal it 3000 damage for each Job Thief you control."
+	// (Board behaviour.)
+	//
+	// Fired from GameState.addToPermanentRfpFromDeck, the one route every deck-to-removed move takes
+	// — the deck-top removals, removal costs, reveals and searches that remove what they find — so
+	// whose effect or cost made the removal does not matter, the deck's own player's included. One
+	// trigger per card removed.
+	// =========================================================================================
+
+	private static final String BLANK_30_011R_FULL = BLANK_30_011R + "[[br]]When a card is removed from your "
+			+ "opponent's deck from the game, choose 1 Forward opponent controls. Deal it 3000 damage for each Job "
+			+ "Thief you control.";
+
+	private static CardData makeBlank() {
+		return makeTextCard("Blank", "Fire", "Forward", 3, 7000, "Thief", BLANK_30_011R_FULL);
+	}
+
+	/** Blank and one more Job Thief on P2's field, their own arrivals suppressed; P1 has a 20000 Forward. */
+	private static MainWindow blankBesideAThief() {
+		MainWindow mw = new MainWindow();
+		fillP1Deck(mw, 4);
+		for (int i = 0; i < 4; i++) {
+			CardData c = makeForward("P2 Deck " + i, "Fire", 2, 5000);
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, makeBlank());
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, makeJobCard("Zidane", "Wind", "Forward", "Thief"));
+		placeP1Forward(mw, makeForward("Big", "Water", 9, 20000));
+		return mw;
+	}
+
+	/** {@code text} resolved as an ability of {@code isP1}'s, then the Stack it fed. */
+	private static void resolveThenStack(MainWindow mw, boolean isP1, String text) {
+		CardData src = makeForward("Remover", "Dark", 3, 7000);
+		mw.currentAbilitySource = src;
+		mw.currentAbilitySourceIsP1 = isP1;
+		try {
+			ActionResolver.parse(text, src).accept(mw.buildGameContext(isP1));
+		} finally {
+			mw.currentAbilitySource = null;
+		}
+		resolveStack(mw);
+	}
+
+	@Test
+	void blanksSecondAbilityIsAWatcherOfTheOpponentsDeck() {
+		CardData blank = makeBlank();
+		assertEquals(2, blank.autoAbilities().size(), "the second ability is read at all now");
+		AutoAbility watcher = blank.autoAbilities().get(1);
+		assertEquals("card removed from opponent's deck", watcher.trigger());
+		assertNotNull(ActionResolver.parse(watcher.effectText(), blank));
+	}
+
+	@Test
+	void blanksOwnArrivalRemovesACardAndThatRemovalPaysOff() {
+		MainWindow mw = new MainWindow();
+		fillP1Deck(mw, 3);
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		placeP1Forward(mw, theirs);
+
+		placeP2Forward(mw, makeBlank());
+		resolveStack(mw);
+
+		assertEquals(1, mw.gameState.getP1RemovedFromGame().size());
+		assertEquals(3000, mw.p1ForwardDamage.get(0), "Blank is the one Job Thief");
+	}
+
+	@Test
+	void theOpponentRemovingFromTheirOwnDeckTriggersBlankToo() {
+		MainWindow mw = blankBesideAThief();
+		resolveThenStack(mw, true, "Remove the top card of your deck from the game.");
+		assertEquals(6000, mw.p1ForwardDamage.get(0), "3000 for each of the two Job Thieves");
+	}
+
+	@Test
+	void eachCardRemovedIsItsOwnTrigger() {
+		MainWindow mw = blankBesideAThief();
+		resolveThenStack(mw, false, "Your opponent removes the top 3 cards of their deck from the game.");
+		assertEquals(18000, mw.p1ForwardDamage.get(0), "three cards, three triggers of 6000");
+	}
+
+	@Test
+	void removingFromYourOwnDeckDoesNotTriggerYourBlank() {
+		MainWindow mw = blankBesideAThief();
+		resolveThenStack(mw, false, "Remove the top card of your deck from the game.");
+		assertEquals(1, mw.gameState.getP2RemovedFromGame().size());
+		assertEquals(0, mw.p1ForwardDamage.get(0), "your own deck is not your opponent's");
+	}
+
+	@Test
+	void aDeckTopRemovalCostIsReportedAsRemovedFromTheDeck() {
+		MainWindow mw = new MainWindow();
+		List<CardData> seen = new ArrayList<>();
+		List<Boolean> decks = new ArrayList<>();
+		mw.gameState.setRemovedFromDeckListener((c, p1) -> { seen.add(c); decks.add(p1); });
+		for (int i = 0; i < 4; i++) {
+			CardData c = makeForward("Deck " + i, "Fire", 2, 5000);
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+		CardData top = mw.gameState.getP2MainDeck().peekFirst();
+		CardData user = makeTextCard("Ninja", "Fire", "Forward", 2, 5000, "Ninja",
+				"Remove the top 2 cards of your deck from the game: Draw 1 card.");
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, user);
+
+		assertTrue(mw.autoAbilityTriggers.executeP2AbilityActivation(user.actionAbilities().get(0), user,
+				() -> {}, new ArrayList<>(), new ArrayList<>(), 0));
+
+		assertEquals(2, seen.size(), "both cards of the cost");
+		assertSame(top, seen.get(0));
+		assertEquals(List.of(false, false), decks, "out of P2's deck");
+	}
+
+	@Test
+	void aCardRemovedIntoWarpFromTheDeckIsReportedToo() {
+		// 29-103H Setzer's "Remove 1 card with Warp among them from the game": a Warp card is removed
+		// from the game, so it leaves the deck the same way.
+		MainWindow mw = new MainWindow();
+		List<Boolean> decks = new ArrayList<>();
+		mw.gameState.setRemovedFromDeckListener((c, p1) -> decks.add(p1));
+		mw.gameState.addToWarpZoneFromDeck(makeForward("Warp One", "Fire", 3, 7000), 1, true);
+		assertEquals(List.of(true), decks);
+		assertEquals(1, mw.gameState.getP1WarpZone().size());
+	}
+
+	// =========================================================================================
+	// Opus 30 field abilities — shared factory for the sections below. (Board behaviour.)
+	// =========================================================================================
+
+	/** A card as a dealt deck builds it ({@link MainWindow#buildCardData}): every property read off {@code text}. */
+	private static CardData dealt(String name, String element, String type, int cost, int power,
+			String job, String category, String text) {
+		return MainWindow.buildCardData(new DeckCardDetail(null, name, element, cost, power, type,
+				false, 0, false, text, false, job, category, null));
+	}
+
+	// =========================================================================================
+	// 30-104H Jayden Rundall: "The Category FFBE Forwards you control other than Jayden Rundall gain
+	// +1000 power." (Board behaviour.) The exclusion is printed after "you control", where the other
+	// printings of the grant put it ahead of the type.
+	// =========================================================================================
+
+	private static final String JAYDEN_30_104H_GRANT =
+			"The Category FFBE Forwards you control other than Jayden Rundall gain +1000 power.";
+
+	@Test
+	void jaydenRaisesYourOtherFfbeForwardsOnly() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, dealt("Jayden Rundall", "Light", "Forward", 6, 8000, "King", "FFBE", JAYDEN_30_104H_GRANT));
+		placeP1Forward(mw, categoryCard("Lasswell", "Fire", "Forward", 3, "FFBE"));
+		placeP1Forward(mw, makeForward("Outsider", "Fire", 3, 7000));
+		placeP2Forward(mw, categoryCard("Rain", "Fire", "Forward", 3, "FFBE"));
+
+		assertEquals(8000, mw.effectiveP1ForwardPower(0), "other than Jayden Rundall");
+		assertEquals(8000, mw.effectiveP1ForwardPower(1), "a Category FFBE Forward you control");
+		assertEquals(7000, mw.effectiveP1ForwardPower(2), "not Category FFBE");
+		assertEquals(7000, mw.effectiveP2ForwardPower(0), "you control — not the opponent's");
+	}
+
+	// =========================================================================================
+	// 30-068L Rikku: "The power of the Category X Forwards you control cannot be decreased by your
+	// opponent's Summons or abilities." (Board behaviour.) Shelke 16-029R's grant, narrowed to a
+	// Category.
+	// =========================================================================================
+
+	private static final String RIKKU_30_068L_GRANT = "The power of the Category X Forwards you control "
+			+ "cannot be decreased by your opponent's Summons or abilities.";
+
+	/** Rikku, a Category X Forward and an outsider on P1's field, in that order. */
+	private static MainWindow rikkuBesideTwoForwards() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, dealt("Rikku", "Earth", "Forward", 8, 9000, "Al Bhed/Guardian", "X", RIKKU_30_068L_GRANT));
+		placeP1Forward(mw, categoryCard("Tidus", "Water", "Forward", 3, "X"));
+		placeP1Forward(mw, makeForward("Outsider", "Fire", 3, 7000));
+		return mw;
+	}
+
+	@Test
+	void rikkuShieldsYourCategoryXForwardsFromTheOpponent() {
+		MainWindow mw = rikkuBesideTwoForwards();
+		GameContext theirs = mw.buildGameContext(false);
+		for (int i = 0; i < 3; i++)
+			theirs.boostTarget(fwd(true, i), -3000, EnumSet.noneOf(CardData.Trait.class));
+
+		assertEquals(9000, mw.effectiveP1ForwardPower(0), "Rikku is Category X herself");
+		assertEquals(7000, mw.effectiveP1ForwardPower(1));
+		assertEquals(4000, mw.effectiveP1ForwardPower(2), "not Category X");
+	}
+
+	@Test
+	void rikkusShieldDoesNotStopYourOwnEffects() {
+		MainWindow mw = rikkuBesideTwoForwards();
+		mw.buildGameContext(true).boostTarget(fwd(true, 1), -3000, EnumSet.noneOf(CardData.Trait.class));
+		assertEquals(4000, mw.effectiveP1ForwardPower(1), "\"your opponent's\" Summons or abilities only");
+	}
+
+	// =========================================================================================
+	// 30-083H Ravana, Savior of the Gnath: "Ravana, Savior of the Gnath cannot be chosen by EX
+	// Bursts." (Board behaviour.) The printed self form of Wol 5-075L's turn-long shield.
+	// =========================================================================================
+
+	private static CardData ravana30() {
+		return dealt("Ravana, Savior of the Gnath", "Lightning", "Forward", 5, 9000, "Primal", "XIV",
+				"Ravana, Savior of the Gnath cannot be chosen by EX Bursts.");
+	}
+
+	@Test
+	void ravanaIsOutOfAnExBurstsReachOnly() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, ravana30());
+		assertFalse(aChooseFindsAForward(mw, true), "an EX Burst cannot choose him");
+		assertTrue(aChooseFindsAForward(mw, false), "an ordinary choose can");
+	}
+
+	@Test
+	void ravanasShieldIsHisAlone() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, ravana30());
+		placeP1Forward(mw, makeForward("Beside", "Fire", 3, 7000));
+
+		assertTrue(aChooseFindsAForward(mw, true));
+		assertEquals(0, mw.p1ForwardDamage.get(0), "not Ravana");
+		assertEquals(1000, mw.p1ForwardDamage.get(1), "the Forward beside him is fair game");
+	}
+
+	// =========================================================================================
+	// 30-088R Garnet: "If you control a Card Name Zidane Forward, you can cast Garnet from your
+	// Break Zone." (Board behaviour.) Zenos's self-cast permission behind a control gate, which is
+	// re-read at each sync: the registration lapses when the gate shuts.
+	// =========================================================================================
+
+	private static CardData garnetInP1BreakZone(MainWindow mw) {
+		CardData garnet = dealt("Garnet", "Water", "Backup", 2, 0, "Princess", "IX",
+				"If you control a Card Name Zidane Forward, you can cast Garnet from your Break Zone.");
+		mw.gameState.getIdentity().put(garnet, true);
+		mw.gameState.getP1BreakZone().add(garnet);
+		return garnet;
+	}
+
+	@Test
+	void garnetIsCastableFromTheBreakZoneOnlyWhileYouControlZidane() {
+		MainWindow mw = new MainWindow();
+		CardData garnet = garnetInP1BreakZone(mw);
+		mw.syncBzForwardPlayables(true);
+		assertFalse(mw.bzPlayableP1.containsKey(garnet), "no Zidane");
+
+		placeP1Forward(mw, makeForward("Zidane", "Wind", 3, 7000));
+		mw.syncBzForwardPlayables(true);
+		assertTrue(mw.bzPlayableP1.containsKey(garnet));
+
+		mw.putP1ForwardIntoBreakZone(0);
+		mw.syncBzForwardPlayables(true);
+		assertFalse(mw.bzPlayableP1.containsKey(garnet), "the gate shut when Zidane left");
+	}
+
+	@Test
+	void aZidaneBackupDoesNotOpenGarnetsGate() {
+		// Zidane is printed as a Backup too; "a Card Name Zidane Forward" names the type.
+		MainWindow mw = new MainWindow();
+		CardData garnet = garnetInP1BreakZone(mw);
+		TestCards.placeP1Backup(mw, TestCards.makeBackup("Zidane", "Wind", 3));
+		mw.syncBzForwardPlayables(true);
+		assertFalse(mw.bzPlayableP1.containsKey(garnet));
+	}
+
+	@Test
+	void anUntypedNamedConditionStillTakesAnyType() {
+		ControlCondition typed = CardData.parseControlCondition("a Card Name Zidane Forward");
+		assertEquals(List.of("Zidane"), typed.requiredCardNames());
+		assertEquals("Forward", typed.cardType());
+		assertNull(CardData.parseControlCondition("a Card Name Zidane").cardType());
+	}
+
+	// =========================================================================================
+	// 30-105L Sephiroth: "You can remove 2 Card Name Sephiroth in your Break Zone from the game
+	// (instead of paying the CP cost) to cast Sephiroth." (Board behaviour.) The Break Zone
+	// removal reduction (King 23-082H), its reduction the whole printed cost.
+	// =========================================================================================
+
+	private static CardData sephiroth30() {
+		return dealt("Sephiroth", "Dark", "Forward", 9, 9000, "One-Winged Angel", "VII",
+				"You can remove 2 Card Name Sephiroth in your Break Zone from the game (instead of paying the "
+				+ "CP cost) to cast Sephiroth.");
+	}
+
+	private static CardData toP1BreakZone(MainWindow mw, CardData card) {
+		mw.gameState.getIdentity().put(card, true);
+		mw.gameState.getP1BreakZone().add(card);
+		return card;
+	}
+
+	@Test
+	void sephirothsAlternateCostIsTwoSephirothsAndNoCp() {
+		CardData.AltBzRemovalReduction r = sephiroth30().altBzRemovalReduction();
+		assertNotNull(r);
+		assertEquals(2, r.count());
+		assertEquals(9, r.reduction(), "instead of paying the CP cost: all nine");
+		assertTrue(sephiroth30().altCpElements().isEmpty());
+		assertTrue(sephiroth30().fieldAbilities().isEmpty(), "a cost, not a field ability");
+	}
+
+	@Test
+	void sephirothIsAffordableOnlyWithTwoSephirothsInTheBreakZone() {
+		MainWindow mw = new MainWindow();
+		toP1BreakZone(mw, makeForward("Sephiroth", "Dark", 5, 8000));
+		toP1BreakZone(mw, makeForward("Cloud", "Wind", 5, 8000));
+		assertFalse(mw.costs.canAffordAltCost(sephiroth30(), -1), "one Sephiroth is short of two");
+
+		toP1BreakZone(mw, makeForward("Sephiroth", "Dark", 6, 9000));
+		assertTrue(mw.costs.canAffordAltCost(sephiroth30(), -1), "with no CP at all");
+	}
+
+	@Test
+	void sephirothsAlternateCastRemovesBothAndPlaysHim() {
+		MainWindow mw = new MainWindow();
+		CardData first  = toP1BreakZone(mw, makeForward("Sephiroth", "Dark", 5, 8000));
+		CardData cloud  = toP1BreakZone(mw, makeForward("Cloud", "Wind", 5, 8000));
+		CardData second = toP1BreakZone(mw, makeForward("Sephiroth", "Dark", 6, 9000));
+		CardData seph = sephiroth30();
+		mw.gameState.getIdentity().put(seph, true);
+		mw.gameState.getP1Hand().add(seph);
+
+		mw.executeAltPlay(true, seph, 0, new AltPayment(0, List.of(), List.of(), List.of(), List.of(0, 2)),
+				List.of(), List.of(), Map.of(), null, false);
+
+		assertTrue(mw.p1ForwardCards.contains(seph));
+		assertEquals(List.of(cloud), mw.gameState.getP1BreakZone());
+		assertTrue(mw.gameState.getP1PermanentRfp().containsAll(List.of(first, second)), "removed from the game");
+	}
+
+	// =========================================================================================
+	// 30-081R Don Tonberry: "If Don Tonberry has received 20000 damage or more, put Don Tonberry
+	// into the Break Zone." (Board behaviour.) Read with the rest of his text: he becomes a 5000
+	// Forward for a turn, and at Damage 5 cannot be broken, so the cap is what ends him then.
+	//
+	// The cap is a rule-process check (MainWindow.sweepSelfDamageCaps), run with the break sweep,
+	// so it applies whichever row holds him and whatever put the damage there.
+	// =========================================================================================
+
+	private static final String DON_TONBERRY_30_081R = "If Don Tonberry has received 20000 damage or more, "
+			+ "put Don Tonberry into the Break Zone.[[br]]《0》: Until the end of the turn, Don Tonberry also "
+			+ "becomes a Forward with 5000 power. You can only use this ability once per turn.[[br]]"
+			+ "Damage 5 -- Don Tonberry cannot be broken.";
+
+	/** Don Tonberry on P1's field acting as a 5000 Forward, with {@code damage} cards in P1's Damage Zone. */
+	private static CardData donActingAsAForward(MainWindow mw, int damage) {
+		CardData don = dealt("Don Tonberry", "Lightning", "Monster", 2, 5000, "Tonberry", "XIII", DON_TONBERRY_30_081R);
+		TestCards.placeP1Monster(mw, don);
+		mw.p1MonsterTempForwardPower.put(don, 5000);
+		for (int i = 0; i < damage; i++) mw.gameState.getP1DamageZone().add(makeForward("Dmg " + i, "Fire", 1, 1000));
+		return don;
+	}
+
+	@Test
+	void donsCapIsReadOnlyWhenTheSentenceNamesHim() {
+		String cap = "If Don Tonberry has received 20000 damage or more, put Don Tonberry into the Break Zone.";
+		assertEquals(20000, CardData.parseSelfDamageCapPut(cap, "Don Tonberry"));
+		assertEquals(-1, CardData.parseSelfDamageCapPut(cap, "Tonberry"), "a cap on some other card");
+	}
+
+	@Test
+	void atDamageFiveDonKeepsLethalDamageUntilTheCap() {
+		MainWindow mw = new MainWindow();
+		CardData don = donActingAsAForward(mw, 5);
+
+		mw.applyDamageToMonster(true, 0, 6000);
+		assertTrue(mw.p1MonsterCards.contains(don), "cannot be broken at Damage 5");
+		assertEquals(6000, mw.p1MonsterDamage.get(0), "and the damage stays on him");
+
+		mw.applyDamageToMonster(true, 0, 14000);
+		assertFalse(mw.p1MonsterCards.contains(don), "20000 received");
+		assertTrue(mw.gameState.getP1BreakZone().contains(don));
+	}
+
+	@Test
+	void atDamageFiveABreakEffectCannotTouchDonEither() {
+		MainWindow mw = new MainWindow();
+		CardData don = donActingAsAForward(mw, 5);
+		mw.buildGameContext(false).breakTarget(new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER));
+		assertTrue(mw.p1MonsterCards.contains(don));
+	}
+
+	@Test
+	void belowDamageFiveDonBreaksAsAnyForwardWould() {
+		MainWindow mw = new MainWindow();
+		CardData don = donActingAsAForward(mw, 4);
+		mw.applyDamageToMonster(true, 0, 5000);
+		assertFalse(mw.p1MonsterCards.contains(don));
+		assertTrue(mw.gameState.getP1BreakZone().contains(don));
+	}
+
+	// =========================================================================================
+	// "Cannot be broken" in battle. (Board behaviour.) Every combat resolver asks
+	// MainWindow.combatBlowBreaks, so a Forward that cannot be broken keeps its battle damage until
+	// the end of the turn rather than being broken by it — and, since it was not broken, a First
+	// Strike against it still takes the return blow.
+	// =========================================================================================
+
+	@Test
+	void aCannotBeBrokenBlockerSurvivesLethalBattleDamage() {
+		MainWindow mw = new MainWindow();
+		CardData attacker = makeForward("Attacker", "Fire", 4, 8000);                       // P2
+		CardData wall = makeForwardWithTraits("Wall", "Earth", 5000,
+				Set.of(CardData.Trait.CANNOT_BE_BROKEN));                                      // P1
+		placeDamagedP2Forward(mw, attacker, 0);
+		placeDamagedP1Forward(mw, wall, 0);
+
+		mw.resolveCombat(attacker, false, 0, wall, true, 0);
+
+		assertEquals(List.of(wall), mw.p1ForwardCards);
+		assertEquals(8000, mw.p1ForwardDamage.get(0), "the damage stays on it");
+		assertEquals(5000, mw.p2ForwardDamage.get(0), "and it strikes back");
+	}
+
+	@Test
+	void aFirstStrikeAgainstACannotBeBrokenBlockerStillTakesTheReturnBlow() {
+		MainWindow mw = new MainWindow();
+		CardData striker = makeForwardWithTraits("Striker", "Water", 8000,
+				Set.of(CardData.Trait.FIRST_STRIKE));                                          // P1
+		CardData wall = makeForwardWithTraits("Wall", "Earth", 5000,
+				Set.of(CardData.Trait.CANNOT_BE_BROKEN));                                      // P2
+		placeDamagedP1Forward(mw, striker, 0);
+		placeDamagedP2Forward(mw, wall, 0);
+
+		mw.resolveCombat(striker, true, 0, wall, false, 0);
+
+		assertEquals(List.of(wall), mw.p2ForwardCards);
+		assertEquals(5000, mw.p1ForwardDamage.get(0), "the first strike broke nothing");
+	}
+
+	// =========================================================================================
+	// 30-001H Auron: "You can discard 2 Category X cards (instead of paying the CP cost) to cast
+	// Auron." (Board behaviour.) King 9-010R's discard cost, named by Category and two cards long.
+	// =========================================================================================
+
+	private static CardData auron30() {
+		return dealt("Auron", "Fire", "Backup", 5, 0, "Guardian", "X",
+				"You can discard 2 Category X cards (instead of paying the CP cost) to cast Auron.");
+	}
+
+	private static CardData toP1Hand(MainWindow mw, CardData card) {
+		mw.gameState.getIdentity().put(card, true);
+		mw.gameState.getP1Hand().add(card);
+		return card;
+	}
+
+	@Test
+	void auronsCostIsTwoCategoryXCards() {
+		MainWindow mw = new MainWindow();
+		CardData auron = toP1Hand(mw, auron30());
+		List<MainWindow.FieldDiscardCastEntry> grants = mw.findDiscardCastGrants(auron, true);
+		assertEquals(1, grants.size());
+		assertEquals(2, grants.get(0).count());
+		assertEquals("Category X", grants.get(0).label());
+	}
+
+	@Test
+	void auronCountsOnlyOtherCategoryXCardsInHand() {
+		MainWindow mw = new MainWindow();
+		CardData auron = toP1Hand(mw, auron30());
+		toP1Hand(mw, categoryCard("Wakka", "Water", "Forward", 3, "X"));
+		toP1Hand(mw, categoryCard("Vaan", "Wind", "Forward", 3, "XII"));
+		MainWindow.FieldDiscardCastEntry grant = mw.findDiscardCastGrants(auron, true).get(0);
+		assertEquals(List.of(1), mw.discardCastEligible(grant, 0),
+				"Auron is Category X himself, but he is the card being cast");
+
+		toP1Hand(mw, categoryCard("Lulu", "Ice", "Forward", 3, "X"));
+		assertEquals(List.of(1, 3), mw.discardCastEligible(grant, 0));
+	}
+
+	@Test
+	void auronsTwoDiscardsPayForHimOutright() {
+		MainWindow mw = new MainWindow();
+		CardData wakka = toP1Hand(mw, categoryCard("Wakka", "Water", "Forward", 3, "X"));
+		CardData auron = toP1Hand(mw, auron30());
+		CardData vaan  = toP1Hand(mw, categoryCard("Vaan", "Wind", "Forward", 3, "XII"));
+		CardData lulu  = toP1Hand(mw, categoryCard("Lulu", "Ice", "Forward", 3, "X"));
+
+		mw.discardThenCastFree(auron, 1, List.of(0, 3));
+
+		assertTrue(Arrays.asList(mw.p1BackupCards).contains(auron), "cast with no CP paid");
+		assertEquals(List.of(vaan), mw.gameState.getP1Hand());
+		assertTrue(mw.gameState.getP1BreakZone().containsAll(List.of(wakka, lulu)));
+	}
+
+	// =========================================================================================
+	// 30-034L Locke: "If your opponent discards any number of cards due to your Summons or
+	// abilities, your opponent randomly discards that number of cards instead." (Board behaviour.)
+	// A replacement on which cards go: the count stands, the choice — the opponent's or the
+	// controller's own — becomes a roll.
+	// =========================================================================================
+
+	private static CardData locke30() {
+		return dealt("Locke", "Ice", "Forward", 4, 8000, "Treasure Hunter", "VI",
+				"If your opponent discards any number of cards due to your Summons or abilities, your opponent "
+				+ "randomly discards that number of cards instead.");
+	}
+
+	/** {@code n} cards in P2's hand. */
+	private static void p2HandOf(MainWindow mw, int n) {
+		for (int i = 0; i < n; i++) {
+			CardData c = makeForward("P2 Hand " + i, "Fire", 2 + i, 5000);
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2Hand().add(c);
+		}
+	}
+
+	@Test
+	void withLockeTheOpponentsDiscardIsRandom() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, locke30());
+		p2HandOf(mw, 4);
+
+		mw.buildGameContext(true).forceOpponentDiscard(2);
+
+		assertEquals(2, mw.gameState.getP2Hand().size(), "the count stands");
+		assertEquals(2, mw.gameState.getP2BreakZone().size());
+		assertTrue(mw.gameLogText().contains("(at random, Locke)"));
+		assertTrue(mw.turn(true).causedOpponentDiscardThisTurn, "still a discard your ability caused");
+	}
+
+	@Test
+	void withoutLockeTheOpponentStillChooses() {
+		MainWindow mw = new MainWindow();
+		p2HandOf(mw, 4);
+		mw.buildGameContext(true).forceOpponentDiscard(1);
+		assertEquals(3, mw.gameState.getP2Hand().size());
+		assertFalse(mw.gameLogText().contains("at random"));
+	}
+
+	@Test
+	void aSelectionFromTheirHandBecomesRandomToo() {
+		// "Select 1 card in your opponent's hand. Your opponent discards it." is still your opponent
+		// discarding due to your ability — no dialog opens, because nobody chooses.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, locke30());
+		p2HandOf(mw, 3);
+
+		mw.buildGameContext(true).selectFromOpponentHandAndDiscard(1, null, "card");
+
+		assertEquals(2, mw.gameState.getP2Hand().size());
+		assertTrue(mw.gameLogText().contains("(at random, Locke)"));
+	}
+
+	@Test
+	void lockeDoesNotChangeTheDiscardsYourOpponentMakesYouTake() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, locke30());
+		CardData only = makeForward("Only", "Fire", 2, 5000);
+		toP1Hand(mw, only);
+
+		mw.buildGameContext(false).forceOpponentDiscard(1);
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(only));
+		assertFalse(mw.gameLogText().contains("at random"), "\"your opponent\" — Locke's controller is not");
+	}
+
+	// =========================================================================================
+	// 30-060H Daisy: "If a Category FFBE Forward you control other than Daisy is dealt damage, the
+	// damage is dealt to Daisy instead." (Board behaviour.) Daisy 18-060H's redirect, narrowed to
+	// a Category.
+	// =========================================================================================
+
+	@Test
+	void daisyTakesOnlyHerCategoryFfbeAlliesDamage() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, categoryCard("Rain", "Fire", "Forward", 3, "FFBE"));          // idx 0
+		placeP1Forward(mw, makeForward("Outsider", "Fire", 3, 7000));                     // idx 1
+		placeP1Forward(mw, dealt("Daisy", "Earth", "Forward", 2, 5000, "Actress of Wohlstok", "FFBE",
+				"If a Category FFBE Forward you control other than Daisy is dealt damage, the damage is dealt to "
+				+ "Daisy instead."));                                                       // idx 2
+
+		mw.applyDamageToForward(true, 0, 3000, true, false);
+		assertEquals(0, mw.p1ForwardDamage.get(0));
+		assertEquals(3000, mw.p1ForwardDamage.get(2), "Daisy took it");
+
+		mw.applyDamageToForward(true, 1, 2000, true, false);
+		assertEquals(2000, mw.p1ForwardDamage.get(1), "not Category FFBE");
+		assertEquals(3000, mw.p1ForwardDamage.get(2));
+	}
+
+	// =========================================================================================
+	// 30-094R Midgardsormr: "If Midgardsormr is dealt damage by Elements other than Ice, reduce the
+	// damage by 3000 instead." (Board behaviour.) Ozma 5-124H's "by a Dark card", turned around:
+	// any route, judged on the dealer's current Elements.
+	// =========================================================================================
+
+	private static final String MIDGARDSORMR_REDUCTION =
+			"If Midgardsormr is dealt damage by Elements other than Ice, reduce the damage by 3000 instead.";
+
+	/** Midgardsormr on P1's field acting as an 8000 Forward, hit for 5000 by an ability of {@code dealer}. */
+	private static int midgardsormrTakes(CardData dealer) {
+		MainWindow mw = new MainWindow();
+		CardData mid = dealt("Midgardsormr", "Water", "Monster", 2, 8000, "Giant Serpent", "VII", MIDGARDSORMR_REDUCTION);
+		TestCards.placeP1Monster(mw, mid);
+		mw.p1MonsterTempForwardPower.put(mid, 8000);
+		mw.currentAbilitySource = dealer;
+		mw.currentAbilitySourceIsP1 = false;
+		mw.applyDamageToMonster(true, 0, 5000);
+		return mw.p1MonsterDamage.get(0);
+	}
+
+	@Test
+	void midgardsormrShrugsOffAllButIce() {
+		assertEquals(2000, midgardsormrTakes(makeForward("Fire Mage", "Fire", 3, 7000)));
+		assertEquals(5000, midgardsormrTakes(makeForward("Ice Mage", "Ice", 3, 7000)), "Ice is the exception");
+		assertEquals(2000, midgardsormrTakes(makeForward("Frost Flame", "Fire/Ice", 3, 7000)),
+				"a Fire/Ice dealer is of an Element other than Ice");
+	}
+
+	@Test
+	void midgardsormrsReductionCoversBattleDamage() {
+		// The same sentence on a Forward, to put it in a battle: the clause names what dealt the
+		// damage, not how, so a Forward's blow is in scope.
+		MainWindow mw = new MainWindow();
+		CardData attacker = makeForward("Attacker", "Fire", 4, 8000);                     // P2
+		CardData mid = makeTextCard("Midgardsormr", "Water", "Forward", 2, 9000, null, MIDGARDSORMR_REDUCTION); // P1
+		placeDamagedP2Forward(mw, attacker, 0);
+		placeDamagedP1Forward(mw, mid, 0);
+
+		mw.resolveCombat(attacker, false, 0, mid, true, 0);
+
+		assertEquals(5000, mw.p1ForwardDamage.get(0), "8000 reduced by 3000");
+	}
+
+	// =========================================================================================
+	// 30-096L Yuna: "If you control 2 or more Job Guardian Forwards, Yuna cannot be broken."
+	// (Board behaviour.) An IfControlBoost whose whole grant is the shield.
+	// =========================================================================================
+
+	private static MainWindow yunaBesideGuardians(int guardians) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, dealt("Yuna", "Water", "Forward", 5, 7000, "Summoner", "X",
+				"If you control 2 or more Job Guardian Forwards, Yuna cannot be broken."));
+		for (int i = 0; i < guardians; i++) placeP1Forward(mw, makeJobCard("Guardian " + i, "Water", "Forward", "Guardian"));
+		return mw;
+	}
+
+	@Test
+	void yunaCannotBeBrokenBesideTwoGuardians() {
+		MainWindow mw = yunaBesideGuardians(2);
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.CANNOT_BE_BROKEN));
+
+		mw.buildGameContext(false).breakTarget(fwd(true, 0));
+		mw.applyDamageToForward(true, 0, 9000, true, false);
+
+		assertTrue(mw.p1ForwardCards.get(0).name().equals("Yuna"), "neither the break nor lethal damage");
+		assertEquals(9000, mw.p1ForwardDamage.get(0));
+	}
+
+	@Test
+	void oneGuardianIsNotEnough() {
+		MainWindow mw = yunaBesideGuardians(1);
+		assertFalse(mw.effectiveP1HasTrait(0, CardData.Trait.CANNOT_BE_BROKEN));
+		mw.buildGameContext(false).breakTarget(fwd(true, 0));
+		assertTrue(mw.p1ForwardCards.stream().noneMatch(c -> c.name().equals("Yuna")));
+	}
+
+	// =========================================================================================
+	// A Backup or Monster acting as a Forward is a Forward for the field's grants. (Board
+	// behaviour.) A grant to "the Forwards you control" used to test the printed type, so it passed
+	// over both; and a Backup's trait lookup read none of the field's grants at all.
+	// =========================================================================================
+
+	private static final String RALLY_PLUS_1000 = "The Forwards you control gain +1000 power.";
+	private static final String RALLY_HASTE     = "The Forwards you control gain Haste.";
+
+	/** A Backup in P1's first slot that an effect has made a 5000 Forward. */
+	private static CardData backupActingAsForward(MainWindow mw) {
+		CardData b = TestCards.makeBackup("Stand-in", "Fire", 2);
+		TestCards.placeP1Backup(mw, b);
+		mw.p1BackupTempForwardPower.put(b, 5000);
+		return b;
+	}
+
+	@Test
+	void aGrantToYourForwardsReachesABackupActingAsOne() {
+		MainWindow mw = new MainWindow();
+		backupActingAsForward(mw);
+		placeP1Forward(mw, dealt("Rally", "Fire", "Forward", 3, 7000, null, null, RALLY_PLUS_1000));
+		placeP1Forward(mw, dealt("Hurry", "Fire", "Forward", 3, 7000, null, null, RALLY_HASTE));
+
+		assertEquals(6000, mw.p1BackupForwardPower(0));
+		assertTrue(mw.effectiveBackupHasTrait(true, 0, CardData.Trait.HASTE));
+	}
+
+	@Test
+	void anOrdinaryBackupIsStillNotAForward() {
+		MainWindow mw = new MainWindow();
+		TestCards.placeP1Backup(mw, TestCards.makeBackup("Plain", "Fire", 2));
+		placeP1Forward(mw, dealt("Hurry", "Fire", "Forward", 3, 7000, null, null, RALLY_HASTE));
+		assertFalse(mw.effectiveBackupHasTrait(true, 0, CardData.Trait.HASTE));
+	}
+
+	@Test
+	void aMonsterActingAsAForwardTakesTheBoostToo() {
+		MainWindow mw = new MainWindow();
+		CardData mon = TestCards.makeMonster("Beast", "Fire", 2);
+		TestCards.placeP1Monster(mw, mon);
+		mw.p1MonsterTempForwardPower.put(mon, 5000);
+		placeP1Forward(mw, dealt("Rally", "Fire", "Forward", 3, 7000, null, null, RALLY_PLUS_1000));
+		assertEquals(6000, mw.p1MonsterForwardPower(0));
+	}
+
+	// =========================================================================================
+	// "Other than [its own name]" means the card printing it. (Board behaviour.) The same-name rule
+	// keeps a second copy off the field almost always, so the difference shows with a Multicard —
+	// 18-087C False Hero, 2-112C Fleeting Flash, 2-020C Imitation Liegeman — where by name each copy
+	// left the other out as well as itself.
+	// =========================================================================================
+
+	/** A Multicard Forward of Job Manikin as a dealt deck builds it — exempt from the same-name rule. */
+	private static CardData manikinMulticard(String name, String element, int cost, int power, String text) {
+		return MainWindow.buildCardData(new DeckCardDetail(null, name, element, cost, power, "Forward",
+				false, 0, false, text, true, "Manikin", null, null));
+	}
+
+	private static CardData falseHero() {
+		return manikinMulticard("False Hero", "Water", 3, 7000,
+				"The Job Manikin Forwards other than False Hero you control gain +2000 power.");
+	}
+
+	private static CardData fleetingFlash() {
+		return manikinMulticard("Fleeting Flash", "Lightning", 4, 6000,
+				"If you control a Job Manikin other than Fleeting Flash, Fleeting Flash gains +2000 power.");
+	}
+
+	@Test
+	void twoFalseHeroesEachBoostTheOther() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, falseHero());
+		placeP1Forward(mw, falseHero());
+		assertEquals(9000, mw.effectiveP1ForwardPower(0));
+		assertEquals(9000, mw.effectiveP1ForwardPower(1));
+	}
+
+	@Test
+	void falseHeroStillLeavesHimselfOut() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, falseHero());
+		placeP1Forward(mw, makeJobCard("Manikin", "Water", "Forward", "Manikin"));
+		assertEquals(7000, mw.effectiveP1ForwardPower(0));
+		assertEquals(9000, mw.effectiveP1ForwardPower(1));
+	}
+
+	@Test
+	void twoFleetingFlashesSatisfyEachOtherAndBoostOnlyThemselves() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, fleetingFlash());
+		assertEquals(6000, mw.effectiveP1ForwardPower(0), "alone, it is not a Manikin other than itself");
+
+		placeP1Forward(mw, fleetingFlash());
+		assertEquals(8000, mw.effectiveP1ForwardPower(0), "+2000 once — its own boost, not the other's too");
+		assertEquals(8000, mw.effectiveP1ForwardPower(1));
+	}
+
+	@Test
+	void anAbilitysOtherThanClauseReadsItsOwnCard() {
+		MainWindow mw = new MainWindow();
+		CardData first  = manikinMulticard("Imitation Liegeman", "Fire", 3, 6000, "");
+		CardData second = manikinMulticard("Imitation Liegeman", "Fire", 3, 6000, "");
+		placeP1Forward(mw, first);
+		placeP1Forward(mw, second);
+		ControlCondition manikin = CardData.parseControlCondition("a Job Manikin");
+
+		assertTrue(mw.controlConditionMetExcluding(manikin, "Imitation Liegeman", true, first),
+				"the other copy is a Job Manikin other than this one");
+		assertFalse(mw.controlConditionMetExcluding(manikin, "Imitation Liegeman", true, null),
+				"read by name, as when the printer is unknown");
+	}
+
+	// =========================================================================================
+	// "Of power N or less / or more" reads power as it is now. (Board behaviour.)
+	// =========================================================================================
+
+	@Test
+	void aPowerFilterReadsTheForwardsCurrentPower() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Boosted", "Fire", 3, 5000));    // idx 0
+		placeP1Forward(mw, makeForward("Weakened", "Fire", 3, 7000));   // idx 1
+		GameContext mine = mw.buildGameContext(true);
+		mine.boostTarget(fwd(true, 0), 3000, EnumSet.noneOf(CardData.Trait.class));
+		mine.boostTarget(fwd(true, 1), -3000, EnumSet.noneOf(CardData.Trait.class));
+
+		ActionResolver.parse("Choose 1 Forward of power 5000 or less. Deal it 1000 damage.", null)
+				.accept(mw.buildGameContext(false));
+
+		assertEquals(0, mw.p1ForwardDamage.get(0), "printed 5000, but 8000 now");
+		assertEquals(1000, mw.p1ForwardDamage.get(1), "printed 7000, but 4000 now");
+	}
+
+	// =========================================================================================
+	// 17-127H Engelbert: "Choose 1 Forward. It gains "If this Forward is dealt damage by your
+	// opponent's abilities, the damage becomes 0 instead." until the end of the turn." (Board
+	// behaviour.) Its own shield now, rather than White Mage 30-091C's any-player one.
+	// =========================================================================================
+
+	private static final String ENGELBERT_SHIELD = "Choose 1 Forward. It gains \"If this Forward is dealt "
+			+ "damage by your opponent's abilities, the damage becomes 0 instead.\" until the end of the turn.";
+
+	@Test
+	void engelbertGrantsTheOpponentScopedShield() {
+		ForwardTarget t = fwd(true, 0);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+
+		ActionResolver.parse(ENGELBERT_SHIELD, makeForward("Engelbert", "Light", 5, 9000)).accept(ctx);
+
+		verify(ctx).shieldOpponentAbilityOnlyDamage(t);
+		verify(ctx, never()).shieldAbilityOnlyDamage(any());
+	}
+
+	@Test
+	void theShieldStopsOnlyItsControllersOpponent() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Shielded", "Light", 3, 9000));
+		mw.buildGameContext(true).shieldOpponentAbilityOnlyDamage(fwd(true, 0));
+
+		mw.currentAbilitySource = makeForward("Theirs", "Fire", 3, 7000);
+		mw.currentAbilitySourceIsP1 = false;
+		mw.applyDamageToForward(true, 0, 3000, true, false);
+		assertEquals(0, mw.p1ForwardDamage.get(0), "your opponent's ability");
+
+		mw.currentAbilitySource = makeForward("Mine", "Fire", 3, 7000);
+		mw.currentAbilitySourceIsP1 = true;
+		mw.applyDamageToForward(true, 0, 3000, true, false);
+		assertEquals(3000, mw.p1ForwardDamage.get(0), "its own controller's ability still lands");
+	}
+
+	// =========================================================================================
+	// 30-011R Blank's removed-from-deck trigger, through the two replacements that take a card
+	// straight from a deck to the removed zone. (Board behaviour.)
+	// =========================================================================================
+
+	private static final String ACE_BZ_REPLACEMENT =
+			"If a card is put into your Break Zone in any situation, remove it from the game instead.";
+
+	/** Records which deck each card the listener hears about was removed from. */
+	private static List<Boolean> listenForDeckRemovals(MainWindow mw) {
+		List<Boolean> decks = new ArrayList<>();
+		mw.gameState.setRemovedFromDeckListener((c, p1) -> decks.add(p1));
+		return decks;
+	}
+
+	@Test
+	void aMillTheOwnersAceRemovesInsteadIsARemovalFromTheDeck() {
+		MainWindow mw = new MainWindow();
+		List<Boolean> decks = listenForDeckRemovals(mw);
+		placeP1Forward(mw, dealt("Ace", "Fire", "Forward", 3, 7000, null, null, ACE_BZ_REPLACEMENT));
+		fillP1Deck(mw, 3);
+
+		mw.buildGameContext(false).opponentMillCards(1);
+
+		assertEquals(List.of(true), decks, "out of P1's deck");
+		assertEquals(1, mw.gameState.getP1PermanentRfp().size());
+		assertTrue(mw.gameState.getP1BreakZone().isEmpty());
+	}
+
+	@Test
+	void anOrdinaryMillIsNotARemoval() {
+		MainWindow mw = new MainWindow();
+		List<Boolean> decks = listenForDeckRemovals(mw);
+		fillP1Deck(mw, 3);
+		mw.buildGameContext(false).opponentMillCards(1);
+		assertTrue(decks.isEmpty());
+		assertEquals(1, mw.gameState.getP1BreakZone().size());
+	}
+
+	@Test
+	void aCardPlayedFromTheDeckIntoAlhanalemIsRemovedFromTheDeck() {
+		MainWindow mw = new MainWindow();
+		List<Boolean> decks = listenForDeckRemovals(mw);
+		mw.turn(true).oppFieldEntryBecomesRfg = true;                 // P1 used 18-018R Alhanalem
+		CardData card = makeForward("Off the Deck", "Fire", 3, 7000);
+		mw.gameState.getIdentity().put(card, false);
+		mw.currentAbilitySource = makeForward("P2 Source", "Fire", 3, 7000);
+		mw.currentAbilitySourceIsP1 = false;
+		mw.entryOrigin.put(card, MainWindow.EntryOrigin.DECK);
+
+		assertTrue(mw.fieldEntryBecomesRfg(card, false));
+		assertEquals(List.of(false), decks, "out of P2's deck");
+	}
+
+	@Test
+	void oneComingFromTheBreakZoneIsRemovedButNotFromADeck() {
+		MainWindow mw = new MainWindow();
+		List<Boolean> decks = listenForDeckRemovals(mw);
+		mw.turn(true).oppFieldEntryBecomesRfg = true;
+		CardData card = makeForward("Off the Break Zone", "Fire", 3, 7000);
+		mw.gameState.getIdentity().put(card, false);
+		mw.currentAbilitySource = makeForward("P2 Source", "Fire", 3, 7000);
+		mw.currentAbilitySourceIsP1 = false;
+		mw.entryOrigin.put(card, MainWindow.EntryOrigin.BREAK_ZONE);
+
+		assertTrue(mw.fieldEntryBecomesRfg(card, false));
+		assertTrue(decks.isEmpty());
+		assertTrue(mw.gameState.getP2PermanentRfp().contains(card));
+	}
+
+	// =========================================================================================
+	// The AI takes a discard-to-cast cost when it cannot raise the CP. (Board behaviour.)
+	// =========================================================================================
+
+	private static CardData toP2Hand(MainWindow mw, CardData card) {
+		mw.gameState.getIdentity().put(card, false);
+		mw.gameState.getP2Hand().add(card);
+		return card;
+	}
+
+	@Test
+	void theAiPicksItsDiscardsFromTheCardsTheCostNames() {
+		MainWindow mw = new MainWindow();
+		CardData king = toP2Hand(mw, makeTextCard("King", "Fire", "Forward", 5, 8000, null, KING_9_010R_ALT_COST));
+		toP2Hand(mw, makeForward("Outsider", "Fire", 3, 7000));
+		toP2Hand(mw, makeJobCard("Cadet", "Fire", "Forward", "Class Zero Cadet"));
+
+		assertEquals(List.of(2), new ComputerPlayer(mw).p2PlanDiscardCast(king, 0));
+	}
+
+	@Test
+	void theAiHasNoDiscardCastWithoutTheCards() {
+		MainWindow mw = new MainWindow();
+		CardData king = toP2Hand(mw, makeTextCard("King", "Fire", "Forward", 5, 8000, null, KING_9_010R_ALT_COST));
+		toP2Hand(mw, makeForward("Outsider", "Fire", 3, 7000));
+		assertNull(new ComputerPlayer(mw).p2PlanDiscardCast(king, 0));
+	}
+
+	@Test
+	void theP2SeatsDiscardCastPaysAndPlays() {
+		MainWindow mw = new MainWindow();
+		CardData cadet = toP2Hand(mw, makeJobCard("Cadet", "Fire", "Forward", "Class Zero Cadet"));
+		CardData king  = toP2Hand(mw, makeTextCard("King", "Fire", "Forward", 5, 8000, null, KING_9_010R_ALT_COST));
+		CardData other = toP2Hand(mw, makeForward("Outsider", "Fire", 3, 7000));
+
+		mw.discardThenCastFree(false, king, 1, List.of(0));
+
+		assertTrue(mw.p2ForwardCards.contains(king));
+		assertEquals(List.of(other), mw.gameState.getP2Hand());
+		assertTrue(mw.gameState.getP2BreakZone().contains(cadet));
 	}
 
 }

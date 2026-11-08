@@ -29,7 +29,7 @@ public class FieldAbilityParsingTest {
      * the worklist, and the other two are the regression surface, so a wider sample per run
      * surfaces more of both.
      */
-    private static final int SAMPLE_SIZE = 5;
+    private static final int SAMPLE_SIZE = 10;
 
     // -------------------------------------------------------------------------
     // Per-card coverage
@@ -138,7 +138,14 @@ public class FieldAbilityParsingTest {
         // Number 24 20-036H. Both name captures are checked against the carrier exactly as
         // CardData.counterGrants does, so the report cannot claim a cross-card grant as this one.
         if (selfCounterPlacedGrant(fa, source)) return true;
-        if (AutoAbilityTriggers.FA_CAST_SELF_FROM_BZ.matcher(fa.effectText().trim()).matches()) return true;
+        // Zenos 20-130L, and 30-088R Garnet behind her Zidane gate. Asked of the engine as well, which
+        // declines a gate it cannot read, so the report does not claim one either.
+        if (AutoAbilityTriggers.FA_CAST_SELF_FROM_BZ.matcher(fa.effectText().trim()).matches()
+                && AutoAbilityTriggers.canCastSelfFromBz(source)) return true;
+        // Ace 15-127H's "You can cast Forwards from your Break Zone." — any Forward, not the card itself.
+        if (AutoAbilityTriggers.FA_CAST_FORWARDS_FROM_BZ.matcher(fa.effectText().trim()).matches()) return true;
+        // Locke 30-034L. Read by GameContextImpl at each route that has the opponent discard.
+        if (AutoAbilityTriggers.FA_OPP_DISCARDS_RANDOMLY_INSTEAD.matcher(fa.effectText().trim()).matches()) return true;
         // Passives the engine reads straight off the card rather than routing through ActionResolver.
         // Each is matched exactly as its AutoAbilityTriggers.has* counterpart does, so the report
         // cannot claim recognition for text the engine would reject.
@@ -253,6 +260,13 @@ public class FieldAbilityParsingTest {
         // selectCharacters' immunity sets, against the resolving card's Elements.
         if (namesItself(ActionResolverPatterns.STANDALONE_NAMED_CANNOT_BE_CHOSEN_BY_ELEMENT,
                 fa, source)) return true;
+        // Ravana, Savior of the Gnath 30-083H. Read by selectCharacters' immunity sets while an EX
+        // Burst resolves; self-named there, so it is name-checked here too.
+        if (namesItself(ActionResolverPatterns.STANDALONE_NAMED_CANNOT_BE_CHOSEN_BY_EX_BURSTS,
+                fa, source)) return true;
+        // Don Tonberry 30-081R. Read by MainWindow's rule-process sweep against the damage the card
+        // holds; both names are checked against the carrier, as there.
+        if (CardData.parseSelfDamageCapPut(fa.effectText(), source.name()) > 0) return true;
         // Sin 14-045H on the opponent's own turn, Charlotte 27-128S on every turn. Read by
         // canActivateAbility, which is the single gate both the menu and the AI go through, so the
         // lock cannot be reached around.
@@ -747,7 +761,10 @@ public class FieldAbilityParsingTest {
             return "SelfCounterGrant[" + m.group("counter").trim() + ": ability]";
         }
         m = AutoAbilityTriggers.FA_CAST_SELF_FROM_BZ.matcher(fa.effectText().trim());
-        if (m.matches()) return "CastFromBreakZone[" + m.group("name").trim() + "]";
+        if (m.matches()) return "CastFromBreakZone[" + m.group("name").trim()
+                + (m.group("cond") != null ? " if you control " + m.group("cond").trim() : "") + "]";
+        if (AutoAbilityTriggers.FA_OPP_DISCARDS_RANDOMLY_INSTEAD.matcher(fa.effectText().trim()).matches())
+            return "OppDiscardsRandomlyInstead";
         if (AutoAbilityTriggers.FA_SELF_CAST_LIMIT.matcher(fa.effectText().trim()).matches())
             return "SelfCastLimit[2 per turn]";
         if (AutoAbilityTriggers.FA_BOTH_CAST_LIMIT.matcher(fa.effectText().trim()).matches())
@@ -986,6 +1003,10 @@ public class FieldAbilityParsingTest {
                 fa, source)) return "CannotBeChosenByMultiElementForwardAbility";
         if (namesItself(ActionResolverPatterns.STANDALONE_NAMED_CANNOT_BE_CHOSEN_BY_OWN_ELEMENT,
                 fa, source)) return "CannotBeChosenBySharedElement";
+        if (namesItself(ActionResolverPatterns.STANDALONE_NAMED_CANNOT_BE_CHOSEN_BY_EX_BURSTS,
+                fa, source)) return "CannotBeChosenByExBursts";
+        int damageCap = CardData.parseSelfDamageCapPut(fa.effectText(), source.name());
+        if (damageCap > 0) return "SelfDamageCapPut[" + damageCap + "]";
         String immuneElem = ActionResolver.cannotBeChosenByElementFieldAbility(source);
         if (immuneElem != null
                 && ActionResolverPatterns.STANDALONE_NAMED_CANNOT_BE_CHOSEN_BY_ELEMENT
@@ -1089,7 +1110,8 @@ public class FieldAbilityParsingTest {
                     + " " + hsg.traits() + (hsg.maxAttacks() > 1 ? " attacks×" + hsg.maxAttacks() : "") + "]";
         CardData.DamageRedirectGrant drg = CardData.parseDamageRedirectGrant(fa.effectText(), source.name());
         if (drg != null)
-            return "DamageRedirect[" + (drg.cardNameFilter() != null ? "Card Name " + drg.cardNameFilter() : "Forwards")
+            return "DamageRedirect[" + (drg.cardNameFilter() != null ? "Card Name " + drg.cardNameFilter()
+                    : drg.categoryFilter() != null ? "Category " + drg.categoryFilter() + " Forwards" : "Forwards")
                     + (drg.exceptCardName() != null ? " excl." + drg.exceptCardName() : "") + " → " + source.name() + "]";
         if (CardData.parseSelfCannotBeBrokenDuringYourTurn(fa.effectText(), source.name()))
             return "SelfCannotBeBroken[your turn]";

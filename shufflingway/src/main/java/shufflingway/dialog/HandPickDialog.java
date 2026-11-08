@@ -191,9 +191,21 @@ public class HandPickDialog {
                                              String cardType,
                                              Consumer<String> onZoom, Runnable onZoomHide,
                                              Consumer<Integer> onConfirm) {
+        return showDiscardByType(owner, hand, eligible, cardType, onZoom, onZoomHide, onConfirm, false);
+    }
+
+    /**
+     * As above, with {@code cancellable} adding a Cancel button and letting the window close —
+     * for a discard the player chose to make, such as an alternate cast cost, rather than one an
+     * effect demands. A cancel calls nothing and returns {@code false}.
+     */
+    public static boolean showDiscardByType(JFrame owner, List<CardData> hand, List<Integer> eligible,
+                                             String cardType,
+                                             Consumer<String> onZoom, Runnable onZoomHide,
+                                             Consumer<Integer> onConfirm, boolean cancellable) {
         JDialog dlg = new JDialog(owner, "Discard 1 " + cardType, true);
         dlg.setResizable(false);
-        dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        dlg.setDefaultCloseOperation(cancellable ? JDialog.DISPOSE_ON_CLOSE : JDialog.DO_NOTHING_ON_CLOSE);
 
         boolean[] result = { false };
         int[] selectedIdx = { -1 };
@@ -263,6 +275,7 @@ public class HandPickDialog {
 
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 4));
         btnPanel.add(confirmBtn);
+        if (cancellable) btnPanel.add(cancelButton(dlg, onZoomHide));
 
         JPanel main = new JPanel(new BorderLayout(0, 6));
         main.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
@@ -541,9 +554,22 @@ public class HandPickDialog {
                                        String verbPhrase, String buttonLabel,
                                        Consumer<String> onZoom, Runnable onZoomHide,
                                        Consumer<List<Integer>> onConfirm) {
+        showHandSelect(owner, targetHand, mustSelect, verbPhrase, buttonLabel, onZoom, onZoomHide,
+                onConfirm, false);
+    }
+
+    /**
+     * As above, with {@code cancellable} adding a Cancel button and letting the window close, as
+     * {@link #showDiscardByType(JFrame, List, List, String, Consumer, Runnable, Consumer, boolean)}
+     * does. A cancel calls nothing.
+     */
+    public static void showHandSelect(JFrame owner, List<CardData> targetHand, int mustSelect,
+                                       String verbPhrase, String buttonLabel,
+                                       Consumer<String> onZoom, Runnable onZoomHide,
+                                       Consumer<List<Integer>> onConfirm, boolean cancellable) {
         JDialog dlg = new JDialog(owner, buttonLabel + " — " + mustSelect + " Card(s)", true);
         dlg.setResizable(false);
-        dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        dlg.setDefaultCloseOperation(cancellable ? JDialog.DISPOSE_ON_CLOSE : JDialog.DO_NOTHING_ON_CLOSE);
 
         Set<Integer> selected = new HashSet<>();
 
@@ -589,7 +615,14 @@ public class HandPickDialog {
 
         JPanel south = new JPanel(new BorderLayout(4, 4));
         south.add(statusLabel, BorderLayout.NORTH);
-        south.add(confirmBtn,  BorderLayout.SOUTH);
+        if (cancellable) {
+            JPanel buttons = new JPanel(new GridLayout(1, 2, 6, 0));
+            buttons.add(confirmBtn);
+            buttons.add(cancelButton(dlg, onZoomHide));
+            south.add(buttons, BorderLayout.SOUTH);
+        } else {
+            south.add(confirmBtn, BorderLayout.SOUTH);
+        }
 
         dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
         dlg.getContentPane().add(south,      BorderLayout.SOUTH);
@@ -601,6 +634,17 @@ public class HandPickDialog {
     // -------------------------------------------------------------------------
     // Shared helpers
     // -------------------------------------------------------------------------
+
+    /** A Cancel button that closes {@code dlg} without calling anything. */
+    private static JButton cancelButton(JDialog dlg, Runnable onZoomHide) {
+        JButton cancel = new JButton("Cancel");
+        cancel.setFont(FontLoader.loadPixelFont(11));
+        cancel.addActionListener(ae -> {
+            onZoomHide.run();
+            dlg.dispose();
+        });
+        return cancel;
+    }
 
     /** Populates {@code cardsPanel} with one card thumbnail per entry in {@code cards}.
      *  Click toggles the card in/out of {@code selected} (up to {@code maxSelect}),

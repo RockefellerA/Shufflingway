@@ -188,6 +188,9 @@ class DamageResolver {
 				if (f.test(card)) return 0;
 			// Nullify ability-only damage (not Summons)
 			if (!mw.currentResolutionIsSummon && mw.nullifyAbilityOnlyDmgSet.contains(card)) return 0;
+			// The same, against the opponent's abilities only (17-127H Engelbert's grant).
+			if (!mw.currentResolutionIsSummon && mw.nullifyOppAbilityOnlyDmgSet.contains(card)
+					&& oppEffectShieldApplies(card, isP1, fromAbility)) return 0;
 			// And its mirror: Summon damage only, which is all 6-125R Leviathan's third option
 			// stops. Its B-047 reprint says "or an ability" and takes nullifyAbilityDmgSet above.
 			if (mw.currentResolutionIsSummon && mw.nullifySummonOnlyDmgSet.contains(card)) return 0;
@@ -438,6 +441,7 @@ class DamageResolver {
 		for (Predicate<CardData> f : mw.turn(isP1).nullifyAbilityDmgFilters)
 			if (f.test(card)) zeroed.add("Damage from Summons and abilities becomes 0 this turn.");
 		if (mw.nullifyAbilityOnlyDmgSet.contains(card)) zeroed.add("Damage from abilities becomes 0 this turn.");
+		if (mw.nullifyOppAbilityOnlyDmgSet.contains(card)) zeroed.add("Damage from opposing abilities becomes 0 this turn.");
 		if (mw.nullifySummonOnlyDmgSet.contains(card))  zeroed.add("Damage from Summons becomes 0 this turn.");
 		String nullifyElem = mw.nullifyElementDamageMap.get(card);
 		if (nullifyElem != null) zeroed.add("Damage from " + nullifyElem + " Summons and abilities becomes 0 this turn.");
@@ -623,7 +627,8 @@ class DamageResolver {
 					boolean orMore = "more".equalsIgnoreCase(m.group("costcmp"));
 					if (orMore ? damaged.cost() < costVal : damaged.cost() > costVal) continue;
 				}
-				if (except != null && except.equalsIgnoreCase(damaged.name())) continue;
+				if (except != null && (CardFilters.namesSource(except, protector)
+						? damaged == protector : except.equalsIgnoreCase(damaged.name()))) continue;
 				String subject = "Damage" + sourceClausePhrase(m.group("sourceclause"));
 				String reduceBy = m.group("reduceby");
 				String setsTo   = m.group("setsto");
@@ -755,9 +760,17 @@ class DamageResolver {
 		}
 		String src = fam.group("sourceclause");
 		String srcElement = fam.group("srcelement");
+		String srcNotElement = fam.group("srcnotelement");
 		boolean applies;
 		if (src == null || src.isBlank()) {
 			applies = true;
+		} else if (srcNotElement != null) {
+			// Midgardsormr 30-094R, Ozma's complement and on every route the same way. A Multi-Element
+			// dealer counts when any of its Elements is another one: a Fire/Ice card is a Fire card.
+			// No dealer to read is no Element to read, and the reduction is not given on a guess.
+			CardData dealer = damageSourceCard(fromAbility);
+			applies = dealer != null && mw.effectiveElements(dealer).stream()
+					.anyMatch(e -> !e.equalsIgnoreCase(srcNotElement));
 		} else if (srcElement != null) {
 			// Ozma 5-124H. The clause names what the damage came from rather than how it came, so
 			// unlike every other arm here it is not confined to one route: a Dark Forward's battle
@@ -929,7 +942,8 @@ class DamageResolver {
 					boolean orMore = "more".equalsIgnoreCase(costcmp);
 					if (orMore ? damaged.cost() < costVal : damaged.cost() > costVal) continue;
 				}
-				if (except != null && except.equalsIgnoreCase(damaged.name())) continue;
+				if (except != null && (CardFilters.namesSource(except, protector)
+						? damaged == protector : except.equalsIgnoreCase(damaged.name()))) continue;
 
 				// Source clause
 				String src = m.group("sourceclause");
@@ -1314,10 +1328,17 @@ class DamageResolver {
 		mw.logEntry((isP1 ? "" : "[P2] ") + mons.get(idx).name() + " takes " + amount + " damage"
 				+ (effPow > 0 ? " (" + (effPow - accum) + " remaining)" : ""));
 		mw.floatDamage(mons.get(idx), isP1, amount);
-		if (effPow > 0 && accum >= effPow) {
+		// "Cannot be broken" holds for a Monster acting as a Forward as it does for a Forward: it
+		// keeps the damage until the end of the turn (30-081R Don Tonberry at Damage 5).
+		boolean shielded = asFwd && effPow > 0 && accum >= effPow
+				&& mw.effectiveMonsterHasTrait(isP1, idx, CardData.Trait.CANNOT_BE_BROKEN);
+		if (shielded) mw.logEntry((isP1 ? "" : "[P2] ") + mons.get(idx).name() + " survives lethal damage (cannot be broken)");
+		if (effPow > 0 && accum >= effPow && !shielded) {
 			if (isP1) mw.autoAbilityTriggers.breakP1MonsterSlot(idx); else mw.breakP2MonsterSlot(idx);
 		} else {
 			if (isP1) mw.refreshP1MonsterSlot(idx); else mw.refreshP2MonsterSlot(idx);
+			// What it holds now may reach a "received N damage or more" cap (Don Tonberry's 20000).
+			mw.enforceForwardBreakRuleProcess();
 		}
 	}
 

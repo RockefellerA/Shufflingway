@@ -69,6 +69,10 @@ class LookAtDeckDialogs {
      * @param decide        puts a question to a seat and returns the answer — {@code MainWindow.decide}.
      *                      These dialogs ask the local player; who else might be sitting in the
      *                      seat, and how their answer gets here, is not their business
+     * @param deckToBreakZone puts a card taken off its owner's deck into the Break Zone —
+     *                      {@code MainWindow.addToBreakZoneFromDeck}, so the replacements on that
+     *                      move (15-127H Ace's "remove it from the game instead") apply to a look's
+     *                      discards as to any other card
      */
     record Callbacks(
             Consumer<String>  log,
@@ -83,7 +87,8 @@ class LookAtDeckDialogs {
             Supplier<Image>   cardbackImage,
             Consumer<Boolean> animateDraw,
             Consumer<Boolean> animateMill,
-            Function<PlayerChoice, List<Integer>> decide
+            Function<PlayerChoice, List<Integer>> decide,
+            Consumer<CardData> deckToBreakZone
     ) {}
 
     private final JFrame     frame;
@@ -313,7 +318,10 @@ class LookAtDeckDialogs {
         }
         for (int i : decision.toBreak()) {
             CardData c = peeked.get(i);
-            if (isP1) gameState.getP1BreakZone().add(c); else gameState.getP2BreakZone().add(c);
+            // A card in a deck belongs to that deck's player, which is where the Break Zone send
+            // finds its owner.
+            gameState.getIdentity().putIfAbsent(c, isP1);
+            cb.deckToBreakZone().accept(c);
             if (name) log(c.name() + " → Break Zone");
         }
         // toTop is topmost first, so it is pushed back in reverse.

@@ -463,9 +463,32 @@ public record FieldPowerGrant(
      */
     public boolean appliesToCard(CardData card, Set<CardData.Trait> currentTraits,
             boolean jobsStripped) {
-        if (!exceptCardName.isEmpty() && CardFilters.meetsCardNameFilter(card, exceptCardName)) return false;
+        return appliesToCard(card, null, false, currentTraits, jobsStripped);
+    }
+
+    /** {@link #appliesToCard(CardData, CardData, boolean, Set, boolean)} against {@code card}'s printed traits. */
+    public boolean appliesToCard(CardData card, CardData source, boolean actsAsForward, boolean jobsStripped) {
+        return appliesToCard(card, source, actsAsForward, card.traits(), jobsStripped);
+    }
+
+    /**
+     * The runtime form of {@link #appliesToCard(CardData, Set, boolean)}, for a caller that knows
+     * the board around the grant.
+     *
+     * <p>{@code source} is the card printing the grant. "Other than [its own name]" names that card
+     * and no other (30-104H Jayden Rundall's "other than Jayden Rundall"), so a second copy of it is
+     * not excluded; any other name in the exclusion is still read by name. {@code null} reads every
+     * exclusion by name.
+     *
+     * <p>{@code actsAsForward} is whether {@code card} counts as a Forward right now without being
+     * printed as one — a Backup or Monster an effect has made into one, which a grant to "the
+     * Forwards you control" reaches as it reaches any Forward.
+     */
+    public boolean appliesToCard(CardData card, CardData source, boolean actsAsForward,
+            Set<CardData.Trait> currentTraits, boolean jobsStripped) {
+        if (excludes(card, source)) return false;
         if (!traitFilter.isEmpty() && Collections.disjoint(traitFilter, currentTraits)) return false;
-        boolean typeOk = (inclForwards && card.isForward())
+        boolean typeOk = (inclForwards && (card.isForward() || actsAsForward))
                       || (inclBackups  && card.isBackup())
                       || (inclMonsters && (card.isMonster() || card.alsoCountsAsMonster()));
         if (!typeOk) return false;
@@ -489,5 +512,12 @@ public record FieldPowerGrant(
         return CardFilters.meetsElementFilter(card, elementFilter)
             && CardFilters.meetsCategoryFilter(card, categoryFilter)
             && identityOk;
+    }
+
+    /** Whether the "other than X" clause leaves {@code card} out; see {@link #appliesToCard(CardData, CardData, boolean, Set, boolean)}. */
+    private boolean excludes(CardData card, CardData source) {
+        if (exceptCardName.isEmpty()) return false;
+        if (CardFilters.namesSource(exceptCardName, source)) return card == source;
+        return CardFilters.meetsCardNameFilter(card, exceptCardName);
     }
 }

@@ -392,4 +392,25 @@ public record IfControlBoost(
         if (targetFilter != null) return targetFilter.appliesToCard(card, currentTraits, jobsStripped);
         return targetCardName != null && targetCardName.equalsIgnoreCase(card.name());
     }
+
+    /**
+     * The runtime form, for a caller that knows which card prints this boost ({@code source}) and
+     * whether {@code card} is acting as a Forward without being printed as one. A target filter
+     * takes both — see {@link FieldPowerGrant#appliesToCard(CardData, CardData, boolean,
+     * java.util.Set, boolean)}. A boost naming its own printer ("Fleeting Flash gains +2000 power")
+     * reaches that card alone, as a card naming itself means itself: two copies of the 2-112C
+     * Multicard each boost themselves, not each other as well.
+     */
+    public boolean appliesToCard(CardData card, CardData source, boolean actsAsForward,
+            java.util.Set<CardData.Trait> currentTraits, boolean jobsStripped) {
+        if (targetFilter != null)
+            return targetFilter.appliesToCard(card, source, actsAsForward, currentTraits, jobsStripped);
+        if (CardFilters.namesSource(targetCardName, source)) return card == source;
+        return targetCardName != null && targetCardName.equalsIgnoreCase(card.name());
+    }
+
+    /** {@link #appliesToCard(CardData, CardData, boolean, java.util.Set, boolean)} against printed traits. */
+    public boolean appliesToCard(CardData card, CardData source, boolean actsAsForward, boolean jobsStripped) {
+        return appliesToCard(card, source, actsAsForward, card.traits(), jobsStripped);
+    }
 }

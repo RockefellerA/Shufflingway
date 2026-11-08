@@ -1835,10 +1835,16 @@ public interface GameContext {
     /**
      * Damage from abilities (not Summons, not battle) to target becomes 0 until end of turn — either
      * player's abilities, which is 30-091C White Mage's "if it is dealt damage by abilities".
-     * 17-127H Engelbert grants this for "your opponent's abilities", which it reads more widely
-     * than printed: the shield does not ask whose ability it is.
      */
     void shieldAbilityOnlyDamage(ForwardTarget t);
+
+    /**
+     * {@link #shieldAbilityOnlyDamage} for the opponent's abilities only: target gains "If this
+     * Forward is dealt damage by your opponent's abilities, the damage becomes 0 instead." until end
+     * of turn (17-127H Engelbert, 23-041C Jornee, 23-083H Queen). "Your" is the target's controller,
+     * so the abilities of whoever controls it still deal it damage.
+     */
+    void shieldOpponentAbilityOnlyDamage(ForwardTarget t);
 
     /** Next damage target deals to a Forward becomes 0 (consumed on first hit). */
     void shieldNextOutgoingDamage(ForwardTarget t);

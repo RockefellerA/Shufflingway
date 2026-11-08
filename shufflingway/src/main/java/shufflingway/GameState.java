@@ -1,6 +1,7 @@
 package shufflingway;
 
 import java.util.*;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 /**
@@ -325,6 +326,18 @@ public class GameState {
     }
 
     /**
+     * Told of every card removed from the game out of a deck, after it lands, with whose deck it
+     * was. {@link MainWindow} fires "When a card is removed from your opponent's deck from the
+     * game" (30-011R Blank) off it. Reached only through {@link #addToPermanentRfpFromDeck}.
+     */
+    private BiConsumer<CardData, Boolean> removedFromDeckListener = (c, p1) -> {};
+
+    public void setRemovedFromDeckListener(BiConsumer<CardData, Boolean> listener)
+    {
+        removedFromDeckListener = listener != null ? listener : (c, p1) -> {};
+    }
+
+    /**
      * Told of every card that leaves a Break Zone, after it has gone, with whose Break Zone it was.
      * {@link MainWindow} fires "When a card in your opponent's Break Zone leaves the Break Zone"
      * (23-029R Zenos) off it.
@@ -449,6 +462,35 @@ public class GameState {
         if (known == null) identity.put(card, isP1);
         (isP1 ? p1PermanentRfp : p2PermanentRfp).add(card);
         removedFromGameListener.accept(card);
+    }
+
+    /**
+     * Files {@code card}, just taken out of {@code deckIsP1}'s deck, in its owner's removed-from-game
+     * zone, and reports it as removed from that deck.
+     *
+     * <p>A deck is not a reporting zone the way a hand or a Break Zone is — cards leave it for a
+     * dozen destinations, and only the removed-from-game one is an event anything watches — so the
+     * report is made here, by the one call every deck-to-removed move goes through: the deck-top
+     * removals, the removal costs, the reveals and searches that remove what they find. A deck holds
+     * its owner's cards, so {@code deckIsP1} is also the fallback owner.
+     */
+    public void addToPermanentRfpFromDeck(CardData card, boolean deckIsP1)
+    {
+        addToPermanentRfp(card, deckIsP1);
+        removedFromDeckListener.accept(card, deckIsP1);
+    }
+
+    /**
+     * Puts {@code card}, just taken out of {@code deckIsP1}'s deck, into that player's Warp zone with
+     * {@code counters} Warp Counters, and reports it as removed from that deck — a Warp card is
+     * removed from the game. 29-103H Setzer's "Remove 1 card with Warp among them from the game and
+     * place 1 Warp Counter on it".
+     */
+    public void addToWarpZoneFromDeck(CardData card, int counters, boolean deckIsP1)
+    {
+        if (deckIsP1) addToP1WarpZone(card, counters);
+        else          addToP2WarpZone(card, counters);
+        removedFromDeckListener.accept(card, deckIsP1);
     }
 
     /**

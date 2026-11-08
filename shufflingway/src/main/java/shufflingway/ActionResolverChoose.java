@@ -8034,11 +8034,11 @@ final class ActionResolverChoose {
         // --- "It gains ability-damage shield" followup ---
         if (FOLLOWUP_GAINS_SHIELD_ABILITY_ONLY.matcher(primaryFollowup).find()) {
             return ctx -> {
-                ctx.logChooseHeader(choosePrefix + " — Shield: gains ability-damage nullification until end of turn");
+                ctx.logChooseHeader(choosePrefix + " — Shield: damage from opposing abilities becomes 0 until end of turn");
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                ts.forEach(ctx::shieldAbilityOnlyDamage);
+                ts.forEach(ctx::shieldOpponentAbilityOnlyDamage);
                 if (secondary != null) secondary.accept(ctx);
             };
         }

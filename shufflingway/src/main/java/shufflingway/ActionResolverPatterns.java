@@ -6434,6 +6434,14 @@ final class ActionResolverPatterns {
         "(?i)(?<name>[A-Z][A-Za-z''\\-\\s()]+?)\\s+cannot\\s+be\\s+chosen\\s+by\\s+Summons?\\s+or\\s+abilities\\s+that\\s+share\\s+its\\s+Element\\s*\\.?"
     );
     /**
+     * "[CardName] cannot be chosen by EX Bursts." — 30-083H Ravana, Savior of the Gnath. The printed
+     * self form of 21-061H Ursula's side-wide, turn-scoped shield. Anchored end to end, and the name
+     * is checked against the carrier, so it takes any name — Ravana's has a comma in it.
+     */
+    static final Pattern STANDALONE_NAMED_CANNOT_BE_CHOSEN_BY_EX_BURSTS = Pattern.compile(
+        "(?i)^(?<name>.+?)\\s+cannot\\s+be\\s+chosen\\s+by\\s+EX\\s+Bursts?[.!]?\\s*$"
+    );
+    /**
      * "[CardName] cannot be chosen by [Element] Summons or [Element] abilities." (Royal Ripeness
      * 5-007H.) Passive field ability: the immunity is checked per resolution against the resolving
      * card's Elements.

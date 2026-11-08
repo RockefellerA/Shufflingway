@@ -7926,6 +7926,18 @@ public class ActionResolver {
      * "[CardName] cannot be chosen by Summons or abilities that share its Element."
      * Immunity is evaluated dynamically against the resolving card's element.
      */
+    /**
+     * Whether {@code card} prints "[its own name] cannot be chosen by EX Bursts." — 30-083H Ravana,
+     * Savior of the Gnath. Read while an EX Burst resolves, beside 21-061H Ursula's turn-scoped form.
+     */
+    static boolean hasCannotBeChosenByExBurstsFieldAbility(CardData card) {
+        for (FieldAbility fa : card.fieldAbilities()) {
+            Matcher m = STANDALONE_NAMED_CANNOT_BE_CHOSEN_BY_EX_BURSTS.matcher(fa.effectText().trim());
+            if (m.matches() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
+        }
+        return false;
+    }
+
     static boolean hasCannotBeChosenByOwnElementFieldAbility(CardData card) {
         for (FieldAbility fa : card.fieldAbilities()) {
             Matcher m = STANDALONE_NAMED_CANNOT_BE_CHOSEN_BY_OWN_ELEMENT.matcher(fa.effectText());

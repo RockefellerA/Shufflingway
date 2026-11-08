@@ -417,6 +417,10 @@ final class AutoAbilityTriggers {
 			// Its own group so the reader does not have to re-parse the clause it matched.
 			"|\\s+(?:by|from)\\s+an?\\s+(?<srcelement>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
 			"\\s+card" +
+			// Its complement, "by Elements other than Ice" (30-094R Midgardsormr): every route again,
+			// and the question is whether the dealer is of some Element besides the one named.
+			"|\\s+(?:by|from)\\s+Elements?\\s+other\\s+than\\s+" +
+			"(?<srcnotelement>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
 			"|\\s+other\\s+than\\s+battle\\s+damage" +
 			"|\\s+(?:by|from)\\s+(?:your\\s+opponent's\\s+)?(?:a\\s+)?Summons?(?:\\s+or\\s+(?:an?\\s+)?abilit(?:y|ies))?" +
 			// Must precede the bare ability branch below, which stops at "abilities" and would
@@ -964,6 +968,24 @@ final class AutoAbilityTriggers {
 	}
 
 	/**
+	 * "If your opponent discards any number of cards due to your Summons or abilities, your opponent
+	 * randomly discards that number of cards instead." — 30-034L Locke. A replacement on which cards
+	 * go, not on how many: read by GameContextImpl at every route that has the opponent discard,
+	 * whoever would have chosen the cards.
+	 */
+	static final Pattern FA_OPP_DISCARDS_RANDOMLY_INSTEAD = Pattern.compile(
+		"(?i)^If\\s+your\\s+opponent\\s+discards\\s+any\\s+number\\s+of\\s+cards\\s+due\\s+to\\s+your\\s+" +
+		"Summons\\s+or\\s+abilities,\\s+your\\s+opponent\\s+randomly\\s+discards\\s+that\\s+number\\s+of\\s+" +
+		"cards\\s+instead[.!]?$"
+	);
+
+	static boolean hasOppDiscardsRandomlyInstead(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_OPP_DISCARDS_RANDOMLY_INSTEAD.matcher(fa.effectText().trim()).matches()) return true;
+		return false;
+	}
+
+	/**
 	 * "[Once per turn, ]you can cast [what] removed by [CardName]'s abilities at any time you could
 	 * normally cast [it|them]." — Setzer 21-031H (any card, once a turn) and Rinoa 21-038R (Summons,
 	 * as often as she likes).
@@ -1020,19 +1042,39 @@ final class AutoAbilityTriggers {
 	 * "You can cast [CardName] from your Break Zone." — a self-referential break-zone ability
 	 * (e.g. Zenos) that lets the card cast itself while it sits in its owner's Break Zone.
 	 * Distinct from {@link #FA_CAST_FORWARDS_FROM_BZ} by the name-vs-self check in
-	 * {@link #canCastSelfFromBz}.  Group: {@code name}.
+	 * {@link #canCastSelfFromBz}. Groups: {@code name}, and {@code cond} — 30-088R Garnet's "If you
+	 * control a Card Name Zidane Forward, …" gate, absent for Zenos.
 	 */
 	static final Pattern FA_CAST_SELF_FROM_BZ = Pattern.compile(
-		"(?i)^You\\s+can\\s+cast\\s+(?<name>.+?)\\s+from\\s+your\\s+Break\\s+Zone[.!]?$"
+		"(?i)^(?:If\\s+you\\s+control\\s+(?<cond>[^,]+),\\s+)?" +
+		"You\\s+can\\s+cast\\s+(?<name>.+?)\\s+from\\s+your\\s+Break\\s+Zone[.!]?$"
 	);
 
-	/** Returns {@code true} if {@code card} has "You can cast [its own name] from your Break Zone." */
+	/**
+	 * Returns {@code true} if {@code card} has "You can cast [its own name] from your Break Zone.",
+	 * gated or not. A gate that does not read is no permission at all: the card would otherwise be
+	 * castable from the Break Zone whether or not the gate held.
+	 */
 	static boolean canCastSelfFromBz(CardData card) {
 		for (FieldAbility fa : card.fieldAbilities()) {
 			Matcher m = FA_CAST_SELF_FROM_BZ.matcher(fa.effectText().trim());
-			if (m.matches() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
+			if (!m.matches() || !m.group("name").trim().equalsIgnoreCase(card.name())) continue;
+			if (m.group("cond") == null || CardData.parseControlCondition(m.group("cond").trim()) != null) return true;
 		}
 		return false;
+	}
+
+	/**
+	 * The gate on {@code card}'s "You can cast [Self] from your Break Zone" — 30-088R Garnet's
+	 * "a Card Name Zidane Forward" — or {@code null} when it prints none.
+	 */
+	static ControlCondition selfCastFromBzCondition(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Matcher m = FA_CAST_SELF_FROM_BZ.matcher(fa.effectText().trim());
+			if (m.matches() && m.group("name").trim().equalsIgnoreCase(card.name()) && m.group("cond") != null)
+				return CardData.parseControlCondition(m.group("cond").trim());
+		}
+		return null;
 	}
 
 	/** "You can only cast up to 2 cards per turn." — limits the controlling player. */
@@ -1753,8 +1795,9 @@ final class AutoAbilityTriggers {
 	/**
 	 * "You can discard N Job [Job] (instead of paying the CP cost) to cast [CardName]."
 	 * An alternate cast cost for a named card: discard matching cards from hand (no CP generated)
-	 * instead of paying the normal cost.
-	 * Groups: {@code count}, {@code job}, {@code target} (card name to cast).
+	 * instead of paying the normal cost. The cards may be named by Category instead of Job — 30-001H
+	 * Auron's "discard 2 Category X cards".
+	 * Groups: {@code count}, {@code job} or {@code category}, {@code target} (card name to cast).
 	 *
 	 * <p>King 9-010R prints the tail as "to play King from your hand onto the field" rather than
 	 * "to cast King". Same cost, same timing — the only cast a hand card has — so the tail carries
@@ -1765,7 +1808,8 @@ final class AutoAbilityTriggers {
 	 * {@code MainWindow.findDiscardCastGrants}.
 	 */
 	static final Pattern FA_DISCARD_JOB_TO_CAST = Pattern.compile(
-		"(?i)^You\\s+can\\s+discard\\s+(?<count>\\d+)\\s+Job\\s+(?<job>.+?)\\s+" +
+		"(?i)^You\\s+can\\s+discard\\s+(?<count>\\d+)\\s+" +
+		"(?:Job\\s+(?<job>.+?)|Category\\s+(?<category>\\S+)\\s+cards?)\\s+" +
 		"\\(instead\\s+of\\s+paying\\s+the\\s+CP\\s+cost\\)\\s+to\\s+" +
 		"(?:cast\\s+(?<target>[^.!]+?)|play\\s+(?<playtarget>[^.!]+?)\\s+from\\s+your\\s+hand\\s+onto\\s+the\\s+field)" +
 		"\\s*\\.?$"
@@ -2883,8 +2927,8 @@ final class AutoAbilityTriggers {
 				if (mw.lostAbilitiesCards.contains(owner)) continue;
 				for (IfControlBoost icb : owner.ifControlBoosts()) {
 					if (icb.specialText().isEmpty()) continue;
-					if (!icb.appliesToCard(card, mw.jobsStripped(card))) continue;
-					if (!mw.icbConditionsMet(icb, isP1)) continue;
+					if (!icb.appliesToCard(card, owner, mw.actsAsForward(card, isP1), mw.jobsStripped(card))) continue;
+					if (!mw.icbConditionsMetFor(icb, isP1, owner)) continue;
 					Matcher stM = ICB_WHEN_ATTACKS.matcher(icb.specialText().trim());
 					if (!stM.find()) continue;
 					String effectText = stM.group("effect").trim();
@@ -3892,6 +3936,17 @@ final class AutoAbilityTriggers {
 		Boolean ownerIsP1 = mw.gameState.getIdentity().get(card);
 		if (ownerIsP1 == null) return;
 		fireOwnRemovalTriggers(card, ownerIsP1, "removed from game");
+	}
+
+	/**
+	 * Fires "When a card is removed from your opponent's deck from the game" (30-011R Blank) on the
+	 * field of the opponent of {@code deckIsP1}, once for {@code card}. Registered on
+	 * {@link GameState#setRemovedFromDeckListener}, so every deck-to-removed move reaches it,
+	 * whoever's effect or cost made it — the deck's own player's included. Three cards removed are
+	 * three triggers.
+	 */
+	void triggerAutoAbilitiesForRemovedFromDeck(CardData card, boolean deckIsP1) {
+		triggerAutoAbilitiesForEvent("card removed from opponent's deck", !deckIsP1);
 	}
 
 	/**
@@ -9187,7 +9242,13 @@ final class AutoAbilityTriggers {
 	 * them repainted left the card visibly still wherever it came from.
 	 */
 	private void removeCardAsCost(CardData c, boolean payerIsP1) {
-		mw.gameState.addToPermanentRfp(c, payerIsP1);
+		removeCardAsCost(c, payerIsP1, false);
+	}
+
+	/** As above; {@code fromDeck} for a card taken off the top of the payer's deck, which is reported as such. */
+	private void removeCardAsCost(CardData c, boolean payerIsP1, boolean fromDeck) {
+		if (fromDeck) mw.gameState.addToPermanentRfpFromDeck(c, payerIsP1);
+		else          mw.gameState.addToPermanentRfp(c, payerIsP1);
 		mw.lastRfgCostCards.add(c);
 		mw.logEntry(c.name() + " → Removed From Game (cost)");
 		mw.refreshP1WarpZoneUI();
@@ -9199,7 +9260,7 @@ final class AutoAbilityTriggers {
 			case "DECK" -> {
 				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				for (int i = 0; i < rfg.count() && !deck.isEmpty(); i++) {
-					removeCardAsCost(deck.pollFirst(), isP1);
+					removeCardAsCost(deck.pollFirst(), isP1, true);
 				}
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
 			}
