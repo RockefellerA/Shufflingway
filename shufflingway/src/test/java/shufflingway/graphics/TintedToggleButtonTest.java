@@ -2,12 +2,16 @@ package shufflingway.graphics;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Color;
+import java.awt.image.BufferedImage;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.swing.ButtonGroup;
+import javax.swing.Icon;
+import javax.swing.ImageIcon;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,6 +63,28 @@ class TintedToggleButtonTest {
 		wait.doClick(0);
 		wait.doClick(0);
 		assertEquals(2, waitActions.get(), "the repeat click on the re-chosen Wait is swallowed");
+	}
+
+	@Test
+	void anIconLabelledButtonLatchesTheSameWay() {
+		Icon icon = new ImageIcon(new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB));
+		TintedToggleButton list = new TintedToggleButton(icon, Color.BLUE);
+		TintedToggleButton binder = new TintedToggleButton(icon, Color.BLUE);
+		ButtonGroup group = new ButtonGroup();
+		group.add(list);
+		group.add(binder);
+		list.setSelected(true);
+		AtomicInteger listActions = new AtomicInteger();
+		list.addActionListener(e -> listActions.incrementAndGet());
+
+		list.doClick(0);
+		assertEquals(0, listActions.get());
+		assertSame(icon, list.getIcon());
+
+		binder.doClick(0);
+		list.doClick(0);
+		assertEquals(1, listActions.get());
+		assertTrue(list.isSelected());
 	}
 
 	@Test

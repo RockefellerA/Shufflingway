@@ -773,18 +773,18 @@ class DebugUtility {
 
         JTextField serialField = new JTextField(10);
         String HINT = "(optional)";
-        serialField.setForeground(Color.GRAY);
+        serialField.setForeground(ThemeColors.dimText());
         serialField.setText(HINT);
         serialField.addFocusListener(new FocusAdapter() {
             @Override public void focusGained(FocusEvent e) {
                 if (serialField.getText().equals(HINT)) {
                     serialField.setText("");
-                    serialField.setForeground(Color.BLACK);
+                    serialField.setForeground(ThemeColors.fieldText());
                 }
             }
             @Override public void focusLost(FocusEvent e) {
                 if (serialField.getText().isEmpty()) {
-                    serialField.setForeground(Color.GRAY);
+                    serialField.setForeground(ThemeColors.dimText());
                     serialField.setText(HINT);
                 }
             }

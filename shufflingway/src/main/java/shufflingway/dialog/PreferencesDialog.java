@@ -4,6 +4,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.EventQueue;
 import java.awt.FlowLayout;
 import java.awt.Frame;
 import java.awt.GradientPaint;
@@ -44,6 +45,7 @@ import javax.swing.text.DocumentFilter;
 
 import shufflingway.AppSettings;
 import shufflingway.ElementColor;
+import shufflingway.Theme;
 import shufflingway.audio.Sound;
 import shufflingway.audio.SoundEffects;
 import shufflingway.graphics.Counter;
@@ -70,6 +72,29 @@ public class PreferencesDialog extends JDialog {
 		contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
 		contentPanel.setBorder(new EmptyBorder(12, 16, 8, 16));
 
+		// ── Appearance ───────────────────────────────────────────────────────
+		JPanel appearancePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
+		appearancePanel.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createEtchedBorder(), "Appearance",
+				TitledBorder.LEFT, TitledBorder.TOP));
+		appearancePanel.add(new JLabel("Theme:"));
+		JComboBox<Theme> themeCombo = new JComboBox<>(Theme.values());
+		themeCombo.setSelectedItem(Theme.saved());
+		themeCombo.addActionListener(e -> {
+			Theme chosen = (Theme) themeCombo.getSelectedItem();
+			chosen.save();
+			// Not inline: restyling replaces the combo box's UI, and the UI that fired this event
+			// still has work to do once listeners return.
+			EventQueue.invokeLater(() -> {
+				chosen.apply();
+				pack();
+			});
+		});
+		appearancePanel.add(themeCombo);
+		appearancePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		contentPanel.add(appearancePanel);
+		contentPanel.add(javax.swing.Box.createVerticalStrut(8));
+
 		// ── Layout ───────────────────────────────────────────────────────────
 		JPanel layoutPanel = new JPanel();
 		layoutPanel.setLayout(new BoxLayout(layoutPanel, BoxLayout.Y_AXIS));
@@ -89,30 +114,6 @@ public class PreferencesDialog extends JDialog {
 		sidePanelRow.add(sidePanelCombo);
 		sidePanelRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 		layoutPanel.add(sidePanelRow);
-		layoutPanel.add(javax.swing.Box.createVerticalStrut(6));
-
-		// Window resolution — the whole 16:9 board scales uniformly to fit; applies on restart.
-		JLabel resHint = new JLabel(
-				"<html><font color='gray' size='2'>Applies after restart.</font></html>");
-		resHint.setBorder(new EmptyBorder(0, 4, 2, 4));
-		resHint.setAlignmentX(Component.LEFT_ALIGNMENT);
-		resHint.setVisible(false);
-
-		JPanel resolutionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-		resolutionRow.add(new JLabel("Resolution:"));
-		JComboBox<String> resolutionCombo = new JComboBox<>(AppSettings.RESOLUTIONS);
-		resolutionCombo.setSelectedItem(AppSettings.getResolution());
-		resolutionCombo.addActionListener(e -> {
-			String chosen = (String) resolutionCombo.getSelectedItem();
-			if (chosen == null || chosen.equals(AppSettings.getResolution())) return;
-			AppSettings.setResolution(chosen);
-			AppSettings.save();
-			resHint.setVisible(true);
-		});
-		resolutionRow.add(resolutionCombo);
-		resolutionRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-		layoutPanel.add(resolutionRow);
-		layoutPanel.add(resHint);
 
 		layoutPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		contentPanel.add(layoutPanel);
@@ -385,6 +386,7 @@ public class PreferencesDialog extends JDialog {
 		// shorter ones keep their content pinned to the top.
 		JTabbedPane tabs = new JTabbedPane();
 		tabs.addTab("General", contentPanel);
+		tabs.addTab("Graphics", buildGraphicsTab());
 		tabs.addTab("Audio", buildAudioTab());
 
 		getContentPane().setLayout(new BorderLayout());
@@ -399,6 +401,52 @@ public class PreferencesDialog extends JDialog {
 
 		pack();
 		setLocationRelativeTo(owner);
+	}
+
+	/**
+	 * Builds the Graphics tab: the window resolution, which the whole 16:9 board scales uniformly
+	 * to fit. The window is sized from it once, at startup, so a change says it applies after a
+	 * restart rather than resizing the window behind the dialog.
+	 */
+	private static JComponent buildGraphicsTab() {
+		JPanel graphicsPanel = new JPanel();
+		graphicsPanel.setLayout(new BoxLayout(graphicsPanel, BoxLayout.Y_AXIS));
+		graphicsPanel.setBorder(new EmptyBorder(12, 16, 8, 16));
+
+		JPanel displayPanel = new JPanel();
+		displayPanel.setLayout(new BoxLayout(displayPanel, BoxLayout.Y_AXIS));
+		displayPanel.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createEtchedBorder(), "Display",
+				TitledBorder.LEFT, TitledBorder.TOP));
+
+		JLabel resHint = new JLabel(
+				"<html><font color='gray' size='2'>Applies after restart.</font></html>");
+		resHint.setBorder(new EmptyBorder(0, 4, 2, 4));
+		resHint.setAlignmentX(Component.LEFT_ALIGNMENT);
+		resHint.setVisible(false);
+
+		JPanel resolutionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+		resolutionRow.add(new JLabel("Resolution:"));
+		JComboBox<String> resolutionCombo = new JComboBox<>(AppSettings.RESOLUTIONS);
+		resolutionCombo.setSelectedItem(AppSettings.getResolution());
+		resolutionCombo.addActionListener(e -> {
+			String chosen = (String) resolutionCombo.getSelectedItem();
+			if (chosen == null || chosen.equals(AppSettings.getResolution())) return;
+			AppSettings.setResolution(chosen);
+			AppSettings.save();
+			resHint.setVisible(true);
+		});
+		resolutionRow.add(resolutionCombo);
+		resolutionRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		displayPanel.add(resolutionRow);
+		displayPanel.add(resHint);
+
+		displayPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		graphicsPanel.add(displayPanel);
+
+		JPanel tab = new JPanel(new BorderLayout());
+		tab.add(graphicsPanel, BorderLayout.NORTH);
+		return tab;
 	}
 
 	/**

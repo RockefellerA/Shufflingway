@@ -39063,6 +39063,54 @@ public class CardBehaviorTest {
 		verify(ctx, never()).reduceTarget(any(), eq(4000), any());
 	}
 
+	private static final String MELO_30_095C =
+			"choose 1 Forward opponent controls. It loses 4000 power until the end of the turn. If you have 10 "
+			+ "or more Category FFBE cards in your Break Zone, it loses 8000 power until the end of the turn instead.";
+
+	// 30-095C Melo: Edea's wording with the count narrowed to a Category, which the shared Break Zone
+	// counter did not read — so the upgrade fell to the secondary split, which ran the base alone.
+	@Test
+	void meloReducesByTheBaseFigureBelowTenFfbeCards() {
+		ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = ctxChoosing(List.of(theirs));
+		when(ctx.countSelfBreakZoneCardsOfCategory("FFBE", true, true, true, true)).thenReturn(9);
+
+		ActionResolver.parse(MELO_30_095C, null).accept(ctx);
+
+		verify(ctx).reduceTarget(theirs, 4000, EnumSet.noneOf(CardData.Trait.class));
+		verify(ctx, never()).reduceTarget(any(), eq(8000), any());
+	}
+
+	@Test
+	void meloReducesByTheUpgradedFigureAtTenFfbeCardsAndNotBoth() {
+		ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = ctxChoosing(List.of(theirs));
+		when(ctx.countSelfBreakZoneCardsOfCategory("FFBE", true, true, true, true)).thenReturn(10);
+
+		ActionResolver.parse(MELO_30_095C, null).accept(ctx);
+
+		verify(ctx).reduceTarget(theirs, 8000, EnumSet.noneOf(CardData.Trait.class));
+		verify(ctx, never()).reduceTarget(any(), eq(4000), any());
+	}
+
+	// The count behind Melo's gate, on a real board: either Category slot, every type for "cards",
+	// Characters only when the filter says so, and only the ability user's own Break Zone.
+	@Test
+	void theCategoryBreakZoneCountReadsOnlyTheUsersOwnCardsOfThatCategory() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP1BreakZone().add(makeCategoryCard("Brave Forward", "FFBE", "Forward"));
+		mw.gameState.getP1BreakZone().add(makeCategoryCard("Brave Backup", "FFBE", "Backup"));
+		mw.gameState.getP1BreakZone().add(makeCategoryCard("Brave Summon", "FFBE", "Summon"));
+		mw.gameState.getP1BreakZone().add(makeCategoryCard("Other Forward", "VII", "Forward"));
+		mw.gameState.getP2BreakZone().add(makeCategoryCard("Their Forward", "FFBE", "Forward"));
+
+		GameContext p1 = mw.buildGameContext(true);
+		assertEquals(3, p1.countSelfBreakZoneCardsOfCategory("FFBE", true, true, true, true));
+		assertEquals(2, p1.countSelfBreakZoneCardsOfCategory("FFBE", true, true, true, false));
+		assertEquals(0, p1.countSelfBreakZoneCardsOfCategory("FF", true, true, true, true));
+		assertEquals(1, mw.buildGameContext(false).countSelfBreakZoneCardsOfCategory("FFBE", true, true, true, true));
+	}
+
 	// The general upgrade (stateGatedInsteadUpgrade): a base, then "If <condition>, <alt> instead."
 	// with no dedicated reader. Unread, the base ran and the upgrade sentence was a logged gap.
 

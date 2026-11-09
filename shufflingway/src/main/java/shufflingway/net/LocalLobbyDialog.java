@@ -2,6 +2,7 @@ package shufflingway.net;
 
 import shufflingway.DeckFormat;
 import shufflingway.dialog.DeckChooserPanel;
+import shufflingway.ThemeColors;
 
 import javax.swing.*;
 import java.awt.*;
@@ -136,7 +137,7 @@ public class LocalLobbyDialog extends JDialog {
     private static JLabel noticeLabel() {
         JLabel l = new JLabel(" ", SwingConstants.CENTER);
         l.setFont(new Font("Dialog", Font.BOLD, 12));
-        l.setForeground(new Color(0xc0392b));
+        l.setForeground(ThemeColors.text(new Color(0xc0392b)));
         return l;
     }
 

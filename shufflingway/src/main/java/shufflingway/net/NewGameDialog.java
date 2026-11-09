@@ -25,7 +25,8 @@ import org.json.JSONObject;
 
 import shufflingway.DeckFormat;
 import shufflingway.dialog.DeckChooserPanel;
-import shufflingway.dialog.FormatPicker;
+import shufflingway.dialog.FormatPicker;
+import shufflingway.ThemeColors;
 
 /**
  * Starting a new game on a multiplayer connection that is already open, without going back
@@ -129,7 +130,7 @@ public class NewGameDialog extends JDialog {
 		rules.setOnChange(this::onRulesChanged);
 		banlistLabel = new JLabel(" ", SwingConstants.CENTER);
 		banlistLabel.setFont(new Font("Dialog", Font.BOLD, 12));
-		banlistLabel.setForeground(new Color(0xc0392b));
+		banlistLabel.setForeground(ThemeColors.text(new Color(0xc0392b)));
 		showRules();
 
 		JPanel south = new JPanel(new BorderLayout(0, 4));

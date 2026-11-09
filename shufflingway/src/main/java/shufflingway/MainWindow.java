@@ -1,5 +1,6 @@
 package shufflingway;
 
+import com.formdev.flatlaf.FlatClientProperties;
 import java.awt.AlphaComposite;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -1955,6 +1956,8 @@ public class MainWindow {
 		EventQueue.invokeLater(new Runnable() {
 			public void run() {
 				try {
+					// Before any window exists, so the first one is built in the chosen look.
+					Theme.saved().apply();
 					MainWindow window = new MainWindow();
 					window.frame.setVisible(true);
 					ImageIcon icon40 = new ImageIcon(getClass().getResource("/images/shufflingway.png"));
@@ -2065,6 +2068,8 @@ public class MainWindow {
 		p2LimitButton.setOpaque(true);
 		p2LimitButton.setBorderPainted(false);
 		p2LimitButton.setFocusPainted(false);
+		// FlatLaf rounds a button's corners; these tile the deck's edge, so keep them square
+		p2LimitButton.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_SQUARE);
 		p2LimitButton.setPreferredSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p2LimitButton.setMinimumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p2LimitButton.setMaximumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
@@ -2109,6 +2114,7 @@ public class MainWindow {
 		p2RemoveButton.setOpaque(true);
 		p2RemoveButton.setBorderPainted(false);
 		p2RemoveButton.setFocusPainted(false);
+		p2RemoveButton.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_SQUARE);
 		p2RemoveButton.setEnabled(false);
 		p2RemoveButton.setPreferredSize(new Dimension(REMOVE_W, CORNER_BAR_H));
 		p2RemoveButton.setMinimumSize(new Dimension(REMOVE_W, CORNER_BAR_H));
@@ -2252,6 +2258,7 @@ public class MainWindow {
 		p1LimitButton.setOpaque(true);
 		p1LimitButton.setBorderPainted(false);
 		p1LimitButton.setFocusPainted(false);
+		p1LimitButton.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_SQUARE);
 		p1LimitButton.setPreferredSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p1LimitButton.setMinimumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p1LimitButton.setMaximumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
@@ -2272,6 +2279,7 @@ public class MainWindow {
 		p1RemoveButton.setOpaque(true);
 		p1RemoveButton.setBorderPainted(false);
 		p1RemoveButton.setFocusPainted(false);
+		p1RemoveButton.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_SQUARE);
 		p1RemoveButton.setEnabled(false);
 		p1RemoveButton.setPreferredSize(new Dimension(REMOVE_W, CORNER_BAR_H));
 		p1RemoveButton.setMinimumSize(new Dimension(REMOVE_W, CORNER_BAR_H));
@@ -2559,15 +2567,21 @@ public class MainWindow {
 		sideNorth.add(nextBtnRow);
 
 		// Game log (scrollable, fills the rest of the side panel)
-		gameLog = new JTextArea();
+		// Its colours are set rather than left to the look, which would draw it in the panel's colour
+		// as a read-only field, so they are set again whenever Preferences switches the theme.
+		gameLog = new JTextArea() {
+			@Override public void updateUI() {
+				super.updateUI();
+				setBackground(ThemeColors.logBackground());
+				setForeground(ThemeColors.logText());
+				setCaretColor(getBackground());
+			}
+		};
 		gameLog.setEditable(false);
 		gameLog.setLineWrap(true);
 		gameLog.setWrapStyleWord(true);
 		gameLog.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-		gameLog.setBackground(Color.WHITE);
-		gameLog.setForeground(Color.BLACK);
 		gameLog.setMargin(new Insets(4, 4, 4, 4));
-		gameLog.setCaretColor(Color.WHITE);
 		logEntry("Welcome to Shufflingway!");
 
 		JScrollPane logScrollPane = new JScrollPane(gameLog,
@@ -2597,8 +2611,17 @@ public class MainWindow {
 		chatInput.addActionListener(e -> sendChat.run());
 		chatSendBtn.addActionListener(e -> sendChat.run());
 
-		JPanel chatPanel = new JPanel(new BorderLayout(4, 0));
-		chatPanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, Color.GRAY));
+		// The rule over the chat field is Classic's alone. FlatLaf boxes the log and the chat field
+		// each in a border of its own, so there the two are set apart by the same gap as the field
+		// and its Send button.
+		JPanel chatPanel = new JPanel(new BorderLayout(4, 0)) {
+			@Override public void updateUI() {
+				super.updateUI();
+				setBorder(ThemeColors.isFlat()
+						? BorderFactory.createEmptyBorder(4, 0, 0, 0)
+						: BorderFactory.createMatteBorder(1, 0, 0, 0, Color.GRAY));
+			}
+		};
 		chatPanel.add(chatInput,   BorderLayout.CENTER);
 		chatPanel.add(chatSendBtn, BorderLayout.EAST);
 

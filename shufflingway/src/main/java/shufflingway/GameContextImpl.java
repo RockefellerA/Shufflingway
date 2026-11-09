@@ -280,6 +280,13 @@ final class GameContextImpl implements GameContext {
 		return count;
 	}
 
+	/** The cards of {@code zone} in {@code category}, for {@link #countBreakZoneByType} to count. */
+	private static List<CardData> ofCategory(List<CardData> zone, String category) {
+		List<CardData> out = new ArrayList<>();
+		for (CardData c : zone) if (c != null && CardFilters.meetsCategoryFilter(c, category)) out.add(c);
+		return out;
+	}
+
 	/**
 	 * How many distinct Elements are represented among the cards in one Break Zone.
 	 *
@@ -11575,6 +11582,18 @@ final class GameContextImpl implements GameContext {
 			@Override public int countP2BreakZoneCardsByType(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, boolean inclSummons) {
 				return countBreakZoneByType(mw.gameState.getP2BreakZone(), inclForwards, inclBackups, inclMonsters, inclSummons, null, -1);
+			}
+
+			@Override public int countP1BreakZoneCardsOfCategory(String category, boolean inclForwards,
+					boolean inclBackups, boolean inclMonsters, boolean inclSummons) {
+				return countBreakZoneByType(ofCategory(mw.gameState.getP1BreakZone(), category),
+						inclForwards, inclBackups, inclMonsters, inclSummons, null, -1);
+			}
+
+			@Override public int countP2BreakZoneCardsOfCategory(String category, boolean inclForwards,
+					boolean inclBackups, boolean inclMonsters, boolean inclSummons) {
+				return countBreakZoneByType(ofCategory(mw.gameState.getP2BreakZone(), category),
+						inclForwards, inclBackups, inclMonsters, inclSummons, null, -1);
 			}
 
 			@Override public int countP1BreakZoneMatching(boolean inclForwards, boolean inclBackups,

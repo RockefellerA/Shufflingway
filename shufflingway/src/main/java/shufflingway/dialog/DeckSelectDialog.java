@@ -31,6 +31,7 @@ import scraper.DeckDatabase;
 import scraper.DeckDatabase.DeckSummary;
 import shufflingway.AppSettings;
 import shufflingway.DeckFormat;
+import shufflingway.ThemeColors;
 
 /**
  * The New Game dialog for a game against the CPU: the game's format and banlist, and a deck for
@@ -221,11 +222,11 @@ public class DeckSelectDialog extends JDialog {
                         + (d.lbCardCount() > 0 ? " +" + d.lbCardCount() + " LB" : "") + ")");
                 String why = refused.get(d.id());
                 if (why != null) {
-                    setForeground(BANNED_FG);
+                    setForeground(ThemeColors.text(BANNED_FG));
                     setBackground(list.getBackground());
                     setToolTipText(why);
                 } else if (d.mainCardCount() != 50) {
-                    setForeground(Color.GRAY);
+                    setForeground(ThemeColors.dimText());
                     setBackground(list.getBackground());
                 }
             }

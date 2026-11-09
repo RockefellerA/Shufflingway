@@ -47,6 +47,7 @@ import shufflingway.FontLoader;
 import shufflingway.ForwardTarget;
 import shufflingway.ImageCache;
 import shufflingway.PickGate;
+import shufflingway.ThemeColors;
 import shufflingway.UiScale;
 import shufflingway.graphics.CardAnimation;
 import shufflingway.graphics.TriangleIcon;
@@ -1231,7 +1232,7 @@ public class CardPickerDialog {
             valueLabel.setPreferredSize(new Dimension(72, 40));
             valueLabel.setMinimumSize(new Dimension(72, 40));
             valueLabel.setOpaque(true);
-            valueLabel.setBackground(Color.WHITE);
+            valueLabel.setBackground(ThemeColors.valueBox());
             valueLabel.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(Color.DARK_GRAY, 2),
                     BorderFactory.createEmptyBorder(2, 6, 2, 6)));
@@ -1314,7 +1315,7 @@ public class CardPickerDialog {
         valueLabel.setFont(FontLoader.loadPixelFont(20));
         valueLabel.setPreferredSize(new Dimension(64, 48));
         valueLabel.setOpaque(true);
-        valueLabel.setBackground(Color.WHITE);
+        valueLabel.setBackground(ThemeColors.valueBox());
         valueLabel.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Color.DARK_GRAY, 2),
                 BorderFactory.createEmptyBorder(2, 8, 2, 8)));
@@ -1383,7 +1384,7 @@ public class CardPickerDialog {
         valueLabel.setFont(FontLoader.loadPixelFont(20));
         valueLabel.setPreferredSize(new Dimension(90, 48));
         valueLabel.setOpaque(true);
-        valueLabel.setBackground(Color.WHITE);
+        valueLabel.setBackground(ThemeColors.valueBox());
         valueLabel.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Color.DARK_GRAY, 2),
                 BorderFactory.createEmptyBorder(2, 8, 2, 8)));
@@ -1481,7 +1482,7 @@ public class CardPickerDialog {
             JLabel valueLabel = new JLabel(String.format("%05d", v[0]), SwingConstants.CENTER);
             valueLabel.setFont(FontLoader.loadPixelFont(16));
             valueLabel.setOpaque(true);
-            valueLabel.setBackground(Color.WHITE);
+            valueLabel.setBackground(ThemeColors.valueBox());
             valueLabel.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 2));
             valueLabel.setPreferredSize(new Dimension(80, 30));
 

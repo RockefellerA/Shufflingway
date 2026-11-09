@@ -185,8 +185,8 @@ final class ActionResolverGate {
      */
     /**
      * A count over the ability user's own Break Zone for one printed filter phrase — "Card Name
-     * The Emperor", "Job Weapon", "Summons", "Fire Forwards", "cards" — or {@code null} when the
-     * phrase is not one of those.
+     * The Emperor", "Job Weapon", "Summons", "Fire Forwards", "Category FFBE cards", "cards" — or
+     * {@code null} when the phrase is not one of those.
      *
      * <p>Shared by {@link #tryParseBreakZoneCountGate} and by the Choose chain's Break-Zone-gated
      * "instead" arm, so the two cannot drift on what a filter counts. A null answer is the signal
@@ -214,6 +214,16 @@ final class ActionResolverGate {
             // count and stays out of the Character one.
             final boolean summons = t.startsWith("summon") || t.startsWith("card");
             return ctx -> ctx.countSelfBreakZoneMatching(fwds, bkps, mons, summons, elem, -1);
+        }
+        Matcher catM = BZ_GATE_FILTER_CATEGORY.matcher(filter);
+        if (catM.matches()) {
+            final String category = catM.group("category");
+            String t = catM.group("type").toLowerCase(Locale.ROOT);
+            final boolean fwds = t.startsWith("forward") || t.startsWith("character") || t.startsWith("card");
+            final boolean bkps = t.startsWith("backup")  || t.startsWith("character") || t.startsWith("card");
+            final boolean mons = t.startsWith("monster") || t.startsWith("character") || t.startsWith("card");
+            final boolean summons = t.startsWith("summon") || t.startsWith("card");
+            return ctx -> ctx.countSelfBreakZoneCardsOfCategory(category, fwds, bkps, mons, summons);
         }
         return null;
     }

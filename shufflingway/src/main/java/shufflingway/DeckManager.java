@@ -1,5 +1,6 @@
 package shufflingway;
 
+import java.awt.AlphaComposite;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -254,7 +255,7 @@ public class DeckManager extends JFrame {
                 super.getListCellRendererComponent(list, value, index, sel, focus);
                 if (value instanceof DeckEntry entry && banlistDeckIds.contains(entry.id())) {
                     // Red text only, as in the card tables; a selected row keeps the selection colours.
-                    if (!sel) setForeground(BANNED_FG);
+                    if (!sel) setForeground(ThemeColors.text(BANNED_FG));
                     setToolTipText("Breaks the Standard banlist");
                 } else {
                     setToolTipText(null);
@@ -297,10 +298,13 @@ public class DeckManager extends JFrame {
         ioPanel.add(importBtn);
         ioPanel.add(exportBtn);
 
+        // ioPanel goes in CENTER, not SOUTH: with nothing in CENTER, BorderLayout puts its vgap both
+        // below NORTH and above SOUTH, doubling the space over Import/Export to 8 px against the
+        // grid's 4 between the other rows.
         JPanel southPanel = new JPanel(new BorderLayout(0, 4));
         southPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         southPanel.add(mgmtPanel, BorderLayout.NORTH);
-        southPanel.add(ioPanel,   BorderLayout.SOUTH);
+        southPanel.add(ioPanel,   BorderLayout.CENTER);
 
         JLabel title = new JLabel("My Decks", SwingConstants.CENTER);
         title.setFont(title.getFont().deriveFont(Font.BOLD, 13f));
@@ -354,8 +358,8 @@ public class DeckManager extends JFrame {
                     c.setBackground(lbCell ? LB_BG : getBackground());
                 // Set on every cell: a DefaultTableCellRenderer keeps its last foreground.
                 c.setForeground(lbCell ? LB_FG
-                        : banlist.isBannedInStandard(serial) ? BANNED_FG
-                        : banlist.isLimitedInStandard(serial) ? LIMITED_FG : getForeground());
+                        : banlist.isBannedInStandard(serial) ? ThemeColors.text(BANNED_FG)
+                        : banlist.isLimitedInStandard(serial) ? ThemeColors.text(LIMITED_FG) : getForeground());
                 return c;
             }
             @Override
@@ -482,8 +486,8 @@ public class DeckManager extends JFrame {
                     c.setBackground(lbCell ? LB_BG : getBackground());
                 // Set on every cell: a DefaultTableCellRenderer keeps its last foreground.
                 c.setForeground(lbCell ? LB_FG
-                        : breaksBanlist ? BANNED_FG
-                        : banlist.isLimitedInStandard(serial) ? LIMITED_FG : getForeground());
+                        : breaksBanlist ? ThemeColors.text(BANNED_FG)
+                        : banlist.isLimitedInStandard(serial) ? ThemeColors.text(LIMITED_FG) : getForeground());
                 return c;
             }
             @Override
@@ -671,10 +675,10 @@ public class DeckManager extends JFrame {
             public Component getTableCellRendererComponent(
                     JTable t, Object value, boolean sel, boolean focus, int row, int col) {
                 super.getTableCellRendererComponent(t, value, sel, focus, row, col);
-                if (!sel && (value == null || value.toString().isBlank()))
-                    setBackground(Color.LIGHT_GRAY);
-                else
-                    setBackground(t.getBackground());
+                // A selected cell keeps the selection colours super just set, as every other column's does.
+                if (!sel)
+                    setBackground(value == null || value.toString().isBlank()
+                            ? ThemeColors.emptyCell(t) : t.getBackground());
                 return this;
             }
         };
@@ -694,10 +698,10 @@ public class DeckManager extends JFrame {
             public Component getTableCellRendererComponent(
                     JTable t, Object value, boolean sel, boolean focus, int row, int col) {
                 super.getTableCellRendererComponent(t, value, sel, focus, row, col);
-                if (!sel && (value == null || value.toString().isBlank()))
-                    setBackground(Color.LIGHT_GRAY);
-                else
-                    setBackground(t.getBackground());
+                // A selected cell keeps the selection colours super just set, as every other column's does.
+                if (!sel)
+                    setBackground(value == null || value.toString().isBlank()
+                            ? ThemeColors.emptyCell(t) : t.getBackground());
                 return this;
             }
         };
@@ -712,7 +716,7 @@ public class DeckManager extends JFrame {
                     JTable t, Object value, boolean sel, boolean focus, int row, int col) {
                 boolean empty = value == null || Integer.valueOf(0).equals(value);
                 super.getTableCellRendererComponent(t, empty ? null : value, sel, focus, row, col);
-                if (!sel) setBackground(empty ? Color.LIGHT_GRAY : t.getBackground());
+                if (!sel) setBackground(empty ? ThemeColors.emptyCell(t) : t.getBackground());
                 return this;
             }
         };
@@ -1068,14 +1072,14 @@ public class DeckManager extends JFrame {
     // -------------------------------------------------------------------------
 
     private void applyFormatState(JLabel lbl, boolean legal, Color activeColor) {
-        lbl.setForeground(legal ? activeColor : FORMAT_INACTIVE);
+        lbl.setForeground(ThemeColors.text(legal ? activeColor : FORMAT_INACTIVE));
         lbl.setFont(lbl.getFont().deriveFont(legal ? Font.BOLD : Font.PLAIN));
     }
 
     private JLabel makeFormatLabel(String text, String tooltip) {
         JLabel lbl = new JLabel(text);
         lbl.setToolTipText(tooltip);
-        lbl.setForeground(FORMAT_INACTIVE);
+        lbl.setForeground(ThemeColors.text(FORMAT_INACTIVE));
         return lbl;
     }
 
@@ -1344,9 +1348,10 @@ public class DeckManager extends JFrame {
         JButton btn = new JButton();
         try (InputStream is = getClass().getResourceAsStream("/images/pocket.png")) {
             if (is != null) {
-                Image img = new javax.swing.ImageIcon(is.readAllBytes()).getImage()
-                        .getScaledInstance(iconSize, iconSize, Image.SCALE_SMOOTH);
-                btn.setIcon(new javax.swing.ImageIcon(img));
+                // The outer ImageIcon waits for the scaled copy to finish loading
+                Image img = new ImageIcon(new ImageIcon(is.readAllBytes()).getImage()
+                        .getScaledInstance(iconSize, iconSize, Image.SCALE_SMOOTH)).getImage();
+                btn.setIcon(new SilhouetteIcon(img));
             } else {
                 btn.setText("📦");
                 btn.setFont(btn.getFont().deriveFont((float) iconSize));
@@ -1358,6 +1363,43 @@ public class DeckManager extends JFrame {
         btn.setMargin(new Insets(1, 4, 1, 4));
         btn.setFocusPainted(false);
         return btn;
+    }
+
+    /**
+     * A one-colour picture drawn in its button's text colour, so it reads against the button in
+     * every theme: only the image's alpha is used. The pocket is drawn black, which would vanish on
+     * Espresso's dark buttons.
+     */
+    private static final class SilhouetteIcon implements Icon {
+        private final BufferedImage mask;
+        private BufferedImage tinted;
+        private Color tintedIn;
+
+        SilhouetteIcon(Image img) {
+            mask = new BufferedImage(img.getWidth(null), img.getHeight(null), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = mask.createGraphics();
+            g.drawImage(img, 0, 0, null);
+            g.dispose();
+        }
+
+        @Override public int getIconWidth()  { return mask.getWidth(); }
+        @Override public int getIconHeight() { return mask.getHeight(); }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Color colour = c.isEnabled() ? c.getForeground() : Color.GRAY;
+            if (!colour.equals(tintedIn)) {
+                tinted = new BufferedImage(mask.getWidth(), mask.getHeight(), BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2 = tinted.createGraphics();
+                g2.drawImage(mask, 0, 0, null);
+                g2.setComposite(AlphaComposite.SrcIn);
+                g2.setColor(colour);
+                g2.fillRect(0, 0, mask.getWidth(), mask.getHeight());
+                g2.dispose();
+                tintedIn = colour;
+            }
+            g.drawImage(tinted, x, y, null);
+        }
     }
 
     /**

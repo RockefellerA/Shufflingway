@@ -21,7 +21,8 @@ import javax.swing.ListSelectionModel;
 
 import scraper.DeckDatabase;
 import scraper.DeckDatabase.DeckSummary;
-import shufflingway.DeckFormat;
+import shufflingway.DeckFormat;
+import shufflingway.ThemeColors;
 
 /**
  * A single-deck picker: the list of local decks, with anything short of a legal 50-card main
@@ -140,11 +141,11 @@ public class DeckChooserPanel extends JPanel {
                         + (d.lbCardCount() > 0 ? " +" + d.lbCardCount() + " LB" : "") + ")");
                 String why = refused.get(d.id());
                 if (why != null) {
-                    setForeground(BANNED_FG);
+                    setForeground(ThemeColors.text(BANNED_FG));
                     setBackground(list.getBackground());
                     setToolTipText(why);
                 } else if (d.mainCardCount() != 50) {
-                    setForeground(Color.GRAY);
+                    setForeground(ThemeColors.dimText());
                     setBackground(list.getBackground());
                 }
             }

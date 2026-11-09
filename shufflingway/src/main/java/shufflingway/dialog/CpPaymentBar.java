@@ -21,6 +21,7 @@ import javax.swing.Timer;
 
 import shufflingway.ElementColor;
 import shufflingway.FontLoader;
+import shufflingway.ThemeColors;
 
 /**
  * The CP gauge at the top of a payment window: one cell per CP the cost needs, so the player can
@@ -291,7 +292,8 @@ public class CpPaymentBar extends JComponent {
         FontMetrics fm = g2.getFontMetrics();
         int tx = Math.round(x + w + PAD + (COUNT_W - fm.stringWidth(text)) / 2f);
         int ty = Math.round(y + (h - fm.getHeight()) / 2f) + fm.getAscent();
-        g2.setColor(blend(getForeground(), new Color(150, 110, 0), glow));
+        // Painted straight onto the dialog, so its grey has to read against the theme's background.
+        g2.setColor(blend(ThemeColors.text(getForeground()), new Color(150, 110, 0), glow));
         g2.drawString(text, tx, ty);
         g2.dispose();
     }

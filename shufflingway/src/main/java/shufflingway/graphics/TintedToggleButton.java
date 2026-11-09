@@ -9,6 +9,7 @@ import java.awt.Rectangle;
 import javax.swing.AbstractButton;
 import javax.swing.ButtonGroup;
 import javax.swing.ButtonModel;
+import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JToggleButton;
 import javax.swing.border.AbstractBorder;
@@ -19,8 +20,8 @@ import javax.swing.plaf.metal.MetalToggleButtonUI;
 
 /**
  * A toggle button that sits sunk into its bezel and takes on a colour tint while it is pressed
- * in, and stands proud of a raised bezel while it is not. A sunken button also drops its label one
- * pixel down and right, the way a physically pushed key would.
+ * in, and stands proud of a raised bezel while it is not. A sunken button also drops its label —
+ * text or icon — one pixel down and right, the way a physically pushed key would.
  *
  * <p>Inside a {@link ButtonGroup} it latches: once pressed in, mouse clicks and the
  * space bar do nothing until another button in the group is chosen. A plain toggle in a group
@@ -50,6 +51,15 @@ public class TintedToggleButton extends JToggleButton {
 		// Not a UIResource, so a look-and-feel change keeps it. The margin border keeps
 		// setMargin working, as it does inside the look and feel's own compound border.
 		setBorder(new CompoundBorder(new BezelBorder(), new BasicBorders.MarginBorder()));
+	}
+
+	/**
+	 * @param icon the label, drawn in place of text
+	 * @param tint as for {@link #TintedToggleButton(String, Color)}
+	 */
+	public TintedToggleButton(Icon icon, Color tint) {
+		this((String) null, tint);
+		setIcon(icon);
 	}
 
 	/** Re-installs the tinting delegate whenever the look and feel hands out a fresh one. */
@@ -160,6 +170,15 @@ public class TintedToggleButton extends JToggleButton {
 				textRect.translate(1, 1);
 			}
 			super.paintText(g, c, textRect, text);
+		}
+
+		@Override
+		protected void paintIcon(Graphics g, AbstractButton b, Rectangle iconRect) {
+			if (isSunk(b.getModel())) {
+				iconRect = new Rectangle(iconRect);
+				iconRect.translate(1, 1);
+			}
+			super.paintIcon(g, b, iconRect);
 		}
 	}
 }

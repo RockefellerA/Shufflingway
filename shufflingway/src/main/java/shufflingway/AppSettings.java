@@ -273,6 +273,16 @@ public final class AppSettings {
         props.setProperty("gameplay.format.cpu", format.id());
     }
 
+    /** The {@link Theme} name chosen in Preferences, or {@code null} until one is (read as CLASSIC). */
+    public static String getTheme() {
+        return props.getProperty("appearance.theme");
+    }
+
+    /** Sets the theme (call {@link #save()} to persist). */
+    public static void setTheme(String themeName) {
+        props.setProperty("appearance.theme", themeName);
+    }
+
     /** Whether the Welcome dialog opens at launch. Defaults to {@code true}. */
     public static boolean isShowWelcome() {
         return Boolean.parseBoolean(props.getProperty("startup.show.welcome", "true"));

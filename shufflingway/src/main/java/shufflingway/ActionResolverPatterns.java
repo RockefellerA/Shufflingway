@@ -13519,11 +13519,16 @@ final class ActionResolverPatterns {
         "(?is)^\\s*If\\s+(?:there\\s+are|you\\s+have)\\s+(?<count>\\d+)\\s+or\\s+more\\s+" +
         "(?<filter>.+?)\\s+in\\s+your\\s+Break\\s+Zone,\\s*(?<effect>.+?)\\s*$"
     );
-    /** The three filter shapes {@link #BREAK_ZONE_COUNT_GATE} counts by; anything else declines. */
+    /** The four filter shapes {@link #BREAK_ZONE_COUNT_GATE} counts by; anything else declines. */
     static final Pattern BZ_GATE_FILTER_CARD_NAME = Pattern.compile("(?i)^Card\\s+Name\\s+(?<name>.+)$");
     static final Pattern BZ_GATE_FILTER_JOB       = Pattern.compile("(?i)^Job\\s+(?<job>.+)$");
     static final Pattern BZ_GATE_FILTER_TYPE      = Pattern.compile(
         "(?i)^(?:(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<type>Forwards?|Backups?|Monsters?|Summons?|Characters?|cards?)$"
+    );
+    /** "Category FFBE cards" (30-095C Melo) — a type narrowed to one Category, with no Element. */
+    static final Pattern BZ_GATE_FILTER_CATEGORY  = Pattern.compile(
+        "(?i)^Category\\s+(?<category>\\S+)\\s+" +
         "(?<type>Forwards?|Backups?|Monsters?|Summons?|Characters?|cards?)$"
     );
     /** "If there are N or more different Elements among [type] you control, [grant]." */

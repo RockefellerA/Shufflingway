@@ -140,10 +140,10 @@ public class CardBrowser extends JDialog {
             public java.awt.Component getTableCellRendererComponent(
                     JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
                 super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                if (!isSelected && (value == null || value.toString().isBlank())) {
-                    setBackground(Color.LIGHT_GRAY);
-                } else {
-                    setBackground(table.getBackground());
+                // A selected cell keeps the selection colours super just set, as every other column's does.
+                if (!isSelected) {
+                    boolean empty = value == null || value.toString().isBlank();
+                    setBackground(empty ? ThemeColors.emptyCell(table) : table.getBackground());
                 }
                 return this;
             }
@@ -160,7 +160,7 @@ public class CardBrowser extends JDialog {
                 boolean empty = value == null || Integer.valueOf(0).equals(value);
                 super.getTableCellRendererComponent(table, empty ? null : value, isSelected, hasFocus, row, column);
                 if (!isSelected) {
-                    setBackground(empty ? Color.LIGHT_GRAY : table.getBackground());
+                    setBackground(empty ? ThemeColors.emptyCell(table) : table.getBackground());
                 }
                 return this;
             }

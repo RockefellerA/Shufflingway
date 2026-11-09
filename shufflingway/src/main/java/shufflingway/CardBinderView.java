@@ -49,13 +49,15 @@ import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
-import javax.swing.JToggleButton;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 
 import scraper.AppPaths;
+import shufflingway.audio.Sound;
+import shufflingway.audio.SoundEffects;
+import shufflingway.graphics.TintedToggleButton;
 
 /**
  * A binder view of a card table: the table's rows, in the table's current sort and filter, laid
@@ -86,6 +88,9 @@ final class CardBinderView extends JList<Integer> {
     private static final float SERIAL_SCALE    = 0.75f;
     private static final float SERIAL_MIN_SIZE = 8f;
     private static final int   SERIAL_GAP      = 3;
+
+    /** The wash on whichever of the list/binder buttons is pressed in; their icons tell them apart. */
+    private static final Color VIEW_TINT = new Color(70, 140, 230);
 
     private final JTable table;
     private final int serialCol;
@@ -208,25 +213,30 @@ final class CardBinderView extends JList<Integer> {
         content.add(new JScrollPane(table), "list");
         content.add(binderScroll, "binder");
 
+        // The game window's Auto/Wait pair: the chosen view sits pressed in and tinted, and a click
+        // on it is swallowed, so only an actual switch ticks.
         int iconSize = UiScale.scale(14);
-        JToggleButton listBtn   = new JToggleButton(listIcon(iconSize), true);
-        JToggleButton binderBtn = new JToggleButton(tileIcon(iconSize));
+        TintedToggleButton listBtn   = new TintedToggleButton(listIcon(iconSize), VIEW_TINT);
+        TintedToggleButton binderBtn = new TintedToggleButton(tileIcon(iconSize), VIEW_TINT);
         listBtn.setToolTipText("List view");
         binderBtn.setToolTipText("Binder view");
         ButtonGroup group = new ButtonGroup();
         JPanel toggle = new JPanel(new GridLayout(1, 2, 0, 0));
-        for (JToggleButton b : List.of(listBtn, binderBtn)) {
+        for (TintedToggleButton b : List.of(listBtn, binderBtn)) {
             b.setMargin(new Insets(2, 8, 2, 8));
             b.setFocusable(false);
             group.add(b);
             toggle.add(b);
         }
+        listBtn.setSelected(true);
         listBtn.addActionListener(e -> {
+            SoundEffects.play(Sound.TICK);
             views.show(content, "list");
             int row = table.getSelectedRow();
             if (row >= 0) table.scrollRectToVisible(table.getCellRect(row, 0, true));
         });
         binderBtn.addActionListener(e -> {
+            SoundEffects.play(Sound.TICK);
             views.show(content, "binder");
             binder.revealSelection();
         });

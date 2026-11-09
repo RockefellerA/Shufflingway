@@ -2486,6 +2486,25 @@ public interface GameContext {
     }
 
     /**
+     * Counts cards of one Category, and of the named types, in P1's Break Zone — 30-095C Melo's
+     * "If you have 10 or more Category FFBE cards in your Break Zone". The Category is matched
+     * exactly against either of the card's two, as {@link CardFilters#meetsCategoryFilter} does.
+     */
+    int countP1BreakZoneCardsOfCategory(String category, boolean inclForwards, boolean inclBackups,
+            boolean inclMonsters, boolean inclSummons);
+
+    int countP2BreakZoneCardsOfCategory(String category, boolean inclForwards, boolean inclBackups,
+            boolean inclMonsters, boolean inclSummons);
+
+    /** Counts the ability user's own Break Zone cards of one Category — routes on {@link #isP1()}. */
+    default int countSelfBreakZoneCardsOfCategory(String category, boolean inclForwards, boolean inclBackups,
+            boolean inclMonsters, boolean inclSummons) {
+        return isP1()
+                ? countP1BreakZoneCardsOfCategory(category, inclForwards, inclBackups, inclMonsters, inclSummons)
+                : countP2BreakZoneCardsOfCategory(category, inclForwards, inclBackups, inclMonsters, inclSummons);
+    }
+
+    /**
      * Counts Break Zone cards matching a type, element and cost ceiling — what an effect needs to
      * know before offering a Break Zone target ("1 Fire Forward of cost 3 or less in your Break
      * Zone"), without opening the selection dialog to find out.

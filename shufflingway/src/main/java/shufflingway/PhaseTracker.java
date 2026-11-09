@@ -162,14 +162,49 @@ public class PhaseTracker extends JPanel {
     private static final int SUB_GLOW_RADIUS = 12;
 
     // -- Colors -----------------------------------------------------------------
-    private static final Color BG                  = new Color(0xd4d0c8);
-    private static final Color STROKE              = new Color(0x222222);
-    private static final Color PAST_FILL           = new Color(0x8a8a8a);
-    private static final Color CONNECTOR_MID       = new Color(0x555555);
-    private static final Color CONNECTOR_HI        = new Color(0xaaaaaa);
-    private static final Color CONNECTOR_LO        = new Color(0x333333);
-    private static final Color LABEL_FUTURE        = new Color(0xaaaaaa);
-    private static final Color LABEL_PAST          = new Color(0x666666);
+
+    /**
+     * The track's neutral colours: everything but the blue and red that say whose turn it is and
+     * who holds priority, which stay the same in every theme.
+     */
+    private record Palette(Color background, Color rule, Color text, Color stroke, Color pastFill,
+                           Color connectorLo, Color connectorMid, Color connectorHi,
+                           Color labelPast, Color labelFuture) {}
+
+    /** Greys, under Classic. */
+    private static final Palette GREY = new Palette(
+        new Color(0xd4d0c8),   // background
+        new Color(0x888888),   // rule along the bottom edge
+        new Color(0x333333),   // "TURN N"
+        new Color(0x222222),   // marker outlines
+        new Color(0x8a8a8a),   // a phase already passed
+        new Color(0x333333),   // track, top row
+        new Color(0x555555),   // track, middle row
+        new Color(0xaaaaaa),   // track, bottom row
+        new Color(0x666666),   // label of a phase passed
+        new Color(0xaaaaaa));  // label of a phase to come
+
+    /**
+     * Beige and dark brown, under both Latte and Espresso: a strip that stands apart from the
+     * panels around it in either. Each brown keeps the lightness of the grey it replaces, so the
+     * bevelled track and the passed / still-to-come contrast read as they do in Classic; the
+     * outlines and text are Latte's own text colour.
+     */
+    private static final Palette ROAST = new Palette(
+        new Color(0xddcbb0),
+        new Color(0xa08468),
+        new Color(0x3a2a1f),
+        new Color(0x3a2a1f),
+        new Color(0xa58a70),
+        new Color(0x423224),
+        new Color(0x6e533b),
+        new Color(0xbfa68c),
+        new Color(0x7a5f47),
+        new Color(0xb49b80));
+
+    private static Palette palette() {
+        return ThemeColors.isFlat() ? ROAST : GREY;
+    }
 
     private static final Color BLUE          = new Color(0x4ab4ff);
     private static final Color BLUE_FILL     = new Color(0xe8f4ff);
@@ -204,8 +239,6 @@ public class PhaseTracker extends JPanel {
 
     public PhaseTracker() {
         setOpaque(true);
-        setBackground(BG);
-        setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0x888888)));
 
         // Unscaled: this component's geometry is in raw pixels, so its text must be too.
         stripFont = FontLoader.uiFontUnscaled(13f);
@@ -226,6 +259,15 @@ public class PhaseTracker extends JPanel {
             }
             repaint();
         });
+    }
+
+    /** The background and bottom rule follow the theme, so they are set again when it changes. */
+    @Override
+    public void updateUI() {
+        super.updateUI();
+        Palette p = palette();
+        setBackground(p.background());
+        setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, p.rule()));
     }
 
     // -- Public API -------------------------------------------------------------
@@ -321,12 +363,13 @@ public class PhaseTracker extends JPanel {
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_OFF);
 
         int w = getWidth();
+        Palette p = palette();
 
         Color glow     = hasPriority ? BLUE         : RED;
         Color glowFill = hasPriority ? BLUE_FILL    : RED_FILL;
         Color pillBg   = isMyTurn   ? BLUE_PILL_BG : RED_PILL_BG;
 
-        drawTopStrip(g, w, pillBg);
+        drawTopStrip(g, w, pillBg, p);
 
         // Layout: each stop has a half-width; Attack uses cluster width
         int trackY  = PAD_TOP + TOP_STRIP_H + 6;
@@ -352,27 +395,32 @@ public class PhaseTracker extends JPanel {
             int x1 = cx[i]   + halfW[i];
             int x2 = cx[i+1] - halfW[i+1];
             if (x2 <= x1) continue;
-            g.setColor(CONNECTOR_LO);  g.fillRect(x1, centerY - 1, x2 - x1, 1);
-            g.setColor(CONNECTOR_MID); g.fillRect(x1, centerY,     x2 - x1, 1);
-            g.setColor(CONNECTOR_HI);  g.fillRect(x1, centerY + 1, x2 - x1, 1);
+            drawConnector(g, p, x1, x2, centerY);
         }
 
         // Stops
         for (int i = 0; i < n; i++) {
             if (i == ATTACK_PHASE_IDX) {
-                drawAttackCluster(g, cx[i], centerY, trackY, glow, glowFill);
+                drawAttackCluster(g, cx[i], centerY, trackY, glow, glowFill, p);
             } else {
-                drawMainStop(g, i, cx[i], centerY, trackY, glow, glowFill);
+                drawMainStop(g, i, cx[i], centerY, trackY, glow, glowFill, p);
             }
         }
 
         g.dispose();
     }
 
+    /** The track's three-row bevelled line from {@code x1} to {@code x2}, centred on {@code cy}. */
+    private static void drawConnector(Graphics2D g, Palette p, int x1, int x2, int cy) {
+        g.setColor(p.connectorLo());  g.fillRect(x1, cy - 1, x2 - x1, 1);
+        g.setColor(p.connectorMid()); g.fillRect(x1, cy,     x2 - x1, 1);
+        g.setColor(p.connectorHi());  g.fillRect(x1, cy + 1, x2 - x1, 1);
+    }
+
     /** "TURN N"  |  [ YOUR TURN ] row. */
-    private void drawTopStrip(Graphics2D g, int w, Color pillBg) {
+    private void drawTopStrip(Graphics2D g, int w, Color pillBg, Palette p) {
         g.setFont(stripFont);
-        g.setColor(new Color(0x333333));
+        g.setColor(p.text());
         FontMetrics fm = g.getFontMetrics();
         int stripY = PAD_TOP + fm.getAscent();
         g.drawString("TURN " + turn, PAD_X, stripY);
@@ -403,7 +451,7 @@ public class PhaseTracker extends JPanel {
 
     /** Render a regular main-phase diamond + its label. */
     private void drawMainStop(Graphics2D g, int i, int cx, int cy, int trackY,
-                              Color glow, Color glowFill) {
+                              Color glow, Color glowFill, Palette p) {
         boolean isPast = i < phaseIdx;
 
         float haloAlpha = 0f;
@@ -413,17 +461,17 @@ public class PhaseTracker extends JPanel {
 
         if (haloAlpha > 0.01f) drawHalo(g, cx, cy, GLOW_RADIUS, glow, haloAlpha);
 
-        Color fill   = computeFill(isPast, glowFill, haloAlpha);
-        Color border = haloAlpha > 0.01f ? lerpColor(STROKE, glow, haloAlpha) : STROKE;
+        Color fill   = computeFill(p, isPast, glowFill, haloAlpha);
+        Color border = haloAlpha > 0.01f ? lerpColor(p.stroke(), glow, haloAlpha) : p.stroke();
         drawDiamond(g, cx, cy, DIAMOND, fill, border, 1.5f);
 
-        Color labelColor = computeLabelColor(isPast, glow, haloAlpha);
+        Color labelColor = computeLabelColor(p, isPast, glow, haloAlpha);
         drawLabel(g, PHASE_LABELS[i], cx, trackY, labelColor);
     }
 
     /** Render the Attack phase as a row of four sub-diamonds + shared label. */
     private void drawAttackCluster(Graphics2D g, int cxCenter, int cy, int trackY,
-                                   Color glow, Color glowFill) {
+                                   Color glow, Color glowFill, Palette p) {
         boolean phaseIsAttack   = phaseIdx == ATTACK_PHASE_IDX;
         boolean phasePastAttack = phaseIdx >  ATTACK_PHASE_IDX;
 
@@ -437,9 +485,7 @@ public class PhaseTracker extends JPanel {
             int x1 = subCx[i]   + subMarkerHalf(i);
             int x2 = subCx[i+1] - subMarkerHalf(i + 1);
             if (x2 <= x1) continue;
-            g.setColor(CONNECTOR_LO);  g.fillRect(x1, cy - 1, x2 - x1, 1);
-            g.setColor(CONNECTOR_MID); g.fillRect(x1, cy,     x2 - x1, 1);
-            g.setColor(CONNECTOR_HI);  g.fillRect(x1, cy + 1, x2 - x1, 1);
+            drawConnector(g, p, x1, x2, cy);
         }
 
         // Sub-step markers
@@ -453,8 +499,8 @@ public class PhaseTracker extends JPanel {
 
             if (haloAlpha > 0.01f) drawHalo(g, subCx[i], cy, subGlowRadius(i), glow, haloAlpha);
 
-            Color fill   = computeFill(isSubPast, glowFill, haloAlpha);
-            Color border = haloAlpha > 0.01f ? lerpColor(STROKE, glow, haloAlpha) : STROKE;
+            Color fill   = computeFill(p, isSubPast, glowFill, haloAlpha);
+            Color border = haloAlpha > 0.01f ? lerpColor(p.stroke(), glow, haloAlpha) : p.stroke();
             drawSubStepMarker(g, i, subCx[i], cy, fill, border);
         }
 
@@ -466,7 +512,7 @@ public class PhaseTracker extends JPanel {
         }
         clusterHalo = clamp01(clusterHalo);
 
-        Color labelColor = computeLabelColor(phasePastAttack, glow, clusterHalo);
+        Color labelColor = computeLabelColor(p, phasePastAttack, glow, clusterHalo);
         drawLabel(g, PHASE_LABELS[ATTACK_PHASE_IDX], cxCenter, trackY, labelColor);
     }
 
@@ -487,16 +533,16 @@ public class PhaseTracker extends JPanel {
         return subStep < 0;
     }
 
-    private static Color computeFill(boolean isPast, Color glowFill, float haloAlpha) {
+    private static Color computeFill(Palette p, boolean isPast, Color glowFill, float haloAlpha) {
         if (haloAlpha > 0.01f) {
-            Color base = isPast ? PAST_FILL : new Color(0, 0, 0, 0);
+            Color base = isPast ? p.pastFill() : new Color(0, 0, 0, 0);
             return lerpColor(base, glowFill, haloAlpha);
         }
-        return isPast ? PAST_FILL : null;
+        return isPast ? p.pastFill() : null;
     }
 
-    private static Color computeLabelColor(boolean isPast, Color glow, float haloAlpha) {
-        Color baseColor = isPast ? LABEL_PAST : LABEL_FUTURE;
+    private static Color computeLabelColor(Palette p, boolean isPast, Color glow, float haloAlpha) {
+        Color baseColor = isPast ? p.labelPast() : p.labelFuture();
         if (haloAlpha > 0.01f) return lerpColor(baseColor, glow, haloAlpha);
         return baseColor;
     }
@@ -575,8 +621,8 @@ public class PhaseTracker extends JPanel {
         if (step == ATTACK_PREP_STEP && PREP_STEP_AS_CIRCLE)
             drawCircle(g, cx, cy, SUB_CIRCLE, fill, border, SUB_STROKE);
         else if (step == ATTACK_DECLARE_STEP && DECLARE_STEP_AS_SWORD)
-            // Takes the glow-tinted border like every other marker. It was held at the dark STROKE
-            // for a while, because on the original narrow blade a tinted outline over the pale fill
+            // Takes the glow-tinted border like every other marker. It was held at the dark stroke
+            // colour for a while, because on the original narrow blade a tinted outline over the pale fill
             // washed the whole shape into a fat cross. Widening the blade and thinning the sword's
             // own stroke left enough lit interior for the detail to survive the tint, so the
             // exception is gone: an active marker whose outline stays black reads as the one thing
