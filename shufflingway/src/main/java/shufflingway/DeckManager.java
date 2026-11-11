@@ -1368,7 +1368,7 @@ public class DeckManager extends JFrame {
     /**
      * A one-colour picture drawn in its button's text colour, so it reads against the button in
      * every theme: only the image's alpha is used. The pocket is drawn black, which would vanish on
-     * Espresso's dark buttons.
+     * a dark theme's buttons.
      */
     private static final class SilhouetteIcon implements Icon {
         private final BufferedImage mask;

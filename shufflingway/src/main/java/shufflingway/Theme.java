@@ -15,13 +15,16 @@ import javax.swing.UIManager;
 import javax.swing.UnsupportedLookAndFeelException;
 import javax.swing.plaf.metal.MetalLookAndFeel;
 
+import static java.util.Map.entry;
+
 /**
- * The look chosen in File → Preferences: Latte or Espresso, FlatLaf's light and dark themes
- * recoloured in roasted browns, or the classic Swing look Shufflingway had before FlatLaf.
+ * The look chosen in File → Preferences: Paladin or Dark Knight, FlatLaf's light and dark themes
+ * dressed as Cecil's two forms; Latte or Espresso, the same two recoloured in roasted browns; or
+ * the classic Swing look Shufflingway had before FlatLaf.
  *
- * <p>Only the Swing chrome follows it — menus, dialogs, the title bar, scroll bars, text fields.
- * The board is painted in its own colours (the field colours in Preferences, the card art), so it
- * looks the same in every theme.
+ * <p>Only the Swing chrome follows it — menus, dialogs, the title bar, scroll bars, text fields —
+ * and the phase tracker, which carries a strip to match each. The board is painted in its own
+ * colours (the field colours in Preferences, the card art), so it looks the same in every theme.
  */
 public enum Theme {
 
@@ -31,19 +34,75 @@ public enum Theme {
 	 */
 	CLASSIC("Classic (original)"),
 	// Latte or Espresso to follow the OS, as PsaroEditor offers. Not offered here yet; restoring it
-	// means this line and its case in isDark(). A saved SYSTEM reads as CLASSIC while it is out.
+	// means this line and its cases in isDark() and colours(). A saved SYSTEM reads as CLASSIC
+	// while it is out.
 	// SYSTEM("Match system"),
-	/** The light theme, {@link #LATTE_COLOURS}. Named by role, since the name is what is saved. */
+	/** Cecil the Paladin, {@link #PALADIN_COLOURS}. */
+	PALADIN("Paladin (Light)"),
+	/** Cecil the Dark Knight, {@link #DARK_KNIGHT_COLOURS}. */
+	DARK_KNIGHT("Dark Knight (Dark)"),
+	/** Latte, {@link #LATTE_COLOURS}. Named by role, since the name is what is saved. */
 	LIGHT("Latte (Light)"),
-	/** The dark theme, {@link #ESPRESSO_COLOURS}. */
+	/** Espresso, {@link #ESPRESSO_COLOURS}. */
 	DARK("Espresso (Dark)");
 
 	/*
 	 * FlatLaf derives every other colour of a theme — borders, hovers, grid lines, the title bar,
-	 * the focus ring — from a few variables, so naming those is the whole palette. Each sets
+	 * the focus ring — from a few variables, so naming those is most of a palette. Each sets
 	 * @accentColor to null because a system accent colour, where FlatLaf finds one, would replace
-	 * the brown.
+	 * the theme's own.
 	 */
+
+	/**
+	 * Cecil's paladin plate: a polished-silver ground under navy text, selections and focus in
+	 * royal blue, and gold trim — the rule under the menu bar, the rim of a default button, a
+	 * selected tab's underline. The title bar is the blue of the armour, lettered in silver-white;
+	 * FlatLaf otherwise draws it in the window's own ground, which is what unifiedBackground stops.
+	 */
+	private static final Map<String, String> PALADIN_COLOURS = Map.ofEntries(
+			entry("@background", "#e1e5ed"),
+			entry("@foreground", "#1b2440"),
+			entry("@disabledForeground", "#6a7490"),
+			entry("@accentBaseColor", "#2c58a8"),
+			entry("@accentColor", "null"),
+			entry("@accentUnderlineColor", "#b08a34"),
+			entry("@accentButtonDefaultBorderColor", "#b08a34"),
+			entry("MenuBar.borderColor", "#b08a34"),
+			// the same rule under a dialog's title bar, which has no menu bar to carry one
+			entry("TitlePane.borderColor", "#b08a34"),
+			entry("TitlePane.unifiedBackground", "false"),
+			entry("TitlePane.background", "#24427f"),
+			entry("TitlePane.inactiveBackground", "#56648a"),
+			entry("TitlePane.foreground", "#f3f5fa"),
+			entry("TitlePane.inactiveForeground", "#c3cadb"),
+			entry("TitlePane.buttonHoverBackground", "#34549a"),
+			entry("TitlePane.buttonPressedBackground", "#2d4b8d"));
+
+	/**
+	 * Cecil's dark knight armour: a blue-black gunmetal ground under pale lavender text, selections
+	 * and default buttons in deep purple, and gold — the rims of those buttons, checkmarks, a
+	 * selected tab's underline, the rule under the menu bar. The title bar is a shade blacker than
+	 * the ground, lettered in gold.
+	 */
+	private static final Map<String, String> DARK_KNIGHT_COLOURS = Map.ofEntries(
+			entry("@background", "#23222c"),
+			entry("@foreground", "#dcd7e6"),
+			entry("@disabledForeground", "#8a8499"),
+			entry("@accentBaseColor", "#7149b8"),
+			entry("@accentColor", "null"),
+			entry("@accentUnderlineColor", "#c9a24c"),
+			entry("Button.default.borderColor", "#c9a24c"),
+			entry("Button.default.hoverBorderColor", "#dcb966"),
+			entry("CheckBox.icon.checkmarkColor", "#d4af5a"),
+			entry("MenuBar.borderColor", "#a8873f"),
+			entry("TitlePane.borderColor", "#a8873f"),
+			entry("TitlePane.unifiedBackground", "false"),
+			entry("TitlePane.background", "#16151c"),
+			entry("TitlePane.inactiveBackground", "#1d1c24"),
+			entry("TitlePane.foreground", "#d6b25e"),
+			entry("TitlePane.inactiveForeground", "#7d7889"),
+			entry("TitlePane.buttonHoverBackground", "#2b2935"),
+			entry("TitlePane.buttonPressedBackground", "#25232e"));
 
 	/**
 	 * Milky coffee: a latte-beige ground, cream fields, dark-roast text, and selections and focus in
@@ -68,10 +127,21 @@ public enum Theme {
 			"@accentBaseColor", "#a8693a",
 			"@accentColor", "null");
 
+	/** The theme {@link #apply()} last installed. */
+	private static Theme current = CLASSIC;
+
 	private final String label;
 
 	Theme(String label) {
 		this.label = label;
+	}
+
+	/**
+	 * The theme in use: the one {@link #apply()} last installed, which can differ from
+	 * {@link #saved()} for the moment between Preferences saving a choice and applying it.
+	 */
+	public static Theme current() {
+		return current;
 	}
 
 	@Override
@@ -97,9 +167,20 @@ public enum Theme {
 
 	public boolean isDark() {
 		return switch (this) {
-			case LIGHT, CLASSIC -> false;
-			case DARK -> true;
+			case CLASSIC, PALADIN, LIGHT -> false;
+			case DARK_KNIGHT, DARK -> true;
 			// case SYSTEM -> systemIsDark();
+		};
+	}
+
+	/** The FlatLaf variables and keys this theme sets over FlatLaf's own light or dark theme. */
+	private Map<String, String> colours() {
+		return switch (this) {
+			case CLASSIC -> Map.of();
+			case PALADIN -> PALADIN_COLOURS;
+			case DARK_KNIGHT -> DARK_KNIGHT_COLOURS;
+			case LIGHT -> LATTE_COLOURS;
+			case DARK -> ESPRESSO_COLOURS;
 		};
 	}
 
@@ -111,6 +192,7 @@ public enum Theme {
 			} catch (UnsupportedLookAndFeelException e) {
 				return;   // Metal ships with every JDK; there is nothing to fall back to
 			}
+			current = this;
 			// FlatLaf.updateUI's counterpart for a look that is not FlatLaf. Restyling the root pane
 			// also hands a window that had FlatLaf's title bar back to the OS one.
 			for (Window w : Window.getWindows()) SwingUtilities.updateComponentTreeUI(w);
@@ -127,8 +209,9 @@ public enum Theme {
 				"Table.showVerticalLines", "true",
 				"Table.intercellSpacing", "1,0"));
 		FlatLaf laf = isDark() ? new FlatDarkLaf() : new FlatLightLaf();
-		laf.setExtraDefaults(isDark() ? ESPRESSO_COLOURS : LATTE_COLOURS);
+		laf.setExtraDefaults(colours());
 		FlatLaf.setup(laf);
+		current = this;
 		FlatLaf.updateUI();
 	}
 

@@ -202,8 +202,48 @@ public class PhaseTracker extends JPanel {
         new Color(0x7a5f47),
         new Color(0xb49b80));
 
+    /**
+     * Polished silver under Paladin, trimmed in gold along the bottom rule. Each colour keeps the
+     * lightness of the grey it replaces, as {@link #ROAST} does; the outlines and text are
+     * Paladin's navy.
+     */
+    private static final Palette SILVER = new Palette(
+        new Color(0xd2d8e3),
+        new Color(0xa8863c),
+        new Color(0x1b2440),
+        new Color(0x1b2440),
+        new Color(0x8792aa),
+        new Color(0x2b3550),
+        new Color(0x4f5b78),
+        new Color(0xa9b3c8),
+        new Color(0x5e6984),
+        new Color(0xa6b0c4));
+
+    /**
+     * Blackened steel under Dark Knight, a shade darker than the panels around it, with gold for
+     * "TURN N" and the bottom rule. The greys' roles are mirrored for the dark ground: outlines and
+     * a passed phase's label are the light ones, a phase to come fades toward the strip, and the
+     * track's groove still runs dark above light.
+     */
+    private static final Palette OBSIDIAN = new Palette(
+        new Color(0x18171f),
+        new Color(0xa8873f),
+        new Color(0xd6b25e),
+        new Color(0xc8c2d6),
+        new Color(0x6c6682),
+        new Color(0x0b0a0f),
+        new Color(0x3c3849),
+        new Color(0x6a6480),
+        new Color(0xaaa4bb),
+        new Color(0x5d586c));
+
     private static Palette palette() {
-        return ThemeColors.isFlat() ? ROAST : GREY;
+        return switch (Theme.current()) {
+            case CLASSIC -> GREY;
+            case PALADIN -> SILVER;
+            case DARK_KNIGHT -> OBSIDIAN;
+            case LIGHT, DARK -> ROAST;
+        };
     }
 
     private static final Color BLUE          = new Color(0x4ab4ff);
