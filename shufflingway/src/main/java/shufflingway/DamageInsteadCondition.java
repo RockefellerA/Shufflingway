@@ -24,6 +24,7 @@ public sealed interface DamageInsteadCondition
                 DamageInsteadCondition.YouControlAtMost,
                 DamageInsteadCondition.NamedPowerAtLeast,
                 DamageInsteadCondition.YouHaveMoreDamageThanOpponent,
+                DamageInsteadCondition.DamageLeadAtLeast,
                 DamageInsteadCondition.BreakZoneJobOrNameAtLeast,
                 DamageInsteadCondition.YouCastAtLeastOtherThan,
                 DamageInsteadCondition.PaidExtraCost,
@@ -112,6 +113,12 @@ public sealed interface DamageInsteadCondition
 
     /** "If you have received more points of damage than your opponent" (22-059C) */
     record YouHaveMoreDamageThanOpponent() implements DamageInsteadCondition {}
+
+    /**
+     * "If you have at least N points of damage more than your opponent" (7-010L Jecht): your
+     * damage less theirs is N or more. {@link YouHaveMoreDamageThanOpponent} is the lead of one.
+     */
+    record DamageLeadAtLeast(int min) implements DamageInsteadCondition {}
 
     /**
      * "If you have [a total of] N or more Job X and/or Card Name Y in your Break Zone" (14-014C,

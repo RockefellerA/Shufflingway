@@ -374,6 +374,13 @@ public interface GameContext {
     Predicate<StackEntry> choosingOnlyOwnForward(ActionResolver.ChoosingOnlyOwnForward spec);
 
     /**
+     * The Stack entries one of whose targets is {@code card}, as they stand now — what 30-076L
+     * Cloud's "ability that is choosing Cloud" may take. The same predicate the activation gate
+     * applies, from {@link MainWindow#stackEntryChoosing}.
+     */
+    Predicate<StackEntry> stackEntryChoosing(CardData card);
+
+    /**
      * Chooses one Stack entry matching {@code filter} and leaves it where it is — the choice is
      * the whole of this call, for effects that act on what the ability came from rather than on
      * the ability. 25-088H Famfrit, the Darkening Cloud: "Choose 1 auto-ability triggered from a

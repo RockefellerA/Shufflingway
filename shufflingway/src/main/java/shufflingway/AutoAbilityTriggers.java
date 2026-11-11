@@ -7759,15 +7759,16 @@ final class AutoAbilityTriggers {
 	 *
 	 * <p>Paired with {@link #dullCostWantsBackups}, and read by both the availability check and the
 	 * payment: an ability offered on a pool the payment then refuses is an ability that cannot be
-	 * used, so the two have to ask the same question.
+	 * used, so the two have to ask the same question. An alternate cast cost's dull clause
+	 * ({@link MainWindow#canPayAltDullCost}) asks it too.
 	 */
-	private static boolean dullCostWantsForwards(DullForwardCost dfc) {
+	static boolean dullCostWantsForwards(DullForwardCost dfc) {
 		String t = dfc.cardType();
 		return t == null || "Forward".equalsIgnoreCase(t) || "Character".equalsIgnoreCase(t);
 	}
 
 	/** Whether a Backup may pay {@code dfc} — see {@link #dullCostWantsForwards}. */
-	private static boolean dullCostWantsBackups(DullForwardCost dfc) {
+	static boolean dullCostWantsBackups(DullForwardCost dfc) {
 		String t = dfc.cardType();
 		return "Backup".equalsIgnoreCase(t) || "Character".equalsIgnoreCase(t);
 	}

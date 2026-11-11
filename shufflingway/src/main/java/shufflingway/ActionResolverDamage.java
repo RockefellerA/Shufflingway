@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.ToIntFunction;
@@ -839,10 +840,16 @@ final class ActionResolverDamage {
             ctx.breakAfterCombatAndDealNoDamage(source);
         };
     }
-    /** Parses "&lt;name&gt; deals your opponent N point(s) of damage." — flips from opponent's deck to their damage zone. */
-    static Consumer<GameContext> tryParseDealPlayerDamageToOpponent(String text) {
+    /**
+     * Parses "&lt;name&gt; deals your opponent N point(s) of damage." — flips from opponent's deck to
+     * their damage zone. A subject that is not a card name ({@link #namesTheDealer}) declines: it is
+     * whatever came in front of the damage, not the card dealing it.
+     */
+    static Consumer<GameContext> tryParseDealPlayerDamageToOpponent(String text, CardData source) {
         Matcher m = DEAL_PLAYER_DAMAGE_TO_OPPONENT.matcher(text);
         if (!m.matches()) return null;
+        String subject = m.group("subject");
+        if (subject != null && !namesTheDealer(subject.trim(), source)) return null;
         // Whichever word order the printing used put the number in a different group.
         int amount = Integer.parseInt(m.group("amount") != null ? m.group("amount") : m.group("amountTo"));
         return ctx -> {
@@ -850,6 +857,27 @@ final class ActionResolverDamage {
             ctx.dealDamageToOpponent(amount);
         };
     }
+    /** The lowercase words a card name carries: "Warrior of Light", "Adrammelech, the Wroth", "Man in Black", "Semblance of a Lion". */
+    private static final Set<String> NAME_PARTICLES = Set.of("of", "the", "a", "in");
+
+    /**
+     * Whether {@code subject} can be the card dealing the damage: {@code source}'s own name, or —
+     * for an ability copied onto another card, or a stand-in source — something shaped like a card
+     * name: capitalised, free of clause punctuation, and with no lowercase word but a name's
+     * particles or an apostrophe word ("l'Cie"). What stands in front of the damage when it is not
+     * the dealer fails one of those: a condition ("if …, Jecht"), a second sentence ("Cloud. Cancel
+     * its effect. Cloud"), a second effect ("draw 1 card and Sophie").
+     */
+    static boolean namesTheDealer(String subject, CardData source) {
+        if (source != null && subject.equalsIgnoreCase(source.name())) return true;
+        if (subject.isEmpty() || !Character.isUpperCase(subject.charAt(0))) return false;
+        if (subject.chars().anyMatch(c -> c == ',' || c == '.' || c == ';' || c == ':')) return false;
+        for (String word : subject.split("\\s+"))
+            if (Character.isLowerCase(word.charAt(0)) && !NAME_PARTICLES.contains(word) && word.indexOf('\'') < 0)
+                return false;
+        return true;
+    }
+
     /** Parses "&lt;name&gt; deals you N point(s) of damage." — flips from ability user's deck to their damage zone. */
     static Consumer<GameContext> tryParseDealPlayerDamageToSelf(String text) {
         Matcher m = DEAL_PLAYER_DAMAGE_TO_SELF.matcher(text);

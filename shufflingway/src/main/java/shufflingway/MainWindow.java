@@ -11381,12 +11381,12 @@ public class MainWindow {
 			removalSlots = List.of();
 		}
 
-		// Reserved on the same terms as the removal above: the Forwards are picked now and only
+		// Reserved on the same terms as the removal above: the cards are picked now and only
 		// dulled once the rest of the cost is covered, so cancelling leaves the board untouched.
 		List<DullForwardCost> altDull = card.altDullCosts();
-		final List<Integer> dullIdxs;
+		final List<ForwardTarget> dullIdxs;
 		if (!altDull.isEmpty()) {
-			dullIdxs = selectAltDullForwards(card, altDull);
+			dullIdxs = selectAltDullCards(card, altDull);
 			if (dullIdxs == null) return;
 		} else {
 			dullIdxs = List.of();
@@ -11640,7 +11640,7 @@ public class MainWindow {
 	}
 
 	/**
-	 * P1 Forward indices that satisfy {@code costs}, one distinct Forward per required slot, or
+	 * P1's field cards that satisfy {@code costs}, one distinct card per required slot, or
 	 * {@code null} when no such assignment exists.
 	 *
 	 * <p>The requirements have to be solved together rather than one at a time. Nine 13-123L needs
@@ -11648,31 +11648,58 @@ public class MainWindow {
 	 * clauses while only being dullable once — checking each clause on its own would call that
 	 * payable.
 	 *
-	 * @param excluded Forward indices already committed elsewhere in the same payment
+	 * @param excluded cards already committed elsewhere in the same payment
 	 */
-	private List<Integer> altDullAssignment(List<DullForwardCost> costs, Collection<Integer> excluded) {
+	private List<ForwardTarget> altDullAssignment(List<DullForwardCost> costs, Collection<ForwardTarget> excluded) {
 		List<DullForwardCost> slots = new ArrayList<>();
 		for (DullForwardCost dfc : costs)
 			for (int i = 0; i < dfc.count(); i++) slots.add(dfc);
-		List<Integer> assigned = new ArrayList<>();
+		List<ForwardTarget> assigned = new ArrayList<>();
 		return assignAltDullSlots(slots, 0, new HashSet<>(excluded), assigned) ? assigned : null;
 	}
 
 	/** Backtracking search behind {@link #altDullAssignment}; the slot count is never more than a few. */
 	private boolean assignAltDullSlots(List<DullForwardCost> slots, int slotIdx,
-			Set<Integer> used, List<Integer> assigned) {
+			Set<ForwardTarget> used, List<ForwardTarget> assigned) {
 		if (slotIdx == slots.size()) return true;
-		for (int i = 0; i < p1ForwardCards.size(); i++) {
-			if (used.contains(i)) continue;
-			if (p1ForwardStates.get(i) != CardState.ACTIVE) continue;
-			if (!autoAbilityTriggers.dullForwardCostMatches(slots.get(slotIdx), p1ForwardCards.get(i))) continue;
-			used.add(i);
-			assigned.add(i);
+		for (ForwardTarget t : altDullCandidates(slots.get(slotIdx))) {
+			if (!used.add(t)) continue;
+			assigned.add(t);
 			if (assignAltDullSlots(slots, slotIdx + 1, used, assigned)) return true;
-			used.remove(i);
+			used.remove(t);
 			assigned.remove(assigned.size() - 1);
 		}
 		return false;
+	}
+
+	/**
+	 * P1's active field cards that may pay one {@code dfc} slot, Forwards first. A "Character" clause
+	 * reaches the Backup row too — 30-085R Lucielle Ovis's "1 active Job King you control", where a
+	 * King is as often a Backup — on the same terms an ability's dull cost does
+	 * ({@link AutoAbilityTriggers#dullCostWantsBackups}). A "Monster" clause is the Monster row
+	 * alone: 30-111H Gau's "1 active Wind Monster you control".
+	 */
+	private List<ForwardTarget> altDullCandidates(DullForwardCost dfc) {
+		if ("Monster".equalsIgnoreCase(dfc.cardType())) {
+			List<ForwardTarget> out = new ArrayList<>();
+			for (int i = 0; i < p1MonsterCards.size(); i++)
+				if (p1MonsterStates.get(i) == CardState.ACTIVE
+						&& autoAbilityTriggers.dullForwardCostMatches(dfc, p1MonsterCards.get(i)))
+					out.add(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER));
+			return out;
+		}
+		List<ForwardTarget> out = new ArrayList<>();
+		if (AutoAbilityTriggers.dullCostWantsForwards(dfc))
+			for (int i = 0; i < p1ForwardCards.size(); i++)
+				if (p1ForwardStates.get(i) == CardState.ACTIVE
+						&& autoAbilityTriggers.dullForwardCostMatches(dfc, p1ForwardCards.get(i)))
+					out.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
+		if (AutoAbilityTriggers.dullCostWantsBackups(dfc))
+			for (int i = 0; i < p1BackupCards.length; i++)
+				if (p1BackupCards[i] != null && p1BackupStates[i] == CardState.ACTIVE
+						&& autoAbilityTriggers.dullForwardCostMatches(dfc, p1BackupCards[i]))
+					out.add(new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP));
+		return out;
 	}
 
 	/** True when P1 controls the active Forwards {@code card}'s dull alternate cost calls for. */
@@ -11684,38 +11711,36 @@ public class MainWindow {
 	}
 
 	/**
-	 * Asks the player which Forwards to dull for {@code costs}, one clause at a time, returning the
-	 * chosen indices or {@code null} if they cancelled. Nothing is dulled here — the Forwards are
-	 * only reserved, and {@link #executeAltDull} takes them once the whole cost is covered.
+	 * Asks the player which cards to dull for {@code costs}, one clause at a time, returning the
+	 * chosen cards or {@code null} if they cancelled. Nothing is dulled here — the cards are only
+	 * reserved, and {@link #executeAltDull} takes them once the whole cost is covered.
 	 *
-	 * <p>Each clause only offers Forwards that leave the remaining clauses payable, so the player
+	 * <p>Each clause only offers cards that leave the remaining clauses payable, so the player
 	 * cannot spend the one card a later clause depends on.
 	 */
-	private List<Integer> selectAltDullForwards(CardData card, List<DullForwardCost> costs) {
-		List<Integer> chosen = new ArrayList<>();
+	private List<ForwardTarget> selectAltDullCards(CardData card, List<DullForwardCost> costs) {
+		List<ForwardTarget> chosen = new ArrayList<>();
 		for (int c = 0; c < costs.size(); c++) {
 			DullForwardCost dfc = costs.get(c);
 			List<DullForwardCost> later = costs.subList(c + 1, costs.size());
 			for (int n = 0; n < dfc.count(); n++) {
 				List<ForwardTarget> eligible = new ArrayList<>();
-				for (int i = 0; i < p1ForwardCards.size(); i++) {
-					if (chosen.contains(i)) continue;
-					if (p1ForwardStates.get(i) != CardState.ACTIVE) continue;
-					if (!autoAbilityTriggers.dullForwardCostMatches(dfc, p1ForwardCards.get(i))) continue;
-					Set<Integer> committed = new HashSet<>(chosen);
-					committed.add(i);
+				for (ForwardTarget t : altDullCandidates(dfc)) {
+					if (chosen.contains(t)) continue;
+					Set<ForwardTarget> committed = new HashSet<>(chosen);
+					committed.add(t);
 					List<DullForwardCost> rest = new ArrayList<>(later);
 					if (n + 1 < dfc.count())
 						rest.add(0, new DullForwardCost(dfc.count() - n - 1, dfc.condition(), dfc.element(),
 								dfc.cardName(), dfc.job(), dfc.category(), dfc.cardType(), dfc.orCardName()));
 					if (altDullAssignment(rest, committed) == null) continue;
-					eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
+					eligible.add(t);
 				}
 				if (eligible.isEmpty()) return null;
 				List<ForwardTarget> picks = showForwardSelectDialog(eligible, 1, false,
 						card.name() + " — Alt Cost: dull " + describeAltDullClause(dfc));
 				if (picks.size() < 1) return null;
-				chosen.add(picks.get(0).idx());
+				chosen.add(picks.get(0));
 			}
 		}
 		return chosen;
@@ -11862,15 +11887,29 @@ public class MainWindow {
 		return cost.count() + " " + types;
 	}
 
-	/** Dulls the Forwards reserved by {@link #selectAltDullForwards}. */
-	private void executeAltDull(boolean isP1, List<Integer> forwardIdxs) {
-		if (forwardIdxs == null || forwardIdxs.isEmpty()) return;
-		List<CardState> states = isP1 ? p1ForwardStates : p2ForwardStates;
-		List<CardData>  cards  = isP1 ? p1ForwardCards  : p2ForwardCards;
-		for (int idx : forwardIdxs) {
-			states.set(idx, CardState.DULL);
-			if (isP1) animateDullForward(idx, null); else animateDullP2Forward(idx, null);
-			logEntry((isP1 ? "" : "[P2] ") + "Alt cost: \"" + cards.get(idx).name() + "\" dulled");
+	/**
+	 * Dulls the cards reserved by {@link #selectAltDullCards}. Each target's side is ignored: the
+	 * payment addresses the payer's own rows, which is {@code isP1}'s.
+	 */
+	private void executeAltDull(boolean isP1, List<ForwardTarget> dulled) {
+		if (dulled == null || dulled.isEmpty()) return;
+		for (ForwardTarget t : dulled) {
+			int idx = t.idx();
+			CardData paid;
+			if (t.zone() == ForwardTarget.CardZone.BACKUP) {
+				paid = (isP1 ? p1BackupCards : p2BackupCards)[idx];
+				(isP1 ? p1BackupStates : p2BackupStates)[idx] = CardState.DULL;
+				playerDullBackupSlot(isP1, idx);
+			} else if (t.zone() == ForwardTarget.CardZone.MONSTER) {
+				paid = (isP1 ? p1MonsterCards : p2MonsterCards).get(idx);
+				(isP1 ? p1MonsterStates : p2MonsterStates).set(idx, CardState.DULL);
+				if (isP1) animateDullMonster(idx); else animateDullP2Monster(idx);
+			} else {
+				paid = (isP1 ? p1ForwardCards : p2ForwardCards).get(idx);
+				(isP1 ? p1ForwardStates : p2ForwardStates).set(idx, CardState.DULL);
+				if (isP1) animateDullForward(idx, null); else animateDullP2Forward(idx, null);
+			}
+			logEntry((isP1 ? "" : "[P2] ") + "Alt cost: \"" + paid.name() + "\" dulled");
 		}
 	}
 
@@ -11909,13 +11948,17 @@ public class MainWindow {
 		return sb.toString();
 	}
 
-	/** "1 active Fire Job Class Zero Cadet Forward", as printed, for a menu label or dialog title. */
+	/**
+	 * "1 active Fire Class Zero Cadet Forward", "1 active Wind Monster", or "1 active King Character"
+	 * for a clause that names no type, as printed, for a menu label or dialog title.
+	 */
 	private static String describeAltDullClause(DullForwardCost dfc) {
 		StringBuilder sb = new StringBuilder().append(dfc.count()).append(" active ");
 		if (dfc.element()  != null) sb.append(dfc.element()).append(' ');
 		if (dfc.category() != null) sb.append("Category ").append(dfc.category()).append(' ');
 		if (dfc.job()      != null) sb.append(dfc.job()).append(' ');
-		return sb.append(dfc.count() == 1 ? "Forward" : "Forwards").toString();
+		String type = dfc.cardType() != null ? dfc.cardType() : "Forward";
+		return sb.append(type).append(dfc.count() == 1 ? "" : "s").toString();
 	}
 
 	/** Removes the Backups reserved by {@link #selectAltFieldRemoval} from the game. */
@@ -12005,7 +12048,7 @@ public class MainWindow {
 	 * one of them is ever non-empty. The Break Zone removals are resolved to indices here, before
 	 * a single card has moved, so they name the Break Zone the cost is actually paid out of.
 	 */
-	private AltPayment altPayment(int crystals, List<Integer> dullIdxs, List<Integer> removalSlots,
+	private AltPayment altPayment(int crystals, List<ForwardTarget> dullIdxs, List<Integer> removalSlots,
 			List<ForwardTarget> bzPayment, List<ForwardTarget> bzReducePayment,
 			List<String> bzRemovals, List<Integer> bzReductionIdxs) {
 		List<ForwardTarget> putToBz = new ArrayList<>(bzPayment);
@@ -12032,7 +12075,7 @@ public class MainWindow {
 			playerSpendCrystals(isP1, payment.crystals());
 			refreshCrystalDisplays();
 		}
-		executeAltDull(isP1, payment.dullForwards());
+		executeAltDull(isP1, payment.dulled());
 		executeAltFieldRemoval(isP1, payment.removeBackups());
 		executeAltPutToBz(isP1, payment.putToBz());
 		executeAltBzRemovals(isP1, payment.bzRemovals());
@@ -12248,7 +12291,7 @@ public class MainWindow {
 		// with the rest of an alternate payment. Their slots stay reserved from the payment until then.
 		AltPayment upFront = payment;
 		if (payment != null && card.altFieldRemovalPerCard() != null && !payment.removeBackups().isEmpty()) {
-			upFront = new AltPayment(payment.crystals(), payment.dullForwards(), List.of(),
+			upFront = new AltPayment(payment.crystals(), payment.dulled(), List.of(),
 					payment.putToBz(), payment.bzRemovals());
 			afterCastPayment = () -> executeAltFieldRemoval(isP1, payment.removeBackups());
 		}
@@ -15749,6 +15792,22 @@ public class MainWindow {
 	}
 
 	/**
+	 * The Stack entries one of whose targets is {@code card} — 30-076L Cloud's "ability that is
+	 * choosing Cloud" — shared by the activation gate in {@link #canActivateAbility} and the
+	 * resolution in {@code GameContextImpl}, as {@link #choosingOnlyOwnForward} is.
+	 *
+	 * <p>By identity, and against the targets as they stand now ({@link #liveTargets}): a target
+	 * whose card has left the field no longer names it. Unlike "only 1", an entry choosing
+	 * {@code card} among others still qualifies; one that chose nothing does not.
+	 */
+	Predicate<StackEntry> stackEntryChoosing(CardData card) {
+		return entry -> {
+			List<ForwardTarget> chosen = liveTargets(entry, false);
+			return chosen != null && chosen.stream().anyMatch(t -> fieldCardDataOrNull(t) == card);
+		};
+	}
+
+	/**
 	 * The Forwards {@code userIsP1} controls that could legally become {@code entry}'s new target.
 	 *
 	 * <p>{@code element} narrows to one Element; {@code exclude} drops a card the text puts out of
@@ -16278,6 +16337,11 @@ public class MainWindow {
 		ActionResolver.ChoosingOnlyOwnForward onlyOwn = ActionResolver.cancelChoosingOnlyOwnForward(ability.effectText());
 		if (cancelFilter != null && onlyOwn != null) cancelFilter = cancelFilter.and(choosingOnlyOwnForward(onlyOwn, isP1));
 		if (cancelFilter != null && gameState.getStack().stream().noneMatch(cancelFilter)) return false;
+		// 30-076L Cloud's Punisher Mode, whose "ability that is choosing Cloud" is read off the board.
+		Predicate<StackEntry> choosingSelf = ActionResolver.opponentAbilityChoosingSelf(ability.effectText(), source, isP1);
+		if (choosingSelf != null
+				&& gameState.getStack().stream().noneMatch(choosingSelf.and(stackEntryChoosing(source))))
+			return false;
 		// Same reasoning for a redirect: with nothing on the stack choosing what the text names,
 		// activating only pays the cost.
 		TargetRedirect redirect = ActionResolver.targetRedirect(ability.effectText(), source);

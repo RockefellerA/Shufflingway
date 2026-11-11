@@ -580,6 +580,23 @@ final class ActionResolverPatterns {
         "\\.\\s*Cancel\\s+its\\s+effect[.!]?"
     );
     /**
+     * Matches 30-076L Cloud's Punisher Mode: "Choose 1 of your opponent's abilities that is
+     * choosing Cloud. Cancel its effect. Cloud deals your opponent 1 point of damage."
+     *
+     * <p>Not a {@link #CANCEL_ABILITY_ON_STACK}: "of your opponent's abilities" stands where that
+     * pattern wants the ability type, and the card the entry must be choosing is the source itself
+     * rather than one its controller controls. Anchored end to end, so the cancel and what follows
+     * it are claimed together or not at all.
+     * <ul>
+     *   <li>Group {@code self} — the card the cancelled ability must be choosing; the source's own name</li>
+     *   <li>Group {@code rest} — the effect after the cancel, absent when there is none</li>
+     * </ul>
+     */
+    static final Pattern CANCEL_OPPONENT_ABILITY_CHOOSING_SELF = Pattern.compile(
+        "(?i)^Choose\\s+1\\s+of\\s+your\\s+opponent's\\s+abilities\\s+that\\s+(?:is|are)\\s+choosing\\s+" +
+        "(?<self>[^.]+?)\\.\\s*Cancel\\s+its\\s+effect\\.(?:\\s+(?<rest>\\S.*?))?\\s*$"
+    );
+    /**
      * The {@code tgtFilter} of {@link #CANCEL_ABILITY_ON_STACK} when it reads "only 1 [Category N]
      * Forward you control" — 24-003H Cyan (Category VI), 25-110R Aerith (Category VII) and 26-110R
      * Sylvestre (any Forward). Matched against the whole group. Group {@code category}, absent for
@@ -11221,11 +11238,43 @@ final class ActionResolverPatterns {
      * something is a different effect, and read as a flat draw it ran as "Draw 1 card" whatever
      * the count came to (8-135H Ark). Refuses a ", then …" it does not read for the same reason:
      * 10-125H Leviathan's "then put 1 card from your hand on the top or bottom of your deck" was
-     * dropped, and it kept both cards.
+     * dropped, and it kept both cards. Refuses an " and …" for the same reason again: that is
+     * {@link #LEADING_DRAW_AND}'s, which reads the rest as well.
+     *
+     * <p>{@code cards?+} is possessive so the refusals hold for the plural: backing off to "card"
+     * would leave the lookaheads looking at "s for each" and "s and", which none of them refuse.
      */
     static final Pattern DRAW_CARDS = Pattern.compile(
-        "(?i)^Draw\\s+(\\d+)\\s+cards?(?!\\s+for\\s+each\\b)(?![,.]?\\s*then\\s+(?!discard\\b))" +
+        "(?i)^Draw\\s+(\\d+)\\s+cards?+(?!\\s+for\\s+each\\b)(?![,.]?\\s*then\\s+(?!discard\\b))(?!\\s+and\\b)" +
         "(?:\\s*[,.]?\\s*then\\s+discard\\s+(\\d+)\\s+cards?)?[.!]?"
+    );
+
+    /**
+     * Matches "Draw N card(s) and [effect]." — 13-119L Sophie's "draw 1 card and Sophie deals your
+     * opponent 1 point of damage", 21-133S's "draw 1 card and gain 《C》". Anchored end to end; the
+     * rest has to parse whole.
+     * <ul>
+     *   <li>Group {@code count} — cards drawn</li>
+     *   <li>Group {@code rest}  — the effect joined after the draw</li>
+     * </ul>
+     */
+    static final Pattern LEADING_DRAW_AND = Pattern.compile(
+        "(?i)^Draw\\s+(?<count>\\d+)\\s+cards?\\s+and\\s+(?<rest>\\S.*?)\\s*$"
+    );
+
+    /**
+     * Matches "If [condition], [effect]" where the condition holds no comma — the shape of the
+     * leading-condition gates whose condition {@link ActionResolver#parseDamageInsteadCondition}
+     * reads: 13-119L Sophie's "if Sophie has 10000 power or more, …", 7-010L Jecht's "if you have
+     * at least 2 points of damage more than your opponent, …". Which conditions a gate accepts is
+     * the gate's own decision.
+     * <ul>
+     *   <li>Group {@code cond}   — the condition, without "If" and the comma</li>
+     *   <li>Group {@code effect} — what it guards, which has to parse whole</li>
+     * </ul>
+     */
+    static final Pattern LEADING_CONDITION_GATE = Pattern.compile(
+        "(?i)^If\\s+(?<cond>[^,]+),\\s+(?<effect>\\S.*?)\\s*$"
     );
     /**
      * Matches "Discard N card(s)[,] then draw M card(s)".
@@ -11248,12 +11297,19 @@ final class ActionResolverPatterns {
      * text filled. The corpus's other seventy "damage to your opponent" texts are all the
      * <em>trigger</em> "when X deals damage to your opponent", which state no number and so cannot
      * satisfy this arm.
+     *
+     * <p>Group {@code subject} is read loosely here and checked by the parser
+     * ({@link ActionResolverDamage#namesTheDealer}): every printing names a card, so a subject that
+     * is no card name — 13-119L Sophie's "if Sophie has 10000 power or more, draw 1 card and
+     * Sophie" — is a condition or a second effect in front of the damage, not a dealer. An "also"
+     * after the name is not part of it: 19-138S Lightning's "Lightning also deals …".
      * <ul>
+     *   <li>Group {@code subject} — the card dealing the damage; absent for the imperative "Deal"</li>
      *   <li>Group {@code amount} / {@code amountTo} — damage points dealt to the opponent player</li>
      * </ul>
      */
     static final Pattern DEAL_PLAYER_DAMAGE_TO_OPPONENT = Pattern.compile(
-        "(?i)^(?:(?:.+?\\s+deals?|Deal)\\s+your\\s+opponent\\s+(?<amount>\\d+)\\s+points?\\s+of\\s+damage" +
+        "(?i)^(?:(?:(?<subject>.+?)(?:\\s+also)?\\s+deals?|Deal)\\s+your\\s+opponent\\s+(?<amount>\\d+)\\s+points?\\s+of\\s+damage" +
         "|Deal\\s+(?<amountTo>\\d+)\\s+points?\\s+of\\s+damage\\s+to\\s+your\\s+opponent)[.!]?$"
     );
     /**

@@ -415,13 +415,22 @@ public record CardData(
                 character);
     }
 
-    /** One "N active [Element] [Category X] [Job Y] Forward(s) [you control]" clause of {@link #ALT_COST_DULL}. */
+    /**
+     * One "N active [Element] [Category X] [Job Y] Forward(s)|Monster(s) [you control]" clause of
+     * {@link #ALT_COST_DULL}. Group {@code type} is the printed card type — Forwards for Nine
+     * 13-123L, Monsters for 30-111H Gau's "1 active Wind Monster you control".
+     *
+     * <p>A Job may stand without a card type — 30-085R Lucielle Ovis's "1 active Job King you
+     * control" — and then names a Character of that Job, Forward or Backup alike: group
+     * {@code anyjob} holds it, and {@code type} is absent.
+     */
     private static final Pattern ALT_DULL_REQUIREMENT = Pattern.compile(
         "(?i)^(?<count>\\d+)\\s+active\\s+" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
-        "(?:Job\\s+(?<job>[A-Za-z][A-Za-z\\s'\\-]*?)\\s+)?" +
-        "Forwards?(?:\\s+you\\s+control)?$"
+        "(?:(?:Job\\s+(?<job>[A-Za-z][A-Za-z\\s'\\-]*?)\\s+)?(?<type>Forward|Monster)s?" +
+        "|Job\\s+(?<anyjob>[A-Za-z][A-Za-z\\s'\\-]*?))" +
+        "(?:\\s+you\\s+control)?$"
     );
 
     /** Parses one "N Element Type" requirement phrase from a BZ-removal list. */
@@ -824,9 +833,11 @@ public record CardData(
     public int altCpCost() { return altCpElements().size(); }
 
     /**
-     * The Forwards this card's alternate cast cost dulls, in printed order, or an empty list when
-     * it has no such cost. {@link DullForwardCost} is reused rather than mirrored, so eligibility
-     * and payment follow the rules already written for ability costs.
+     * The cards this card's alternate cast cost dulls, in printed order, or an empty list when it
+     * has no such cost. {@link DullForwardCost} is reused rather than mirrored, so eligibility
+     * and payment follow the rules already written for ability costs. The card type is the
+     * printed one, {@code "Forward"} or {@code "Monster"}; a clause with none reads as
+     * {@code "Character"}, which the payment takes from the Backup row as well.
      *
      * <p>A clause that fails to parse voids the whole list: a partial reading would understate the
      * cost and let the card be cast for less than it prints.
@@ -838,9 +849,11 @@ public record CardData(
         for (String clause : m.group("reqs").split("(?i)\\s+and\\s+")) {
             Matcher r = ALT_DULL_REQUIREMENT.matcher(clause.trim());
             if (!r.find()) return List.of();
-            String job = r.group("job");
+            String type = r.group("type");
+            String job = type != null ? r.group("job") : r.group("anyjob");
             out.add(new DullForwardCost(Integer.parseInt(r.group("count")), "", r.group("element"),
-                    null, job != null ? job.trim() : null, r.group("category"), "Forward"));
+                    null, job != null ? job.trim() : null, r.group("category"),
+                    type == null ? "Character" : "Monster".equalsIgnoreCase(type) ? "Monster" : "Forward"));
         }
         return List.copyOf(out);
     }

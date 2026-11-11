@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.ToIntFunction;
 import java.util.regex.Matcher;
@@ -60,6 +61,58 @@ final class ActionResolverGate {
             }
             ctx.logEntry("Effect: " + name + " is " + stateLabel + " — " + innerText);
             inner.accept(ctx);
+        };
+    }
+
+    /**
+     * "if [Self] has N power or more, [effect]" — 13-119L Sophie's end-of-turn payoff. The power is
+     * the source's own, read off its slot by identity; a Sophie that has left the field has none,
+     * and an opposing Sophie in a mirror match is not this one.
+     */
+    static Consumer<GameContext> tryParseIfSelfPowerAtLeastGate(String text, CardData source, int xValue) {
+        if (source == null) return null;
+        return leadingConditionGate(text, source, xValue, cond ->
+                cond instanceof DamageInsteadCondition.NamedPowerAtLeast np
+                        && np.name().equalsIgnoreCase(source.name())
+                        ? ctx -> {
+                            ForwardTarget slot = ctx.fieldSlotOf(source);
+                            return slot != null && ctx.effectiveTargetPower(slot) >= np.min();
+                        }
+                        : null);
+    }
+
+    /** "if you have at least N points of damage more than your opponent, [effect]" — 7-010L Jecht. */
+    static Consumer<GameContext> tryParseIfDamageLeadGate(String text, CardData source, int xValue) {
+        return leadingConditionGate(text, source, xValue, cond ->
+                cond instanceof DamageInsteadCondition.DamageLeadAtLeast lead
+                        ? ctx -> insteadConditionMet(ctx, lead) : null);
+    }
+
+    /**
+     * The body both leading-condition gates share: {@link ActionResolverPatterns#LEADING_CONDITION_GATE},
+     * its condition read by {@code parseDamageInsteadCondition} — the reading the "instead" upgrades
+     * use, so the wording means one thing everywhere — and its effect parsed whole. {@code test}
+     * turns a condition this gate owns into the check made at resolution, or {@code null} for one
+     * it does not, which declines the text.
+     */
+    private static Consumer<GameContext> leadingConditionGate(String text, CardData source, int xValue,
+            Function<DamageInsteadCondition, Predicate<GameContext>> test) {
+        Matcher m = LEADING_CONDITION_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        String condText = m.group("cond").trim();
+        DamageInsteadCondition cond = bindConditionToSource(parseDamageInsteadCondition(condText), source);
+        Predicate<GameContext> met = cond == null ? null : test.apply(cond);
+        if (met == null) return null;
+        String effectText = m.group("effect").trim();
+        Consumer<GameContext> effect = parse(effectText, source, xValue);
+        if (effect == null) return null;
+        return ctx -> {
+            if (!met.test(ctx)) {
+                ctx.logEntry("Effect: " + condText + " — not met, skipped");
+                return;
+            }
+            ctx.logEntry("Effect: " + condText + " — " + effectText);
+            effect.accept(ctx);
         };
     }
 

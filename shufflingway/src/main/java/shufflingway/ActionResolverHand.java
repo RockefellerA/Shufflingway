@@ -348,6 +348,25 @@ final class ActionResolverHand {
             if (n > 0) ctx.drawCards(n);
         };
     }
+    /**
+     * "Draw N card(s) and [effect]." — 13-119L Sophie's "draw 1 card and Sophie deals your opponent
+     * 1 point of damage", 21-133S's "draw 1 card and gain 《C》". The draw, then the rest, which has
+     * to parse whole for either to be claimed; {@link ActionResolverPatterns#DRAW_CARDS} refuses
+     * the " and " tail, so this is the one reading of it.
+     */
+    static Consumer<GameContext> tryParseLeadingDrawAnd(String text, CardData source, int xValue) {
+        Matcher m = LEADING_DRAW_AND.matcher(text.trim());
+        if (!m.matches()) return null;
+        int drawCount = Integer.parseInt(m.group("count"));
+        Consumer<GameContext> then = parse(m.group("rest").trim(), source, xValue);
+        if (then == null) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Draw " + drawCount + " card(s)");
+            ctx.drawCards(drawCount);
+            then.accept(ctx);
+        };
+    }
+
     static Consumer<GameContext> tryParseDrawCards(String text) {
         Matcher m = DRAW_CARDS.matcher(text);
         if (!m.find()) return null;

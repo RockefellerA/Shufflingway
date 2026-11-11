@@ -380,10 +380,17 @@ class RemoteOpponent implements OpponentController {
 	}
 
 	private boolean altPaymentFits(AltPayment alt, CardData card) {
-		for (int idx : alt.dullForwards()) {
-			if (idx < 0 || idx >= mw.p2ForwardCards.size()) {
-				mw.reportDesync("opponent dulled Forward " + idx + " to cast \"" + card.name()
-						+ "\", but their field holds " + mw.p2ForwardCards.size() + " here");
+		for (ForwardTarget t : alt.dulled()) {
+			boolean ok = switch (t.zone()) {
+				case FORWARD -> t.idx() >= 0 && t.idx() < mw.p2ForwardCards.size();
+				case BACKUP  -> t.idx() >= 0 && t.idx() < mw.p2BackupCards.length
+						&& mw.p2BackupCards[t.idx()] != null;
+				case MONSTER -> t.idx() >= 0 && t.idx() < mw.p2MonsterCards.size();
+				case BREAK_ZONE -> false;
+			};
+			if (!ok) {
+				mw.reportDesync("opponent dulled " + t.zone() + " " + t.idx() + " to cast \"" + card.name()
+						+ "\", but no such card is there here");
 				return false;
 			}
 		}
@@ -1243,36 +1250,44 @@ class RemoteOpponent implements OpponentController {
 	 * Packs an alternate cast's payment for the wire.
 	 *
 	 * <p>Every index addresses the payer's own zones and so crosses unchanged, the same as the
-	 * hand and Backup indices beside it. The put-into-Break-Zone targets travel as zone and slot
-	 * without a side: a card handed over as a cost is always one its own controller had, so the
-	 * receiver reads them against the board it holds that player on.
+	 * hand and Backup indices beside it. The dulled and put-into-Break-Zone cards travel as zone
+	 * and slot without a side: a card handed over as a cost is always one its own controller had,
+	 * so the receiver reads them against the board it holds that player on.
 	 */
 	private static JSONObject encodeAltPayment(AltPayment alt) {
-		JSONArray putToBz = new JSONArray();
-		for (ForwardTarget t : alt.putToBz())
-			putToBz.put(new JSONObject().put("idx", t.idx()).put("zone", t.zone().name()));
 		return new JSONObject()
 				.put("crystals", alt.crystals())
-				.put("dull", new JSONArray(alt.dullForwards()))
+				.put("dull", encodeZoneSlots(alt.dulled()))
 				.put("removeBackups", new JSONArray(alt.removeBackups()))
-				.put("putToBz", putToBz)
+				.put("putToBz", encodeZoneSlots(alt.putToBz()))
 				.put("bzRemovals", new JSONArray(alt.bzRemovals()));
+	}
+
+	/** {@code targets} as {@code [{ "idx": n, "zone": "FORWARD" }, ...]}, with no side. */
+	private static JSONArray encodeZoneSlots(List<ForwardTarget> targets) {
+		JSONArray out = new JSONArray();
+		for (ForwardTarget t : targets)
+			out.put(new JSONObject().put("idx", t.idx()).put("zone", t.zone().name()));
+		return out;
 	}
 
 	/** Unpacks {@link #encodeAltPayment} against {@code isP1}'s side of this client's board. */
 	private static AltPayment decodeAltPayment(JSONObject alt, boolean isP1) {
-		List<ForwardTarget> putToBz = new ArrayList<>();
-		JSONArray rawPut = alt.optJSONArray("putToBz");
-		if (rawPut != null) {
-			for (int i = 0; i < rawPut.length(); i++) {
-				JSONObject t = rawPut.getJSONObject(i);
-				putToBz.add(new ForwardTarget(isP1, t.getInt("idx"),
-						ForwardTarget.CardZone.valueOf(t.getString("zone"))));
-			}
-		}
 		return new AltPayment(alt.optInt("crystals", 0),
-				jsonInts(alt, "dull"), jsonInts(alt, "removeBackups"),
-				putToBz, jsonInts(alt, "bzRemovals"));
+				decodeZoneSlots(alt, "dull", isP1), jsonInts(alt, "removeBackups"),
+				decodeZoneSlots(alt, "putToBz", isP1), jsonInts(alt, "bzRemovals"));
+	}
+
+	/** {@link #encodeZoneSlots}'s array under {@code key}, on {@code isP1}'s side; empty when absent. */
+	private static List<ForwardTarget> decodeZoneSlots(JSONObject payload, String key, boolean isP1) {
+		JSONArray raw = payload.optJSONArray(key);
+		if (raw == null) return List.of();
+		List<ForwardTarget> out = new ArrayList<>(raw.length());
+		for (int i = 0; i < raw.length(); i++) {
+			JSONObject t = raw.getJSONObject(i);
+			out.add(new ForwardTarget(isP1, t.getInt("idx"), ForwardTarget.CardZone.valueOf(t.getString("zone"))));
+		}
+		return out;
 	}
 
 	/** The integers in {@code payload}'s {@code key} array, or an empty list when it is absent. */

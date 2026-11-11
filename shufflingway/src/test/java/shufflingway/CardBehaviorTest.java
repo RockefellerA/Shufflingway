@@ -48978,14 +48978,16 @@ public class CardBehaviorTest {
 	@Test
 	void anAlternateCastCarriesEverythingItHandedOver() {
 		CardData card = makeForward("Cast Me", "Wind", 2, 5000);
-		AltPayment paid = new AltPayment(2, List.of(1), List.of(3),
-				List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER)), List.of(4));
+		AltPayment paid = new AltPayment(2, List.of(new ForwardTarget(true, 1, ForwardTarget.CardZone.BACKUP)),
+				List.of(3), List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER)), List.of(4));
 
 		JSONObject alt = RemoteOpponent.playCardAction(card, 0, List.of(), List.of(),
 				Map.of(), List.of(), Map.of(), paid).payload().getJSONObject("alt");
 
 		assertEquals(2, alt.getInt("crystals"));
-		assertEquals(1, alt.getJSONArray("dull").getInt(0));
+		assertEquals(1, alt.getJSONArray("dull").getJSONObject(0).getInt("idx"));
+		assertEquals("BACKUP", alt.getJSONArray("dull").getJSONObject(0).getString("zone"),
+				"a dulled card names its row: 30-085R Lucielle Ovis's King may be a Backup");
 		assertEquals(3, alt.getJSONArray("removeBackups").getInt(0));
 		assertEquals(4, alt.getJSONArray("bzRemovals").getInt(0));
 		assertEquals("MONSTER", alt.getJSONArray("putToBz").getJSONObject(0).getString("zone"));
@@ -49018,8 +49020,8 @@ public class CardBehaviorTest {
 		mw.gameState.getIdentity().put(cast, false);
 		mw.gameState.getP2Hand().add(cast);
 
-		AltPayment paid = new AltPayment(2, List.of(0), List.of(1),
-				List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER)), List.of());
+		AltPayment paid = new AltPayment(2, List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD)),
+				List.of(1), List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER)), List.of());
 		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(cast, 0, List.of(),
 				List.of(), Map.of(), List.of(), Map.of(), paid));
 
@@ -74770,6 +74772,539 @@ public class CardBehaviorTest {
 		assertTrue(mw.p2ForwardCards.contains(zack), "the gate is shut, so there is nothing to pay");
 	}
 
+	@Test
+	void aSoldierBackupShutsZacksGateToo() {
+		// "a Job SOLDIER" names no card type, so a Backup counts. One Backup cannot raise 《3》, so
+		// had the gate stayed open he would have gone to the Break Zone.
+		MainWindow mw = new MainWindow();
+		TestCards.placeP2Backup(mw, makeJobCard("Kunsel", "Lightning", "Backup", "SOLDIER"));
+		CardData zack = zackResolvesBeside(mw, 0);
+		assertTrue(mw.p2ForwardCards.contains(zack));
+		assertEquals(CardState.ACTIVE, mw.p2BackupStates[0], "nothing was paid");
+	}
+
+	@Test
+	void anOpponentsSoldierLeavesZacksGateOpen() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeJobCard("Cloud", "Wind", "Forward", "SOLDIER"));
+		CardData zack = zackResolvesBeside(mw, 0);
+		assertTrue(mw.gameState.getP2BreakZone().contains(zack), "\"you control\": a SOLDIER across the table is not his");
+	}
+
+	// 30-077R Zack's second auto ability: "When Zack enters the field, choose 1 Forward. Deal it 4000
+	// damage." Read off the printed text as a whole, so the two triggers are told apart by position.
+
+	private static final String ZACK_30_077R_FULL = ZACK_30_077R
+			+ "[[br]]When Zack enters the field, choose 1 Forward. Deal it 4000 damage.";
+
+	private static CardData zack30() {
+		return dealt("Zack", "Lightning", "Forward", 1, 8000, "SOLDIER", "VII", ZACK_30_077R_FULL);
+	}
+
+	@Test
+	void zacksPrintedTextIsTwoSeparateArrivalTriggers() {
+		List<AutoAbility> autos = zack30().autoAbilities();
+		assertEquals(2, autos.size());
+		assertEquals("enters the field", autos.get(0).trigger());
+		assertEquals("enters the field", autos.get(1).trigger());
+		assertTrue(autos.get(0).effectText().startsWith("if you don't control a Job SOLDIER"));
+		assertEquals("choose 1 Forward. Deal it 4000 damage.", autos.get(1).effectText());
+	}
+
+	@Test
+	void zacksArrivalDeals4000DamageToTheChosenForward() {
+		MainWindow broken = new MainWindow();
+		CardData four = makeForward("Four", "Fire", 2, 4000);
+		placeP1Forward(broken, four);
+		resolveAutoAs(broken, false, zack30(), 1);
+		assertTrue(broken.gameState.getP1BreakZone().contains(four), "4000 damage breaks a 4000-power Forward");
+
+		MainWindow survives = new MainWindow();
+		CardData five = makeForward("Five", "Fire", 3, 5000);
+		placeP1Forward(survives, five);
+		resolveAutoAs(survives, false, zack30(), 1);
+		assertTrue(survives.p1ForwardCards.contains(five));
+		assertEquals(4000, survives.p1ForwardDamage.get(0), "and leaves a 5000-power one standing with it");
+	}
+
+	// =========================================================================================
+	// 30-076L Cloud: "When Cloud enters the field, Cloud gains "Cloud cannot be broken." until the
+	// end of your opponent's turn. / At the beginning of Main Phase 1 during each of your turns, you
+	// may play 1 Character of cost 3 or less from your hand onto the field. / Punisher Mode 《S》:
+	// Choose 1 of your opponent's abilities that is choosing Cloud. Cancel its effect. Cloud deals
+	// your opponent 1 point of damage." (Board behaviour.)
+	//
+	// The shield is 29-058R Ardyn's, tested in full with him. Punisher Mode is a cancel before it is
+	// damage: it cannot be used without an opposing ability choosing Cloud on the Stack, it cancels
+	// that one only, and the point of damage follows.
+	// =========================================================================================
+
+	private static final String CLOUD_30_076L = "When Cloud enters the field, Cloud gains \"Cloud cannot be broken.\" "
+			+ "until the end of your opponent's turn.[[br]]At the beginning of Main Phase 1 during each of your turns, "
+			+ "you may play 1 Character of cost 3 or less from your hand onto the field.[[br]][[s]]Punisher Mode[[/]] "
+			+ "《S》: Choose 1 of your opponent's abilities that is choosing Cloud. Cancel its effect. Cloud deals your "
+			+ "opponent 1 point of damage.";
+
+	private static CardData cloud30() {
+		return dealt("Cloud", "Lightning", "Forward", 4, 9000, "Rider", "VII", CLOUD_30_076L);
+	}
+
+	/** {@link #cloud30} on P1's field, his arrival trigger held back, and another Cloud in hand for his 《S》. */
+	private static CardData cloudOnP1Field(MainWindow mw) {
+		CardData cloud = cloud30();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP1Forward(mw, cloud);
+		CardData spare = makeForward("Cloud", "Wind", 2, 5000);
+		mw.gameState.getIdentity().put(spare, true);
+		mw.gameState.getP1Hand().add(spare);
+		return cloud;
+	}
+
+	/** {@link #cloud30} on P2's field, his arrival trigger held back, with {@code hand} in P2's hand. */
+	private static CardData cloudOnP2FieldHolding(MainWindow mw, CardData... hand) {
+		CardData cloud = cloud30();
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, cloud);
+		for (CardData c : hand) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2Hand().add(c);
+		}
+		return cloud;
+	}
+
+	private static boolean canUsePunisherMode(MainWindow mw, CardData cloud) {
+		return mw.canActivateAbility(cloud.actionAbilities().get(0), false, CardState.ACTIVE, 0, cloud, true);
+	}
+
+	@Test
+	void cloudsTextIsTwoAutoAbilitiesAndASpecialThatCancels() {
+		CardData cloud = cloud30();
+		assertEquals(List.of("enters the field", "beginning of main phase 1"),
+				cloud.autoAbilities().stream().map(AutoAbility::trigger).toList());
+		ActionAbility punisher = cloud.actionAbilities().get(0);
+		assertTrue(punisher.isSpecial());
+		assertEquals("Punisher Mode", punisher.abilityName());
+		assertEquals("CancelOpponentAbilityChoosingSelf", ActionResolver.matchedPatternName(punisher.effectText(), cloud),
+				"a cancel, not a point of damage on its own");
+		assertEquals("CancelOpponentAbilityChoosingSelf + DealPlayerDamageToOpponent",
+				ActionResolver.fullDescription(punisher.effectText(), cloud));
+	}
+
+	@Test
+	void cloudCannotBeBrokenUntilTheEndOfHisOpponentsTurn() {
+		MainWindow mw = new MainWindow();
+		CardData cloud = cloudOnP1Field(mw);
+		resolveAutoAs(mw, true, cloud, 0);
+		int idx = mw.p1ForwardCards.indexOf(cloud);
+
+		mw.p1ForwardTempTraits.forEach(EnumSet::clear);
+		assertTrue(mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN), "his own end phase does not end it");
+
+		mw.turnPhases().runP2EndOfTurnCleanup();
+		assertFalse(mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN), "his opponent's does");
+	}
+
+	@Test
+	void atHisMainPhase1CloudPlaysACharacterOfCostThreeOrLess() {
+		MainWindow mw = new MainWindow();
+		CardData four   = makeForward("Four", "Fire", 4, 8000);
+		CardData backup = makePlainBackup("Three", "Lightning", 3);
+		cloudOnP2FieldHolding(mw, four, backup);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1(false);
+		resolveStack(mw);
+
+		assertSame(backup, mw.p2BackupCards[0], "a Backup is a Character too");
+		assertEquals(List.of(four), mw.gameState.getP2Hand(), "cost 4 is more than 3");
+	}
+
+	@Test
+	void cloudPlaysNothingAtHisOpponentsMainPhase1() {
+		MainWindow mw = new MainWindow();
+		CardData backup = makePlainBackup("Three", "Lightning", 3);
+		cloudOnP2FieldHolding(mw, backup);
+
+		// What the start of P1's Main Phase 1 fires: P1's own triggers, and both sides' each-turn ones.
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1(true);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1EachTurn();
+		resolveStack(mw);
+
+		assertEquals(List.of(backup), mw.gameState.getP2Hand(), "\"during each of your turns\"");
+	}
+
+	@Test
+	void punisherModeNeedsAnOpposingAbilityThatIsChoosingCloud() {
+		MainWindow mw = new MainWindow();
+		CardData cloud = cloudOnP1Field(mw);                        // P1 idx 0
+		placeP1Forward(mw, makeForward("Tifa", "Earth", 3, 7000));  // P1 idx 1
+		assertFalse(canUsePunisherMode(mw, cloud), "nothing on the Stack");
+
+		p2AbilityChoosing(mw, p1Fwd(1));
+		assertFalse(canUsePunisherMode(mw, cloud), "choosing Tifa, not Cloud");
+
+		ActionAbility deal = CardData.parseActionAbilities("《1》: Choose 1 Forward. Deal it 5000 damage.").get(0);
+		mw.gameState.pushStack(new StackEntry(makeForward("Ally", "Fire", 3, 7000), deal, true, 0, List.of(p1Fwd(0))));
+		assertFalse(canUsePunisherMode(mw, cloud), "his own side's ability is not his opponent's");
+
+		mw.gameState.pushStack(summonChoosing(makeSummon("Ramuh", "Lightning", 3, ""), false, p1Fwd(0)));
+		assertFalse(canUsePunisherMode(mw, cloud), "a Summon is not an ability");
+
+		p2AbilityChoosing(mw, p1Fwd(1), p1Fwd(0));
+		assertTrue(canUsePunisherMode(mw, cloud), "choosing Cloud among others is still choosing Cloud");
+	}
+
+	@Test
+	void punisherModeCancelsTheAbilityChoosingCloudAndDealsOnePointOfDamage() {
+		MainWindow mw = new MainWindow();
+		CardData cloud = cloudOnP1Field(mw);                        // P1 idx 0
+		placeP1Forward(mw, makeForward("Tifa", "Earth", 3, 7000));  // P1 idx 1
+		stackP2Deck(mw, makeForward("Top", "Wind", 2, 5000));
+		StackEntry atTifa  = p2AbilityChoosing(mw, p1Fwd(1));
+		StackEntry atCloud = p2AbilityChoosing(mw, p1Fwd(0));
+
+		ActionResolver.parse(cloud.actionAbilities().get(0).effectText(), cloud).accept(mw.buildGameContext(true));
+
+		// A cancelled entry on top of the Stack is taken off as soon as the Stack is next shown,
+		// which the point of damage does, so the cancel is read off what it left behind.
+		assertTrue(mw.gameState.getStack().stream().noneMatch(e -> e == atCloud), "the ability choosing Cloud is gone");
+		assertEquals(0, mw.p1ForwardDamage.get(0), "without dealing Cloud its 5000 damage");
+		assertTrue(mw.gameState.getStack().stream().anyMatch(e -> e == atTifa),
+				"only an ability choosing Cloud is in reach: Tifa's still waits to resolve");
+		assertFalse(mw.cancelledStackEntries.contains(atTifa));
+		assertEquals(1, mw.gameState.getP2DamageZone().size(), "Cloud deals your opponent 1 point of damage");
+	}
+
+	// =========================================================================================
+	// What stands in front of "[Name] deals your opponent N point(s) of damage". (Board behaviour.)
+	//
+	// 13-119L Sophie: "At the end of each of your turns, if Sophie has 10000 power or more, draw 1
+	//   card and Sophie deals your opponent 1 point of damage."
+	// 7-010L Jecht: "When Jecht enters the field, if you have at least 2 points of damage more than
+	//   your opponent, Jecht deals your opponent 1 point of damage."
+	// 21-133S Tidus: "When a Forward opponent controls is returned from the field to its owner's
+	//   hand, draw 1 card and gain 《C》."
+	//
+	// The damage reading takes no subject but its own card's name, so a condition or a second
+	// effect cannot pass for the dealer. Each condition has a gate of its own, and "draw N card(s)
+	// and …" reads both halves or neither.
+	// =========================================================================================
+
+	private static final String SOPHIE_13_119L = "For each Earth Forward other than Sophie you control, Sophie gains "
+			+ "+2000 power.[[br]]For each Water Forward other than Sophie you control, Sophie gains +2000 power.[[br]]"
+			+ "At the end of each of your turns, if Sophie has 10000 power or more, draw 1 card and Sophie deals your "
+			+ "opponent 1 point of damage.";
+	private static final String JECHT_7_010L = "If you have received 4 points of damage or more, the cost for playing "
+			+ "Jecht onto the field is reduced by 4.[[br]]When Jecht enters the field, if you have at least 2 points of "
+			+ "damage more than your opponent, Jecht deals your opponent 1 point of damage.";
+	private static final String TIDUS_21_133S = "[[ex]]EX BURST[[/]] When Tidus enters the field, choose 1 Forward "
+			+ "opponent controls. Return it to its owner's hand.[[br]]When a Forward opponent controls is returned from the "
+			+ "field to its owner's hand, draw 1 card and gain 《C》. This effect will trigger only once per turn.";
+
+	private static CardData sophie13() {
+		return dealt("Sophie", "Earth/Water", "Forward", 2, 4000, "Monk", "MOBIUS", SOPHIE_13_119L);
+	}
+
+	/** {@code sophie} on {@code isP1}'s field beside {@code earthAllies} other Earth Forwards, each +2000 to her. */
+	private static void seatSophie(MainWindow mw, boolean isP1, CardData sophie, int earthAllies) {
+		List<CardData> cards = new ArrayList<>(List.of(sophie));
+		for (int i = 0; i < earthAllies; i++) cards.add(makeForward("Ally " + i, "Earth", 2, 5000));
+		for (CardData c : cards) {
+			if (isP1) placeP1Forward(mw, c);
+			else      placeP2Forward(mw, c);
+		}
+	}
+
+	/** P2's Sophie beside {@code earthAllies} other Earth Forwards; her end-of-turn ability then resolves. */
+	private static MainWindow sophieResolvesBeside(int earthAllies) {
+		MainWindow mw = new MainWindow();
+		CardData sophie = sophie13();
+		seatSophie(mw, false, sophie, earthAllies);
+		stackP2Deck(mw, makeForward("Drawn", "Wind", 2, 5000));
+		stackP1Deck(mw, makeForward("Flipped", "Wind", 2, 5000));
+		resolveAutoAs(mw, false, sophie, 0);
+		return mw;
+	}
+
+	@Test
+	void sophieDrawsAndDealsOneDamageAtTenThousandPower() {
+		MainWindow mw = sophieResolvesBeside(3);   // 4000 + 3 × 2000
+		assertEquals(1, mw.gameState.getP2Hand().size(), "draw 1 card");
+		assertEquals(1, mw.gameState.getP1DamageZone().size(), "and Sophie deals your opponent 1 point of damage");
+	}
+
+	@Test
+	void sophieDoesNeitherBelowTenThousandPower() {
+		MainWindow mw = sophieResolvesBeside(2);   // 8000
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "the draw is under the condition too");
+		assertTrue(mw.gameState.getP1DamageZone().isEmpty());
+	}
+
+	@Test
+	void sophieAsksAboutHerOwnPowerNotAnOpposingSophies() {
+		// Two copies of one printing are equal records; the gate finds her by identity.
+		MainWindow mw = new MainWindow();
+		CardData theirs = sophie13();
+		CardData mine   = sophie13();
+		seatSophie(mw, true, theirs, 3);    // P1's Sophie at 10000
+		seatSophie(mw, false, mine, 0);     // P2's at 4000
+		stackP2Deck(mw, makeForward("Drawn", "Wind", 2, 5000));
+		stackP1Deck(mw, makeForward("Flipped", "Wind", 2, 5000));
+
+		resolveAutoAs(mw, false, mine, 0);
+
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+		assertTrue(mw.gameState.getP1DamageZone().isEmpty());
+	}
+
+	/** P2's Jecht arriving with P2 on {@code own} points of damage and P1 on {@code theirs}. */
+	private static MainWindow jechtArrivesAt(int own, int theirs) {
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < own; i++)    mw.gameState.getP2DamageZone().add(makeForward("P2 Damage " + i, "Fire", 2, 5000));
+		for (int i = 0; i < theirs; i++) mw.gameState.getP1DamageZone().add(makeForward("P1 Damage " + i, "Fire", 2, 5000));
+		stackP1Deck(mw, makeForward("Flipped", "Wind", 2, 5000));
+		resolveAutoAs(mw, false, dealt("Jecht", "Fire", "Forward", 5, 9000, "Guardian", "DFF", JECHT_7_010L), 0);
+		return mw;
+	}
+
+	@Test
+	void jechtsArrivalIsHisOnlyAutoAbility() {
+		List<AutoAbility> autos = dealt("Jecht", "Fire", "Forward", 5, 9000, "Guardian", "DFF", JECHT_7_010L).autoAbilities();
+		assertEquals(1, autos.size(), "the cost reduction is not an auto ability");
+		assertEquals("enters the field", autos.get(0).trigger());
+	}
+
+	@Test
+	void jechtDealsOneDamageWithALeadOfTwoOrMore() {
+		assertEquals(2, jechtArrivesAt(3, 1).gameState.getP1DamageZone().size(), "a lead of exactly 2");
+		assertEquals(2, jechtArrivesAt(5, 1).gameState.getP1DamageZone().size(), "a lead of 4");
+	}
+
+	@Test
+	void jechtDealsNothingWithALeadOfLessThanTwo() {
+		assertEquals(1, jechtArrivesAt(2, 1).gameState.getP1DamageZone().size(), "a lead of 1");
+		assertEquals(3, jechtArrivesAt(1, 3).gameState.getP1DamageZone().size(), "behind");
+		assertEquals(0, jechtArrivesAt(0, 0).gameState.getP1DamageZone().size(), "level");
+	}
+
+	@Test
+	void tidusDrawsAndGainsACrystalWhenAnOpposingForwardIsReturned() {
+		MainWindow mw = new MainWindow();
+		stackP2Deck(mw, makeForward("Drawn", "Wind", 2, 5000));
+		int crystals = mw.gameState.getP2Crystals();
+
+		resolveAutoAs(mw, false, dealt("Tidus", "Wind", "Forward", 5, 9000, "Guardian/Blitzballer", "DFF", TIDUS_21_133S), 1);
+
+		assertEquals(1, mw.gameState.getP2Hand().size(), "draw 1 card");
+		assertEquals(crystals + 1, mw.gameState.getP2Crystals(), "and gain 《C》");
+	}
+
+	@Test
+	void theDamageReadingTakesACardNameAsTheDealer() {
+		CardData sophie = makeForward("Sophie", "Earth", 2, 4000);
+		assertEquals("DealPlayerDamageToOpponent",
+				ActionResolver.matchedPatternName("Sophie deals your opponent 1 point of damage.", sophie));
+		assertEquals("DealPlayerDamageToOpponent",
+				ActionResolver.matchedPatternName("Sophie also deals your opponent 1 point of damage.", sophie),
+				"19-138S Lightning's \"also\" is not part of the name");
+		assertNotNull(ActionResolver.parse("Bahamut deals your opponent 1 point of damage.", sophie),
+				"an auto-ability copied onto another card resolves with that card as its source");
+		assertNull(ActionResolver.parse("if Sophie is singing, Sophie deals your opponent 1 point of damage.", sophie),
+				"an unread condition leaves the sentence unread rather than dropped");
+	}
+
+	@Test
+	void whatStandsInFrontOfTheDamageIsNoDealer() {
+		CardData sophie = makeForward("Sophie", "Earth", 2, 4000);
+		assertFalse(ActionResolverDamage.namesTheDealer("draw 1 card and Sophie", sophie));
+		assertFalse(ActionResolverDamage.namesTheDealer("Draw 1 card and Sophie", sophie), "a clause, capitalised or not");
+		assertFalse(ActionResolverDamage.namesTheDealer("Cloud. Cancel its effect. Cloud", sophie));
+		assertFalse(ActionResolverDamage.namesTheDealer(
+				"if you have at least 2 points of damage more than your opponent, Jecht", sophie));
+
+		for (String name : List.of("Warrior of Light", "Semblance of a Lion", "Man in Black",
+				"White Tiger l'Cie Qun'mi", "Ifrit (XVI)", "Balthier & Fran"))
+			assertTrue(ActionResolverDamage.namesTheDealer(name, sophie), name);
+
+		// A name with clause punctuation in it is read as one only as its own card's.
+		CardData wroth = makeForward("Adrammelech, the Wroth", "Fire", 6, 9000);
+		assertFalse(ActionResolverDamage.namesTheDealer("Adrammelech, the Wroth", sophie));
+		assertTrue(ActionResolverDamage.namesTheDealer("Adrammelech, the Wroth", wroth));
+	}
+
+	@Test
+	void aDrawJoinedToAnEffectItCannotReadIsNotADrawOnItsOwn() {
+		CardData any = makeForward("Any", "Wind", 2, 5000);
+		assertNull(ActionResolver.parse("Draw 1 card and sing a song.", any));
+		assertNull(ActionResolver.parse("Draw 2 cards and sing a song.", any), "\"cards\" cannot back off to \"card\"");
+		assertEquals("DrawCards", ActionResolver.matchedPatternName("Draw 2 cards.", any));
+	}
+
+	@Test
+	void theSelfDamageConditionDoesNotReadItsOwnOpposite() {
+		assertEquals(new DamageInsteadCondition.YouReceivedDamageAtLeast(6),
+				ActionResolver.parseDamageInsteadCondition("you have received 6 points of damage or more"));
+		assertEquals(new DamageInsteadCondition.YouReceivedDamageAtLeast(6),
+				ActionResolver.parseDamageInsteadCondition("you have received 6 points of damage"), "16-140S Sin's bare form");
+		assertNull(ActionResolver.parseDamageInsteadCondition("you have received 5 points of damage or less"),
+				"a ceiling is not a floor");
+
+		// The ceilings the corpus prints have gates of their own: 16-020L Luso, 18-078R Cindy,
+		// 25-005H Ace, 29-013H Bahamut.
+		assertEquals("IfSelfDamageAtMost", ActionResolver.matchedPatternName(
+				"if you have received 5 points of damage or less, draw 1 card.", makeForward("Luso", "Fire", 3, 7000)));
+		assertEquals("IfOpponentDamageAtMost", ActionResolver.matchedPatternName(
+				"if your opponent has received 5 points of damage or less, Ace deals your opponent 1 point of damage.",
+				makeForward("Ace", "Fire", 3, 7000)));
+	}
+
+	// =========================================================================================
+	// A condition on the opponent's hand in front of an effect that reads on its own. (Board
+	// behaviour.)
+	//
+	// 19-033C Lean: "When Lean enters the field, if your opponent has 1 card or less in their hand,
+	//   you may search for 1 card and add it to your hand."
+	// 8-034R Scale Toad: "At the end of your opponent's turn, if your opponent has 2 cards or more in
+	//   his/her hand, your opponent discards 1 card from his/her hand." 25-022C Edward prints the
+	//   same gate at 3.
+	//
+	// The two hand gates are dispatched ahead of the search and discard readers, which take the
+	// effect with find() and would run it whatever the hand held.
+	// =========================================================================================
+
+	private static final String LEAN_19_033C = "When Lean enters the field, if your opponent has 1 card or less in "
+			+ "their hand, you may search for 1 card and add it to your hand.";
+	private static final String SCALE_TOAD_8_034R = "At the end of your opponent's turn, if your opponent has 2 cards "
+			+ "or more in his/her hand, your opponent discards 1 card from his/her hand.";
+	private static final String EDWARD_25_022C = "When Edward enters the field, choose up to 2 Characters opponent "
+			+ "controls. If your opponent has 1 card or less in their hand, dull them and Freeze them.[[br]]When Edward "
+			+ "enters the field, if your opponent has 3 cards or more in their hand, your opponent discards 1 card.";
+
+	private static void fillHand(MainWindow mw, boolean isP1, int cards) {
+		for (int i = 0; i < cards; i++) {
+			CardData c = makeForward("Held " + i, "Fire", 2, 5000);
+			mw.gameState.getIdentity().put(c, isP1);
+			(isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand()).add(c);
+		}
+	}
+
+	/**
+	 * Lean's arrival against a mocked board: the opponent holds {@code oppHand} cards and every "you
+	 * may" is taken. Not a board test — the CPU declines every optional effect, so a CPU Lean would
+	 * search nothing either way and could not tell a met condition from a declined search.
+	 */
+	private static GameContext leanResolvesAgainst(int oppHand) {
+		CardData lean = dealt("Lean", "Ice", "Backup", 3, 0, "Scientist", "TYPE-0", LEAN_19_033C);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.opponentHandSize()).thenReturn(oppHand);
+		when(ctx.promptYouMay(anyString())).thenReturn(true);
+		ActionResolver.parse(lean.autoAbilities().get(0).effectText(), lean).accept(ctx);
+		return ctx;
+	}
+
+	/** Whether {@code ctx} was asked to search, under any of the search's overloads. */
+	private static boolean searched(GameContext ctx) {
+		return mockingDetails(ctx).getInvocations().stream()
+				.anyMatch(i -> i.getMethod().getName().equals("searchDeckForCard"));
+	}
+
+	@Test
+	void leanSearchesWhileTheOpponentHoldsOneCardOrNone() {
+		assertTrue(searched(leanResolvesAgainst(1)), "1 card or less");
+		assertTrue(searched(leanResolvesAgainst(0)));
+	}
+
+	@Test
+	void leanDoesNotSearchAgainstTwoCards() {
+		GameContext ctx = leanResolvesAgainst(2);
+		assertFalse(searched(ctx));
+		verify(ctx, never()).promptYouMay(anyString());
+	}
+
+	/** P1's {@code card} resolving auto ability {@code index} while P2 holds {@code oppHand} cards. */
+	private static MainWindow opponentHoldingResolves(int oppHand, CardData card, int index) {
+		MainWindow mw = new MainWindow();
+		fillHand(mw, false, oppHand);
+		resolveAutoAs(mw, true, card, index);
+		return mw;
+	}
+
+	@Test
+	void scaleToadsOpponentDiscardsFromTwoCardsAndKeepsALastOne() {
+		CardData toad = dealt("Scale Toad", "Ice", "Monster", 3, 0, "Frog", "FFCC", SCALE_TOAD_8_034R);
+		assertEquals(1, opponentHoldingResolves(2, toad, 0).gameState.getP2Hand().size(), "2 cards or more: discard 1");
+		assertEquals(1, opponentHoldingResolves(1, toad, 0).gameState.getP2Hand().size(), "1 card is fewer than 2");
+	}
+
+	@Test
+	void edwardsOpponentDiscardsOnlyFromThreeCards() {
+		CardData edward = dealt("Edward", "Ice", "Backup", 3, 0, "King/Bard", "IV", EDWARD_25_022C);
+		assertEquals(2, opponentHoldingResolves(3, edward, 1).gameState.getP2Hand().size());
+		assertEquals(2, opponentHoldingResolves(2, edward, 1).gameState.getP2Hand().size(), "2 cards is fewer than 3");
+	}
+
+	// =========================================================================================
+	// 15-061H Lehko Habhoka: "At the end of each of your turns, if you have cast 3 or 4 cards this
+	// turn, you may put Lehko Habhoka into the Break Zone. If you do so, search for 1 Character of
+	// cost 4 or less and play it onto the field. / … if you have cast 5 or more cards this turn, …
+	// cost 8 or less …" (Board behaviour.)
+	//
+	// Run by the trigger layer's ConditionGateMay shape, not by parse(): the shape gates on the cast
+	// count, then hands "put Lehko Habhoka into the Break Zone. If you do so, …" to the inline table,
+	// which pays before it searches. Driven through the real end-of-turn trigger for that reason.
+	// =========================================================================================
+
+	private static final String LEHKO_15_061H = "At the end of each of your turns, if you have cast 3 or 4 cards this "
+			+ "turn, you may put Lehko Habhoka into the Break Zone. If you do so, search for 1 Character of cost 4 or "
+			+ "less and play it onto the field.[[br]]At the end of each of your turns, if you have cast 5 or more cards "
+			+ "this turn, you may put Lehko Habhoka into the Break Zone. If you do so, search for 1 Character of cost 8 "
+			+ "or less and play it onto the field.";
+
+	/** P2's Lehko Habhoka at the end of a turn P2 cast {@code cast} cards on, a cost-4 and a cost-8 Forward in the deck. */
+	private static MainWindow lehkoEndsATurnHavingCast(int cast, CardData lehko) {
+		MainWindow mw = new MainWindow();
+		TestCards.placeP2Backup(mw, lehko);
+		stackP2Deck(mw, makeForward("Eight", "Wind", 8, 9000), makeForward("Four", "Wind", 4, 8000));
+		mw.turn(false).cardsCastThisTurn = cast;
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false);
+		resolveStack(mw);
+		return mw;
+	}
+
+	private static CardData lehko15() {
+		return dealt("Lehko Habhoka", "Wind", "Backup", 4, 0, "Military Advisor", "XI", LEHKO_15_061H);
+	}
+
+	private static List<String> p2ForwardNames(MainWindow mw) {
+		return mw.p2ForwardCards.stream().map(CardData::name).toList();
+	}
+
+	@Test
+	void lehkoTradesHimselfForACostFourCharacterAtThreeOrFourCast() {
+		for (int cast : new int[] { 3, 4 }) {
+			CardData lehko = lehko15();
+			MainWindow mw = lehkoEndsATurnHavingCast(cast, lehko);
+			assertTrue(mw.gameState.getP2BreakZone().contains(lehko), cast + " cast: Lehko pays with himself");
+			assertEquals(List.of("Four"), p2ForwardNames(mw), cast + " cast: cost 4 or less");
+		}
+	}
+
+	@Test
+	void lehkoReachesCostEightAtFiveCast() {
+		CardData lehko = lehko15();
+		MainWindow mw = lehkoEndsATurnHavingCast(5, lehko);
+		assertTrue(mw.gameState.getP2BreakZone().contains(lehko));
+		assertEquals(1, mw.p2ForwardCards.size(), "one search: at 5 the lower tier is out of reach");
+	}
+
+	@Test
+	void lehkoStaysAndSearchesNothingBelowThreeCast() {
+		CardData lehko = lehko15();
+		MainWindow mw = lehkoEndsATurnHavingCast(2, lehko);
+		assertSame(lehko, mw.p2BackupCards[0], "neither condition is met, so nothing is paid");
+		assertTrue(mw.p2ForwardCards.isEmpty());
+		assertEquals(2, mw.gameState.getP2MainDeck().size());
+	}
+
 	// =========================================================================================
 	// 30-026R Zenos: "When Zenos enters the field, choose 1 Forward you control or 1 Job Warrior of
 	// Light Forward opponent controls. Break it." (Board behaviour.)
@@ -75185,6 +75720,214 @@ public class CardBehaviorTest {
 		assertTrue(mw.p1ForwardCards.contains(seph));
 		assertEquals(List.of(cloud), mw.gameState.getP1BreakZone());
 		assertTrue(mw.gameState.getP1PermanentRfp().containsAll(List.of(first, second)), "removed from the game");
+	}
+
+	// =========================================================================================
+	// 30-085R Lucielle Ovis: "You can dull 1 active Job King you control (instead of paying the CP
+	// cost) to cast Lucielle Ovis." (Board behaviour.) Nine 13-123L's dull alternate cost with no
+	// card type printed, so the King is any Character — and a King is as often a Backup as a Forward.
+	// =========================================================================================
+
+	private static final String LUCIELLE_30_085R = "You can dull 1 active Job King you control (instead of paying "
+			+ "the CP cost) to cast Lucielle Ovis.[[br]]《Dull》: Choose 1 Category FFBE Forward. It gains Haste until "
+			+ "the end of the turn.";
+
+	private static CardData lucielle30() {
+		return dealt("Lucielle Ovis", "Lightning", "Forward", 3, 7000, "Princess", "FFBE", LUCIELLE_30_085R);
+	}
+
+	private static CardData kingBackup() {
+		return makeJobCard("King Tycoon", "Wind", "Backup", "King");
+	}
+
+	@Test
+	void luciellesAlternateCostIsOneActiveKingOfAnyCardType() {
+		CardData lucielle = lucielle30();
+		List<DullForwardCost> costs = lucielle.altDullCosts();
+		assertEquals(1, costs.size());
+		assertEquals(1, costs.get(0).count());
+		assertEquals("King", costs.get(0).job(), "the Job runs to \"you control\" when no type follows it");
+		assertEquals("Character", costs.get(0).cardType());
+		assertNull(costs.get(0).element());
+		assertTrue(lucielle.altCpElements().isEmpty(), "instead of paying the CP cost: no CP at all");
+		assertTrue(lucielle.fieldAbilities().isEmpty(), "a cost, not a field ability");
+		assertEquals(1, lucielle.actionAbilities().size(), "her 《Dull》 ability is read beside it");
+	}
+
+	@Test
+	void anActiveKingOnEitherRowPaysForLucielle() {
+		MainWindow forward = new MainWindow();
+		placeP1Forward(forward, makeJobCard("Roghza Ovis", "Lightning", "Forward", "King"));
+		assertTrue(forward.canPayAltDullCost(lucielle30()));
+
+		MainWindow backup = new MainWindow();
+		TestCards.placeP1Backup(backup, kingBackup());
+		assertTrue(backup.canPayAltDullCost(lucielle30()), "no type is printed, so a King Backup counts");
+	}
+
+	@Test
+	void aDullKingOrAnotherJobDoesNotPayForLucielle() {
+		assertFalse(new MainWindow().canPayAltDullCost(lucielle30()), "no King at all");
+
+		MainWindow dull = new MainWindow();
+		TestCards.placeP1Backup(dull, kingBackup());
+		dull.p1BackupStates[0] = CardState.DULL;
+		assertFalse(dull.canPayAltDullCost(lucielle30()), "the cost names an active King");
+
+		MainWindow offJob = new MainWindow();
+		placeP1Forward(offJob, makeJobCard("Nyx", "Lightning", "Forward", "Kingsglaive"));
+		TestCards.placeP1Backup(offJob, makeJobCard("Sarah", "Light", "Backup", "Princess"));
+		assertFalse(offJob.canPayAltDullCost(lucielle30()), "a Kingsglaive is not a King");
+	}
+
+	@Test
+	void lucielleIsAffordableWithAKingAndNoCp() {
+		MainWindow mw = new MainWindow();
+		assertFalse(mw.costs.canAffordAltCost(lucielle30(), -1));
+		TestCards.placeP1Backup(mw, kingBackup());
+		assertTrue(mw.costs.canAffordAltCost(lucielle30(), -1));
+	}
+
+	@Test
+	void luciellesAlternateCastDullsTheKingAndPlaysHer() {
+		MainWindow mw = new MainWindow();
+		TestCards.placeP1Backup(mw, kingBackup());
+		CardData lucielle = lucielle30();
+		mw.gameState.getIdentity().put(lucielle, true);
+		mw.gameState.getP1Hand().add(lucielle);
+
+		mw.executeAltPlay(true, lucielle, 0,
+				new AltPayment(0, List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP)),
+						List.of(), List.of(), List.of()),
+				List.of(), List.of(), Map.of(), null, false);
+
+		assertTrue(mw.p1ForwardCards.contains(lucielle));
+		assertEquals(CardState.DULL, mw.p1BackupStates[0], "the King paid for her");
+		assertTrue(mw.gameState.getP1Hand().isEmpty());
+	}
+
+	@Test
+	void anOpponentsLucielleDullsTheKingOnTheRowThePaymentNames() {
+		// Slot 0 is a Forward on one row and the King on the other: the payment carries the row.
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Bystander", "Fire", 2, 5000));
+		TestCards.placeP2Backup(mw, kingBackup());
+		CardData lucielle = lucielle30();
+		mw.gameState.getIdentity().put(lucielle, false);
+		mw.gameState.getP2Hand().add(lucielle);
+
+		AltPayment paid = new AltPayment(0, List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP)),
+				List.of(), List.of(), List.of());
+		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(lucielle, 0, List.of(),
+				List.of(), Map.of(), List.of(), Map.of(), paid));
+
+		assertEquals(CardState.DULL, mw.p2BackupStates[0]);
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0), "the Forward in slot 0 was not the payment");
+		assertTrue(mw.p2ForwardCards.contains(lucielle));
+	}
+
+	// =========================================================================================
+	// 30-111H Gau: "You can dull 1 active Wind Monster you control and 1 active Earth Monster you
+	// control (instead of paying the CP cost) to cast Gau." (Board behaviour.) Nine 13-123L's two
+	// clauses, paid off the Monster row.
+	// =========================================================================================
+
+	private static final String GAU_30_111H_ALT_COST = "You can dull 1 active Wind Monster you control and 1 active "
+			+ "Earth Monster you control (instead of paying the CP cost) to cast Gau.";
+
+	private static CardData gau30() {
+		return dealt("Gau", "Wind/Earth", "Forward", 5, 8000, "Wild Child", "VI", GAU_30_111H_ALT_COST);
+	}
+
+	private static CardData p1Monster(MainWindow mw, String name, String element) {
+		CardData monster = TestCards.makeMonster(name, element, 2);
+		TestCards.placeP1Monster(mw, monster);
+		return monster;
+	}
+
+	@Test
+	void gausAlternateCostIsAWindMonsterAndAnEarthMonster() {
+		List<DullForwardCost> costs = gau30().altDullCosts();
+		assertEquals(2, costs.size(), "one clause per Element");
+		assertEquals("Wind", costs.get(0).element());
+		assertEquals("Earth", costs.get(1).element());
+		assertTrue(costs.stream().allMatch(c -> c.count() == 1 && "Monster".equals(c.cardType())));
+		assertTrue(gau30().altCpElements().isEmpty(), "instead of paying the CP cost: no CP at all");
+	}
+
+	@Test
+	void gauNeedsAnActiveMonsterOfEachElement() {
+		MainWindow both = new MainWindow();
+		p1Monster(both, "Ahriman", "Wind");
+		p1Monster(both, "Goblin", "Earth");
+		assertTrue(both.canPayAltDullCost(gau30()));
+
+		MainWindow windOnly = new MainWindow();
+		p1Monster(windOnly, "Ahriman", "Wind");
+		p1Monster(windOnly, "Zu", "Wind");
+		assertFalse(windOnly.canPayAltDullCost(gau30()), "two Wind Monsters leave the Earth clause unpaid");
+
+		MainWindow earthForward = new MainWindow();
+		p1Monster(earthForward, "Ahriman", "Wind");
+		placeP1Forward(earthForward, makeForward("Golem", "Earth", 3, 7000));
+		assertFalse(earthForward.canPayAltDullCost(gau30()), "an Earth Forward is not an Earth Monster");
+
+		MainWindow dull = new MainWindow();
+		p1Monster(dull, "Ahriman", "Wind");
+		p1Monster(dull, "Goblin", "Earth");
+		dull.p1MonsterStates.set(1, CardState.DULL);
+		assertFalse(dull.canPayAltDullCost(gau30()), "the cost names active Monsters");
+	}
+
+	@Test
+	void oneWindEarthMonsterCannotPayBothOfGausClauses() {
+		MainWindow mw = new MainWindow();
+		p1Monster(mw, "Chimera", "Wind/Earth");
+		assertFalse(mw.canPayAltDullCost(gau30()), "it matches either clause, but it can only be dulled once");
+
+		p1Monster(mw, "Ahriman", "Wind");
+		assertTrue(mw.canPayAltDullCost(gau30()), "the Wind Monster frees it for Earth");
+	}
+
+	@Test
+	void gausAlternateCastDullsBothMonstersAndPlaysHim() {
+		MainWindow mw = new MainWindow();
+		p1Monster(mw, "Ahriman", "Wind");
+		p1Monster(mw, "Goblin", "Earth");
+		CardData gau = gau30();
+		mw.gameState.getIdentity().put(gau, true);
+		mw.gameState.getP1Hand().add(gau);
+
+		mw.executeAltPlay(true, gau, 0, new AltPayment(0, List.of(
+						new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER),
+						new ForwardTarget(true, 1, ForwardTarget.CardZone.MONSTER)),
+						List.of(), List.of(), List.of()),
+				List.of(), List.of(), Map.of(), null, false);
+
+		assertTrue(mw.p1ForwardCards.contains(gau));
+		assertEquals(List.of(CardState.DULL, CardState.DULL), mw.p1MonsterStates);
+	}
+
+	@Test
+	void anOpponentsGauDullsTheMonstersOnTheirOwnRow() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Bystander", "Fire", 2, 5000));
+		for (CardData m : List.of(TestCards.makeMonster("Ahriman", "Wind", 2), TestCards.makeMonster("Goblin", "Earth", 2))) {
+			mw.gameState.getIdentity().put(m, false);
+			mw.placeP2CardInMonsterZone(m);
+		}
+		CardData gau = gau30();
+		mw.gameState.getIdentity().put(gau, false);
+		mw.gameState.getP2Hand().add(gau);
+
+		AltPayment paid = new AltPayment(0, List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER),
+				new ForwardTarget(true, 1, ForwardTarget.CardZone.MONSTER)), List.of(), List.of(), List.of());
+		inboundOnly(mw).onActionReceived(RemoteOpponent.playCardAction(gau, 0, List.of(),
+				List.of(), Map.of(), List.of(), Map.of(), paid));
+
+		assertEquals(List.of(CardState.DULL, CardState.DULL), mw.p2MonsterStates);
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0), "the Forward in slot 0 was not the payment");
+		assertTrue(mw.p2ForwardCards.contains(gau));
 	}
 
 	// =========================================================================================

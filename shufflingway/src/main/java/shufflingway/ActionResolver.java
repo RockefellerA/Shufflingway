@@ -564,6 +564,24 @@ public class ActionResolver {
         result = tryParseIfSelfIsStateGate(effectText, source, xValue);
         if (result != null) return claim("IfSelfIsStateGate", result);
 
+        // Ahead of the damage and draw matchers for IfEachPlayerEmptyHand's reason: read alone, the
+        // effect these guard runs whether or not the condition holds.
+        result = tryParseIfSelfPowerAtLeastGate(effectText, source, xValue);
+        if (result != null) return claim("IfSelfPowerAtLeastGate", result);
+
+        result = tryParseIfDamageLeadGate(effectText, source, xValue);
+        if (result != null) return claim("IfDamageLeadGate", result);
+
+        // The opponent's hand size, both ways. Must precede OpponentDiscard and SearchDeck, which
+        // would take the effect these guard with find() and drop the condition — 19-033C Lean's
+        // search, 8-034R's discard. Must follow SelectFollowingActions, which reads 13-028L's modal
+        // text opening on the same condition.
+        result = tryParseConditionalOpponentHand(effectText, source, xValue);
+        if (result != null) return claim("ConditionalOpponentHand", result);
+
+        result = tryParseConditionalOpponentHandMin(effectText, source, xValue);
+        if (result != null) return claim("ConditionalOpponentHandMin", result);
+
         result = tryParseIfControlCondOtherThan(effectText, source, xValue);
         if (result != null) return claim("IfControlCondOtherThan", result);
 
@@ -1037,6 +1055,11 @@ public class ActionResolver {
 
         result = tryParseDelayedReturnSelfFromBreakZone(effectText, source);
         if (result != null) return claim("DelayedReturnSelfFromBreakZone", result);
+
+        // Must precede DealPlayerDamageToOpponent, whose subject would run across both of this
+        // text's earlier sentences and deal Cloud's damage with nothing cancelled.
+        result = tryParseCancelOpponentAbilityChoosingSelf(effectText, source);
+        if (result != null) return claim("CancelOpponentAbilityChoosingSelf", result);
 
         result = tryParseCancelAbilityOnStack(effectText);
         if (result != null) return claim("CancelAbilityOnStack", result);
@@ -1839,6 +1862,9 @@ public class ActionResolver {
         result = tryParseDrawPerTypeDiscardedToCast(effectText, source);
         if (result != null) return claim("DrawPerTypeDiscardedToCast", result);
 
+        result = tryParseLeadingDrawAnd(effectText, source, xValue);
+        if (result != null) return claim("LeadingDrawAnd", result);
+
         result = tryParseDrawCards(effectText);
         if (result != null) return claim("DrawCards", result);
 
@@ -1877,7 +1903,7 @@ public class ActionResolver {
         result = tryParseDiscardThenDraw(effectText);
         if (result != null) return claim("DiscardThenDraw", result);
 
-        result = tryParseDealPlayerDamageToOpponent(effectText);
+        result = tryParseDealPlayerDamageToOpponent(effectText, source);
         if (result != null) return claim("DealPlayerDamageToOpponent", result);
 
         // Ahead of both halves' own parsers: DealPlayerDamageToSelf and PlayFromHand each read one
@@ -2398,12 +2424,6 @@ public class ActionResolver {
                 return new Dispatch("SentenceFallback",
                         ctx -> consumers.forEach(c -> c.accept(ctx)), List.copyOf(composed));
         }
-
-        result = tryParseConditionalOpponentHand(effectText, source, xValue);
-        if (result != null) return claim("ConditionalOpponentHand", result);
-
-        result = tryParseConditionalOpponentHandMin(effectText, source, xValue);
-        if (result != null) return claim("ConditionalOpponentHandMin", result);
 
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return claim("HasAllElements", ctx -> {});
 
@@ -3240,6 +3260,29 @@ public class ActionResolver {
             // Same normalisation the parser applied, so the report names the clause that ran.
             return describeOrName(baseTxt, source) + " + " + gate
                     + describeOrName(gateTailText(tailTxt, source, 0), source) + ")";
+        }
+        // The condition named, the effect it guards described inside it.
+        if (site.equals("IfSelfPowerAtLeastGate") || site.equals("IfDamageLeadGate")) {
+            Matcher lcg = LEADING_CONDITION_GATE.matcher(effectText.trim());
+            if (!lcg.matches()) return site;
+            DamageInsteadCondition c = parseDamageInsteadCondition(lcg.group("cond").trim());
+            String gate = c instanceof DamageInsteadCondition.NamedPowerAtLeast np ? "IfSelfPowerAtLeast(" + np.min()
+                    : c instanceof DamageInsteadCondition.DamageLeadAtLeast lead ? "IfDamageLeadAtLeast(" + lead.min()
+                    : null;
+            if (gate == null) return site;
+            return gate + "+: " + describeOrName(lcg.group("effect").trim(), source) + ")";
+        }
+        // The draw, and what is joined to it described.
+        if (site.equals("LeadingDrawAnd")) {
+            Matcher lda = LEADING_DRAW_AND.matcher(effectText.trim());
+            if (!lda.matches()) return "LeadingDrawAnd";
+            return "DrawCards + " + describeOrName(lda.group("rest").trim(), source);
+        }
+        // The cancel named, and what follows it described.
+        if (site.equals("CancelOpponentAbilityChoosingSelf")) {
+            Matcher coa = CANCEL_OPPONENT_ABILITY_CHOOSING_SELF.matcher(effectText.trim());
+            if (!coa.matches() || coa.group("rest") == null) return "CancelOpponentAbilityChoosingSelf";
+            return "CancelOpponentAbilityChoosingSelf + " + describeOrName(coa.group("rest").trim(), source);
         }
         // The condition named, the effect it guards described inside it.
         if (site.equals("ForwardsAttackingThisTurnGate")) {
@@ -4605,10 +4648,12 @@ public class ActionResolver {
         // because 16-140S Sin prints the bare form, and it means the same thing: damage is never
         // removed, and a seventh point ends the game, so "6 points" and "6 or more" name one state.
         // Nothing below this line reads the bare wording, so admitting it only turns a declined
-        // condition into a read one.
+        // condition into a read one. Anchored at both ends because of that optional tail: "N
+        // points of damage or less" is the opposite condition, and an unanchored match read it as
+        // this one. That ceiling is IfSelfDamageAtMost's (16-020L Luso, 18-078R Cindy).
         Matcher selfDmgM = Pattern
-                .compile("(?i)you have received (\\d+) points? of damage(?: or more)?").matcher(s);
-        if (selfDmgM.find())
+                .compile("(?i)^you have received (\\d+) points? of damage(?: or more)?$").matcher(s);
+        if (selfDmgM.matches())
             return new DamageInsteadCondition.YouReceivedDamageAtLeast(Integer.parseInt(selfDmgM.group(1)));
 
         // Opponent damage count: "your opponent has received N points of damage or more"
@@ -4768,6 +4813,10 @@ public class ActionResolver {
 
         if (s.matches("(?i)you\\s+have\\s+received\\s+more\\s+points\\s+of\\s+damage\\s+than\\s+your\\s+opponent"))
             return new DamageInsteadCondition.YouHaveMoreDamageThanOpponent();
+
+        Matcher leadM = Pattern.compile("(?i)^you\\s+have\\s+at\\s+least\\s+(\\d+)\\s+points?\\s+of\\s+damage\\s+"
+                + "more\\s+than\\s+your\\s+opponent$").matcher(s);
+        if (leadM.matches()) return new DamageInsteadCondition.DamageLeadAtLeast(Integer.parseInt(leadM.group(1)));
 
         // Own field, a ceiling: "you control N or less Backups"
         Matcher atMostM = Pattern.compile("(?i)^you\\s+control\\s+(\\d+)\\s+or\\s+(?:less|fewer)\\s+"
@@ -5476,6 +5525,8 @@ public class ActionResolver {
                 ctx.fieldForwardPowerByName(name) >= min;
             case DamageInsteadCondition.YouHaveMoreDamageThanOpponent() ->
                 ctx.selfDamageCount() > ctx.opponentDamageCount();
+            case DamageInsteadCondition.DamageLeadAtLeast(int min) ->
+                ctx.selfDamageCount() - ctx.opponentDamageCount() >= min;
             // The Break Zone count ANDs its two filters, so "and/or" is read by inclusion-exclusion:
             // the name, plus the Job, less the cards that are both and were counted twice.
             case DamageInsteadCondition.BreakZoneJobOrNameAtLeast(int min, String job, String name) ->
@@ -7086,6 +7137,46 @@ public class ActionResolver {
             ctx.cancelFilteredAbilityOnStack(narrowed == null ? filter : filter.and(narrowed),
                     prompt, requiresControllerTarget);
         };
+    }
+
+    /**
+     * "Choose 1 of your opponent's abilities that is choosing [Self]. Cancel its effect. [rest]" —
+     * 30-076L Cloud's Punisher Mode. The entry cancelled is an ability of the opponent's, never a
+     * Summon, one of whose targets is the source card itself; the rest (Cloud's 1 point of
+     * damage) follows the cancel, and has to parse for any of it to be claimed.
+     *
+     * <p>Which entries qualify is asked the same way here and by the activation gate in
+     * {@link MainWindow#canActivateAbility}: {@link #opponentAbilityChoosingSelf} for the kind and
+     * side, {@link GameContext#stackEntryChoosing} for whether it is choosing the source.
+     */
+    private static Consumer<GameContext> tryParseCancelOpponentAbilityChoosingSelf(String text, CardData source) {
+        if (source == null || opponentAbilityChoosingSelf(text, source, true) == null) return null;
+        Matcher m = CANCEL_OPPONENT_ABILITY_CHOOSING_SELF.matcher(text.trim());
+        if (!m.matches()) return null;
+        String rest = m.group("rest");
+        Consumer<GameContext> then = rest == null ? null : parse(rest, source);
+        if (rest != null && then == null) return null;
+        String prompt = "Choose 1 of your opponent's abilities choosing " + source.name() + " to cancel:";
+        return ctx -> {
+            ctx.logEntry("Effect: Cancel an opponent's ability choosing " + source.name());
+            Predicate<StackEntry> filter = opponentAbilityChoosingSelf(text, source, ctx.isP1());
+            Predicate<StackEntry> choosing = ctx.stackEntryChoosing(source);
+            ctx.cancelFilteredAbilityOnStack(choosing == null ? filter : filter.and(choosing), prompt, false);
+            if (then != null) then.accept(ctx);
+        };
+    }
+
+    /**
+     * The Stack entries {@link #tryParseCancelOpponentAbilityChoosingSelf} may cancel, as far as the
+     * entry alone can say — abilities, not Summons, of {@code cancellerIsP1}'s opponent — or
+     * {@code null} when {@code effectText} is not that cancel naming {@code source}. Whether an
+     * entry is choosing the source is a question for the board ({@link MainWindow#stackEntryChoosing}).
+     */
+    static Predicate<StackEntry> opponentAbilityChoosingSelf(String effectText, CardData source, boolean cancellerIsP1) {
+        if (effectText == null || source == null) return null;
+        Matcher m = CANCEL_OPPONENT_ABILITY_CHOOSING_SELF.matcher(effectText.trim());
+        if (!m.matches() || !namesSource(m.group("self"), source)) return null;
+        return parseAbilityTypeFilter("ability").and(e -> e.isP1() != cancellerIsP1);
     }
 
     /**

@@ -81,7 +81,8 @@ public enum ActionType {
     // ── Card actions ──────────────────────────────────────────────────────────
     PLAY_CARD,      // payload: { "handIdx": n, "card": "...", "discards": [idx, ...],
                     //            "backups": [slot, ...], "backupElements": { "slot": "Fire" },
-                    //            "alt": { "crystals": n, "dull": [slot, ...],
+                    //            "alt": { "crystals": n,
+                    //                     "dull": [{ "idx": n, "zone": "BACKUP" }, ...],
                     //                     "removeBackups": [slot, ...],
                     //                     "putToBz": [{ "idx": n, "zone": "FORWARD" }, ...],
                     //                     "bzRemovals": [idx, ...] },

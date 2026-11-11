@@ -17,7 +17,9 @@ import java.util.List;
  *
  * @param crystals      Crystals spent, which the card's own {@code altCrystalCost} prices — carried
  *                      anyway so a payment is one object rather than a payload field and a lookup
- * @param dullForwards  Forward slots dulled (Nine 13-123L and the Summon printings beside it)
+ * @param dulled        field cards dulled, as zone and slot (Nine 13-123L and the Summon printings
+ *                      beside it on the Forward row, 30-085R Lucielle Ovis's King on either row,
+ *                      30-111H Gau's Monsters)
  * @param removeBackups Backup slots removed from the game (Ifrit 25-004H and its five counterparts)
  * @param putToBz       field cards handed to the Break Zone, whether to buy the play outright
  *                      (Kefka 4-080L) or to reduce its cost (Kain 9-084H) — the two are paid the
@@ -26,12 +28,12 @@ import java.util.List;
  *                      resolved to indices by the payer rather than re-matched by the receiver so
  *                      that both clients remove the same cards even if their Break Zones disagree
  */
-public record AltPayment(int crystals, List<Integer> dullForwards, List<Integer> removeBackups,
+public record AltPayment(int crystals, List<ForwardTarget> dulled, List<Integer> removeBackups,
         List<ForwardTarget> putToBz, List<Integer> bzRemovals) {
 
     /** Defensive copies, so a caller cannot mutate a payment after it has been applied or sent. */
     public AltPayment {
-        dullForwards  = dullForwards  == null ? List.of() : List.copyOf(dullForwards);
+        dulled        = dulled        == null ? List.of() : List.copyOf(dulled);
         removeBackups = removeBackups == null ? List.of() : List.copyOf(removeBackups);
         putToBz       = putToBz       == null ? List.of() : List.copyOf(putToBz);
         bzRemovals    = bzRemovals    == null ? List.of() : List.copyOf(bzRemovals);
@@ -50,7 +52,7 @@ public record AltPayment(int crystals, List<Integer> dullForwards, List<Integer>
 
     /** Whether anything at all was handed over, which decides if there is a board change to apply. */
     public boolean isEmpty() {
-        return crystals == 0 && dullForwards.isEmpty() && removeBackups.isEmpty()
+        return crystals == 0 && dulled.isEmpty() && removeBackups.isEmpty()
                 && putToBz.isEmpty() && bzRemovals.isEmpty();
     }
 }

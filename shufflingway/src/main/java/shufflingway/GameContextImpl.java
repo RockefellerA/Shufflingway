@@ -3500,6 +3500,10 @@ final class GameContextImpl implements GameContext {
 				return mw.choosingOnlyOwnForward(spec, isP1);
 			}
 
+			@Override public Predicate<StackEntry> stackEntryChoosing(CardData card) {
+				return mw.stackEntryChoosing(card);
+			}
+
 			@Override public StackEntry chooseAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt) {
 				StackEntry chosen = pickStackEntry(filter, prompt, "Choose Ability", "to choose");
 				if (chosen != null) logEntry("Chose " + chosen.source().name() + "'s ability on the stack");
