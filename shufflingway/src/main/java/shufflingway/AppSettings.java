@@ -273,7 +273,10 @@ public final class AppSettings {
         props.setProperty("gameplay.format.cpu", format.id());
     }
 
-    /** The {@link Theme} name chosen in Preferences, or {@code null} until one is (read as CLASSIC). */
+    /**
+     * The {@link Theme} name chosen in Preferences, or {@code null} until one is, which
+     * {@link Theme#saved()} reads as the OS's light or dark default.
+     */
     public static String getTheme() {
         return props.getProperty("appearance.theme");
     }
