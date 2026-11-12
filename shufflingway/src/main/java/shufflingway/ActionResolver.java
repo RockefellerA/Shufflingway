@@ -6667,6 +6667,16 @@ public class ActionResolver {
     }
 
     /**
+     * True when {@code effectText} is 28-071H Yang's "discard any number of cards. When you do so,
+     * …". The discard's own picker takes any number, none among them, and none is the decline — so,
+     * as with {@link #isPayOrElseGate}, a printed "you may" in front is no second choice, and callers
+     * must not put one.
+     */
+    public static boolean isDiscardAnyNumberOffer(String effectText) {
+        return effectText != null && DISCARD_ANY_NUMBER_THEN_CHOOSE_SAME_NUMBER.matcher(effectText.trim()).matches();
+    }
+
+    /**
      * Returns the card type (e.g. "Summon") when the effect text begins with a
      * "discard 1 &lt;Type&gt;" clause, or {@code null} if no such clause is present.
      * Used by {@code executeAutoAbility} to skip offering the "you may?" dialog

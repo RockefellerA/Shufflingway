@@ -5644,6 +5644,9 @@ public record CardData(
         // ability: the gate itself asks whether to pay, and the consequence lands either way. Left as
         // an optional ability, declining the prompt would skip the consequence too.
         if (youMay && ActionResolver.isPayOrElseGate(effect)) youMay = false;
+        // "You may discard any number of cards. When you do so, …" — 28-071H Yang. The discard picks
+        // its own number and none declines it, so asking first would put the one offer twice.
+        if (youMay && ActionResolver.isDiscardAnyNumberOffer(effect)) youMay = false;
         return new AutoAbility(card, trigger, youMay, opponentMay, effect,
                 oncePerTurn, yourTurnOnly, opponentTurnOnly, rfpConditionCard, bzConditionCard, bzConditionJob, castPaymentMinElements, castOnly, warpOnly, false, damageThreshold,
                 partyMinCount, partyCategory, partyJob, partyCardNames);

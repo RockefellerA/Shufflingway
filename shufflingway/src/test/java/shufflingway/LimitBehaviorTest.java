@@ -999,7 +999,6 @@ class LimitBehaviorTest {
 	@Test
 	void ardynPlaysFromTheLbDeckAndThenPaysWithATurnUp() {
 		GameContext ctx = mock(GameContext.class);
-		when(ctx.promptYouMay(anyString())).thenReturn(true);
 		when(ctx.playFaceDownLbCardOntoFieldDull("Ardyn")).thenReturn(true);
 
 		ActionResolver.parse(ARDYN_23_118H, null).accept(ctx);
@@ -1009,16 +1008,38 @@ class LimitBehaviorTest {
 	}
 
 	@Test
-	void decliningArdynTouchesTheLbDeckNotAtAll() {
-		// Asked before anything happens, and a decline has to leave no trace: a card arriving on
-		// the field is an event other abilities watch.
+	void ardynsEffectPutsNoQuestionOfItsOwn() {
+		// The "you may" is the trigger's, asked once as Ardyn goes to the Break Zone; a decline
+		// there keeps the ability off the Stack. A second question here would put one offer twice —
+		// to a player, and to the CPU, whose two answers need not agree.
 		GameContext ctx = mock(GameContext.class);
-		when(ctx.promptYouMay(anyString())).thenReturn(false);
+		when(ctx.playFaceDownLbCardOntoFieldDull("Ardyn")).thenReturn(true);
 
 		ActionResolver.parse(ARDYN_23_118H, null).accept(ctx);
 
-		verify(ctx, never()).playFaceDownLbCardOntoFieldDull(anyString());
-		verify(ctx, never()).turnOneFaceDownLbCardFaceUp();
+		verify(ctx, never()).promptYouMay(anyString());
+		verify(ctx).playFaceDownLbCardOntoFieldDull("Ardyn");
+	}
+
+	@Test
+	void aCpuArdynPlaysHisLbCopyWhenHeIsBroken() {
+		// Through the real trigger, so the one question left is the one asked: P2's Ardyn is
+		// broken by P1, passes through the Break Zone on his way back to the LB deck, his ability
+		// goes on the Stack, and the face-down copy comes out dull.
+		CardData ardyn = makeLbForward("Ardyn", "Fire", 6, 10000, 1, "Brave[[br]]When Ardyn is put from the "
+				+ "field into the Break Zone, you may play 1 face down Card Name Ardyn from your LB deck onto the "
+				+ "field dull. If you do so, turn 1 face down card in your LB deck face up.");
+		CardData copy = ardynLbCard();
+		MainWindow mw = withP2LbDeck(ardyn, copy);
+		mw.p2SpentLbIndices.add(0);   // the Ardyn on the field was cast, so his LB copy is face up
+		placeP2Forward(mw, ardyn);
+
+		resolveWhatQueues(mw, ardyn, () -> mw.buildGameContext(true)
+				.breakTarget(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+
+		assertEquals(List.of(copy), mw.p2ForwardCards, "Ardyn left the field, and the face-down copy came out");
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0));
+		assertTrue(mw.p2SpentLbIndices.contains(1), "the copy it played is spent");
 	}
 
 	@Test
@@ -1101,9 +1122,8 @@ class LimitBehaviorTest {
 	@Test
 	void ardynsPrintedTextReachesThatParserAsAPutIntoBreakZoneTrigger() {
 		// The seam between the card and the parser: the printed sentence has to arrive at the
-		// dispatcher as a break-zone trigger on Ardyn itself, with the "you may" lifted off — which
-		// is what leaves the effect body for ActionResolver to claim, and why the offer is put by
-		// the parser rather than by the trigger layer.
+		// dispatcher as a break-zone trigger on Ardyn itself, with the "you may" lifted off — the
+		// trigger layer puts that offer, and what is left is the effect body ActionResolver claims.
 		List<AutoAbility> autos = CardData.parseAutoAbilities(
 				"When Ardyn is put from the field into the Break Zone, you may play 1 face down "
 				+ "Card Name Ardyn from your LB deck onto the field dull. If you do so, turn 1 face "

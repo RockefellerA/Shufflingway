@@ -47539,6 +47539,37 @@ public class CardBehaviorTest {
 		assertFalse(mw.p2Turn.discardedByEffectThisTurn);
 	}
 
+	private static final String YANG_28_071H_PRINTED = "You can only pay with CP produced by Backups to cast Yang."
+			+ "[[br]]When Yang enters the field, you may discard any number of cards. When you do so, choose up to "
+			+ "the same number of Forwards opponent controls as the discarded cards. Deal them 9000 damage.";
+
+	@Test
+	void yangsPrintedYouMayIsNotASecondOffer() {
+		// "Any number" includes none, so the discard's own picker is the choice and declining it is
+		// discarding nothing. Read as an optional ability as well, the trigger would ask first — one
+		// offer, put twice.
+		List<AutoAbility> autos = CardData.parseAutoAbilities(YANG_28_071H_PRINTED);
+		assertEquals(1, autos.size());
+		assertEquals("enters the field", autos.get(0).trigger());
+		assertFalse(autos.get(0).youMay(), "no question at trigger time");
+		assertEquals(YANG_28_071H, autos.get(0).effectText(), "the text the discard reads, whole");
+	}
+
+	@Test
+	void aCpuYangSpendsHisWorstCardsOnTheForwardsAcrossTheTable() {
+		// Through his arrival: the one choice left is the discard's, capped at what the payoff can use.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Target A", "Fire", 3, 7000));
+		placeP1Forward(mw, makeForward("Target B", "Fire", 3, 7000));
+		fillHand(mw, false, 3);
+
+		placeP2Forward(mw, dealt("Yang", "Earth", "Forward", 3, 9000, "Monk", "IV", YANG_28_071H_PRINTED));
+		resolveStack(mw);
+
+		assertEquals(1, mw.gameState.getP2Hand().size(), "two discards, for the two Forwards");
+		assertTrue(mw.p1ForwardCards.isEmpty(), "and each took 9000");
+	}
+
 	@Test
 	void theBreakZoneRemovalDeclinesWhatItCannotHonour() {
 		CardData probe = makeForward("Probe", "Fire", 4, 8000);
