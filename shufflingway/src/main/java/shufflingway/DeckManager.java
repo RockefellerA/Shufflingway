@@ -896,10 +896,8 @@ public class DeckManager extends JFrame {
     // -------------------------------------------------------------------------
 
     private void addSelectedCard() {
-        if (selectedDeckId < 0) {
-            JOptionPane.showMessageDialog(this, "Select or create a deck first.");
-            return;
-        }
+        // No deck to add to: a double-click does nothing, the way the Add buttons are disabled.
+        if (selectedDeckId < 0) return;
         int viewRow = cardTable.getSelectedRow();
         if (viewRow < 0) return;
         int modelRow = cardTable.convertRowIndexToModel(viewRow);

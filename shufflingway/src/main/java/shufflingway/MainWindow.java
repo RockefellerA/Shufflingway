@@ -4616,11 +4616,8 @@ public class MainWindow {
 	/** Shows P2's LB deck: cardback for unplayed cards, face-up for spent ones. */
 	private void showP2LbViewerDialog() {
 		List<CardData> lbDeck = gameState.getP2LbDeck();
-		if (lbDeck.isEmpty()) {
-			JOptionPane.showMessageDialog(frame, "P2 has no LB cards.",
-					"P2 Limit Break Deck", JOptionPane.INFORMATION_MESSAGE);
-			return;
-		}
+		// Nothing to show, and nothing said about it — as on P1's side.
+		if (lbDeck.isEmpty()) return;
 
 		JDialog dlg = new JDialog(frame, "P2 Limit Break Deck (" + lbDeck.size() + " cards)", true);
 		dlg.setResizable(false);
