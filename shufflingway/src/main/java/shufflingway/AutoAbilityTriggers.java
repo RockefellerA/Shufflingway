@@ -3795,7 +3795,7 @@ final class AutoAbilityTriggers {
 		// The offer, for the printings that print one — 2-136R Porom's "you may return it to its
 		// owner's hand". The stack path makes it for every other optional auto-ability; this one
 		// resolves inline, so it has to make it here or an optional effect would be compulsory.
-		if (!acceptsOptional(fa, watcherIsP1, watcher.name() + " — " + optionalPrompt(fa, fa.effectText()),
+		if (!acceptsOptional(fa, watcherIsP1, watcher, watcher.name() + " — " + optionalPrompt(fa, fa.effectText()),
 				() -> aiAccepts("optional ability"))) {
 			mw.logEntry("[AutoAbility] " + watcher.name() + " — optional effect declined");
 			return;
@@ -3824,22 +3824,33 @@ final class AutoAbilityTriggers {
 	 * one assumed a yes. One declined offer was enough to part the two boards.
 	 *
 	 * @param controllerIsP1 the ability's controller; "your opponent may" asks the other seat
+	 * @param source         the card making the offer, whose name {@link CPUOptional#costOf} reads
 	 * @param question       the whole question, as the dialog shows it
-	 * @param cpuAnswer      the AI's answer
+	 * @param cpuAnswer      the AI's answer, which {@link CPUOptional} weighs
 	 */
-	private boolean acceptsOptional(AutoAbility fa, boolean controllerIsP1, String question,
+	private boolean acceptsOptional(AutoAbility fa, boolean controllerIsP1, CardData source, String question,
 			BooleanSupplier cpuAnswer) {
-		return acceptsOptional(fa, controllerIsP1, question, "OK", "Decline", cpuAnswer);
+		return acceptsOptional(fa, controllerIsP1, source, question, "OK", "Decline", cpuAnswer);
 	}
 
 	/** As above, with the buttons worded for the offer — "Pay" and "Decline". */
-	private boolean acceptsOptional(AutoAbility fa, boolean controllerIsP1, String question,
+	private boolean acceptsOptional(AutoAbility fa, boolean controllerIsP1, CardData source, String question,
 			String yes, String no, BooleanSupplier cpuAnswer) {
 		if (!fa.youMay() && !fa.opponentMay()) return true;
 		boolean chooserIsP1 = fa.youMay() ? controllerIsP1 : !controllerIsP1;
+		CPUOptional.Offer offer = new CPUOptional.Offer(CPUOptional.costOf(fa.effectText(), source), question,
+				CPUOptional.drawsIn(fa.effectText()), CPUOptional.selfDamageIn(fa.effectText()), cpuAnswer);
 		return mw.decideYesNo(chooserIsP1, "Waiting for your opponent to decide: " + question,
 				() -> mw.showEffectOptionDialog(question, "Auto Ability", new Object[]{yes, no}) == 0,
-				cpuAnswer);
+				CPUOptional.ask(offer, () -> boardOf(chooserIsP1), mw::logEntry));
+	}
+
+	/** What {@link CPUOptional#decide} reads of {@code isP1}'s side. */
+	private CPUOptional.Board boardOf(boolean isP1) {
+		return new CPUOptional.Board(
+				(isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).size(),
+				(isP1 ? mw.gameState.getP1DamageZone() : mw.gameState.getP2DamageZone()).size(),
+				mw.cannotLoseTheGame(isP1));
 	}
 
 	/** "You may: …" or "Your opponent may: …", as the offer dialogs word it. */
@@ -5189,7 +5200,7 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
-		if (!acceptsOptional(fa, isP1, source.name() + " — " + fa.effectText(),
+		if (!acceptsOptional(fa, isP1, source, source.name() + " — " + fa.effectText(),
 				"Dull " + source.name(), "Decline", () -> aiAccepts("self-dull for " + source.name()))) {
 			mw.logEntry("[AutoAbility] " + source.name() + " — self-dull declined");
 			return;
@@ -5354,7 +5365,7 @@ final class AutoAbilityTriggers {
 					return;
 				}
 			}
-			if (!acceptsOptional(fa, isP1, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
+			if (!acceptsOptional(fa, isP1, source, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
 					() -> aiAccepts("optional ability"))) {
 				mw.logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 				return;
@@ -5880,7 +5891,7 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
-		if (!acceptsOptional(fa, isP1, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
+		if (!acceptsOptional(fa, isP1, source, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
 				() -> aiAccepts("optional ability"))) {
 			mw.logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 			return;
@@ -5914,7 +5925,7 @@ final class AutoAbilityTriggers {
 		boolean inclMonsters   = targetsRaw.contains("monster") || targetsRaw.contains("character");
 		String  subEffect      = m.group("sub").trim();
 
-		if (!acceptsOptional(fa, isP1, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
+		if (!acceptsOptional(fa, isP1, source, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
 				() -> aiAccepts("optional ability"))) {
 			mw.logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 			return;
@@ -5969,7 +5980,7 @@ final class AutoAbilityTriggers {
 			inclForwards = inclBackups = inclMonsters = true;
 		}
 
-		if (!acceptsOptional(fa, isP1, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
+		if (!acceptsOptional(fa, isP1, source, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
 				() -> aiAccepts("optional ability"))) {
 			mw.logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 			return;
@@ -6028,7 +6039,7 @@ final class AutoAbilityTriggers {
 		// Gated exactly as the sibling executePutIntoBzWhenDoSoAutoAbility gates it, which had this
 		// right already — the two differ only in whether the card put into the Break Zone is the
 		// source itself or one it selects.
-		if (!acceptsOptional(fa, isP1, source.name() + " — " + fa.effectText(),
+		if (!acceptsOptional(fa, isP1, source, source.name() + " — " + fa.effectText(),
 				"Put into Break Zone", "Decline", () -> aiAccepts("self-break for " + source.name()))) {
 			mw.logEntry("[AutoAbility] " + source.name() + " — self-break declined");
 			return;
@@ -6181,7 +6192,8 @@ final class AutoAbilityTriggers {
 		if (!mw.decideYesNo(effectIsP1, "Waiting for your opponent to decide: " + offer,
 				() -> mw.showEffectOptionDialog(offer, "Auto Ability",
 						new Object[]{"Put into Break Zone", "Decline"}) == 0,
-				() -> aiAccepts("optional cost for " + source.name()))) {
+				CPUOptional.ask(CPUOptional.costOf(fa.effectText(), source), offer,
+						() -> aiAccepts("optional cost for " + source.name()), mw::logEntry))) {
 			mw.logEntry("[AutoAbility] " + source.name() + " — optional cost declined, payoff skipped");
 			return;
 		}
@@ -6233,7 +6245,7 @@ final class AutoAbilityTriggers {
 			mw.logEntry("[AutoAbility] " + source.name() + " — no Summons in hand, reveals 0");
 			revealed = Collections.emptyList();
 		} else {
-			if (!acceptsOptional(fa, isP1, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
+			if (!acceptsOptional(fa, isP1, source, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
 					"Reveal...", "Decline", () -> true)) {
 				mw.logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 				return;
@@ -6329,7 +6341,7 @@ final class AutoAbilityTriggers {
 			mw.logEntry("[AutoAbility] " + source.name() + " — no Summons in hand, reveals 0");
 			return;
 		}
-		if (!acceptsOptional(fa, isP1, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
+		if (!acceptsOptional(fa, isP1, source, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
 				"Reveal...", "Decline", () -> true)) {
 			mw.logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 			return;
@@ -6507,7 +6519,7 @@ final class AutoAbilityTriggers {
 		// no field, so it is judged by the zone instead: 28-122R Rufus's "choose 1 Category VII
 		// Forward … in your Break Zone" was declined whenever the opponent had no Forward out.
 		String finalSubEffect = subEffect;
-		if (!acceptsOptional(fa, isP1, source.name() + " — " + optionalPrompt(fa, fa.effectText()), () -> {
+		if (!acceptsOptional(fa, isP1, source, source.name() + " — " + optionalPrompt(fa, fa.effectText()), () -> {
 			TargetSpec bzChoice = ActionResolver.mandatoryChoiceTargetSpec(finalSubEffect, source);
 			if (bzChoice != null && bzChoice.zone() != null) {
 				if (new GameContextImpl(mw, effectIsP1, false).eligibleCharactersFromBreakZone(bzChoice).isEmpty()) {

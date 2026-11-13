@@ -75251,6 +75251,96 @@ public class CardBehaviorTest {
 		verify(ctx, never()).promptYouMay(anyString());
 	}
 
+	// =========================================================================================
+	// What the CPU takes because it costs nothing, and the draw it turns down. (Board behaviour.)
+	//
+	// CPUOptional's rules: an offer that costs nothing is taken — "you may search for …" from
+	// 19-033C Lean or 12-106R Relm — and an offer that would lose the game is declined: a draw its
+	// deck cannot cover, or 13-060R Cecil's point of damage taken at 6.
+	// =========================================================================================
+
+	@Test
+	void aCpuLeanTakesTheSearch() {
+		MainWindow mw = new MainWindow();
+		fillHand(mw, true, 1);
+		stackP2Deck(mw, makeForward("Found", "Ice", 2, 5000));
+		resolveAutoAs(mw, false, dealt("Lean", "Ice", "Backup", 3, 0, "Scientist", "TYPE-0", LEAN_19_033C), 0);
+		assertEquals(1, mw.gameState.getP2Hand().size(), "a search costs nothing");
+	}
+
+	@Test
+	void aCpuRelmSearchesForTheChosenCardsNamesake() {
+		// 12-106R Relm: "choose 1 Character without 《Multicard》 other than Relm. You may search for 1
+		// Character with the same name and add it to your hand." The choose chain's own search.
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Garnet", "Earth", 3, 7000));
+		CardData copy = makeForward("Garnet", "Earth", 3, 7000);
+		stackP2Deck(mw, makeForward("Filler", "Fire", 2, 5000), copy);
+		resolveAutoAs(mw, false, makeTextCard("Relm", "Water", "Forward", 4, 5000, "Pictomancer",
+				"When Relm enters the field, choose 1 Character without 《Multicard》 other than Relm. You may "
+				+ "search for 1 Character with the same name and add it to your hand."), 0);
+		assertEquals(1, mw.gameState.getP2Hand().size());
+		assertSame(copy, mw.gameState.getP2Hand().get(0));
+	}
+
+	private static final String FREE_DRAW_ON_ARRIVAL = "When Drawer enters the field, you may draw 1 card.";
+
+	@Test
+	void aCpuTakesAFreeDrawItsDeckCanCover() {
+		MainWindow mw = new MainWindow();
+		stackP2Deck(mw, makeForward("Top", "Fire", 2, 5000));
+		placeP2Forward(mw, makeTextCard("Drawer", "Fire", "Forward", 2, 5000, null, FREE_DRAW_ON_ARRIVAL));
+		resolveStack(mw);
+		assertEquals(1, mw.gameState.getP2Hand().size());
+	}
+
+	@Test
+	void aCpuDeclinesADrawItsDeckCannotCover() {
+		// "you may draw 1 card" from an empty deck: drawing would lose the game, so the CPU declines.
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2MainDeck().clear();
+		placeP2Forward(mw, makeTextCard("Drawer", "Fire", "Forward", 2, 5000, null, FREE_DRAW_ON_ARRIVAL));
+		resolveStack(mw);
+		assertFalse(mw.gameState.isP1GameOver(), "the game goes on");
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+	}
+
+	private static final String CECIL_13_060R = "When Cecil enters the field, you may receive 1 point of damage. When "
+			+ "you do so, choose 1 Forward opponent controls. Cecil and the chosen Forward deal damage equal to their "
+			+ "respective power to the other.[[br]]Damage 3 -- Cecil gains +1000 power and Brave.";
+
+	/**
+	 * A CPU Cecil arriving while P2 has received {@code damage} points and P1 has one Forward out. P2
+	 * has a deck for the damage to flip from, so the point lands as damage rather than a mill-out.
+	 */
+	private static MainWindow cpuCecilArrivesAt(int damage) {
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < damage; i++) mw.gameState.getP2DamageZone().add(makeForward("Filler", "Fire", 1, 1000));
+		stackP2Deck(mw, makeForward("Deck 1", "Fire", 2, 5000), makeForward("Deck 2", "Fire", 2, 5000));
+		placeP1Forward(mw, makeForward("Target", "Fire", 3, 5000));
+		placeP2Forward(mw, makeTextCard("Cecil", "Dark", "Forward", 5, 8000, "Dark Knight", CECIL_13_060R));
+		resolveStack(mw);
+		return mw;
+	}
+
+	@Test
+	void aCpuCecilWillNotTakeTheSeventhPoint() {
+		MainWindow mw = cpuCecilArrivesAt(6);
+		assertFalse(mw.gameState.isP1GameOver(), "the game goes on");
+		assertEquals(6, mw.gameState.getP2DamageZone().size());
+		assertEquals(1, mw.playerForwardCards(true).size(), "no fight without the price");
+		assertTrue(mw.gameLogText().contains("[CPU] declines (taking 1 damage at 6 would lose the game)"),
+				"declined by the rule, not by the call site");
+	}
+
+	@Test
+	void aCpuCecilPaysThePointWhileItCanAffordIt() {
+		MainWindow mw = cpuCecilArrivesAt(5);
+		assertFalse(mw.gameState.isP1GameOver());
+		assertEquals(6, mw.gameState.getP2DamageZone().size());
+		assertTrue(mw.playerForwardCards(true).isEmpty(), "Cecil's 8000 breaks the 5000 Forward");
+	}
+
 	/** P1's {@code card} resolving auto ability {@code index} while P2 holds {@code oppHand} cards. */
 	private static MainWindow opponentHoldingResolves(int oppHand, CardData card, int index) {
 		MainWindow mw = new MainWindow();
@@ -75334,6 +75424,65 @@ public class CardBehaviorTest {
 		assertSame(lehko, mw.p2BackupCards[0], "neither condition is met, so nothing is paid");
 		assertTrue(mw.p2ForwardCards.isEmpty());
 		assertEquals(2, mw.gameState.getP2MainDeck().size());
+	}
+
+	// =========================================================================================
+	// An "up to" choice the CPU makes with nothing on the side its effect is for. (Board behaviour.)
+	//
+	// 27-113R Firion: "When Firion enters the field, choose up to 3 Fire Backups and/or Wind Backups.
+	// Activate them. …" — no "you control", so either side's Backups are eligible. The CPU aims a
+	// help at its own cards and a harm at the opponent's; with none of the right side's to choose,
+	// "up to" lets it choose nothing, and it does. A choice it must make still takes what there is.
+	// =========================================================================================
+
+	private static final String FIRION_27_113R = "When Firion enters the field, choose up to 3 Fire Backups and/or "
+			+ "Wind Backups. Activate them. Look at the top 3 cards of your deck. Add 1 card among them to your hand "
+			+ "and return the other cards to the bottom of your deck in any order.";
+
+	/** P2's Firion arriving with P1's dull Fire Backup on the board, and {@code p2Backup} on P2's if not null. */
+	private static MainWindow firionArrivesBeside(CardData p2Backup) {
+		MainWindow mw = new MainWindow();
+		TestCards.placeP1Backup(mw, TestCards.makeBackup("Their Backup", "Fire", 2));
+		mw.p1BackupStates[0] = CardState.DULL;
+		if (p2Backup != null) {
+			TestCards.placeP2Backup(mw, p2Backup);
+			mw.p2BackupStates[0] = CardState.DULL;
+		}
+		stackP2Deck(mw, makeForward("Top A", "Fire", 2, 5000), makeForward("Top B", "Fire", 2, 5000),
+				makeForward("Top C", "Fire", 2, 5000));
+		resolveAutoAs(mw, false, dealt("Firion", "Fire/Wind", "Forward", 7, 5000, "Warrior/Rebel", "II", FIRION_27_113R), 0);
+		return mw;
+	}
+
+	@Test
+	void aCpuFirionActivatesNothingRatherThanTheOpponentsBackups() {
+		MainWindow mw = firionArrivesBeside(null);
+		assertEquals(CardState.DULL, mw.p1BackupStates[0], "the only eligible Backup is the opponent's");
+	}
+
+	@Test
+	void aCpuFirionActivatesItsOwnBackups() {
+		MainWindow mw = firionArrivesBeside(TestCards.makeBackup("Own Backup", "Wind", 2));
+		assertEquals(CardState.ACTIVE, mw.p2BackupStates[0]);
+		assertEquals(CardState.DULL, mw.p1BackupStates[0]);
+	}
+
+	@Test
+	void anUpToHarmWithNoOpposingTargetSparesTheCpusOwnForwards() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Own Forward", "Fire", 3, 7000));
+		resolveAutoAs(mw, false, makeTextCard("Caster", "Fire", "Forward", 3, 7000, null,
+				"When Caster enters the field, choose up to 2 Forwards. Deal them 5000 damage."), 0);
+		assertEquals(0, mw.p2ForwardDamage.get(0), "up to 2 — so none");
+	}
+
+	@Test
+	void aChoiceTheCpuMustMakeStillTakesItsOwnWhenThatIsAllThereIs() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Own Forward", "Fire", 3, 7000));
+		resolveAutoAs(mw, false, makeTextCard("Caster", "Fire", "Forward", 3, 7000, null,
+				"When Caster enters the field, choose 1 Forward. Deal it 5000 damage."), 0);
+		assertEquals(5000, mw.p2ForwardDamage.get(0), "\"choose 1\" is not optional");
 	}
 
 	// =========================================================================================

@@ -1862,14 +1862,21 @@ final class GameContextImpl implements GameContext {
 				}
 				// For unqualified targeting, prefer whichever side the effect actually helps or
 				// hurts: buffs go to the AI's own cards, everything else to the opponent's.
-				// Only a preference — if the preferred side has nothing eligible, the AI still
-				// picks from the full pool rather than declining to resolve the effect.
+				// When the preferred side has nothing eligible, a choice the AI must make still
+				// takes from the full pool; an "up to" choice it can decline, and does — aiming a
+				// help at the opponent's cards or a harm at its own is never the better play
+				// (27-113R Firion's "choose up to 3 Fire Backups and/or Wind Backups. Activate them.").
 				List<ForwardTarget> pool = eligible;
 				if (!opponentOnly && !selfOnly) {
 					boolean preferOwn = mw.aiPrefersOwnTargets;
 					List<ForwardTarget> preferred = eligible.stream()
 							.filter(t -> t.isP1() != preferOwn).toList();
 					if (!preferred.isEmpty()) pool = preferred;
+					else if (upTo) {
+						logEntry("[AI] chose nothing — no " + (preferOwn ? "card of its own" : "opposing card")
+								+ " for the effect to reach");
+						return List.of();
+					}
 				}
 				// Every pick left is the AI's own and the effect says what it does to it (AiOwnPick).
 				// Left to the shuffle below, Graff 25-116H removed himself as often as the ally
@@ -5299,7 +5306,8 @@ final class GameContextImpl implements GameContext {
 						() -> mw.showEffectOptionDialog(
 								src + " — Search for 1 Forward of power " + minPower + " or more?",
 								"You May Search", new Object[]{"Search", "Pass"}) == 0,
-						() -> true);
+						CPUOptional.ask(CPUOptional.Cost.NONE,
+								src + " — Search for 1 Forward of power " + minPower + " or more", () -> true, this::logEntry));
 				if (search) {
 					List<CardData> picked = mw.chooseFromDeckSearch(seatIsP1, matches, 1,
 							() -> java.util.Optional.ofNullable(mw.cardPickerDialog.pickFromDeckSearch(matches))
@@ -5703,7 +5711,7 @@ final class GameContextImpl implements GameContext {
 						"Waiting for your opponent to decide whether to discard...",
 						() -> mw.showEffectOptionDialog(prompt, title,
 								new Object[]{"Discard", "Decline"}) == 0,
-						cpuAccepts);
+						CPUOptional.ask(CPUOptional.Cost.DISCARD, prompt, cpuAccepts, this::logEntry));
 				if (!accepted) return false;
 				List<Integer> all = new ArrayList<>();
 				for (int i = 0; i < mw.playerHand(seatIsP1).size(); i++) all.add(i);
@@ -7764,7 +7772,7 @@ final class GameContextImpl implements GameContext {
 				// it did when this was a P2-only branch.
 				if (!askYesNo(isP1, ChoiceKind.EX_BURST,
 						"Trigger " + added.name() + "'s EX Burst effect?", "EX Burst",
-						"Waiting for your opponent to decide on an EX Burst...", true)) {
+						"Waiting for your opponent to decide on an EX Burst...", () -> true)) {
 					logEntry("[EX Burst] " + added.name() + " — declined");
 					return;
 				}
@@ -8041,7 +8049,7 @@ final class GameContextImpl implements GameContext {
 				return out;
 			}
 
-			/** The AI's picks from a menu it controls, judged against the board; see {@link AiActionPicker}. */
+			/** The AI's picks from a menu it controls, judged against the board; see {@link CPUActionPicker}. */
 			private List<String> aiChooseActions(List<String> actions, int selectCount, boolean upTo) {
 				boolean oppIsP1 = !isP1;
 				List<CardData>  oppForwardCards  = oppIsP1 ? mw.p1ForwardCards  : mw.p2ForwardCards;
@@ -8051,11 +8059,11 @@ final class GameContextImpl implements GameContext {
 				CardData[]  oppBackupCards  = oppIsP1 ? mw.p1BackupCards  : mw.p2BackupCards;
 				CardState[] oppBackupStates = oppIsP1 ? mw.p1BackupStates : mw.p2BackupStates;
 				int activeForwards = 0, dullForwards = 0, activeOthers = 0, dullOthers = 0, backups = 0;
-				List<AiActionPicker.OpposingForward> oppForwards = new ArrayList<>();
+				List<CPUActionPicker.OpposingForward> oppForwards = new ArrayList<>();
 				for (int i = 0; i < oppForwardCards.size(); i++) {
 					boolean dull = oppForwardStates.get(i) == CardState.DULL;
 					if (dull) dullForwards++; else activeForwards++;
-					oppForwards.add(new AiActionPicker.OpposingForward(
+					oppForwards.add(new CPUActionPicker.OpposingForward(
 							oppForwardCards.get(i).cost(), dull, oppForwardDamage.get(i) > 0));
 				}
 				for (CardState s : oppMonsterStates) {
@@ -8067,7 +8075,7 @@ final class GameContextImpl implements GameContext {
 					if (oppBackupStates[i] == CardState.DULL) dullOthers++; else activeOthers++;
 				}
 				List<CardData> ownHand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
-				AiActionPicker.Board board = new AiActionPicker.Board(
+				CPUActionPicker.Board board = new CPUActionPicker.Board(
 						(oppIsP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone()).isEmpty(),
 						oppForwards, activeForwards + activeOthers, dullForwards + dullOthers,
 						backups, (oppIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand()).size(),
@@ -8078,7 +8086,7 @@ final class GameContextImpl implements GameContext {
 							Function<GameContext, CardData> best = ActionResolverHand.bestPlayableFromHand(option, 0);
 							return best == null || best.apply(this) != null;
 						});
-				return AiActionPicker.pick(actions, selectCount, upTo, board);
+				return CPUActionPicker.pick(actions, selectCount, upTo, board);
 			}
 
 			@Override public List<String> chooseActionsByOpponent(CardData source,
@@ -9352,10 +9360,14 @@ final class GameContextImpl implements GameContext {
 				List<CardData> hand = mw.playerHand(isP1);
 				List<Integer> all = handIndices(isP1);
 				if (all.isEmpty()) return 0;
+				// "Any number" includes none, so declining is discarding nothing — CPUOptional's call.
+				BooleanSupplier cpuDiscards = CPUOptional.ask(CPUOptional.Cost.DISCARD,
+						"Discard any number of cards", () -> true, this::logEntry);
 				List<Integer> picks = mw.selectOwnHandCards(isP1, all, all.size(),
 						"Waiting for your opponent to choose cards to discard...",
 						() -> askOwnHandCards(hand, all, all.size(), true, "discard"),
-						() -> worstHandCards(hand, all, Math.min(Math.max(aiCap, 0), hand.size())));
+						() -> cpuDiscards.getAsBoolean()
+								? worstHandCards(hand, all, Math.min(Math.max(aiCap, 0), hand.size())) : List.of());
 				return mw.discardFromHand(isP1, picks, "").size();
 			}
 
@@ -9456,7 +9468,7 @@ final class GameContextImpl implements GameContext {
 				return mw.decideYesNo(isP1, "Waiting for your opponent to decide whether to discard...",
 						() -> mw.showEffectOptionDialog(src + " — " + question,
 								"You May Discard", new Object[]{"Discard", "Pass"}) == 0,
-						() -> true);
+						CPUOptional.ask(CPUOptional.Cost.DISCARD, src + " — " + question, () -> true, this::logEntry));
 			}
 
 			/**
@@ -9525,7 +9537,7 @@ final class GameContextImpl implements GameContext {
 			@Override public void mayPayToReplayAbility(String element, java.util.function.Consumer<GameContext> replayAction) {
 				String label = "Pay 《" + element + "》 to use this ability again?";
 				String src   = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
-				if (!mayDo(src + " — " + label, "Replay Ability", "Pay", "Pass", () -> {
+				if (!mayDo(CPUOptional.Cost.CP, src + " — " + label, "Replay Ability", "Pay", "Pass", () -> {
 					logEntry("[P2 AI] Passes on ability replay (pay 《" + element + "》)");
 					return false;
 				})) { logEntry("Replay: declined to pay 《" + element + "》"); return; }
@@ -9549,7 +9561,7 @@ final class GameContextImpl implements GameContext {
 				String src    = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
 				String label  = "Pay " + cost + "?";
 				// The AI pays whenever it can cover the whole cost.
-				if (!mayDo(src + " — " + label, "Optional Cost", "Pay", "Pass",
+				if (!mayDo(CPUOptional.Cost.CP, src + " — " + label, "Optional Cost", "Pay", "Pass",
 						() -> mw.autoAbilityTriggers.aiPlanCp(isP1, need, elementNeeds, null, true) != null)) {
 					logEntry("Optional pay: declined " + cost);
 					return;
@@ -9563,12 +9575,14 @@ final class GameContextImpl implements GameContext {
 			 * Puts a "you may" to this context's player as a two-button dialog, answered under
 			 * {@link ChoiceKind#MAY}; {@code yes} is the button that takes it up.
 			 *
-			 * @param cpuAnswer whether the AI takes it up
+			 * @param cost      what taking it up costs, for {@link CPUOptional}
+			 * @param cpuAnswer whether the AI takes it up, which {@link CPUOptional} weighs
 			 */
-			private boolean mayDo(String question, String title, String yes, String no, BooleanSupplier cpuAnswer) {
+			private boolean mayDo(CPUOptional.Cost cost, String question, String title, String yes, String no,
+					BooleanSupplier cpuAnswer) {
 				return mw.decideYesNo(isP1, "Waiting for your opponent: " + question,
 						() -> mw.showEffectOptionDialog(question, title, new Object[]{yes, no}) == 0,
-						cpuAnswer);
+						CPUOptional.ask(cost, question, cpuAnswer, this::logEntry));
 			}
 
 			@Override public void mayPayCostOrElse(int cp, String element, int crystals, Runnable onNotPaid) {
@@ -9584,7 +9598,7 @@ final class GameContextImpl implements GameContext {
 
 				// Every printed consequence (self-break, self-damage, discard) costs the AI more than
 				// the cost itself, so it pays whenever it can.
-				if (!mayDo(src + " — pay " + cost + "?", "Optional Cost", "Pay", "Decline", () -> true)) {
+				if (!mayDo(CPUOptional.Cost.CP, src + " — pay " + cost + "?", "Optional Cost", "Pay", "Decline", () -> true)) {
 					logEntry(src + " — declined to pay " + cost + "; effect applies");
 					onNotPaid.run();
 					return;
@@ -9638,7 +9652,7 @@ final class GameContextImpl implements GameContext {
 
 				// The payment buys a strictly positive effect, so the AI takes it when it can — and a
 				// card the payoff needs is not paid away for the CP; short without it, it pays nothing.
-				if (!mayDo(src + " — pay " + cost + "?", "Optional Cost", "Pay", "Decline", () -> true)) {
+				if (!mayDo(CPUOptional.Cost.CP, src + " — pay " + cost + "?", "Optional Cost", "Pay", "Decline", () -> true)) {
 					logEntry(src + " — declined to pay " + cost + "; effect skipped");
 					return;
 				}
@@ -9695,7 +9709,7 @@ final class GameContextImpl implements GameContext {
 					return;
 				}
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
-				if (!mayDo(src + " — Dull active " + cardName + " to use this ability again?",
+				if (!mayDo(CPUOptional.Cost.DULL, src + " — Dull active " + cardName + " to use this ability again?",
 						"Replay Ability", "Dull", "Pass", () -> {
 							logEntry("[P2 AI] Passes on ability replay (dull " + cardName + ")");
 							return false;
@@ -9718,7 +9732,7 @@ final class GameContextImpl implements GameContext {
 				}
 				if (handIdx < 0) { logEntry("Replay: no " + cardName + " in hand — offer skipped"); return; }
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
-				if (!mayDo(src + " — Discard " + cardName + " from hand to use this ability again?",
+				if (!mayDo(CPUOptional.Cost.DISCARD, src + " — Discard " + cardName + " from hand to use this ability again?",
 						"Replay Ability", "Discard", "Pass", () -> {
 							logEntry("[P2 AI] Passes on ability replay (discard " + cardName + ")");
 							return false;
@@ -9738,7 +9752,7 @@ final class GameContextImpl implements GameContext {
 				}
 				if (handIdx < 0) { logEntry("[Effect] No " + cardName + " in hand — optional discard skipped"); ifNot.accept(this); return; }
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
-				if (!mayDo(src + " — Discard " + cardName + " from hand?", "You May Discard", "Discard", "Pass", () -> {
+				if (!mayDo(CPUOptional.Cost.DISCARD, src + " — Discard " + cardName + " from hand?", "You May Discard", "Discard", "Pass", () -> {
 					logEntry("[P2 AI] Passes on optional discard of " + cardName);
 					return false;
 				})) { logEntry("[Effect] Declined to discard " + cardName); ifNot.accept(this); return; }
@@ -9787,12 +9801,15 @@ final class GameContextImpl implements GameContext {
 					return;
 				}
 				// "You may", so the pick is "up to" 1 and none declines. The AI pays with the card it
-				// will miss least.
-				List<ForwardTarget> picks = mw.selectOwnFieldTargets(isP1, candidates, 1, true,
-						(returnToHand ? "You may return " : "You may put ") + what
-								+ (returnToHand ? " to its owner's hand" : " into the Break Zone"),
+				// will miss least, when CPUOptional takes the offer.
+				String offer = (returnToHand ? "You may return " : "You may put ") + what
+						+ (returnToHand ? " to its owner's hand" : " into the Break Zone");
+				BooleanSupplier cpuPays = CPUOptional.ask(
+						returnToHand ? CPUOptional.Cost.RETURN_TO_HAND : CPUOptional.Cost.SACRIFICE_OTHER,
+						offer, () -> true, this::logEntry);
+				List<ForwardTarget> picks = mw.selectOwnFieldTargets(isP1, candidates, 1, true, offer,
 						"Waiting for your opponent to choose what to pay with...",
-						() -> cheapestOf(candidates, 1));
+						() -> cpuPays.getAsBoolean() ? cheapestOf(candidates, 1) : List.of());
 				ForwardTarget pick = picks.isEmpty() ? null : picks.get(0);
 				if (pick == null) {
 					logEntry("[Effect] Declined to pay — nothing happens");
@@ -9872,7 +9889,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void mayBreakSourceWhenDoSo(CardData source, java.util.function.Consumer<GameContext> whenDoSo) {
 				String title = (mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : source.name());
-				if (!mayDo(title + " — Put " + source.name() + " into the Break Zone?", "You May", "Break", "Pass", () -> {
+				if (!mayDo(CPUOptional.Cost.SACRIFICE_SELF, title + " — Put " + source.name() + " into the Break Zone?", "You May", "Break", "Pass", () -> {
 					logEntry("[P2 AI] Passes on optional break of " + source.name());
 					return false;
 				})) { logEntry("[Effect] Declined to break " + source.name()); return; }
@@ -9906,7 +9923,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void playerMayDoEffect(String prompt, java.util.function.Consumer<GameContext> effect) {
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
-				if (!mayDo(src + " — " + prompt, "You May", "OK", "Decline", () -> {
+				if (!mayDo(CPUOptional.costOfPrompt(prompt, mw.currentAbilitySource), src + " — " + prompt, "You May", "OK", "Decline", () -> {
 					logEntry("[P2 AI] Auto-accepts: " + prompt);
 					return true;
 				})) { logEntry("[Effect] Declined: " + prompt); return; }
@@ -10934,13 +10951,14 @@ final class GameContextImpl implements GameContext {
 				// The AI declines every optional effect. That is not a considered heuristic — it
 				// is what the P2 branch used to hardcode — but it is the safe answer of the two,
 				// since every caller treats "no" as the effect simply not happening.
-				return askYesNo(isP1, ChoiceKind.MAY, prompt, "You May",
-						"Waiting for your opponent: " + prompt, false);
+				return askYesNo(isP1, ChoiceKind.MAY, prompt, "You May", "Waiting for your opponent: " + prompt,
+						CPUOptional.ask(CPUOptional.costOfPrompt(prompt, mw.currentAbilitySource), prompt,
+								() -> false, this::logEntry));
 			}
 
 			@Override public boolean promptPayToAvert(String prompt) {
-				return askYesNo(isP1, ChoiceKind.MAY, prompt, "Optional Cost",
-						"Waiting for your opponent: " + prompt, true);
+				return askYesNo(isP1, ChoiceKind.MAY, prompt, "Optional Cost", "Waiting for your opponent: " + prompt,
+						CPUOptional.ask(CPUOptional.Cost.CP, prompt, () -> true, this::logEntry));
 			}
 
 			/**
@@ -10953,16 +10971,16 @@ final class GameContextImpl implements GameContext {
 			 * through {@link MainWindow#decide} is what makes the fixed answer the <em>AI's</em>
 			 * rather than everyone-who-is-not-me's.
 			 *
-			 * @param cpuAnswer what the AI says when it holds the seat
+			 * @param cpuAnswer what the AI says when it holds the seat — asked only then
 			 */
 			private boolean askYesNo(boolean seatIsP1, ChoiceKind kind, String prompt, String title,
-					String waitPrompt, boolean cpuAnswer) {
+					String waitPrompt, BooleanSupplier cpuAnswer) {
 				List<Integer> answer = mw.decide(PlayerChoice.by(seatIsP1, kind)
 						.prompting(waitPrompt)
 						.locally(() -> List.of(
 								JOptionPane.showConfirmDialog(mw.frame, prompt, title,
 										JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION ? 1 : 0))
-						.byCpu(()   -> List.of(cpuAnswer ? 1 : 0))
+						.byCpu(()   -> List.of(cpuAnswer.getAsBoolean() ? 1 : 0))
 						// Nothing about the board makes one answer illegal — only the shape.
 						.legalWhen(a -> a.size() == 1 && (a.get(0) == 0 || a.get(0) == 1),
 								"a yes or a no is the only answer that fits"));

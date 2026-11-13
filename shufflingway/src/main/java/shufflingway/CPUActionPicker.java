@@ -35,9 +35,9 @@ import java.util.regex.Pattern;
  * Anything else is taken at face value. Live options keep their printed order; dead ones are taken
  * only when the menu demands an exact count.
  */
-final class AiActionPicker {
+final class CPUActionPicker {
 
-    private AiActionPicker() {}
+    private CPUActionPicker() {}
 
     /** A Forward the opponent controls, as much of it as a printed target filter asks about. */
     record OpposingForward(int cost, boolean dull, boolean damaged) {}

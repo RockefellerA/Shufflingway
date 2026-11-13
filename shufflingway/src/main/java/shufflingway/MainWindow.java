@@ -2045,7 +2045,8 @@ public class MainWindow {
 		if (AppSettings.isDebugEnabled()) {
 			DebugUtility debug = debugUtility;
 			debugMenu = new DebugMenu(debug::spawnOnField, debug::addToHand, debug::addToBreakZone,
-					debug::addRemoveCounters, debug::activateDullCardsOrBreak, debug::setDamageAndCrystals);
+					debug::addRemoveCounters, debug::activateDullCardsOrBreak, debug::setDamageAndCrystals,
+					CPUOptional.acceptsEveryOffer, on -> CPUOptional.acceptsEveryOffer = on);
 			menuBar.add(debugMenu);
 		}
 
@@ -9995,7 +9996,9 @@ public class MainWindow {
 							() -> showEffectOptionDialog(
 									"Remove \"" + card.name() + "\" from the game instead of the Break Zone?",
 									"Field Ability", new Object[]{"Remove from Game", "Break Zone"}) == 0,
-							() -> player1 != holder);
+							CPUOptional.ask(CPUOptional.Cost.ON_CHOSEN,
+									"remove " + card.name() + " from the game instead of the Break Zone",
+									() -> player1 != holder, this::logEntry));
 					if (remove) {
 						gameState.addToPermanentRfp(card);
 						logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");

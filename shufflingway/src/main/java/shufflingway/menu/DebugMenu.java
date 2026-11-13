@@ -1,7 +1,9 @@
 package shufflingway.menu;
 
 import java.awt.event.ActionEvent;
+import java.util.function.Consumer;
 
+import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 
@@ -13,8 +15,13 @@ import javax.swing.JMenuItem;
  */
 public class DebugMenu extends JMenu {
 
+    /**
+     * @param cpuAcceptsEveryOffer initial state of the "CPU Accepts Every 'You May'" switch
+     * @param setCpuAcceptsEveryOffer called with the switch's new state when it is toggled
+     */
     public DebugMenu(Runnable spawnOnField, Runnable addToHand, Runnable addToBreakZone,
-                     Runnable addRemoveCounters, Runnable activateDullBreakCards, Runnable setDamageAndCrystals) {
+                     Runnable addRemoveCounters, Runnable activateDullBreakCards, Runnable setDamageAndCrystals,
+                     boolean cpuAcceptsEveryOffer, Consumer<Boolean> setCpuAcceptsEveryOffer) {
         super("Debug");
 
         addItem("Spawn Card on Field…",
@@ -37,6 +44,13 @@ public class DebugMenu extends JMenu {
                 "Directly set P1/P2 damage zone and Crystal counts for testing damage-threshold "
                         + "triggers and Crystal costs.",
                 setDamageAndCrystals);
+
+        addSeparator();
+        JCheckBoxMenuItem acceptsEvery = new JCheckBoxMenuItem("CPU Accepts Every 'You May'", cpuAcceptsEveryOffer);
+        acceptsEvery.setToolTipText("The CPU takes every optional offer it is given — a \"you may\", an optional "
+                + "cost, a chance to use an ability again — instead of weighing it. For playtesting card text.");
+        acceptsEvery.addActionListener((ActionEvent e) -> setCpuAcceptsEveryOffer.accept(acceptsEvery.isSelected()));
+        add(acceptsEvery);
     }
 
     private void addItem(String label, String tooltip, Runnable action) {

@@ -8,7 +8,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /** The AI's picks from a "select N of the following actions" menu. */
-class AiActionPickerTest {
+class CPUActionPickerTest {
 
     // Seymour 27-028H: "select up to 2 of the 4 following actions."
     private static final String BREAK    = "Choose 1 dull Forward. Break it.";
@@ -17,66 +17,66 @@ class AiActionPickerTest {
     private static final String DISCARD  = "Your opponent discards 1 card.";
     private static final List<String> SEYMOUR = List.of(BREAK, DULL, DISCOUNT, DISCARD);
 
-    private static AiActionPicker.Board board(int activeForwards, int dullForwards, int activeOthers,
+    private static CPUActionPicker.Board board(int activeForwards, int dullForwards, int activeOthers,
             int oppHand, boolean ownSummon) {
-        return new AiActionPicker.Board(true, forwards(activeForwards, dullForwards),
+        return new CPUActionPicker.Board(true, forwards(activeForwards, dullForwards),
                 activeForwards + activeOthers, dullForwards, 0, oppHand, ownSummon);
     }
 
     /** {@code active} active and {@code dull} dull opposing Forwards of cost 3, none damaged. */
-    private static List<AiActionPicker.OpposingForward> forwards(int active, int dull) {
-        List<AiActionPicker.OpposingForward> out = new ArrayList<>();
-        for (int i = 0; i < active; i++) out.add(new AiActionPicker.OpposingForward(3, false, false));
-        for (int i = 0; i < dull; i++)   out.add(new AiActionPicker.OpposingForward(3, true, false));
+    private static List<CPUActionPicker.OpposingForward> forwards(int active, int dull) {
+        List<CPUActionPicker.OpposingForward> out = new ArrayList<>();
+        for (int i = 0; i < active; i++) out.add(new CPUActionPicker.OpposingForward(3, false, false));
+        for (int i = 0; i < dull; i++)   out.add(new CPUActionPicker.OpposingForward(3, true, false));
         return out;
     }
 
     /** A board whose only opposing Characters are {@code forwards}. */
-    private static AiActionPicker.Board facing(AiActionPicker.OpposingForward... forwards) {
+    private static CPUActionPicker.Board facing(CPUActionPicker.OpposingForward... forwards) {
         int dull = 0;
-        for (AiActionPicker.OpposingForward f : forwards) if (f.dull()) dull++;
-        return new AiActionPicker.Board(true, List.of(forwards), forwards.length - dull, dull, 0, 0, false);
+        for (CPUActionPicker.OpposingForward f : forwards) if (f.dull()) dull++;
+        return new CPUActionPicker.Board(true, List.of(forwards), forwards.length - dull, dull, 0, 0, false);
     }
 
     // The game this came from: an active Shiva and no dull Forward. Breaking first found nothing;
     // dulling her first leaves her there to break.
     @Test
     void dullsAnActiveForwardBeforeBreakingIt() {
-        assertEquals(List.of(DULL, BREAK), AiActionPicker.pick(SEYMOUR, 2, true, board(1, 0, 0, 3, false)));
+        assertEquals(List.of(DULL, BREAK), CPUActionPicker.pick(SEYMOUR, 2, true, board(1, 0, 0, 3, false)));
     }
 
     @Test
     void anExistingDullForwardIsBrokenAndTheDullStillComesFirst() {
-        assertEquals(List.of(DULL, BREAK), AiActionPicker.pick(SEYMOUR, 2, true, board(1, 1, 0, 3, false)));
+        assertEquals(List.of(DULL, BREAK), CPUActionPicker.pick(SEYMOUR, 2, true, board(1, 1, 0, 3, false)));
     }
 
     // No Forwards at all: nothing can be broken, so the discard is taken instead.
     @Test
     void withNoForwardsTheOpponentDiscards() {
-        assertEquals(List.of(DULL, DISCARD), AiActionPicker.pick(SEYMOUR, 2, true, board(0, 0, 2, 3, false)));
-        assertEquals(List.of(DISCARD), AiActionPicker.pick(SEYMOUR, 2, true, board(0, 0, 0, 3, false)));
+        assertEquals(List.of(DULL, DISCARD), CPUActionPicker.pick(SEYMOUR, 2, true, board(0, 0, 2, 3, false)));
+        assertEquals(List.of(DISCARD), CPUActionPicker.pick(SEYMOUR, 2, true, board(0, 0, 0, 3, false)));
     }
 
     @Test
     void anEmptyHandIsNotWorthADiscard() {
-        assertEquals(List.of(), AiActionPicker.pick(SEYMOUR, 2, true, board(0, 0, 0, 0, false)));
+        assertEquals(List.of(), CPUActionPicker.pick(SEYMOUR, 2, true, board(0, 0, 0, 0, false)));
     }
 
     @Test
     void theSummonDiscountIsTakenOnlyWithASummonInHand() {
-        assertEquals(List.of(DULL, DISCOUNT), AiActionPicker.pick(SEYMOUR, 2, true, board(0, 0, 2, 3, true)));
+        assertEquals(List.of(DULL, DISCOUNT), CPUActionPicker.pick(SEYMOUR, 2, true, board(0, 0, 2, 3, true)));
     }
 
     // One pick: a break that needs the dull option ahead of it cannot have it, so it is passed over.
     @Test
     void aBreakThatNeedsTheDullOptionIsSkippedWhenOnlyOnePickRemains() {
-        assertEquals(List.of(DULL), AiActionPicker.pick(SEYMOUR, 1, true, board(1, 0, 0, 3, false)));
+        assertEquals(List.of(DULL), CPUActionPicker.pick(SEYMOUR, 1, true, board(1, 0, 0, 3, false)));
     }
 
     // An exact count still has to be met, dead options and all.
     @Test
     void anExactCountIsFilledWithDeadOptions() {
-        assertEquals(List.of(DULL, BREAK), AiActionPicker.pick(SEYMOUR, 2, false, board(0, 0, 0, 0, false)));
+        assertEquals(List.of(DULL, BREAK), CPUActionPicker.pick(SEYMOUR, 2, false, board(0, 0, 0, 0, false)));
     }
 
     @Test
@@ -84,10 +84,10 @@ class AiActionPickerTest {
         String remove = "Remove 1 card in your opponent's Break Zone from the game.";
         String draw = "Draw 1 card.";
         List<String> menu = List.of(draw, remove);
-        AiActionPicker.Board full = new AiActionPicker.Board(false, List.of(), 0, 0, 0, 0, false);
-        AiActionPicker.Board empty = new AiActionPicker.Board(true, List.of(), 0, 0, 0, 0, false);
-        assertEquals(List.of(remove), AiActionPicker.pick(menu, 1, true, full));
-        assertEquals(List.of(draw), AiActionPicker.pick(menu, 1, true, empty));
+        CPUActionPicker.Board full = new CPUActionPicker.Board(false, List.of(), 0, 0, 0, 0, false);
+        CPUActionPicker.Board empty = new CPUActionPicker.Board(true, List.of(), 0, 0, 0, 0, false);
+        assertEquals(List.of(remove), CPUActionPicker.pick(menu, 1, true, full));
+        assertEquals(List.of(draw), CPUActionPicker.pick(menu, 1, true, empty));
     }
 
     // Tidus 22-122L: "select up to 3 of the 3 following actions." Each removal names no side, so
@@ -99,20 +99,20 @@ class AiActionPickerTest {
 
     @Test
     void aRemovalIsTakenOnlyWhenTheOpponentHasSomethingOfThatKind() {
-        AiActionPicker.Board both = new AiActionPicker.Board(true, forwards(1, 0), 2, 0, 1, 0, false);
-        AiActionPicker.Board noBackup = new AiActionPicker.Board(true, forwards(1, 0), 1, 0, 0, 0, false);
-        AiActionPicker.Board nothing = new AiActionPicker.Board(true, List.of(), 0, 0, 0, 0, false);
-        assertEquals(TIDUS, AiActionPicker.pick(TIDUS, 3, true, both));
-        assertEquals(List.of(TIDUS_FORWARD, TIDUS_DRAW), AiActionPicker.pick(TIDUS, 3, true, noBackup));
-        assertEquals(List.of(TIDUS_DRAW), AiActionPicker.pick(TIDUS, 3, true, nothing));
+        CPUActionPicker.Board both = new CPUActionPicker.Board(true, forwards(1, 0), 2, 0, 1, 0, false);
+        CPUActionPicker.Board noBackup = new CPUActionPicker.Board(true, forwards(1, 0), 1, 0, 0, 0, false);
+        CPUActionPicker.Board nothing = new CPUActionPicker.Board(true, List.of(), 0, 0, 0, 0, false);
+        assertEquals(TIDUS, CPUActionPicker.pick(TIDUS, 3, true, both));
+        assertEquals(List.of(TIDUS_FORWARD, TIDUS_DRAW), CPUActionPicker.pick(TIDUS, 3, true, noBackup));
+        assertEquals(List.of(TIDUS_DRAW), CPUActionPicker.pick(TIDUS, 3, true, nothing));
     }
 
     // Live options first, then the dead ones the count still demands.
     @Test
     void anExactCountStillTakesADeadRemoval() {
-        AiActionPicker.Board nothing = new AiActionPicker.Board(true, List.of(), 0, 0, 0, 0, false);
+        CPUActionPicker.Board nothing = new CPUActionPicker.Board(true, List.of(), 0, 0, 0, 0, false);
         assertEquals(List.of(TIDUS_DRAW, TIDUS_FORWARD, TIDUS_BACKUP),
-                AiActionPicker.pick(TIDUS, 3, false, nothing));
+                CPUActionPicker.pick(TIDUS, 3, false, nothing));
     }
 
     // A chosen Forward named by its state or cost is worth choosing only when an opposing Forward
@@ -131,12 +131,12 @@ class AiActionPickerTest {
     void anActiveCost3ForwardIsBrokenAndADullOneIsNot() {
         List<String> menu = List.of(TONBERRY_BREAK, TONBERRY_LOOK);
         assertEquals(List.of(TONBERRY_BREAK),
-                AiActionPicker.pick(menu, 1, false, facing(new AiActionPicker.OpposingForward(3, false, false))));
+                CPUActionPicker.pick(menu, 1, false, facing(new CPUActionPicker.OpposingForward(3, false, false))));
         assertEquals(List.of(TONBERRY_LOOK),
-                AiActionPicker.pick(menu, 1, false, facing(new AiActionPicker.OpposingForward(2, true, false))),
+                CPUActionPicker.pick(menu, 1, false, facing(new CPUActionPicker.OpposingForward(2, true, false))),
                 "dull, so not \"active\"");
         assertEquals(List.of(TONBERRY_LOOK),
-                AiActionPicker.pick(menu, 1, false, facing(new AiActionPicker.OpposingForward(4, false, false))),
+                CPUActionPicker.pick(menu, 1, false, facing(new CPUActionPicker.OpposingForward(4, false, false))),
                 "cost 4, so not \"3 or less\"");
     }
 
@@ -144,18 +144,18 @@ class AiActionPickerTest {
     void aCostCeilingTheBoardCannotMeetGivesWayToTheDullTarget() {
         List<String> menu = List.of(IRON_GIANT_CHEAP, IRON_GIANT_DULL);
         assertEquals(List.of(IRON_GIANT_DULL),
-                AiActionPicker.pick(menu, 1, false, facing(new AiActionPicker.OpposingForward(5, true, false))));
+                CPUActionPicker.pick(menu, 1, false, facing(new CPUActionPicker.OpposingForward(5, true, false))));
         assertEquals(List.of(IRON_GIANT_CHEAP),
-                AiActionPicker.pick(menu, 1, false, facing(new AiActionPicker.OpposingForward(2, false, false))));
+                CPUActionPicker.pick(menu, 1, false, facing(new CPUActionPicker.OpposingForward(2, false, false))));
     }
 
     @Test
     void aDamagedForwardIsBrokenAndWithoutOneTheFightIsTaken() {
         List<String> menu = List.of(WU_BREAK, WU_FIGHT);
         assertEquals(List.of(WU_BREAK),
-                AiActionPicker.pick(menu, 1, false, facing(new AiActionPicker.OpposingForward(6, false, true))));
+                CPUActionPicker.pick(menu, 1, false, facing(new CPUActionPicker.OpposingForward(6, false, true))));
         assertEquals(List.of(WU_FIGHT),
-                AiActionPicker.pick(menu, 1, false, facing(new AiActionPicker.OpposingForward(3, false, false))));
+                CPUActionPicker.pick(menu, 1, false, facing(new CPUActionPicker.OpposingForward(3, false, false))));
     }
 
     // 26-130H Lightning: "select 1 of the 2 following actions." Taken at face value, the play was
@@ -166,10 +166,10 @@ class AiActionPickerTest {
     @Test
     void aPlayFromHandIsTakenOnlyWhenTheHandHoldsACardItWouldPlay() {
         List<String> menu = List.of(LIGHTNING_PLAY, LIGHTNING_SEARCH);
-        AiActionPicker.Board inHand  = new AiActionPicker.Board(true, List.of(), 0, 0, 0, 0, false, LIGHTNING_PLAY::equals);
-        AiActionPicker.Board notHeld = new AiActionPicker.Board(true, List.of(), 0, 0, 0, 0, false, option -> false);
-        assertEquals(List.of(LIGHTNING_PLAY), AiActionPicker.pick(menu, 1, false, inHand));
-        assertEquals(List.of(LIGHTNING_SEARCH), AiActionPicker.pick(menu, 1, false, notHeld));
+        CPUActionPicker.Board inHand  = new CPUActionPicker.Board(true, List.of(), 0, 0, 0, 0, false, LIGHTNING_PLAY::equals);
+        CPUActionPicker.Board notHeld = new CPUActionPicker.Board(true, List.of(), 0, 0, 0, 0, false, option -> false);
+        assertEquals(List.of(LIGHTNING_PLAY), CPUActionPicker.pick(menu, 1, false, inHand));
+        assertEquals(List.of(LIGHTNING_SEARCH), CPUActionPicker.pick(menu, 1, false, notHeld));
     }
 
     @Test
@@ -178,8 +178,8 @@ class AiActionPickerTest {
         String draw = "Draw 1 card.";
         List<String> menu = List.of(breakOne, draw);
         assertEquals(List.of(breakOne),
-                AiActionPicker.pick(menu, 1, false, facing(new AiActionPicker.OpposingForward(1, false, false))));
+                CPUActionPicker.pick(menu, 1, false, facing(new CPUActionPicker.OpposingForward(1, false, false))));
         assertEquals(List.of(draw),
-                AiActionPicker.pick(menu, 1, false, facing(new AiActionPicker.OpposingForward(2, false, false))));
+                CPUActionPicker.pick(menu, 1, false, facing(new CPUActionPicker.OpposingForward(2, false, false))));
     }
 }
