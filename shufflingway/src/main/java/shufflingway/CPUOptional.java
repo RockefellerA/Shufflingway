@@ -22,7 +22,11 @@ import java.util.regex.Pattern;
  *   <li>an offer that would lose the game is declined — a draw the CPU's deck cannot cover
  *       ({@link MainWindow#drawCardsForPlayer}), or damage that takes it to
  *       {@link #LOSING_DAMAGE} — unless a "can't lose the game" effect protects it;</li>
- *   <li>an offer that costs nothing ({@link #FREE}) is taken.</li>
+ *   <li>an offer that removes cards from the top of the deck is declined when the deck cannot
+ *       spare them: what is left would not cover the next draw phase ({@link #DRAW_PHASE_CARDS});</li>
+ *   <li>an offer that costs nothing ({@link #FREE}) is taken;</li>
+ *   <li>an offer with a price is declined when what it buys has nothing to act on
+ *       ({@link Board#nothingToActOn}) — the price would be paid for nothing.</li>
  * </ul>
  * {@link #acceptsEveryOffer}, a debug setting for playtesting, takes every offer instead. Paying is
  * still the payment's business — an offer with a price is checked for one before it is made, and a
@@ -81,22 +85,29 @@ final class CPUOptional {
 	static final Set<Cost> FREE = EnumSet.of(Cost.NONE, Cost.PLAY_CARD, Cost.SEARCH_TO_BZ);
 
 	/**
-	 * One offer: what it costs, what it is (for the log), how many cards taking it draws and how many
-	 * points of damage it deals the seat taking it, and the answer its call site gives.
+	 * One offer: what it costs, what it is (for the log), how many cards taking it draws, how many
+	 * it takes off the top of the deck without drawing them ({@link #millsIn}), how many points of
+	 * damage it deals the seat taking it, and the answer its call site gives.
 	 */
-	record Offer(Cost cost, String what, int draws, int selfDamage, BooleanSupplier current) {}
+	record Offer(Cost cost, String what, int draws, int mills, int selfDamage, BooleanSupplier current) {}
 
 	/**
 	 * What {@link #decide} reads of the board, for the seat answering — no more than its rules use.
 	 *
-	 * @param deckSize   cards left in that seat's deck
-	 * @param damage     points of damage that seat has received
-	 * @param cannotLose whether a "can't lose the game" effect protects that seat
+	 * @param deckSize       cards left in that seat's deck
+	 * @param damage         points of damage that seat has received
+	 * @param cannotLose     whether a "can't lose the game" effect protects that seat
+	 * @param nothingToActOn why the offer's payoff ({@link #payoffOf}) would do nothing on this board
+	 *                       — "its payoff has no opposing card to choose" — or {@code null} when it
+	 *                       would do something, or when that cannot be told
 	 */
-	record Board(int deckSize, int damage, boolean cannotLose) {}
+	record Board(int deckSize, int damage, boolean cannotLose, String nothingToActOn) {}
 
 	/** The damage that loses the game — the check {@link MainWindow} makes on every point received. */
 	static final int LOSING_DAMAGE = 7;
+
+	/** The cards a draw phase takes: what a deck has to keep after an offer takes cards off its top. */
+	static final int DRAW_PHASE_CARDS = 2;
 
 	/** An answer, and why; {@code reason} is {@code null} when it is the call site's own answer. */
 	record Decision(boolean accept, String reason) {}
@@ -122,7 +133,11 @@ final class CPUOptional {
 		if (acceptsEveryOffer) return new Decision(true, "debug setting: the CPU takes every offer");
 		String loss = board == null ? null : howItLoses(offer, board);
 		if (loss != null) return new Decision(false, loss + " would lose the game");
+		if (board != null && offer.mills() > 0 && board.deckSize() - offer.draws() - offer.mills() < DRAW_PHASE_CARDS)
+			return new Decision(false, "the deck cannot spare " + offer.mills() + " of its " + board.deckSize()
+					+ " cards and still cover the next draw phase");
 		if (FREE.contains(offer.cost())) return new Decision(true, "it costs nothing");
+		if (board != null && board.nothingToActOn() != null) return new Decision(false, board.nothingToActOn());
 		return new Decision(offer.current().getAsBoolean(), null);
 	}
 
@@ -152,9 +167,9 @@ final class CPUOptional {
 		};
 	}
 
-	/** {@link #ask(Offer, Supplier, Consumer)} for an offer that draws nothing and deals no damage, with no board to give. */
+	/** {@link #ask(Offer, Supplier, Consumer)} for an offer that touches no deck and deals no damage, with no board to give. */
 	static BooleanSupplier ask(Cost cost, String what, BooleanSupplier current, Consumer<String> log) {
-		return ask(new Offer(cost, what, 0, 0, current), () -> null, log);
+		return ask(new Offer(cost, what, 0, 0, 0, current), () -> null, log);
 	}
 
 	/** "draw N card(s)" — an order, not "draw up to N", whose short deck protects the drawer. */
@@ -177,6 +192,20 @@ final class CPUOptional {
 	/** How many points of damage {@code effectText} deals the seat taking it, in all. */
 	static int selfDamageIn(String effectText) {
 		return sum(SELF_DAMAGE_N, effectText);
+	}
+
+	/**
+	 * Cards taken off the top of the seat's own deck without drawing them: 9-106R Ghis's "remove the
+	 * top 3 cards of your deck from the game", 22-079L Seifer's "put the top 2 cards of your deck into
+	 * the Break Zone".
+	 */
+	private static final Pattern MILL_N = Pattern.compile(
+			"(?i)\\b(?:remove|put)\\s+the\\s+top\\s+(\\d+)\\s+cards?\\s+of\\s+your\\s+deck\\s+"
+			+ "(?:from\\s+the\\s+game|into\\s+the\\s+Break\\s+Zone)\\b");
+
+	/** How many cards {@code effectText} takes off the top of the seat's own deck, in all. */
+	static int millsIn(String effectText) {
+		return sum(MILL_N, effectText);
 	}
 
 	private static int sum(Pattern counted, String text) {
@@ -222,6 +251,22 @@ final class CPUOptional {
 		Matcher m = DO_SO.matcher(effectText.trim());
 		if (m.matches()) return priceOf(m.group("price"), source);
 		return BARE_PRICE.matcher(stripLead(effectText)).matches() ? priceOf(effectText, source) : Cost.NONE;
+	}
+
+	/**
+	 * What the offer in {@code effectText} buys — the Y of "X. When/If you do so, Y" — led by the
+	 * choice it acts on when that choice is printed ahead of the price: 7-020C Lulu's "choose 1
+	 * Forward. You may put 1 Backup … into the Break Zone. If you do so, deal it 7000 damage." reads
+	 * "choose 1 Forward. deal it 7000 damage." {@code null} for a text with no "do so".
+	 */
+	static String payoffOf(String effectText) {
+		if (effectText == null) return null;
+		Matcher m = DO_SO.matcher(effectText.trim());
+		if (!m.matches()) return null;
+		String payoff = m.group("payoff").trim();
+		String price = stripLead(m.group("price"));
+		Matcher choice = LEADING_CHOICE.matcher(price);
+		return choice.matches() ? price.substring(0, choice.start("rest")).trim() + " " + payoff : payoff;
 	}
 
 	/**

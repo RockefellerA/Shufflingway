@@ -811,8 +811,9 @@ class LimitBehaviorTest {
 			mw.gameState.getIdentity().put(f, false);
 			mw.placeP2CardInForwardZone(f);
 		}
+		// Placing Tidus puts his arrival ability on the Stack; it resolves once the board is set.
 		mw.placeP2CardInForwardZone(tidus);
-		// The AI declines an optional payoff naming a Forward while P1 has none to aim it at.
+		// A Forward for the first action to put at the bottom of its owner's deck.
 		CardData p1Forward = makeForward("Seymour", "Ice", 7, 9000);
 		mw.gameState.getIdentity().put(p1Forward, true);
 		mw.placeCardInForwardZone(p1Forward);
@@ -833,7 +834,6 @@ class LimitBehaviorTest {
 		CardData tidus = makeTextCard("Tidus", "Water", "Forward", 5, 9000, null, TIDUS_22_122L);
 		MainWindow mw = tidusBoard(tidus, 5);        // 5 Backups + 3 Forwards = 8
 
-		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(tidus, false);
 		resolveDownTo(mw, 0);
 
 		assertEquals(3, dullP2Backups(mw), "《Water》《Water》《Water》 was paid");
@@ -845,7 +845,7 @@ class LimitBehaviorTest {
 		CardData tidus = makeTextCard("Tidus", "Water", "Forward", 5, 9000, null, TIDUS_22_122L);
 		MainWindow mw = tidusBoard(tidus, 4);        // 4 + 3 = 7
 
-		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(tidus, false);
+		resolveDownTo(mw, 0);
 
 		assertEquals(0, dullP2Backups(mw), "nothing paid");
 		assertTrue(mw.gameState.getP2Hand().isEmpty());
@@ -861,7 +861,6 @@ class LimitBehaviorTest {
 		mw.placeCardInFirstBackupSlot(p1Backup);
 		mw.gameState.getP1MainDeck().clear();
 
-		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(tidus, false);
 		resolveDownTo(mw, 0);
 
 		assertEquals(seymour, mw.gameState.getP1MainDeck().peekLast(),
@@ -881,7 +880,7 @@ class LimitBehaviorTest {
 		mw.placeP2CardInMonsterZone(monster);
 		assertTrue(mw.p2MonsterCards.contains(monster), "the Monster is on the field to be counted");
 
-		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(tidus, false);
+		resolveDownTo(mw, 0);
 
 		assertEquals(0, dullP2Backups(mw), "a Monster is neither a Forward nor a Backup");
 		assertTrue(mw.gameState.getP2Hand().isEmpty());
@@ -894,7 +893,7 @@ class LimitBehaviorTest {
 		Arrays.fill(mw.p2BackupStates, CardState.DULL);
 		CardData seymour = mw.p1ForwardCards.get(0);
 
-		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(tidus, false);
+		resolveDownTo(mw, 0);
 
 		assertTrue(mw.gameState.getP2Hand().isEmpty(), "no draw without the payment");
 		assertTrue(mw.p1ForwardCards.contains(seymour), "and no Forward put into the deck");

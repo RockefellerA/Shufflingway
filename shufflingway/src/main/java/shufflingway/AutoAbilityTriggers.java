@@ -3839,18 +3839,119 @@ final class AutoAbilityTriggers {
 		if (!fa.youMay() && !fa.opponentMay()) return true;
 		boolean chooserIsP1 = fa.youMay() ? controllerIsP1 : !controllerIsP1;
 		CPUOptional.Offer offer = new CPUOptional.Offer(CPUOptional.costOf(fa.effectText(), source), question,
-				CPUOptional.drawsIn(fa.effectText()), CPUOptional.selfDamageIn(fa.effectText()), cpuAnswer);
+				CPUOptional.drawsIn(fa.effectText()), CPUOptional.millsIn(fa.effectText()),
+				CPUOptional.selfDamageIn(fa.effectText()), cpuAnswer);
 		return mw.decideYesNo(chooserIsP1, "Waiting for your opponent to decide: " + question,
 				() -> mw.showEffectOptionDialog(question, "Auto Ability", new Object[]{yes, no}) == 0,
-				CPUOptional.ask(offer, () -> boardOf(chooserIsP1), mw::logEntry));
+				CPUOptional.ask(offer, () -> boardOf(chooserIsP1, fa, source), mw::logEntry));
 	}
 
-	/** What {@link CPUOptional#decide} reads of {@code isP1}'s side. */
-	private CPUOptional.Board boardOf(boolean isP1) {
+	/** What {@link CPUOptional#decide} reads of {@code isP1}'s side, for {@code source}'s offer {@code fa}. */
+	private CPUOptional.Board boardOf(boolean isP1, AutoAbility fa, CardData source) {
 		return new CPUOptional.Board(
 				(isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).size(),
 				(isP1 ? mw.gameState.getP1DamageZone() : mw.gameState.getP2DamageZone()).size(),
-				mw.cannotLoseTheGame(isP1));
+				mw.cannotLoseTheGame(isP1),
+				nothingToActOn(CPUOptional.payoffOf(fa.effectText()), source, isP1));
+	}
+
+	/** "Your opponent discards …", which needs a card in the opponent's hand. */
+	private static final Pattern PAYOFF_OPPONENT_DISCARDS = Pattern.compile("(?i)^your\\s+opponent\\s+discards\\b");
+
+	/**
+	 * A payoff that reaches the opponent's Forwards without choosing among them: "your opponent
+	 * selects 1 Forward they control" (23-117L) and a sweep of "all the Forwards opponent controls"
+	 * (21-086C). The selection is read only where nothing else is selected beside the Forward —
+	 * 27-101L's "… and up to 1 Backup they control" is not.
+	 */
+	private static final Pattern PAYOFF_OPPOSING_FORWARDS = Pattern.compile(
+			"(?i)^(?:your\\s+opponent\\s+selects\\s+(?:up\\s+to\\s+)?\\d+\\s+(?:dull\\s+)?Forwards?\\s+"
+			+ "(?:they|he/she)\\s+controls?(?=\\s*[.!]|\\s+for\\s+each\\b)"
+			+ "|[^.]*\\ball\\s+the\\s+Forwards\\s+opponent\\s+controls\\b)");
+
+	/** 16-071C Gladiator's "until the end of the turn, all the Forwards you control gain +10000 power and Brave". */
+	private static final Pattern PAYOFF_OWN_FORWARDS = Pattern.compile("(?i)\\ball\\s+the\\s+Forwards\\s+you\\s+control\\b");
+
+	/** A payoff opening on a choice, "up to" included: a choice of nothing buys nothing either. */
+	private static final Pattern PAYOFF_CHOICE = Pattern.compile("(?i)^choose\\s+(?:up\\s+to\\s+)?\\d+\\s");
+
+	/** "play 1 Card Name Paine from your hand onto the field" (28-050C), read by {@link ActionResolverHand#bestPlayableFromHand}. */
+	private static final Pattern PAYOFF_PLAYS_FROM_HAND = Pattern.compile("(?i)^play\\b[^.]*\\bfrom\\s+your\\s+hand\\b");
+
+	/** "search for 1 Card Name Palom, and play it onto the field" (2-016R) — a copy the deck has to hold. */
+	private static final Pattern PAYOFF_SEARCHES_BY_NAME = Pattern.compile(
+			"(?i)^search\\s+for\\s+(?:1|up\\s+to\\s+\\d+)\\s+Card\\s+Name\\s+(?<name>[^,.]+?)(?=\\s+(?:of|with|other|and)\\b|\\s*[,.])");
+
+	/** A sentence about what the payoff chose — "Dull it and Freeze it.", "Put them into the Break Zone." */
+	private static final Pattern ABOUT_THE_CHOSEN = Pattern.compile(
+			"(?i)^\\(|\\b(?:it|them|its|their|that\\s+Forward|the\\s+chosen|the\\s+removed)\\b");
+
+	private static final Pattern SENTENCE_BREAK = Pattern.compile("(?<=[.!])\\s+(?=[A-Z(])");
+
+	/**
+	 * Why {@code payoff} would do nothing if {@code isP1} took the offer now, or {@code null} when it
+	 * would do something — or when that cannot be told, so an offer is only ever turned away on a
+	 * payoff known to be empty. Each part has to be empty: 28-032H Cecil's "choose 1 Character. Dull
+	 * it and Freeze it. Your opponent discards 1 card." still buys the discard with no Character to
+	 * choose, and a part this cannot read ("If the discarded card is Category VII, also draw 1 card.")
+	 * counts as doing something.
+	 *
+	 * <p>A choice is judged on the side the AI would aim it at ({@code GameContextImpl}'s target
+	 * picker): a help at the AI's own cards, anything else at the opponent's. A pick of its own the
+	 * effect is for — a blink, a shield — counts on either side. A play from hand with no card in
+	 * hand to play (28-050C Paine) acts on nothing, and so does a search by name with no copy left in
+	 * the deck (2-016R Palom) — the deck's contents, not its order, which its owner can count.
+	 * Damage that would break nothing is not counted as nothing: it lasts the turn, and a damage
+	 * boost the printed amount does not show (28-001R Ursula's Damage 3) can make it break after all.
+	 */
+	String nothingToActOn(String payoff, CardData source, boolean isP1) {
+		if (payoff == null) return null;
+		List<String> parts = new ArrayList<>();
+		for (String sentence : SENTENCE_BREAK.split(payoff.trim())) {
+			if (!parts.isEmpty() && ABOUT_THE_CHOSEN.matcher(sentence).find())
+				parts.set(parts.size() - 1, parts.get(parts.size() - 1) + " " + sentence);
+			else parts.add(sentence);
+		}
+		List<String> empty = new ArrayList<>();
+		for (String part : parts) {
+			String why = partActsOnNothing(part, source, isP1);
+			if (why == null) return null;
+			empty.add(why);
+		}
+		return "its payoff has " + String.join(" and ", empty);
+	}
+
+	/** What {@code part} of a payoff lacks — "no opposing card to choose" — or {@code null}. */
+	private String partActsOnNothing(String part, CardData source, boolean isP1) {
+		if (PAYOFF_OPPONENT_DISCARDS.matcher(part).find())
+			return mw.playerHand(!isP1).isEmpty() ? "no card in the opponent's hand to take" : null;
+		if (PAYOFF_OPPOSING_FORWARDS.matcher(part).find())
+			return mw.playerForwardCards(!isP1).isEmpty() ? "no opposing Forward to reach" : null;
+		if (PAYOFF_OWN_FORWARDS.matcher(part).find())
+			return mw.playerForwardCards(isP1).isEmpty() ? "no Forward of its own to reach" : null;
+		if (PAYOFF_PLAYS_FROM_HAND.matcher(part).find()) {
+			Function<GameContext, CardData> play = ActionResolverHand.bestPlayableFromHand(part, 0);
+			return play != null && play.apply(new GameContextImpl(mw, isP1, false)) == null
+					? "no card in hand for it to play" : null;
+		}
+		Matcher named = PAYOFF_SEARCHES_BY_NAME.matcher(part);
+		if (named.find()) {
+			String name = named.group("name").trim();
+			return (isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).stream()
+					.noneMatch(c -> c.name().equalsIgnoreCase(name)) ? "no " + name + " left in the deck to find" : null;
+		}
+		if (!PAYOFF_CHOICE.matcher(part).find()) return null;
+		TargetSpec spec = ActionResolver.targetSpec(part, source);
+		if (spec == null) return null;
+		List<ForwardTarget> eligible = mw.eligibleChoiceTargets(spec, source, isP1, false);
+		if (spec.zone() != null)
+			return eligible.isEmpty() ? "nothing in the Break Zone to choose" : null;
+		boolean forOwn = spec.selfOnly() || (!spec.opponentOnly() && ActionResolver.chooseEffectBenefitsTarget(part));
+		GameContext.AiOwnPick pick = ActionResolver.aiOwnPickOf(part);
+		boolean ownServes = forOwn || pick == GameContext.AiOwnPick.BLINK || pick == GameContext.AiOwnPick.SHIELD;
+		boolean oppServes = !forOwn;
+		if (eligible.stream().anyMatch(t -> t.isP1() == isP1 ? ownServes : oppServes)) return null;
+		return forOwn ? "no card of its own to choose" : "no opposing card to choose";
 	}
 
 	/** "You may: …" or "Your opponent may: …", as the offer dialogs word it. */
@@ -6514,27 +6615,11 @@ final class AutoAbilityTriggers {
 			}
 		}
 
-		// The payer is asked, then pays. The AI declines when the effect aims at Forwards and its
-		// opponent has none; otherwise it takes the offer. A payoff choosing from a Break Zone reads
-		// no field, so it is judged by the zone instead: 28-122R Rufus's "choose 1 Category VII
-		// Forward … in your Break Zone" was declined whenever the opponent had no Forward out.
+		// The payer is asked, then pays. A CPU payer turns down a payoff with nothing to act on
+		// (CPUOptional, from nothingToActOn) and otherwise takes the offer.
 		String finalSubEffect = subEffect;
-		if (!acceptsOptional(fa, isP1, source, source.name() + " — " + optionalPrompt(fa, fa.effectText()), () -> {
-			TargetSpec bzChoice = ActionResolver.mandatoryChoiceTargetSpec(finalSubEffect, source);
-			if (bzChoice != null && bzChoice.zone() != null) {
-				if (new GameContextImpl(mw, effectIsP1, false).eligibleCharactersFromBreakZone(bzChoice).isEmpty()) {
-					mw.logEntry("[AutoAbility] [AI] declines optional ability — nothing in the Break Zone to choose");
-					return false;
-				}
-				return aiAccepts("optional ability");
-			}
-			boolean effectNeedsForward = finalSubEffect.toLowerCase(java.util.Locale.ROOT).contains("forward");
-			if (effectNeedsForward && mw.playerForwardCards(!effectIsP1).isEmpty()) {
-				mw.logEntry("[AutoAbility] [AI] declines optional ability — no opponent Forwards to target");
-				return false;
-			}
-			return aiAccepts("optional ability");
-		})) {
+		if (!acceptsOptional(fa, isP1, source, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
+				() -> aiAccepts("optional ability"))) {
 			mw.logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 			return;
 		}

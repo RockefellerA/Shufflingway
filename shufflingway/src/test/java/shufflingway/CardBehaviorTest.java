@@ -38521,14 +38521,120 @@ public class CardBehaviorTest {
 	 * 9-106R Ghis prints the same "return Ghis onto the field dull" wording but has just removed
 	 * itself from the game, so it must not be replayed out of the Break Zone. That is why the
 	 * wording is read inside the search parser rather than added to the shared play-onto-field
-	 * pattern, and this pins Ghis to the parser it already had.
+	 * pattern; Ghis is read whole as a self-blink, which replays the removed card itself.
 	 */
 	@Test
 	void ghisIsNotDivertedByVanillesReturnWording() {
 		CardData ghis = makeForward("Ghis", "Ice", 4, 7000);
-		String ghisEffect = "remove Ghis from the game. If you do so, return Ghis onto the field dull, "
-				+ "then remove the top 3 cards of your deck from the game.";
-		assertEquals("WhenYouDoSo", ActionResolver.fullDescription(ghisEffect, ghis));
+		assertEquals("RemoveSelfThenPlaySelfOntoField", ActionResolver.fullDescription(GHIS_9_106R_EFFECT, ghis));
+	}
+
+	// =========================================================================================
+	// Self-blinks behind "If you do so": 17-056L Noel and 9-106R Ghis.
+	//
+	// Both used to leave and never come back. Noel's return — "at the beginning of your next Main
+	// Phase 1, play Noel onto the field." — was claimed by PlaySourceOntoField with its delay
+	// dropped; Ghis's "return Ghis onto the field dull, then remove the top 3 …" by
+	// RemoveTopOfDeckFromGame, which kept only the tail. They are now read whole, by the
+	// RemoveSelfReturnNextMainPhase1 and RemoveSelfThenPlaySelfOntoField parsers that already read
+	// 23-051L Hope and 4-115L Lightning. "If you do so" gates the return on the removal, which only
+	// happens while the card is still on the field. Driven as P2, where the CPU takes both.
+	// =========================================================================================
+
+	private static final String GHIS_9_106R_EFFECT = "remove Ghis from the game. If you do so, return Ghis onto the "
+			+ "field dull, then remove the top 3 cards of your deck from the game.";
+
+	private static final String NOEL_17_056L = "When Noel attacks, you may remove Noel from the game. If you do so, at "
+			+ "the beginning of your next Main Phase 1, play Noel onto the field.[[br]]When Noel enters the field due "
+			+ "to an ability of Card Name Noel, select 1 of the 3 following actions. \"Choose 1 Character of cost 4 or "
+			+ "more. Break it.\" \"Noel deals your opponent 1 point of damage.\" \"Search for 1 Forward and add it to "
+			+ "your hand.\"";
+
+	private static final String GHIS_9_106R = "When Ghis enters the field, all the Forwards opponent controls lose 1000 "
+			+ "power until the end of the turn.[[br]]When Ghis is dealt damage, you may " + GHIS_9_106R_EFFECT;
+
+	@Test
+	void noelReturnsAtHisNextMainPhase1AndActsOnTheWayIn() throws Exception {
+		MainWindow mw = new MainWindow();
+		CardData big = makeForward("Big", "Fire", 5, 9000);
+		placeP1Forward(mw, big);
+		CardData noel = makeTextCard("Noel", "Wind", "Forward", 2, 5000, "Commando", NOEL_17_056L);
+		placeP2Forward(mw, noel);
+		resolveStack(mw);
+		assertTrue(mw.p1ForwardCards.contains(big), "his arrival from the hand is not due to his ability");
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(noel, false);
+		resolveStack(mw);
+		assertTrue(mw.gameState.getP2RemovedFromGame().contains(noel));
+		assertFalse(mw.p2ForwardCards.contains(noel));
+
+		// On the EDT, as in the game: the return from the removed zone holds his enter triggers
+		// until its animation has run, which the second pass lets it do.
+		SwingUtilities.invokeAndWait(() -> mw.firePendingMainPhase1(false));
+		SwingUtilities.invokeAndWait(() -> { });
+		resolveStack(mw);
+		assertTrue(mw.p2ForwardCards.contains(noel), "back on the field");
+		assertFalse(mw.gameState.getP2RemovedFromGame().contains(noel));
+		assertFalse(mw.p1ForwardCards.contains(big), "his return is due to Noel's ability: the cost-5 Forward is broken");
+	}
+
+	@Test
+	void noelDoesNotReturnAtTheOpponentsMainPhase1() {
+		MainWindow mw = new MainWindow();
+		CardData noel = makeTextCard("Noel", "Wind", "Forward", 2, 5000, "Commando", NOEL_17_056L);
+		placeP2Forward(mw, noel);
+		resolveStack(mw);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(noel, false);
+		resolveStack(mw);
+		mw.firePendingMainPhase1(true);
+		assertFalse(mw.p2ForwardCards.contains(noel), "\"your next Main Phase 1\" is his controller's");
+	}
+
+	/** A CPU Ghis on the field with a six-card deck, after {@code damage} is dealt to him. */
+	private static MainWindow cpuGhisTakes(int damage) {
+		return cpuGhisTakes(damage, 6);
+	}
+
+	/** A CPU Ghis on the field with a {@code deckSize}-card deck, after {@code damage} is dealt to him. */
+	private static MainWindow cpuGhisTakes(int damage, int deckSize) {
+		MainWindow mw = new MainWindow();
+		CardData[] deck = new CardData[deckSize];
+		for (int i = 0; i < deckSize; i++) deck[i] = makeForward("D" + (i + 1), "Fire", 1, 1000);
+		stackP2Deck(mw, deck);
+		placeP2Forward(mw, makeTextCard("Ghis", "Water", "Forward", 4, 8000, "Judge", GHIS_9_106R));
+		resolveStack(mw);
+		mw.applyDamageToForward(false, 0, damage, true, false);
+		resolveStack(mw);
+		return mw;
+	}
+
+	@Test
+	void ghisComesBackDullWithHisDamageGoneForTheTopThreeCards() {
+		MainWindow mw = cpuGhisTakes(3000);
+		assertEquals(1, mw.p2ForwardCards.size());
+		assertEquals("Ghis", mw.p2ForwardCards.get(0).name());
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "onto the field dull");
+		assertEquals(0, (int) mw.p2ForwardDamage.get(0), "a new object: the damage is gone");
+		assertEquals(3, mw.gameState.getP2MainDeck().size());
+		assertEquals(List.of("D1", "D2", "D3"),
+				mw.gameState.getP2RemovedFromGame().stream().map(CardData::name).toList(), "the top 3 — and not Ghis");
+	}
+
+	@Test
+	void aCpuGhisKeepsHisDamageWhenTheDeckCannotSpareThreeCards() {
+		MainWindow mw = cpuGhisTakes(3000, 4);
+		assertEquals(3000, (int) mw.p2ForwardDamage.get(0), "not blinked");
+		assertEquals(4, mw.gameState.getP2MainDeck().size());
+		assertTrue(mw.gameLogText().contains(
+				"[CPU] declines (the deck cannot spare 3 of its 4 cards and still cover the next draw phase)"));
+	}
+
+	@Test
+	void ghisBrokenByTheDamageIsOutOfHisAbilitysReach() {
+		MainWindow mw = cpuGhisTakes(9000);
+		assertTrue(mw.gameState.getP2BreakZone().stream().anyMatch(c -> c.name().equals("Ghis")), "stays broken");
+		assertTrue(mw.gameState.getP2RemovedFromGame().isEmpty(), "nothing removed: not Ghis, not the deck");
+		assertEquals(6, mw.gameState.getP2MainDeck().size());
 	}
 
 
@@ -75339,6 +75445,116 @@ public class CardBehaviorTest {
 		assertFalse(mw.gameState.isP1GameOver());
 		assertEquals(6, mw.gameState.getP2DamageZone().size());
 		assertTrue(mw.playerForwardCards(true).isEmpty(), "Cecil's 8000 breaks the 5000 Forward");
+	}
+
+	// =========================================================================================
+	// A price the CPU will not pay for nothing. (Board behaviour.)
+	//
+	// CPUOptional declines a priced offer whose payoff has nothing to act on, read by
+	// AutoAbilityTriggers.nothingToActOn: a choice is judged on the side the AI's target picker
+	// would aim it at, and every part of the payoff has to be empty — 28-032H Cecil's discard still
+	// lands with no Character to choose.
+	// =========================================================================================
+
+	private static final String ANGEAL_28_060R = "When Angeal is put from the field into the Break Zone, you may "
+			+ "remove Angeal from the game. When you do so, choose 1 Forward. It gains +3000 power. (This effect does "
+			+ "not end at the end of the turn.)";
+
+	/** A CPU Angeal broken beside {@code allies}, with one 5000 Forward across the table. */
+	private static MainWindow cpuAngealBreaksBeside(CardData... allies) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Rival", "Fire", 3, 5000));
+		placeP2Forward(mw, makeTextCard("Angeal", "Earth", "Forward", 3, 7000, "SOLDIER", ANGEAL_28_060R));
+		for (CardData ally : allies) placeP2Forward(mw, ally);
+		resolveStack(mw);
+		mw.breakP2Forward(0);
+		resolveStack(mw);
+		return mw;
+	}
+
+	@Test
+	void aCpuAngealStaysInTheBreakZoneWithNoForwardOfItsOwnToBoost() {
+		MainWindow mw = cpuAngealBreaksBeside();
+		assertTrue(mw.gameState.getP2BreakZone().stream().anyMatch(c -> c.name().equals("Angeal")), "not removed");
+		assertTrue(mw.gameState.getP2RemovedFromGame().isEmpty());
+		assertEquals(5000, mw.effectiveP1ForwardPower(0), "the boost is not handed across the table");
+		assertTrue(mw.gameLogText().contains("[CPU] declines (its payoff has no card of its own to choose)"));
+	}
+
+	@Test
+	void aCpuAngealRemovesHimselfToBoostAnAlly() {
+		MainWindow mw = cpuAngealBreaksBeside(makeForward("Ally", "Earth", 2, 5000));
+		assertTrue(mw.gameState.getP2RemovedFromGame().stream().anyMatch(c -> c.name().equals("Angeal")));
+		assertEquals(8000, mw.effectiveP2ForwardPower(0));
+		assertEquals(5000, mw.effectiveP1ForwardPower(0));
+	}
+
+	private static final String CECIL_28_032H = "When Cecil enters the field, you may remove 3 Forwards in your Break "
+			+ "Zone from the game. When you do so, choose 1 Character. Dull it and Freeze it. Your opponent discards 1 card.";
+
+	/** A CPU 28-032H Cecil arriving with 3 Forwards in its Break Zone, against an empty P1 field and {@code p1Hand} cards. */
+	private static MainWindow cpuCecilFreezesAgainst(int p1Hand) {
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < 3; i++) mw.gameState.getP2BreakZone().add(makeForward("Fallen " + i, "Ice", 2, 5000));
+		fillHand(mw, true, p1Hand);
+		placeP2Forward(mw, makeTextCard("Cecil", "Ice", "Forward", 4, 8000, "Dark Knight", CECIL_28_032H));
+		resolveStack(mw);
+		return mw;
+	}
+
+	@Test
+	void aCpuCecilKeepsItsBreakZoneWhenNeitherPartOfThePayoffLands() {
+		MainWindow mw = cpuCecilFreezesAgainst(0);
+		assertEquals(3, mw.gameState.getP2BreakZone().size());
+		assertTrue(mw.gameState.getP2RemovedFromGame().isEmpty());
+		assertTrue(mw.gameLogText().contains("[CPU] declines (its payoff has no opposing card to choose and no card "
+				+ "in the opponent's hand to take)"));
+	}
+
+	@Test
+	void aCpuCecilPaysForTheDiscardWithNoCharacterToFreeze() {
+		MainWindow mw = cpuCecilFreezesAgainst(1);
+		assertEquals(3, mw.gameState.getP2RemovedFromGame().size());
+		assertTrue(mw.gameState.getP1Hand().isEmpty(), "the discard still lands");
+	}
+
+	@Test
+	void aCpuPaineStaysWithNoPaineInHandToReplaceHer() {
+		MainWindow mw = new MainWindow();
+		CardData paine = makeTextCard("Paine", "Wind", "Forward", 2, 5000, null,
+				"At the end of each of your turns, you may put Paine into the Break Zone. If you do so, "
+				+ "play 1 Card Name Paine from your hand onto the field.");
+		mw.gameState.getIdentity().put(paine, false);
+		mw.placeP2CardInForwardZone(paine);
+		fillHand(mw, false, 1);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false);
+		resolveStack(mw);
+		assertTrue(mw.p2ForwardCards.contains(paine), "nothing to play in her place");
+		assertTrue(mw.gameLogText().contains("[CPU] declines (its payoff has no card in hand for it to play)"));
+	}
+
+	@Test
+	void aBoostToEveryForwardOfItsOwnNeedsOneOut() {
+		// 16-071C Gladiator, a Backup, boosts the Forwards beside him.
+		MainWindow mw = new MainWindow();
+		CardData gladiator = makePlainBackup("Gladiator", "Earth", 2);
+		String payoff = "until the end of the turn, all the Forwards you control gain +10000 power and Brave.";
+		assertEquals("its payoff has no Forward of its own to reach",
+				mw.autoAbilityTriggers.nothingToActOn(payoff, gladiator, false));
+		placeP2Forward(mw, makeForward("Ally", "Earth", 2, 5000));
+		assertNull(mw.autoAbilityTriggers.nothingToActOn(payoff, gladiator, false));
+	}
+
+	@Test
+	void aSearchByNameNeedsACopyLeftInTheDeck() {
+		MainWindow mw = new MainWindow();
+		CardData palom = makeForward("Palom", "Ice", 1, 3000);
+		String payoff = "search for 1 Card Name Palom, and play it onto the field.";
+		stackP2Deck(mw, makeForward("Porom", "Water", 1, 3000));
+		assertEquals("its payoff has no Palom left in the deck to find",
+				mw.autoAbilityTriggers.nothingToActOn(payoff, palom, false));
+		stackP2Deck(mw, makeForward("Porom", "Water", 1, 3000), makeForward("Palom", "Ice", 1, 3000));
+		assertNull(mw.autoAbilityTriggers.nothingToActOn(payoff, palom, false));
 	}
 
 	/** P1's {@code card} resolving auto ability {@code index} while P2 holds {@code oppHand} cards. */

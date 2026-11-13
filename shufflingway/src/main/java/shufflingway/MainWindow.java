@@ -1422,9 +1422,12 @@ public class MainWindow {
 	/**
 	 * An effect deferred to the beginning of a Main Phase 1: the owner's own next one ("your next
 	 * Main Phase 1"), or, when {@code eitherPlayer}, whichever player's comes first ("the next Main
-	 * Phase 1", 17-109R Cú Chulainn). Resolved as its owner's.
+	 * Phase 1", 17-109R Cú Chulainn). Resolved as its owner's, and as an effect of {@code source}'s
+	 * ability — the card whose ability deferred it, or {@code null} — since a delayed effect is still
+	 * part of that ability: 17-056L Noel's return is what his "enters the field due to an ability of
+	 * Card Name Noel" waits for.
 	 */
-	record PendingMainPhase1(boolean ownerIsP1, boolean eitherPlayer, Consumer<GameContext> effect) {}
+	record PendingMainPhase1(boolean ownerIsP1, boolean eitherPlayer, Consumer<GameContext> effect, CardData source) {}
 
 	/** Effects deferred to the beginning of a Main Phase 1 — see {@link PendingMainPhase1}. */
 	final List<PendingMainPhase1> pendingMainPhase1Effects = new ArrayList<>();
@@ -1440,7 +1443,20 @@ public class MainWindow {
 			if (p.eitherPlayer() || p.ownerIsP1() == activeIsP1) due.add(p);
 		if (due.isEmpty()) return;
 		pendingMainPhase1Effects.removeAll(due);
-		for (PendingMainPhase1 p : due) p.effect().accept(buildGameContext(p.ownerIsP1()));
+		for (PendingMainPhase1 p : due) {
+			CardData savedSource   = currentAbilitySource;
+			boolean  savedSourceP1 = currentAbilitySourceIsP1;
+			if (p.source() != null) {
+				currentAbilitySource     = p.source();
+				currentAbilitySourceIsP1 = p.ownerIsP1();
+			}
+			try {
+				p.effect().accept(buildGameContext(p.ownerIsP1()));
+			} finally {
+				currentAbilitySource     = savedSource;
+				currentAbilitySourceIsP1 = savedSourceP1;
+			}
+		}
 	}
 
 	/**
@@ -10696,6 +10712,14 @@ public class MainWindow {
 	 */
 	List<ForwardTarget> eligibleAbilityChoiceTargets(TargetSpec spec, ActionAbility ability,
 			CardData source, boolean isP1) {
+		return eligibleChoiceTargets(spec, source, isP1, ability.isSpecial());
+	}
+
+	/**
+	 * {@link #eligibleAbilityChoiceTargets} for any ability of {@code source}'s, special or not — an
+	 * auto ability's payoff, asked while its controller weighs the offer.
+	 */
+	List<ForwardTarget> eligibleChoiceTargets(TargetSpec spec, CardData source, boolean isP1, boolean isSpecial) {
 		boolean  savedIsSummon  = currentResolutionIsSummon;
 		CardData savedSource    = currentAbilitySource;
 		boolean  savedSourceP1  = currentAbilitySourceIsP1;
@@ -10703,7 +10727,7 @@ public class MainWindow {
 		currentResolutionIsSummon = false;
 		currentAbilitySource      = source;
 		currentAbilitySourceIsP1  = isP1;
-		currentAbilityIsSpecial   = ability.isSpecial();
+		currentAbilityIsSpecial   = isSpecial;
 		try {
 			GameContextImpl ctx = new GameContextImpl(this, isP1, false);
 			return spec.zone() != null

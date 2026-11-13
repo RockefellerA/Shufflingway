@@ -7487,11 +7487,11 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void addPendingMainPhase1Effect(Consumer<GameContext> effect) {
-				mw.pendingMainPhase1Effects.add(new MainWindow.PendingMainPhase1(isP1, false, effect));
+				mw.pendingMainPhase1Effects.add(new MainWindow.PendingMainPhase1(isP1, false, effect, mw.currentAbilitySource));
 			}
 
 			@Override public void addPendingNextMainPhase1Effect(Consumer<GameContext> effect) {
-				mw.pendingMainPhase1Effects.add(new MainWindow.PendingMainPhase1(isP1, true, effect));
+				mw.pendingMainPhase1Effects.add(new MainWindow.PendingMainPhase1(isP1, true, effect, mw.currentAbilitySource));
 			}
 
 			@Override public void setTargetBasePower(ForwardTarget t, int power) {

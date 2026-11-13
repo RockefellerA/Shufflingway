@@ -1644,13 +1644,15 @@ final class ActionResolverPatterns {
     );
     /**
      * Matches "Remove [Self] from the game. At the beginning of your next Main Phase 1, play
-     * [Self] onto the field." — 23-051L Hope's self-blink across the turn boundary.
+     * [Self] onto the field." — 23-051L Hope's self-blink across the turn boundary — and 17-056L
+     * Noel's "remove Noel from the game. If you do so, at the beginning of …" (group
+     * {@code ifDoSo}).
      *
      * <p>Must be read as one sentence pair: on its own the first half is an ordinary
      * remove-from-game, which is exactly what used to happen — Hope left and never came back.
      */
     static final Pattern REMOVE_SELF_RETURN_NEXT_MAIN_PHASE_1 = Pattern.compile(
-        "(?i)^Remove\\s+(?<name>.+?)\\s+from\\s+(?:the\\s+)?game\\.\\s+" +
+        "(?i)^Remove\\s+(?<name>.+?)\\s+from\\s+(?:the\\s+)?game\\.\\s+(?<ifDoSo>If\\s+you\\s+do\\s+so,\\s+)?" +
         "At\\s+the\\s+beginning\\s+of\\s+your\\s+next\\s+Main\\s+Phase\\s+1,\\s+" +
         "play\\s+(?<name2>.+?)\\s+onto\\s+the\\s+field[.!]?$"
     );
@@ -2598,12 +2600,19 @@ final class ActionResolverPatterns {
      * then resolves through {@link #PLAY_SOURCE_ONTO_FIELD_PATTERN}, which reads the Break Zone.
      * The card is in the RFG zone by then, so the replay silently finds nothing.
      *
+     * <p>Also 9-106R Ghis's "remove Ghis from the game. If you do so, return Ghis onto the field
+     * dull, then remove the top 3 cards of your deck from the game." Read whole for the same
+     * reason: {@code RemoveTopOfDeckFromGame} find()s the tail and the return was dropped, leaving
+     * Ghis removed for good.
+     *
      * <p>Groups: {@code name} and {@code name2} — both must equal the source's name;
-     * {@code dull} — non-null when the card returns dull.
+     * {@code ifDoSo} — non-null for "If you do so,", which gates the return on the removal;
+     * {@code dull} — non-null when the card returns dull; {@code rest} — what ", then" adds.
      */
     static final Pattern REMOVE_SELF_THEN_PLAY_SELF_ONTO_FIELD = Pattern.compile(
-        "(?i)^Remove\\s+(?<name>.+?)\\s+from\\s+(?:the\\s+)?game[.!]\\s+(?:Then,?\\s+)?" +
-        "play\\s+(?<name2>.+?)\\s+onto\\s+(?:the\\s+)?field(?:\\s+(?<dull>dull))?[.!]?\\s*$"
+        "(?i)^Remove\\s+(?<name>.+?)\\s+from\\s+(?:the\\s+)?game[.!]\\s+(?:Then,?\\s+|(?<ifDoSo>If\\s+you\\s+do\\s+so,\\s+))?" +
+        "(?:play|return)\\s+(?<name2>.+?)\\s+onto\\s+(?:the\\s+)?field(?:\\s+(?<dull>dull))?" +
+        "(?:,\\s+then,?\\s+(?<rest>.+?))?[.!]?\\s*$"
     );
     /** Matches "Break [CardName]." — used when the source card breaks itself. */
     static final Pattern BREAK_SOURCE_CARD = Pattern.compile(

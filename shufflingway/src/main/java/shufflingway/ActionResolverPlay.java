@@ -195,12 +195,40 @@ final class ActionResolverPlay {
         if (!name.equalsIgnoreCase(source.name())) return null;
         if (!m.group("name2").trim().equalsIgnoreCase(source.name())) return null;
         boolean dull = m.group("dull") != null;
+        // Ghis's ", then remove the top 3 cards of your deck from the game" — both halves or neither.
+        String restText = m.group("rest");
+        Consumer<GameContext> rest = restText == null ? null : parse(restText.trim() + ".", source);
+        if (restText != null && rest == null) return null;
+        if (m.group("ifDoSo") != null)
+            return ctx -> {
+                if (!removeSourceStillOnField(ctx, source)) return;
+                ctx.playSourceFromRfpOntoField(source, dull);
+                if (rest != null) rest.accept(ctx);
+            };
         return ctx -> {
             ctx.logEntry("Effect: Remove " + name + " from the game, then play it onto the field"
                     + (dull ? " dull" : ""));
             ctx.removeNamedCardFromGame(name);
             ctx.playSourceFromRfpOntoField(source, dull);
+            if (rest != null) rest.accept(ctx);
         };
+    }
+
+    /**
+     * The "remove [Self] from the game" of a "… If you do so, …" blink, done only while the source
+     * is still on the field — and whether it was. A card that has left the field since the ability
+     * triggered is a new object its ability cannot reach: 9-106R Ghis, broken by the damage that
+     * triggered him, stays in the Break Zone, and nothing after "If you do so" happens.
+     */
+    private static boolean removeSourceStillOnField(GameContext ctx, CardData source) {
+        if (ctx.locateOnField(source) == null) {
+            ctx.logEntry(source.name() + " is no longer on the field — not removed");
+            ctx.markEffectFizzled();
+            return false;
+        }
+        ctx.logEntry("Effect: Remove " + source.name() + " from the game");
+        ctx.removeSourceCardFromGame(source);
+        return true;
     }
     static Consumer<GameContext> tryParseIfEitherPlayerNoForwardsPutSourceToBz(String text, CardData source) {
         if (source == null) return null;
@@ -547,6 +575,13 @@ final class ActionResolverPlay {
         String name = m.group("name").trim();
         if (!name.equalsIgnoreCase(source.name())) return null;
         if (!m.group("name2").trim().equalsIgnoreCase(source.name())) return null;
+        // 17-056L Noel: the return waits on the removal, and brings back that card.
+        if (m.group("ifDoSo") != null)
+            return ctx -> {
+                if (!removeSourceStillOnField(ctx, source)) return;
+                ctx.logEntry("Effect: " + name + " returns at the beginning of the next Main Phase 1");
+                ctx.addPendingMainPhase1Effect(later -> later.playSourceFromRfpOntoField(source));
+            };
         return ctx -> {
             ctx.logEntry("Effect: Remove " + name + " from the game, return at next Main Phase 1");
             ctx.removeNamedCardFromGame(name);
