@@ -10,6 +10,7 @@ import java.awt.event.KeyEvent;
 import java.net.URL;
 
 import javax.swing.ImageIcon;
+import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
@@ -18,6 +19,7 @@ import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
 
+/** Help → About: the logo, author, credits, version and disclaimer, and the third-party notices. */
 public class About extends JDialog {
 
 	private static final String LOGO = "/images/shufflingway.png";
@@ -28,8 +30,6 @@ public class About extends JDialog {
 	 * would blur them.
 	 */
 	private static final int LOGO_DOWNSCALE = 4;
-
-	private final JPanel contentPanel = new JPanel();
 
 	/**
 	 * Launch the application.
@@ -55,28 +55,38 @@ public class About extends JDialog {
 				KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
 				JComponent.WHEN_IN_FOCUSED_WINDOW);
 		setIconImage(Toolkit.getDefaultToolkit().getImage(About.class.getResource(LOGO)));
-		setBounds(0, 0, 350, 280);
-		getContentPane().setLayout(new BorderLayout());
+		setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+
+		JPanel content = new JPanel(new BorderLayout(0, 12));
+		content.setBorder(new EmptyBorder(14, 20, 10, 20));
 		ImageIcon logo = logo();
 		if (logo != null) {
-			JLabel logoLabel = new JLabel(logo);
-			logoLabel.setBorder(new EmptyBorder(14, 0, 0, 0));
-			getContentPane().add(logoLabel, BorderLayout.NORTH);
+			content.add(new JLabel(logo), BorderLayout.NORTH);
 		}
-		contentPanel.setLayout(new FlowLayout());
-		contentPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
-		getContentPane().add(contentPanel, BorderLayout.CENTER);
-		{
-			JPanel buttonPane = new JPanel();
-			buttonPane.setLayout(new FlowLayout(FlowLayout.RIGHT));
-			JLabel lblNewLabel = new JLabel("<html><div style='text-align: center;'>Author: Andrew Rockefeller © 2023-2026<br/>" +
-			"Pixel NES font by Neale Davidson<br/>" +
-			"Non-API card images sourced from materiahunter.com<br/><br/>" +
-			"Version: " + UpdateChecker.currentVersion() + "<br/><br/>" +
-			"This is an unofficial fan tool — it is not affiliated with Square Enix or Hobby Japan.</div></html>");
-			lblNewLabel.setHorizontalAlignment(SwingConstants.CENTER);
-			getContentPane().add(lblNewLabel, BorderLayout.CENTER);
-		}
+		// Line breaks are explicit: pack() sizes the dialog to the longest line.
+		JLabel text = new JLabel("<html><div style='text-align: center;'>Author: Andrew Rockefeller © 2023-2026<br/>" +
+				"Pixel NES font by Neale Davidson<br/>" +
+				"Final Fantasy 3/6 Font by Veylon, CC BY 3.0<br/>" +
+				"Non-API card images sourced from materiahunter.com<br/><br/>" +
+				"Version: " + UpdateChecker.currentVersion() + "<br/><br/>" +
+				"This is an unofficial fan tool — it is not affiliated with<br/>" +
+				"Square Enix or Hobby Japan.</div></html>");
+		text.setHorizontalAlignment(SwingConstants.CENTER);
+		content.add(text, BorderLayout.CENTER);
+
+		JButton notices = new JButton("Third-party notices…");
+		notices.setToolTipText("The licences of the libraries and fonts Shufflingway ships with");
+		notices.addActionListener(e -> new ThirdPartyNotices(this).setVisible(true));
+		JButton ok = new JButton("OK");
+		ok.addActionListener(e -> dispose());
+		getRootPane().setDefaultButton(ok);
+		JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER));
+		buttons.add(notices);
+		buttons.add(ok);
+		content.add(buttons, BorderLayout.SOUTH);
+
+		setContentPane(content);
+		pack();
 	}
 
 	/** The app logo at its native pixel-art size, or null if the image is missing. */

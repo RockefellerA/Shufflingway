@@ -11,7 +11,13 @@ package shufflingway.audio;
 public enum Sound {
 
 	/** A short UI click: the Auto / Wait toggle beside the phase buttons. */
-	TICK("tick.wav");
+	TICK("tick.wav"),
+
+	/** {@link #CHAT_RECEIVE} inverted, a fifth down: a multiplayer chat message you sent. */
+	CHAT_SEND("chat_send.wav"),
+
+	/** A two-note blip, a fifth up: a multiplayer chat message from the opponent. */
+	CHAT_RECEIVE("chat_receive.wav");
 
 	final String file;
 

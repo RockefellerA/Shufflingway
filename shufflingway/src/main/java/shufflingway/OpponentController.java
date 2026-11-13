@@ -86,8 +86,10 @@ interface OpponentController {
 	                               Consumer<Map<Integer, Integer>> onAssigned);
 
 	/**
-	 * Offers the opponent a window to activate reactive "damage becomes 0" shield abilities
-	 * while the local player holds priority, then runs {@code onDone}.
+	 * The opponent holds priority in {@code window}, on the local player's turn and after they have
+	 * passed, and runs {@code onPass} once it passes in turn. The AI plays there
+	 * ({@link ComputerPlayer#holdPriority}); a remote player acts inside its own window, so for it
+	 * this only passes.
 	 */
-	void requestReactiveShields(Runnable onDone);
+	void holdPriority(PriorityWindow window, Runnable onPass);
 }

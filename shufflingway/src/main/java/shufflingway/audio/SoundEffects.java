@@ -45,7 +45,23 @@ public final class SoundEffects {
 	/** Loaded clips, touched only on the audio thread. A sound whose load failed maps to null. */
 	private static final Map<Sound, Clip> clips = new EnumMap<>(Sound.class);
 
+	private static volatile boolean silenced;
+
 	private SoundEffects() {}
+
+	/**
+	 * Turns every sound off for the rest of this JVM, whatever the Audio preferences say. The test
+	 * suite calls it before any test runs: tests read the player's real settings, so a test that
+	 * logs a chat message or clicks a toggle would otherwise play through their speakers.
+	 */
+	public static void silence() {
+		silenced = true;
+	}
+
+	/** Whether {@link #silence()} has been called. */
+	static boolean isSilenced() {
+		return silenced;
+	}
 
 	/**
 	 * Loads every sound in the background so the first play does not wait on decoding or on
@@ -53,7 +69,7 @@ public final class SoundEffects {
 	 * first play after audio is turned back on.
 	 */
 	public static void preload() {
-		if (!AppSettings.isAudioEnabled()) return;
+		if (silenced || !AppSettings.isAudioEnabled()) return;
 		AUDIO.execute(() -> {
 			for (Sound s : Sound.values()) clip(s);
 		});
@@ -61,10 +77,11 @@ public final class SoundEffects {
 
 	/**
 	 * Plays {@code sound} at the current sound-effect volume. Returns immediately; does nothing
-	 * when audio is disabled or the volume is 0. Safe to call from any thread.
+	 * when audio is disabled, the volume is 0, or {@link #silence()} has been called. Safe to call
+	 * from any thread.
 	 */
 	public static void play(Sound sound) {
-		if (!AppSettings.isAudioEnabled()) return;
+		if (silenced || !AppSettings.isAudioEnabled()) return;
 		int volume = AppSettings.getSfxVolume();
 		if (volume <= 0) return;
 		AUDIO.execute(() -> playNow(sound, volume));

@@ -1101,11 +1101,11 @@ class RemoteOpponent implements OpponentController {
 	private Map<Integer, Integer> partyDamageAnswer;
 
 	@Override
-	public void requestReactiveShields(Runnable onDone) {
-		// Nothing to solicit: a reactive shield is an action ability, and a remote player activates
-		// it inside their own priority window like any other. This hook exists for the AI, which
-		// has no window to act in.
-		onDone.run();
+	public void holdPriority(PriorityWindow window, Runnable onPass) {
+		// Nothing to solicit: a remote player acts inside their own priority window on their own
+		// client (MainWindow.opponentPriority waits for it there). This hook exists for the AI,
+		// which has no window of its own to act in.
+		onPass.run();
 	}
 
 	/**

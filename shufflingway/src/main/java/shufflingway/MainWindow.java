@@ -81,8 +81,8 @@ import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
 import javax.swing.JSpinner;
-import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.JTextPane;
 import javax.swing.JWindow;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
@@ -96,6 +96,12 @@ import javax.swing.border.BevelBorder;
 import javax.swing.border.SoftBevelBorder;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.SimpleAttributeSet;
+import javax.swing.text.Style;
+import javax.swing.text.StyleConstants;
+import javax.swing.text.StyleContext;
+import javax.swing.text.StyledDocument;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -268,7 +274,7 @@ public class MainWindow {
 	private JButton        p1RemoveButton;
 	private JButton        p2RemoveButton;
 	// Game event log
-	private JTextArea gameLog;
+	private JTextPane gameLog;
 	// Chat bar (enabled only when connected to multiplayer)
 	private JTextField chatInput;
 	private JButton    chatSendBtn;
@@ -2585,20 +2591,22 @@ public class MainWindow {
 
 		// Game log (scrollable, fills the rest of the side panel)
 		// Its colours are set rather than left to the look, which would draw it in the panel's colour
-		// as a read-only field, so they are set again whenever Preferences switches the theme.
-		gameLog = new JTextArea() {
+		// as a read-only field, so they are set again whenever Preferences switches the theme. The
+		// chat styles are recoloured with them (see colourChatStyles). A text pane wraps on word
+		// boundaries by itself.
+		gameLog = new JTextPane() {
 			@Override public void updateUI() {
 				super.updateUI();
 				setBackground(ThemeColors.logBackground());
 				setForeground(ThemeColors.logText());
 				setCaretColor(getBackground());
+				colourChatStyles(getStyledDocument());
 			}
 		};
 		gameLog.setEditable(false);
-		gameLog.setLineWrap(true);
-		gameLog.setWrapStyleWord(true);
 		gameLog.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
 		gameLog.setMargin(new Insets(4, 4, 4, 4));
+		colourChatStyles(gameLog.getStyledDocument());
 		logEntry("Welcome to Shufflingway!");
 
 		JScrollPane logScrollPane = new JScrollPane(gameLog,
@@ -2622,7 +2630,8 @@ public class MainWindow {
 			GameConnection conn = multiplayerMenu == null ? null : multiplayerMenu.getActiveConnection();
 			if (conn == null) return;
 			conn.send(GameAction.of(ActionType.CHAT, new JSONObject().put("msg", text)));
-			logEntry("[You] " + text);
+			logChat(true, text);
+			SoundEffects.play(Sound.CHAT_SEND);
 			chatInput.setText("");
 		};
 		chatInput.addActionListener(e -> sendChat.run());
@@ -4408,27 +4417,96 @@ public class MainWindow {
 		refreshHandCardStates();
 	}
 
-	/** Appends a timestamped entry to the game log. */
 	/** The game log's current contents, for tests that assert on what a play wrote. */
 	String gameLogText() {
-		return gameLog == null ? "" : gameLog.getText();
+		if (gameLog == null) return "";
+		// From the document, not getText(): a text pane writes its text out through the editor kit,
+		// which turns every line break into the platform's, \r\n on Windows.
+		StyledDocument doc = gameLog.getStyledDocument();
+		try {
+			return doc.getText(0, doc.getLength());
+		} catch (BadLocationException e) {
+			throw new IllegalStateException(e);
+		}
+	}
+
+	/** The game log's document, for tests that assert on how a line is styled. */
+	StyledDocument gameLogDocument() {
+		return gameLog.getStyledDocument();
 	}
 
 	/**
-	 * Logs the opponent's chat message. Cleaned first, since the sender's build is not ours to trust:
-	 * a line break inside a message would otherwise start a forged log line (see {@link ChatText}).
+	 * Logs the opponent's chat message and plays the incoming blip. Cleaned first, since the sender's
+	 * build is not ours to trust: a line break inside a message would otherwise start a forged log
+	 * line (see {@link ChatText}). A message that cleans to nothing is neither logged nor sounded.
 	 */
 	void onChatReceived(String raw) {
 		String msg = ChatText.clean(raw);
-		if (!msg.isEmpty()) logEntry("[Opponent] " + msg);
+		if (msg.isEmpty()) return;
+		logChat(false, msg);
+		SoundEffects.play(Sound.CHAT_RECEIVE);
 	}
 
+	/** Appends a timestamped entry to the game log. */
 	void logEntry(String text) {
 		if (gameLog == null) return;
+		appendLogLine(gameLog.getStyledDocument().getStyle(StyleContext.DEFAULT_STYLE), "", text);
+	}
+
+	/**
+	 * Appends a chat line to the game log in its side's colour, with the speaker's tag in bold, so a
+	 * glance tells it from the game's own lines. A line is styled as chat by which method logged it,
+	 * never by what it says, so a message typed to look like a game line still reads as chat.
+	 */
+	void logChat(boolean mine, String msg) {
+		if (gameLog == null) return;
+		Style style = gameLog.getStyledDocument().getStyle(chatStyleName(mine));
+		appendLogLine(style, mine ? "[You]" : "[Opponent]", " " + msg);
+	}
+
+	/**
+	 * Appends {@code "HH:mm:ss  " + tag + text} as one log line, {@code tag} in bold, the whole line
+	 * in paragraph style {@code style}. The style is set on game lines too: a cleared log keeps one
+	 * empty paragraph carrying the style of the first line it held, which may have been a chat line.
+	 */
+	private void appendLogLine(Style style, String tag, String text) {
+		StyledDocument doc = gameLog.getStyledDocument();
 		String time = java.time.LocalTime.now()
 				.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"));
-		gameLog.append(time + "  " + text + "\n");
-		gameLog.setCaretPosition(gameLog.getDocument().getLength());
+		String prefix = time + "  ";
+		int start = doc.getLength();
+		try {
+			doc.insertString(start, prefix + tag + text + "\n", null);
+		} catch (BadLocationException e) {
+			throw new IllegalStateException(e);
+		}
+		if (!tag.isEmpty()) {
+			SimpleAttributeSet bold = new SimpleAttributeSet();
+			StyleConstants.setBold(bold, true);
+			doc.setCharacterAttributes(start + prefix.length(), tag.length(), bold, false);
+		}
+		doc.setLogicalStyle(start, style);
+		gameLog.setCaretPosition(doc.getLength());
+	}
+
+	private static String chatStyleName(boolean mine) {
+		return mine ? "chatYou" : "chatOpponent";
+	}
+
+	/**
+	 * Creates the log's two chat styles if they are missing, and colours them for the current theme.
+	 * A chat line takes its colour from its paragraph's style rather than holding one of its own, so
+	 * recolouring the style on a theme switch recolours every chat line already in the log. Each is a
+	 * child of the default style, which the text pane keeps in step with its font.
+	 */
+	private static void colourChatStyles(StyledDocument doc) {
+		if (doc == null) return;   // updateUI first runs from the constructor, before the document
+		Style parent = doc.getStyle(StyleContext.DEFAULT_STYLE);
+		for (boolean mine : new boolean[] {true, false}) {
+			Style style = doc.getStyle(chatStyleName(mine));
+			if (style == null) style = doc.addStyle(chatStyleName(mine), parent);
+			StyleConstants.setForeground(style, mine ? ThemeColors.logChatYou() : ThemeColors.logChatOpponent());
+		}
 	}
 
 	/** Resets all interactive UI zones to their empty state for a new game. */
@@ -14020,6 +14098,11 @@ public class MainWindow {
 				awaitOpponentsStackPass(remote, entry);
 			else if (!cpuRespondsTo(entry))
 				resolveTopOfStack();
+			else if (gameState.peekStack() == entry)
+				// The response put nothing on top — a Back Attack Character with no ability to
+				// trigger — so the entry still waits, and the CPU is asked again as if the Stack had
+				// come back round to it. Without this the entry sat unresolved with no window open.
+				showStackWindow();
 			return;
 		}
 
@@ -21532,14 +21615,15 @@ public class MainWindow {
 	void p2AutoPass(Runnable onDone) {
 		if (p2AutoPassTimer != null) { p2AutoPassTimer.stop(); p2AutoPassTimer = null; }
 		phaseTracker.setHasPriority(false);
-		p2AutoPassTimer = new Timer(1500, e -> {
+		p2AutoPassTimer = new Timer(p2AutoPassMs, e -> {
 			((Timer) e.getSource()).stop();
 			p2AutoPassTimer = null;
 			runWhenBoardSettled(() -> {
-				// On P1's turn: let the opponent activate any reactive shields before passing.
-				// No opponent means a bare window (tests), where there is no one to ask.
+				// On P1's turn the opponent holds priority in the window P1 has just passed, and
+				// plays in it before passing. No opponent means a bare window (tests), where there
+				// is no one to ask.
 				if (gameState.getCurrentPlayer() == GameState.Player.P1 && opponent != null) {
-					opponent.requestReactiveShields(() -> {
+					opponent.holdPriority(cpuPriorityWindow(), () -> {
 						phaseTracker.setHasPriority(true);
 						onDone.run();
 					});
@@ -21551,6 +21635,29 @@ public class MainWindow {
 		});
 		p2AutoPassTimer.setRepeats(false);
 		p2AutoPassTimer.start();
+	}
+
+	/** How long {@link #p2AutoPass} shows P2 holding priority before it acts; tests shorten it. */
+	int p2AutoPassMs = 1500;
+
+	/**
+	 * Which window P2 holds priority in on P1's turn, read off where the turn stands: the phase,
+	 * and in the Attack Phase the sub-step — every combat round on P1's turn runs on the sub-step
+	 * it announces for (Declare Attackers for the declaration, Block for the block), and the
+	 * sub-step only moves on once both players have passed.
+	 */
+	PriorityWindow cpuPriorityWindow() {
+		return switch (gameState.getCurrentPhase()) {
+			case MAIN_1 -> PriorityWindow.MAIN_1_END;
+			case MAIN_2 -> PriorityWindow.MAIN_2_END;
+			case ATTACK -> switch (attackSubStep) {
+				case -1, 0 -> PriorityWindow.ATTACK_PREPARATION;
+				case 1     -> PriorityWindow.ATTACK_DECLARED;
+				case 2     -> PriorityWindow.BLOCK_DECLARED;
+				default    -> PriorityWindow.OTHER;
+			};
+			default -> PriorityWindow.OTHER;
+		};
 	}
 
 	/**

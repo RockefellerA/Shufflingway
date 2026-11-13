@@ -34,6 +34,9 @@ class ComputerPlayer implements OpponentController {
 
 	private static final int PAUSE_MS = 500;
 
+	/** How long {@link #step} waits before each move; tests shorten it. */
+	int pauseMs = PAUSE_MS;
+
 	/**
 	 * Hand size at which P2 spends its main phase playing cards rather than activating abilities.
 	 *
@@ -78,7 +81,7 @@ class ComputerPlayer implements OpponentController {
 	 * field (see {@link MainWindow#isBoardSettled}).
 	 */
 	private void step(Runnable r) {
-		Timer t = new Timer(PAUSE_MS, e -> {
+		Timer t = new Timer(pauseMs, e -> {
 			if (cancelled) return;
 			if (mw.gameState.isP1GameOver()) return;
 			if (!mw.isBoardSettled()) { step(r); return; }
@@ -524,8 +527,14 @@ class ComputerPlayer implements OpponentController {
 
 	private void doEndPhase() {
 		List<CardData> hand = mw.gameState.getP2Hand();
+		HeldBackAttack held = heldBackAttack();
 		while (hand.size() > 5) {
-			int idx = pickWorstHandCard(hand);
+			// The held Back Attack Character is kept for P1's turn, not thrown away for the hand limit.
+			List<CardData> pool = new ArrayList<>(hand);
+			if (held != null && pool.size() > 1) pool.removeIf(c -> c == held.card());
+			CardData worst = pool.get(pickWorstHandCard(pool));
+			int idx = 0;
+			while (hand.get(idx) != worst) idx++;   // by identity: two copies of a printing are equal
 			CardData d = mw.gameState.discardP2FromHand(idx);
 			if (d != null) mw.logEntry("[P2] End Phase — discards " + d.name());
 		}
@@ -726,11 +735,15 @@ class ComputerPlayer implements OpponentController {
 		if (hand.isEmpty()) return null;
 
 		boolean p2HasLD = mw.hasLightOrDarkOnField(false);
+		// Kept for P1's turn, with the Backups to cast it then (decision 4).
+		HeldBackAttack held = heldBackAttack();
+		CardData heldCard = held != null ? held.card() : null;
 
 		// Forwards and Monsters — highest cost first
 		List<Integer> fieldCands = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
 			CardData c = hand.get(i);
+			if (c == heldCard) continue;
 			if (!c.isForward() && !c.isMonster()) continue;
 			if (!c.multicard() && mw.hasUniquenessClashOnField(c, false)) continue;
 			if (c.isLightOrDark() && p2HasLD) continue;
@@ -765,6 +778,7 @@ class ComputerPlayer implements OpponentController {
 		List<Integer> backupCands = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
 			CardData c = hand.get(i);
+			if (c == heldCard) continue;
 			if (!c.isBackup() || !mw.p2HasAvailableBackupSlot()) continue;
 			if (!c.multicard() && mw.hasUniquenessClashOnField(c, false)) continue;
 			if (c.isLightOrDark() && p2HasLD) continue;
@@ -891,7 +905,8 @@ class ComputerPlayer implements OpponentController {
 		for (Map.Entry<String, Integer> en : need.entrySet())
 			en.setValue(Math.max(0, en.getValue() - mw.gameState.getP2CpForElement(en.getKey())));
 
-		CardData[] backups = mw.cpPayableBackupCards(false);
+		CardData[] backups = p2CpBackups();
+		CardData kept = keptForOpponentsTurn();
 		String[] costElems = need.keySet().toArray(String[]::new);
 		Set<String> ldGrants = mw.lightDarkDiscardGrants(false);
 		List<CardData> hand = mw.gameState.getP2Hand();
@@ -924,7 +939,7 @@ class ComputerPlayer implements OpponentController {
 			List<Integer> discardable = new ArrayList<>();
 			for (int i = 0; i < hand.size(); i++)
 				if (i != handIdx && !outDiscards.contains(i) && hand.get(i).containsElement(elem)
-						&& CpPaymentUtils.canDiscardForCp(hand.get(i), ldGrants)) discardable.add(i);
+						&& hand.get(i) != kept && CpPaymentUtils.canDiscardForCp(hand.get(i), ldGrants)) discardable.add(i);
 			discardable.sort((a, b) -> hand.get(a).cost() - hand.get(b).cost());
 			for (int di : discardable) {
 				if (deficit <= 0) break;
@@ -942,7 +957,7 @@ class ComputerPlayer implements OpponentController {
 			generic--;
 		}
 		for (int i = 0; i < hand.size() && generic > 0; i++) {
-			if (i == handIdx || outDiscards.contains(i)) continue;
+			if (i == handIdx || outDiscards.contains(i) || hand.get(i) == kept) continue;
 			if (!CpPaymentUtils.canDiscardForCp(hand.get(i), ldGrants)) continue;
 			outDiscards.add(i);
 			generic -= 2;
@@ -1061,9 +1076,10 @@ class ComputerPlayer implements OpponentController {
 
 		List<CardData> hand = mw.gameState.getP2Hand();
 		Set<String> ldGrants = mw.lightDarkDiscardGrants(false);
+		CardData kept = keptForOpponentsTurn();
 		List<Integer> discardable = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++)
-			if (CpPaymentUtils.canDiscardForCp(hand.get(i), ldGrants)) discardable.add(i);
+			if (hand.get(i) != kept && CpPaymentUtils.canDiscardForCp(hand.get(i), ldGrants)) discardable.add(i);
 		discardable.sort((a, b) -> hand.get(a).cost() - hand.get(b).cost());
 		for (int di : discardable) {
 			if (total >= cost) break;
@@ -1229,9 +1245,11 @@ class ComputerPlayer implements OpponentController {
 		Set<String> ldGrants = mw.lightDarkDiscardGrants(false);
 		List<Integer> discardable = new ArrayList<>();
 		List<Integer> offColorDiscards = new ArrayList<>();
+		CardData kept = keptForOpponentsTurn();
 		for (int i = 0; i < hand.size() && discardsPay; i++) {
 			if (i == excludeHandIdx || i == reservedHandIdx) continue;
 			CardData c = hand.get(i);
+			if (c == kept) continue;
 			if (!CpPaymentUtils.canDiscardForCp(c, ldGrants)) continue;
 			boolean matches = false;
 			for (String e : elems) if (c.containsElement(e)) { matches = true; break; }
@@ -1334,8 +1352,177 @@ class ComputerPlayer implements OpponentController {
 	}
 
 	@Override
-	public void requestReactiveShields(Runnable onDone) {
-		tryP2ReactiveShieldAbilities(onDone);
+	public void holdPriority(PriorityWindow window, Runnable onPass) {
+		if (cancelled || mw.gameState.isP1GameOver()) return;
+		if (playInWindow(window, null)) {
+			// The play goes on the Stack, or onto the field with abilities of its own to trigger:
+			// asked again once the board has settled, as the Main Phase loop asks again after a play.
+			step(() -> holdPriority(window, onPass));
+			return;
+		}
+		onPass.run();
+	}
+
+	// ── Priority while P1 acts ───────────────────────────────────────────
+
+	/**
+	 * Makes at most one play while P1 acts — in {@code window} on P1's turn, or on P1's Stack
+	 * {@code entry} on either turn — and returns whether it made one. The one place every such play
+	 * is chosen; the caller asks again once the board settles ({@link #holdPriority}) or the Stack
+	 * comes back to the entry ({@link #respondToStack}), until this answers {@code false}.
+	 *
+	 * <p>The plays so far: a reactive "the damage becomes 0" shield in a timed window
+	 * ({@link #activateReactiveShield}), and on a Stack entry the self-bounce save
+	 * ({@link #saveFromStackEntry}). A play that leaves nothing on the Stack — a Back Attack
+	 * Character, say — is a play all the same, and the Stack window asks again after it.
+	 *
+	 * @param entry the P1 Stack entry being answered, for {@link PriorityWindow#STACK_RESPONSE};
+	 *              {@code null} for every other window
+	 */
+	boolean playInWindow(PriorityWindow window, StackEntry entry) {
+		if (window == PriorityWindow.STACK_RESPONSE) return saveFromStackEntry(entry);
+		return activateReactiveShield() || playBackAttack(window);
+	}
+
+	// ── Back Attack (HANDOFF-cpu-opponents-turn.md decision 4) ───────────
+
+	/** The Back Attack Character P2 keeps in hand for P1's turn, and the Backups set aside to cast it. */
+	record HeldBackAttack(CardData card, Set<Integer> backups) {}
+
+	/** Set while {@link #heldBackAttack} plans the held card's own payment, which reads the whole row. */
+	private boolean planningHeldCard = false;
+
+	/**
+	 * The Back Attack Character P2 keeps in hand for P1's turn, with the active Backups set aside to
+	 * cast it then — or {@code null}. Asked on P2's own turn only; on P1's turn the reserve is what pays.
+	 *
+	 * <p>Held: a Character with an ambush use (a Forward, which can block) or an arrival use (an
+	 * enters-the-field removal, {@link AutoAbilityTriggers#arrivalIsRemoval}) that the active Backups
+	 * can pay for in full, nothing discarded — a card they cannot cover is cast or kept as ever, so
+	 * nothing is held that could not be played. The dearest such card, and only one.
+	 */
+	HeldBackAttack heldBackAttack() {
+		if (planningHeldCard || mw.gameState.getCurrentPlayer() != GameState.Player.P2) return null;
+		planningHeldCard = true;
+		try {
+			List<CardData> hand = mw.gameState.getP2Hand();
+			HeldBackAttack best = null;
+			for (int i = 0; i < hand.size(); i++) {
+				CardData c = hand.get(i);
+				if (!c.hasTrait(CardData.Trait.BACK_ATTACK) || c.isSummon()) continue;
+				if (!c.isForward() && !AutoAbilityTriggers.arrivalIsRemoval(c)) continue;
+				if (best != null && c.cost() <= best.card().cost()) continue;
+				List<Integer>        backups     = new ArrayList<>();
+				Map<Integer, String> backupElems = new LinkedHashMap<>();
+				List<Integer>        discards    = new ArrayList<>();
+				Map<Integer, String> discElems   = new LinkedHashMap<>();
+				if (!p2PlanPayment(c, mw.castCostFor(c, false), i, backups, backupElems, discards, discElems)) continue;
+				if (!discards.isEmpty()) continue;
+				best = new HeldBackAttack(c, Set.copyOf(backups));
+			}
+			return best;
+		} finally {
+			planningHeldCard = false;
+		}
+	}
+
+	/** The held Back Attack Character, which no payment discards for CP; {@code null} when none is held. */
+	private CardData keptForOpponentsTurn() {
+		HeldBackAttack held = heldBackAttack();
+		return held != null ? held.card() : null;
+	}
+
+	/** Whether Backup slot {@code bi} is set aside for the held Back Attack Character. */
+	private boolean reservedBackup(int bi) {
+		HeldBackAttack held = heldBackAttack();
+		return held != null && held.backups().contains(bi);
+	}
+
+	/**
+	 * Casts a Back Attack Character from hand in {@code window} on P1's turn, when one is worth it
+	 * there, and returns whether it did. Three reasons, in order (decision 4):
+	 * <ul>
+	 *   <li>its arrival removes an opposing Forward now ({@link AutoAbilityTriggers#arrivalRemoves});</li>
+	 *   <li>after P1 declares an attack, it is a blocker that survives it and P2 has none
+	 *       ({@link #ambushBlocks});</li>
+	 *   <li>as P1's Main Phase 2 ends, on the field before P2's turn — paid with Backups alone, which
+	 *       are back at P2's Active Phase: the same card is cheaper cast then than paid for in cards
+	 *       now.</li>
+	 * </ul>
+	 * The first two may discard to pay: the play is worth the cards.
+	 */
+	private boolean playBackAttack(PriorityWindow window) {
+		if (mw.gameState.getCurrentPlayer() != GameState.Player.P1 || mw.p2CastLimitReached()) return false;
+		List<CardData> hand = mw.gameState.getP2Hand();
+		List<Integer> order = new ArrayList<>();
+		for (int i = 0; i < hand.size(); i++) order.add(i);
+		order.sort((a, b) -> hand.get(b).cost() - hand.get(a).cost());
+		ForwardTarget attacker = window == PriorityWindow.ATTACK_DECLARED ? declaredP1Attacker() : null;
+		for (int i : order) {
+			CardData c = hand.get(i);
+			if (!c.hasTrait(CardData.Trait.BACK_ATTACK) || c.isSummon() || !castableOnOpponentsTurn(c)) continue;
+			String why = window != PriorityWindow.OTHER ? mw.autoAbilityTriggers.arrivalRemoves(c, false) : null;
+			boolean backupsOnly = false;
+			if (why == null && attacker != null && ambushBlocks(c, attacker))
+				why = "it blocks " + mw.autoAbilityTriggers.fieldCardData(attacker).name() + " and survives";
+			if (why == null && window == PriorityWindow.MAIN_2_END) {
+				why = "on the field before its own turn";
+				backupsOnly = true;
+			}
+			if (why == null) continue;
+			P2Plan plan = planCast(c, i, backupsOnly);
+			if (plan == null) continue;
+			mw.logEntry("[P2] Back Attack — " + c.name() + ": " + why);
+			executeP2HandPlay(plan);
+			return true;
+		}
+		return false;
+	}
+
+	/** P1's one declared attacker as a field slot, or {@code null}: none, or a party. */
+	private ForwardTarget declaredP1Attacker() {
+		if (mw.p1DeclaredAttackers.size() != 1) return null;
+		return mw.findFieldSlot(mw.p1DeclaredAttackers.get(0), true);
+	}
+
+	/**
+	 * Whether Back Attack Forward {@code card}, played now, would block {@code attacker} and survive
+	 * it while nothing P2 already has would ({@link #chooseBlocker}) — the blocker the AI then picks.
+	 * Read with the same attacker-side restrictions {@link #chooseBlocker} applies, on the printed power.
+	 */
+	private boolean ambushBlocks(CardData card, ForwardTarget attacker) {
+		if (!card.isForward()) return false;
+		CardData a = mw.autoAbilityTriggers.fieldCardData(attacker);
+		if (a == null) return false;
+		int attackPower = mw.fieldForwardPower(true, attacker.zone(), attacker.idx());
+		if (chooseBlocker(attackPower, attacker) != null) return false;
+		if (mw.p1CannotBeBlocked.contains(a) || mw.hasSelfCannotBeBlockedFieldAbility(a, true)
+				|| mw.attackerConditionallyUnblockable(a, true)) return false;
+		if (mw.p1AttackerCostFiltersExclude(a, card.cost())) return false;
+		if (mw.attackerPowerFilterExcludes(a, true, card.power())) return false;
+		if (mw.carriesHigherPowerBlockShield(a, true) && card.power() > attackPower) return false;
+		return card.power() >= attackPower;
+	}
+
+	/** Whether {@code card} may be cast from P2's hand now, on P1's turn — timing aside, which Back Attack settles. */
+	private boolean castableOnOpponentsTurn(CardData card) {
+		if (!card.castsAtSummonSpeed()) return false;
+		if (!card.multicard() && mw.hasUniquenessClashOnField(card, false)) return false;
+		if (card.isLightOrDark() && mw.hasLightOrDarkOnField(false)) return false;
+		if (card.isBackup() && !mw.p2HasAvailableBackupSlot()) return false;
+		return mw.castRestrictionMet(card, false);
+	}
+
+	/** P2's cast of hand card {@code cardIdx}, or {@code null} when it cannot be paid — or not without discarding, when {@code backupsOnly}. */
+	private P2Plan planCast(CardData card, int cardIdx, boolean backupsOnly) {
+		List<Integer>        backups     = new ArrayList<>();
+		Map<Integer, String> backupElems = new LinkedHashMap<>();
+		List<Integer>        discards    = new ArrayList<>();
+		Map<Integer, String> discElems   = new LinkedHashMap<>();
+		int cost = mw.castCostFor(card, false);
+		if (!p2PlanPayment(card, cost, cardIdx, backups, backupElems, discards, discElems)) return null;
+		if (backupsOnly && !discards.isEmpty()) return null;
+		return new P2Plan(cardIdx, cost, backups, backupElems, discards, discElems, false);
 	}
 
 	// ── Blocking AI ──────────────────────────────────────────────────────
@@ -1677,6 +1864,9 @@ class ComputerPlayer implements OpponentController {
 		for (int i = 0; i < mw.p2BackupCards.length; i++) {
 			CardData card = mw.p2BackupCards[i];
 			if (card == null) continue;
+			// Set aside to pay for the held Back Attack Character on P1's turn: not dulled for an
+			// ability of its own either.
+			if (reservedBackup(i)) continue;
 			if (tryP2UseAbility(card, mw.p2BackupFrozen[i], mw.p2BackupStates[i], 0,
 					mw.abilityCostDull(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP)),
 					resume)) return;
@@ -1693,11 +1883,10 @@ class ComputerPlayer implements OpponentController {
 	}
 
 	/**
-	 * Called from {@link MainWindow#p2AutoPass} when P1 has priority.
-	 * Activates any reactive "ability/summon damage becomes 0" shield abilities on P2's forwards
-	 * that are not already shielded, then runs {@code onDone}.
+	 * Activates one reactive "ability/summon damage becomes 0" shield ability on a P2 Forward not
+	 * already shielded, and returns whether it did — a play of {@link #playInWindow}'s.
 	 */
-	void tryP2ReactiveShieldAbilities(Runnable onDone) {
+	private boolean activateReactiveShield() {
 		for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
 			CardData card = mw.p2ForwardCards.get(i);
 			if (card == null) continue;
@@ -1723,11 +1912,10 @@ class ComputerPlayer implements OpponentController {
 					logAbandonedActivation(card);
 					continue;
 				}
-				step(() -> tryP2ReactiveShieldAbilities(onDone));
-				return;
+				return true;
 			}
 		}
-		onDone.run();
+		return false;
 	}
 
 	/**
@@ -2105,15 +2293,20 @@ class ComputerPlayer implements OpponentController {
 
 	/**
 	 * P1 has put {@code entry} on the Stack and P2 holds priority on it: responds if anything is
-	 * worth responding with. Returns {@code true} when P2 did — its response is then on top of
-	 * {@code entry} and resolving ahead of it, and asks again when the Stack comes back round.
-	 *
-	 * <p>The one response for now is saving a Forward {@code entry} would break by returning it to
-	 * hand with its own ability ({@link #p2SelfBounceSave}). Only the choices {@code entry} has
-	 * already made are weighed, read through {@link MainWindow#liveTargets} so a target that has
-	 * since moved is still recognised.
+	 * worth responding with ({@link #playInWindow}). Returns {@code true} when P2 did — a response on
+	 * the Stack is then on top of {@code entry} and resolving ahead of it, and P2 is asked again when
+	 * the Stack comes back round to the entry.
 	 */
 	boolean respondToStack(StackEntry entry) {
+		return playInWindow(PriorityWindow.STACK_RESPONSE, entry);
+	}
+
+	/**
+	 * Saves a Forward {@code entry} would break by returning it to hand with its own ability
+	 * ({@link #p2SelfBounceSave}). Only the choices {@code entry} has already made are weighed, read
+	 * through {@link MainWindow#liveTargets} so a target that has since moved is still recognised.
+	 */
+	private boolean saveFromStackEntry(StackEntry entry) {
 		List<ForwardTarget> targets = mw.liveTargets(entry, false);
 		String text = mw.resolvingEffectText(entry);
 		if (targets == null || text == null) return false;
@@ -2485,9 +2678,17 @@ class ComputerPlayer implements OpponentController {
 	 *
 	 * <p>Only for deciding what may be dulled for CP. The Backups are still on the field for
 	 * everything else, which is why the row is masked rather than emptied.
+	 *
+	 * <p>On P2's own turn the Backups set aside for the held Back Attack Character
+	 * ({@link #heldBackAttack}) are masked too, so nothing P2 does on its turn spends them.
 	 */
 	private CardData[] p2CpBackups() {
-		return mw.cpPayableBackupCards(false);
+		CardData[] row = mw.cpPayableBackupCards(false);
+		HeldBackAttack held = heldBackAttack();
+		if (held == null || held.backups().isEmpty()) return row;
+		CardData[] open = row.clone();
+		for (int bi : held.backups()) if (bi < open.length) open[bi] = null;
+		return open;
 	}
 
 	/** Returns unique non-empty CP cost elements, in encounter order. */
@@ -2587,10 +2788,12 @@ class ComputerPlayer implements OpponentController {
 
 		List<CardData> hand = mw.gameState.getP2Hand();
 		Set<String> ldGrants = mw.lightDarkDiscardGrants(false);
+		CardData kept = keptForOpponentsTurn();
 		List<Integer> discardable = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
 			if (reservedHandIdxs.contains(i)) continue;
 			CardData c = hand.get(i);
+			if (c == kept) continue;
 			if (!CpPaymentUtils.canDiscardForCp(c, ldGrants)) continue;
 			if (elems.length == 0 || genericCount > 0) { discardable.add(i); continue; }
 			for (String e : elems) if (c.containsElement(e)) { discardable.add(i); break; }

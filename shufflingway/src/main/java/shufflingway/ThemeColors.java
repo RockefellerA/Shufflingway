@@ -64,6 +64,21 @@ public final class ThemeColors {
 		return uiColor("TextArea.foreground", Color.BLACK);
 	}
 
+	/**
+	 * A chat line you sent, in the game log: blue. Paired with {@link #logChatOpponent()}'s orange,
+	 * the two hues that stay apart under the common forms of colour blindness. Each chat colour is
+	 * set for light and dark separately, not mirrored through {@link #text(Color)}, so either can be
+	 * tuned without moving the other.
+	 */
+	public static Color logChatYou() {
+		return isDark() ? new Color(0x6AA0E5) : new Color(0x1F5FAF);
+	}
+
+	/** A chat line from the opponent, in the game log: orange. See {@link #logChatYou()}. */
+	public static Color logChatOpponent() {
+		return isDark() ? new Color(0xFFAB59) : new Color(0x974A00);
+	}
+
 	/** Secondary text — a hint, a placeholder, an unavailable entry — grey in Classic. */
 	public static Color dimText() {
 		return uiColor("Label.disabledForeground", Color.GRAY);

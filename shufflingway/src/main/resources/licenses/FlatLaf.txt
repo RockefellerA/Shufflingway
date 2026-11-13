@@ -1,0 +1,6 @@
+FlatLaf
+https://www.formdev.com/flatlaf/
+Copyright (C) 2019-2026 FormDev Software.
+
+Shufflingway's look and feel. Licensed under the Apache License, Version 2.0,
+whose text is the last of these notices.

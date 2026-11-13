@@ -17,6 +17,13 @@ import shufflingway.AppSettings;
 
 class SoundEffectsTest {
 
+	/** {@link SilenceSoundEffects} reached this class without being named on it. */
+	@Test
+	void theTestSuiteIsSilenced() {
+		assertTrue(SoundEffects.isSilenced(),
+				"SilenceSoundEffects did not run: check junit-platform.properties and META-INF/services");
+	}
+
 	@Test
 	void fullVolumeIsUnityGain() {
 		assertEquals(0f, SoundEffects.gainDb(AppSettings.SFX_VOLUME_MAX), 1e-4f);

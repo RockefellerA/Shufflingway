@@ -3861,6 +3861,74 @@ final class AutoAbilityTriggers {
 				cardTrade(fa.effectText(), source, isP1, CPUOptional.costOf(fa.effectText(), source)));
 	}
 
+	/** "deal N damage to all the Forwards opponent controls." — 9-048C Seven's arrival. */
+	private static final Pattern EFFECT_DAMAGES_ALL_OPPOSING = Pattern.compile(
+			"(?is)^deal\\s+(?<n>\\d+)\\s+damage\\s+to\\s+all\\s+the\\s+Forwards\\s+opponent\\s+controls\\s*\\.?$");
+
+	/** {@code card}'s own enters-the-field abilities' effects. */
+	private static List<String> ownArrivalEffects(CardData card) {
+		List<String> out = new ArrayList<>();
+		for (AutoAbility fa : card.autoAbilities()) {
+			if (!fa.trigger().equals("enters the field")) continue;
+			String subject = fa.triggerCard() == null ? "" : fa.triggerCard().trim();
+			if (!subject.isEmpty() && !subject.equalsIgnoreCase(card.name())) continue;
+			out.add(fa.effectText().trim());
+		}
+		return out;
+	}
+
+	/**
+	 * Whether {@code card}'s own enters-the-field ability is a removal of an opposing Forward, by its
+	 * wording alone: a lone break of a chosen one (18-116L Sephiroth), damage to a chosen one (8-100R
+	 * Jinnai, 28-041C Edge), damage to all of them (9-048C Seven). The arrival use a Back Attack
+	 * Character is kept in hand for (HANDOFF-cpu-opponents-turn decision 4); {@link #arrivalRemoves}
+	 * says whether it would land now.
+	 */
+	static boolean arrivalIsRemoval(CardData card) {
+		for (String e : ownArrivalEffects(card)) {
+			Matcher breaks = PAYOFF_BREAKS_ONE.matcher(e);
+			if (breaks.matches() && breaks.group("choice") != null) return true;
+			if (PAYOFF_DAMAGES_ONE.matcher(e).matches() || EFFECT_DAMAGES_ALL_OPPOSING.matcher(e).matches()) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * What {@code card}'s own enters-the-field removal would take if it arrived on {@code isP1}'s side
+	 * now — "it breaks a cost-4 Forward", "its 4000 damage breaks a Forward" — or {@code null} when it
+	 * would remove nothing (no eligible opposing Forward, damage that breaks none) or is no removal.
+	 * Printed damage against power left, so a damage boost is not counted.
+	 */
+	String arrivalRemoves(CardData card, boolean isP1) {
+		for (String e : ownArrivalEffects(card)) {
+			Matcher breaks = PAYOFF_BREAKS_ONE.matcher(e);
+			if (breaks.matches() && breaks.group("choice") != null) {
+				int cost = breakTargetCost(e, card, isP1);
+				if (cost >= 0) return "its arrival breaks a cost-" + cost + " Forward";
+				continue;
+			}
+			Matcher one = PAYOFF_DAMAGES_ONE.matcher(e);
+			if (one.matches()) {
+				int n = Integer.parseInt(one.group("n"));
+				if (opposingChoiceTargets(e, card, isP1).stream()
+						.anyMatch(t -> mw.fieldForwardBreakableBy(t.isP1(), t.zone(), t.idx(), n)
+								&& !mw.fieldForwardBreakableBy(t.isP1(), t.zone(), t.idx(), 0)))
+					return "its arrival's " + n + " damage breaks a Forward";
+				continue;
+			}
+			Matcher all = EFFECT_DAMAGES_ALL_OPPOSING.matcher(e);
+			if (all.matches()) {
+				int n = Integer.parseInt(all.group("n"));
+				List<CardData> theirs = mw.playerForwardCards(!isP1);
+				for (int i = 0; i < theirs.size(); i++)
+					if (theirs.get(i) != null && mw.fieldForwardBreakableBy(!isP1, ForwardTarget.CardZone.FORWARD, i, n)
+							&& !mw.fieldForwardBreakableBy(!isP1, ForwardTarget.CardZone.FORWARD, i, 0))
+						return "its arrival's " + n + " damage to every opposing Forward breaks one";
+			}
+		}
+		return null;
+	}
+
 	/** "discard N &lt;what&gt;" — a discard price, as {@link CPUOptional#priceOf} reads it. */
 	private static final Pattern PRICE_DISCARDS = Pattern.compile(
 			"(?is)^discard\\s+(?<n>\\d+)\\s+(?<what>.+?)(?:\\s+from\\s+your\\s+hand)?\\s*\\.?$");
