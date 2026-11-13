@@ -6491,9 +6491,19 @@ public class ActionResolver {
         Consumer<GameContext> followup = parse(followupText, source, xValue);
         if (primary == null || followup == null) return null;
         boolean delayed = m.group("when") != null;
+        // A discard whose payoff reads the discarded card (18-057C Kolka's "damage equal to the
+        // discarded Forward's power") — the AI discards the card that makes it land.
+        boolean keyedDiscard = m.group("primary").trim().toLowerCase(Locale.ROOT).startsWith("discard ")
+                && followupText.toLowerCase(Locale.ROOT).contains("the discarded");
         return ctx -> {
             ctx.resetEffectProgress();
-            primary.accept(ctx);
+            if (keyedDiscard) ctx.planAiDiscard(text, source);
+            ctx.adviseDoSoPayoff(followupText);
+            try {
+                primary.accept(ctx);
+            } finally {
+                ctx.adviseDoSoPayoff(null);
+            }
             if (!ctx.effectMadeProgress()) return;
             if (delayed) ctx.triggerWhenYouDoSo(source, followupText, xValue, followup);
             else followup.accept(ctx);

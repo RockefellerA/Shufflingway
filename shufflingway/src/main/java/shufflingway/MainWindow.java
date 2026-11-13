@@ -7348,7 +7348,7 @@ public class MainWindow {
 		return !lostAbilitiesCards.contains(card) && card.cannotGainTraits().contains(trait);
 	}
 
-	private boolean effectiveHasTrait(boolean isP1, int idx, CardData.Trait trait) {
+	boolean effectiveHasTrait(boolean isP1, int idx, CardData.Trait trait) {
 		return isP1 ? effectiveP1HasTrait(idx, trait) : effectiveP2HasTrait(idx, trait);
 	}
 

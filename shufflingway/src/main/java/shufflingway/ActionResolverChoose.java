@@ -2807,15 +2807,26 @@ final class ActionResolverChoose {
                                 ctx2 -> { Consumer<GameContext> inner = parse(capturedText, source, 0); if (inner != null) inner.accept(ctx2); };
                         Consumer<GameContext> replayEffect = afterPaying(replayM.group("when") != null, source,
                                 "use this special ability again without paying the cost", 0, replay);
+                        // What another use would deal, for the CPU's answer (CPUOptional decision 15).
+                        final int replayDamage = chooseTargetDamageAmount(capturedText);
                         if (payCost != null) {
                             final String elem = payCost.trim();
-                            secondary = ctx -> ctx.mayPayToReplayAbility(elem, replayEffect);
+                            secondary = ctx -> {
+                                if (replayDamage > 0) ctx.adviseOptionalDamage(null, capturedText, replayDamage, 0);
+                                ctx.mayPayToReplayAbility(elem, replayEffect);
+                            };
                         } else if (dullName != null) {
                             final String name = dullName.trim();
-                            secondary = ctx -> ctx.mayDullActiveCardToReplayAbility(name, replayEffect);
+                            secondary = ctx -> {
+                                if (replayDamage > 0) ctx.adviseOptionalDamage(null, capturedText, replayDamage, 0);
+                                ctx.mayDullActiveCardToReplayAbility(name, replayEffect);
+                            };
                         } else {
                             final String name = discardName.trim();
-                            secondary = ctx -> ctx.mayDiscardCardNameToReplayAbility(name, replayEffect);
+                            secondary = ctx -> {
+                                if (replayDamage > 0) ctx.adviseOptionalDamage(null, capturedText, replayDamage, 0);
+                                ctx.mayDiscardCardNameToReplayAbility(name, replayEffect);
+                            };
                         }
                     } else {
                         // "If <condition>, <action> it also." — read first, because every
@@ -4055,6 +4066,7 @@ final class ActionResolverChoose {
                     sortedByIdxDesc(ts, true) .forEach(t -> ctx2.damageTarget(t, elseDamage));
                     sortedByIdxDesc(ts, false).forEach(t -> ctx2.damageTarget(t, elseDamage));
                 };
+                ctx.adviseOptionalDamage(ts, null, damage, elseDamage);
                 if (discardName != null) ctx.mayDiscardCardNameFromHandOrElse(discardName, ifDiscarded, ifNot);
                 else                     ctx.mayDiscardCardOfTypeFromHandOrElse(discardType, ifDiscarded, ifNot);
             };
@@ -4144,6 +4156,9 @@ final class ActionResolverChoose {
                             jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                     // Declining and searching in vain are both "if not": the "if you do so" branch
                     // is taken only when a card was really found and removed.
+                    ctx.adviseSearchUpgrade(ts, maySearchRfgM.group("thenact"), maySearchRfgM.group("elseact"),
+                            c -> ((wantFwd && c.isForward()) || (wantBkp && c.isBackup()) || (wantMon && c.isMonster()))
+                                    && (searchElem == null || c.containsElement(searchElem)));
                     boolean removed = ctx.promptYouMay(
                                     "Search for 1 " + searchLabel + " and remove it from the game?")
                             && ctx.searchDeckForCard(wantFwd, wantBkp, wantMon, false,
@@ -5351,7 +5366,7 @@ final class ActionResolverChoose {
                     if (alsoCard != null && !ts.isEmpty()) ctx2.damageFieldForwardByName(alsoCard, damage);
                     if (secondary != null) secondary.accept(ctx2);
                 };
-                if (followupIsOptional && !ts.isEmpty()) ctx.playerMayDoEffect("Deal it " + damage + " damage?", doDamage);
+                if (followupIsOptional && !ts.isEmpty()) ctx.playerMayDoEffectOn("Deal it " + damage + " damage?", ts, null, doDamage);
                 else if (!followupIsOptional) doDamage.accept(ctx);
             };
         }
@@ -6339,7 +6354,12 @@ final class ActionResolverChoose {
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                if (ts.isEmpty() || !ctx.promptYouMay("Remove the chosen card from the game?")) {
+                // Said of a Break Zone card in so many words: that price is next to nothing, and the
+                // CPU's answer is read off the prompt (CPUOptional.costOfPrompt).
+                boolean fromBz = !ts.isEmpty() && ts.stream().allMatch(t -> t.zone() == ForwardTarget.CardZone.BREAK_ZONE);
+                String prompt = fromBz ? "Remove the chosen card in the Break Zone from the game?"
+                        : "Remove the chosen card from the game?";
+                if (ts.isEmpty() || !ctx.promptYouMay(prompt)) {
                     ctx.logEntry("  declined — nothing removed");
                     ctx.markEffectFizzled();
                     return;
@@ -6773,6 +6793,9 @@ final class ActionResolverChoose {
 
         // --- Return to owner's hand followup ---
         if (FOLLOWUP_RETURN_TO_OWNERS_HAND.matcher(strippedPrimaryFollowup).find()) {
+            // What the return buys, if anything — 5-067R Miounne's "If you do so, draw 1 card." —
+            // which the CPU weighs when the card it chose is its own.
+            final String returnBuys = secondaryText;
             return ctx -> {
                 ctx.logChooseHeader(choosePrefix + " — Return to owner's hand");
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
@@ -6782,7 +6805,8 @@ final class ActionResolverChoose {
                     returnTargetsToOwnersHand(ctx2, ts);
                     if (secondary != null) secondary.accept(ctx2);
                 };
-                if (followupIsOptional && !ts.isEmpty()) ctx.playerMayDoEffect("Return it to its owner's hand?", doReturn);
+                if (followupIsOptional && !ts.isEmpty())
+                    ctx.playerMayDoEffectOn("Return it to its owner's hand?", ts, returnBuys, doReturn);
                 else if (!followupIsOptional) doReturn.accept(ctx);
             };
         }

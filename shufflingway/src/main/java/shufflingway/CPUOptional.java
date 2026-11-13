@@ -5,6 +5,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.DoubleSupplier;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -26,7 +27,13 @@ import java.util.regex.Pattern;
  *       spare them: what is left would not cover the next draw phase ({@link #DRAW_PHASE_CARDS});</li>
  *   <li>an offer that costs nothing ({@link #FREE}) is taken;</li>
  *   <li>an offer with a price is declined when what it buys has nothing to act on
- *       ({@link Board#nothingToActOn}) — the price would be paid for nothing.</li>
+ *       ({@link Board#nothingToActOn}) — the price would be paid for nothing;</li>
+ *   <li>a card that puts itself into the Break Zone to break an opposing card takes the trade by
+ *       chance, a chance that rises with what the break removes ({@link #breakChance});</li>
+ *   <li>a price paid in cards — a discard, or one of the seat's own cards on the field — is weighed
+ *       against what it buys ({@link CardTrade});</li>
+ *   <li>a card removed from the seat's own Break Zone costs next to nothing, and is paid;</li>
+ *   <li>a price nothing reads ({@link Cost#OTHER}) is declined — decline when unsure.</li>
  * </ul>
  * {@link #acceptsEveryOffer}, a debug setting for playtesting, takes every offer instead. Paying is
  * still the payment's business — an offer with a price is checked for one before it is made, and a
@@ -66,6 +73,12 @@ final class CPUOptional {
 		REMOVE_COUNTERS,
 		/** "receive N point(s) of damage". */
 		SELF_DAMAGE,
+		/**
+		 * Cards off the top of the deck into the Break Zone or out of the game — 22-079L Seifer's
+		 * "put the top 2 cards of your deck into the Break Zone", 8-006L Cloud's top 10 — weighed by
+		 * what the deck can spare ({@link #millsIn}).
+		 */
+		MILL,
 		DULL,
 		RETURN_TO_HAND,
 		REVEAL,
@@ -100,8 +113,55 @@ final class CPUOptional {
 	 * @param nothingToActOn why the offer's payoff ({@link #payoffOf}) would do nothing on this board
 	 *                       — "its payoff has no opposing card to choose" — or {@code null} when it
 	 *                       would do something, or when that cannot be told
+	 * @param breakTargetCost the printed cost of the opposing card the payoff would break — the card
+	 *                       whose arrival fired it, or the dearest one its choice reaches, which is the
+	 *                       one the AI picks — or {@code -1} when the payoff is no such break
+	 * @param trade          what an offer paid in cards ({@link #CARD_PRICES}) trades, or {@code null}
+	 *                       for any other
 	 */
-	record Board(int deckSize, int damage, boolean cannotLose, String nothingToActOn) {}
+	record Board(int deckSize, int damage, boolean cannotLose, String nothingToActOn, int breakTargetCost,
+			CardTrade trade) {
+		/** A board whose payoff is not a break of an opposing card. */
+		Board(int deckSize, int damage, boolean cannotLose, String nothingToActOn) {
+			this(deckSize, damage, cannotLose, nothingToActOn, -1, null);
+		}
+
+		/** A board for an offer that is not a discard. */
+		Board(int deckSize, int damage, boolean cannotLose, String nothingToActOn, int breakTargetCost) {
+			this(deckSize, damage, cannotLose, nothingToActOn, breakTargetCost, null);
+		}
+	}
+
+	/**
+	 * The prices paid in cards — from the hand, or the controller's own field (decision 13: priced as
+	 * a discard is) — which {@link CardTrade} weighs.
+	 */
+	static final Set<Cost> CARD_PRICES = EnumSet.of(Cost.DISCARD, Cost.SACRIFICE_OTHER, Cost.REMOVE_OTHER,
+			Cost.RETURN_TO_HAND);
+
+	/**
+	 * What an offer paid in cards trades, as the answering seat's board stands.
+	 *
+	 * @param cards                how many cards it pays
+	 * @param thrownCost           the summed printed cost of the cards the AI would give up (its
+	 *                             cheapest), or {@code -1} when that cannot be told
+	 * @param boughtCost           the printed cost of what the payoff buys — the opposing card it breaks,
+	 *                             the source it brings back — or {@code -1} when it has no such price
+	 * @param damageBreaksNothing  the payoff is damage, or a loss of power, to one chosen Forward, and no
+	 *                             opposing Forward it can choose would be broken by it
+	 * @param noLandingCard        the payoff turns on the discarded card (27-067C Pictomancer's "of the
+	 *                             same cost as the discarded card") and no card in hand would make it land
+	 * @param sweepTheirs          for a payoff that sweeps every Forward, both sides' (14-011H Susano), the
+	 *                             summed printed cost of the opponent's it would break; {@code -1} otherwise
+	 * @param sweepMine            the same of the seat's own
+	 */
+	record CardTrade(int cards, int thrownCost, int boughtCost, boolean damageBreaksNothing,
+			boolean noLandingCard, int sweepTheirs, int sweepMine) {
+		/** A trade whose payoff is no sweep. */
+		CardTrade(int cards, int thrownCost, int boughtCost, boolean damageBreaksNothing, boolean noLandingCard) {
+			this(cards, thrownCost, boughtCost, damageBreaksNothing, noLandingCard, -1, -1);
+		}
+	}
 
 	/** The damage that loses the game — the check {@link MainWindow} makes on every point received. */
 	static final int LOSING_DAMAGE = 7;
@@ -122,6 +182,24 @@ final class CPUOptional {
 	 */
 	static volatile boolean acceptsEveryOffer = Boolean.getBoolean(ACCEPTS_EVERY_OFFER_PROPERTY);
 
+	/** Where a rule that takes an offer by chance gets its roll, in [0, 1); a test pins it. */
+	static DoubleSupplier roll = Math::random;
+
+	/** The printed cost from which a break is always worth the card that pays for it. */
+	static final int BREAK_ALWAYS_WORTH_IT_AT = 5;
+
+	/**
+	 * How often a card that puts itself into the Break Zone is worth breaking an opposing card of
+	 * printed {@code cost}: (cost / 5)², so 4% at cost 1, 16% at 2, 36% at 3, 64% at 4, and every
+	 * time from 5 up. Squared so a cheap card is rarely worth the sacrifice and the chance climbs
+	 * steeply as it nears 5 — 26-031H Cid Raines, 28-058R Arciela, 12-073C Red Mage, 16-101C Yuke,
+	 * 16-052C Selkie.
+	 */
+	static double breakChance(int cost) {
+		double share = Math.max(0, cost) / (double) BREAK_ALWAYS_WORTH_IT_AT;
+		return Math.min(1, share * share);
+	}
+
 	/**
 	 * The CPU's answer to {@code offer}. The call site's own answer is asked for only when no rule
 	 * settles it.
@@ -138,7 +216,50 @@ final class CPUOptional {
 					+ " cards and still cover the next draw phase");
 		if (FREE.contains(offer.cost())) return new Decision(true, "it costs nothing");
 		if (board != null && board.nothingToActOn() != null) return new Decision(false, board.nothingToActOn());
+		if (board != null && offer.cost() == Cost.SACRIFICE_SELF && board.breakTargetCost() >= 0)
+			return breakTrade(board.breakTargetCost());
+		if (board != null && CARD_PRICES.contains(offer.cost()) && board.trade() != null) {
+			Decision d = cardTrade(board.trade());
+			if (d != null) return d;
+		}
+		if (offer.cost() == Cost.REMOVE_FROM_BZ)
+			return new Decision(true, "a card from its Break Zone costs next to nothing");
+		if (offer.cost() == Cost.OTHER) return new Decision(false, "nothing tells what it costs");
 		return new Decision(offer.current().getAsBoolean(), null);
+	}
+
+	/**
+	 * The rules for a price paid in cards, or {@code null} where they leave the call site's answer
+	 * standing — one card for a payoff that lands is a fair trade. A payoff that turns on the
+	 * discarded card needs a card in hand that makes it land; a sweep of both sides has to take more
+	 * of the opponent's than of the seat's own; damage that breaks nothing is not worth a card; and two
+	 * or more cards are paid only for what costs at least as much as the cards given up.
+	 */
+	private static Decision cardTrade(CardTrade t) {
+		if (t.noLandingCard()) return new Decision(false, "no card in its hand would make its payoff land");
+		if (t.sweepTheirs() >= 0) {
+			boolean worth = t.sweepTheirs() > t.sweepMine();
+			return new Decision(worth, "its sweep breaks cost " + t.sweepTheirs() + " of the opponent's Forwards and "
+					+ t.sweepMine() + " of its own");
+		}
+		if (t.damageBreaksNothing()) return new Decision(false, "its damage would break no opposing Forward");
+		if (t.cards() < 2) return null;
+		if (t.boughtCost() < 0 || t.thrownCost() < 0)
+			return new Decision(false, "nothing prices what " + t.cards() + " cards would buy");
+		boolean worth = t.boughtCost() >= t.thrownCost();
+		return new Decision(worth, "a cost-" + t.boughtCost() + " card " + (worth ? "is" : "is not") + " worth "
+				+ t.cards() + " cards costing " + t.thrownCost());
+	}
+
+	/** Whether to put the source into the Break Zone to break an opposing card of printed {@code cost}. */
+	private static Decision breakTrade(int cost) {
+		double chance = breakChance(cost);
+		String trade = "breaking a cost-" + cost + " card is worth the sacrifice";
+		if (chance >= 1) return new Decision(true, trade);
+		if (chance <= 0) return new Decision(false, "breaking a cost-" + cost + " card is not worth the sacrifice");
+		double r = roll.getAsDouble();
+		return new Decision(r < chance, String.format(Locale.ROOT, "%s %d%% of the time; rolled %d",
+				trade, Math.round(chance * 100), (int) (r * 100)));
 	}
 
 	/** How taking {@code offer} would lose the game on {@code board}, or {@code null} when it would not. */
@@ -270,6 +391,19 @@ final class CPUOptional {
 	}
 
 	/**
+	 * The price itself — the X of "X. When/If you do so, Y", read after a leading "if …," and "you
+	 * may", and after a choice printed ahead of it. {@code null} for a text with no "do so".
+	 */
+	static String priceOf(String effectText) {
+		if (effectText == null) return null;
+		Matcher m = DO_SO.matcher(effectText.trim());
+		if (!m.matches()) return null;
+		String price = stripLead(m.group("price"));
+		Matcher choice = LEADING_CHOICE.matcher(price);
+		return choice.matches() ? stripLead(choice.group("rest")) : price;
+	}
+
+	/**
 	 * What the offer a resolving effect puts in so many words costs — {@code GameContext.promptYouMay}'s
 	 * "Search your deck?", "Give control of Leslie to your opponent?", "Remove Kadaj from the game?".
 	 */
@@ -282,6 +416,7 @@ final class CPUOptional {
 		if (p.startsWith("give control")) return Cost.GIVE_CONTROL;
 		if (source != null && p.startsWith("remove " + source.name().toLowerCase(Locale.ROOT) + " ")) return Cost.REMOVE_SELF;
 		if (p.contains("warp counter")) return Cost.REMOVE_COUNTERS;
+		if (p.startsWith("remove the chosen card in the break zone")) return Cost.REMOVE_FROM_BZ;
 		if (p.startsWith("remove the chosen card")) return Cost.REMOVE_OTHER;
 		if (p.startsWith("put the chosen card")) return Cost.DECK;
 		return Cost.OTHER;
@@ -297,6 +432,7 @@ final class CPUOptional {
 		Matcher choice = LEADING_CHOICE.matcher(s);
 		if (choice.matches()) return priceOf(choice.group("rest"), source);
 		String self = source != null ? Pattern.quote(source.name()) : null;
+		if (s.matches("(?is)^(?:put|remove)\\s+the\\s+top\\s+\\d+\\s+cards?\\s+of\\s+your\\s+deck\\b.*"))   return Cost.MILL;
 		if (s.matches("(?is)^play\\b.*\\bfrom\\s+your\\s+(?:hand|LB\\s+deck|Break\\s+Zone)\\b.*")) return Cost.PLAY_CARD;
 		if (SEARCH_THEN_REMOVE.matcher(s).matches())                                                  return Cost.SEARCH_TO_RFG;
 		if (s.matches("(?is)^search\\b.*\\binto\\s+the\\s+Break\\s+Zone\\b.*"))                   return Cost.SEARCH_TO_BZ;

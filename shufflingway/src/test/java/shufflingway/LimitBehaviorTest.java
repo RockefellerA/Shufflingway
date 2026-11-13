@@ -1169,14 +1169,15 @@ class LimitBehaviorTest {
 		CardData water = makeBackup("Water Aide", "Water", 2);
 		placeP2Backup(mw, fire);
 		placeP2Backup(mw, water);
-		CardData theirs = makeForward("Theirs", "Water", 6, 10000);
+		// 9000 power, so the 9000 breaks it: a Backup is not paid for damage that breaks nothing.
+		CardData theirs = makeForward("Theirs", "Water", 6, 9000);
 		placeP1Forward(mw, theirs);
 
 		enterAsP2(mw, makeVincent());
 
 		assertTrue(mw.gameState.getP2BreakZone().contains(fire), "the Fire Backup pays for it");
 		assertTrue(Arrays.asList(mw.p2BackupCards).contains(water), "only the one, and only Fire");
-		assertEquals(9000, p1Damage(mw, theirs));
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs), "dealt 9000");
 	}
 
 	@Test

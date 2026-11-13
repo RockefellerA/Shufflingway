@@ -11,6 +11,7 @@ import java.awt.Image;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -30,8 +31,10 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
+import java.util.function.ToIntFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -3848,15 +3851,364 @@ final class AutoAbilityTriggers {
 
 	/** What {@link CPUOptional#decide} reads of {@code isP1}'s side, for {@code source}'s offer {@code fa}. */
 	private CPUOptional.Board boardOf(boolean isP1, AutoAbility fa, CardData source) {
+		String payoff = CPUOptional.payoffOf(fa.effectText());
 		return new CPUOptional.Board(
 				(isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).size(),
 				(isP1 ? mw.gameState.getP1DamageZone() : mw.gameState.getP2DamageZone()).size(),
 				mw.cannotLoseTheGame(isP1),
-				nothingToActOn(CPUOptional.payoffOf(fa.effectText()), source, isP1));
+				nothingToActOn(payoff, source, isP1),
+				breakTargetCost(payoff, source, isP1),
+				cardTrade(fa.effectText(), source, isP1, CPUOptional.costOf(fa.effectText(), source)));
+	}
+
+	/** "discard N &lt;what&gt;" — a discard price, as {@link CPUOptional#priceOf} reads it. */
+	private static final Pattern PRICE_DISCARDS = Pattern.compile(
+			"(?is)^discard\\s+(?<n>\\d+)\\s+(?<what>.+?)(?:\\s+from\\s+your\\s+hand)?\\s*\\.?$");
+
+	/**
+	 * "put / remove / return N &lt;what&gt; … into the Break Zone / from the game / to its owner's
+	 * hand" — a price paid with the controller's own field cards.
+	 */
+	private static final Pattern PRICE_FIELD_CARDS = Pattern.compile(
+			"(?is)^(?:put|remove|return)\\s+(?<n>\\d+)\\s+(?<what>.+?)\\s+"
+			+ "(?:into\\s+the\\s+Break\\s+Zone|from\\s+the\\s+game|to\\s+its\\s+owner's\\s+hand)\\s*\\.?$");
+
+	/** "choose 1 …. Deal it N damage." — damage to one chosen Forward, and nothing else. */
+	private static final Pattern PAYOFF_DAMAGES_ONE = Pattern.compile(
+			"(?is)^choose\\s+1\\s+[^.]+\\.\\s+deal\\s+it\\s+(?<n>\\d+)\\s+damage\\s*\\.?$");
+
+	/** "choose 1 …. It loses N power until the end of the turn." — 15-112R's, which breaks as damage would. */
+	private static final Pattern PAYOFF_POWER_LOSS_ONE = Pattern.compile(
+			"(?is)^choose\\s+1\\s+[^.]+\\.\\s+it\\s+loses\\s+(?<n>\\d+)\\s+power\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn\\s*\\.?$");
+
+	/** "deal N damage to all the Forwards [other than X]." — 14-011H Susano's, both sides. */
+	private static final Pattern PAYOFF_SWEEP_DAMAGE = Pattern.compile(
+			"(?is)^deal\\s+(?<n>\\d+)\\s+damage\\s+to\\s+all\\s+the\\s+Forwards(?:\\s+other\\s+than\\s+(?<other>.+?))?\\s*\\.?$");
+
+	/** "all the Forwards [other than X] lose N power until the end of the turn." — 26-114H Asura's, both sides. */
+	private static final Pattern PAYOFF_SWEEP_POWER_LOSS = Pattern.compile(
+			"(?is)^all\\s+the\\s+Forwards(?:\\s+other\\s+than\\s+(?<other>.+?))?\\s+lose\\s+(?<n>\\d+)\\s+power\\s+"
+			+ "until\\s+the\\s+end\\s+of\\s+the\\s+turn\\s*\\.?$");
+
+	/**
+	 * What {@code effectText}'s price in cards trades on {@code isP1}'s board, for
+	 * {@link CPUOptional}'s card-price rules; {@code null} for a price not paid in cards
+	 * ({@link CPUOptional#CARD_PRICES}), or one not printed as "discard N …" / "put / remove / return
+	 * N … you control …".
+	 */
+	CPUOptional.CardTrade cardTrade(String effectText, CardData source, boolean isP1, CPUOptional.Cost cost) {
+		if (!CPUOptional.CARD_PRICES.contains(cost)) return null;
+		String price = CPUOptional.priceOf(effectText);
+		String payoff = CPUOptional.payoffOf(effectText);
+		if (price == null || payoff == null) return null;
+		boolean discard = cost == CPUOptional.Cost.DISCARD;
+		Matcher pm = (discard ? PRICE_DISCARDS : PRICE_FIELD_CARDS).matcher(price.trim());
+		if (!pm.matches()) return null;
+		int cards = Integer.parseInt(pm.group("n"));
+		// What the AI would give up — its cheapest — told for a discard of any card, and for its own
+		// field cards of a type (and Element) the price names.
+		int thrown = -1;
+		List<CardData> hand = mw.playerHand(isP1);
+		if (discard && pm.group("what").trim().matches("(?i)cards?") && hand.size() >= cards) {
+			List<CardData> pool = new ArrayList<>(hand);
+			thrown = 0;
+			for (int i = 0; i < cards; i++) thrown += pool.remove(MainWindow.pickWorstHandCard0(pool)).cost();
+		} else if (!discard) {
+			thrown = cheapestOwnFieldCost(pm.group("what").trim(), cards, isP1);
+		}
+		boolean noLandingCard = false;
+		if (discard) {
+			DiscardPlan plan = discardPlan(effectText, source, isP1);
+			noLandingCard = plan.keyed() && plan.pick() == null;
+		}
+		int[] sweep = sweepCosts(payoff, isP1);
+		return new CPUOptional.CardTrade(cards, thrown, boughtCost(payoff, source, isP1),
+				damageBreaksNothing(payoff, source, isP1), noLandingCard,
+				sweep == null ? -1 : sweep[0], sweep == null ? -1 : sweep[1]);
+	}
+
+	/**
+	 * For a payoff that sweeps every Forward on both sides, the summed printed cost of what it would
+	 * break — {@code [opponent's, own]} — or {@code null} for any other payoff. The Forward the sweep
+	 * excepts by name is left out; printed damage, or power lost, against power left.
+	 */
+	private int[] sweepCosts(String payoff, boolean isP1) {
+		Matcher m = PAYOFF_SWEEP_DAMAGE.matcher(payoff.trim());
+		if (!m.matches()) m = PAYOFF_SWEEP_POWER_LOSS.matcher(payoff.trim());
+		if (!m.matches()) return null;
+		int amount = Integer.parseInt(m.group("n"));
+		String other = m.group("other") == null ? null : m.group("other").trim();
+		int[] broken = new int[2];
+		for (boolean side : new boolean[] { !isP1, isP1 }) {
+			List<CardData> fwds = mw.playerForwardCards(side);
+			for (int i = 0; i < fwds.size(); i++) {
+				CardData f = fwds.get(i);
+				if (f == null || (other != null && f.name().equalsIgnoreCase(other))) continue;
+				if (mw.fieldForwardBreakableBy(side, ForwardTarget.CardZone.FORWARD, i, amount))
+					broken[side == isP1 ? 1 : 0] += f.cost();
+			}
+		}
+		return broken;
+	}
+
+	/**
+	 * The printed cost of what {@code payoff} buys: the opposing card it breaks
+	 * ({@link #breakTargetCost}), or the source itself brought back — 14-031R Good King Moggle Mog
+	 * XII's "return [Self] to your hand", 23-002L Caius's "play [Self] from the Break Zone onto the
+	 * field dull". {@code -1} for anything else.
+	 */
+	private int boughtCost(String payoff, CardData source, boolean isP1) {
+		int broken = breakTargetCost(payoff, source, isP1);
+		if (broken >= 0) return broken;
+		String self = Pattern.quote(source.name());
+		if (payoff.trim().matches("(?is)^(?:return\\s+" + self + "\\s+to\\s+your\\s+hand"
+				+ "|play\\s+" + self + "\\s+from\\s+the\\s+Break\\s+Zone\\s+onto\\s+the\\s+field(?:\\s+dull)?)\\s*\\.?$"))
+			return source.cost();
+		Matcher dig = PAYOFF_DIGS_CHARACTERS_ONTO_FIELD.matcher(payoff.trim());
+		if (dig.find()) {
+			// The deck's own Characters, which its owner can count: what N of them are worth on average.
+			String not = dig.group("not") == null ? null : dig.group("not").trim();
+			double[] costs = (isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).stream()
+					.filter(c -> c.isForward() || c.isBackup() || c.isMonster())
+					.filter(c -> not == null || !c.name().equalsIgnoreCase(not))
+					.mapToDouble(CardData::cost).toArray();
+			if (costs.length == 0) return -1;
+			return (int) Math.round(Integer.parseInt(dig.group("n")) * Arrays.stream(costs).average().orElse(0));
+		}
+		return -1;
+	}
+
+	/**
+	 * "turn over one card at a time from the top of your deck until N Characters [other than Card Name
+	 * X] are revealed. Play them onto the field." — 20-001R Ardyn's dig.
+	 */
+	private static final Pattern PAYOFF_DIGS_CHARACTERS_ONTO_FIELD = Pattern.compile(
+			"(?is)^turn\\s+over\\s+one\\s+card\\s+at\\s+a\\s+time\\s+from\\s+the\\s+top\\s+of\\s+your\\s+deck\\s+until\\s+"
+			+ "(?<n>\\d+)\\s+Characters(?:\\s+other\\s+than\\s+Card\\s+Name\\s+(?<not>[^.]+?))?\\s+are\\s+revealed\\.\\s+"
+			+ "Play\\s+them\\s+onto\\s+the\\s+field\\b");
+
+	/** "[Element] Backup(s) / Forward(s) / Character(s) / Monster(s) [other than X] you control" — a field price's cards. */
+	private static final Pattern OWN_FIELD_CARDS = Pattern.compile(
+			"(?i)^(?:(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?(?<type>Backup|Forward|Character|Monster)s?"
+			+ "(?:\\s+other\\s+than\\s+(?<other>.+?))?\\s+you\\s+control$");
+
+	/**
+	 * The summed printed cost of the {@code count} cheapest of {@code isP1}'s own field cards that
+	 * {@code what} names — what the AI would pay with — or {@code -1} when {@code what} is not read
+	 * or the field holds too few.
+	 */
+	private int cheapestOwnFieldCost(String what, int count, boolean isP1) {
+		Matcher m = OWN_FIELD_CARDS.matcher(what);
+		if (!m.matches()) return -1;
+		String type = m.group("type").toLowerCase(Locale.ROOT);
+		String elem = m.group("elem");
+		String other = m.group("other") == null ? null : m.group("other").trim();
+		int[] costs = mw.fieldCards(isP1).stream()
+				.filter(c -> c != null)
+				.filter(c -> switch (type) {
+					case "backup"  -> c.isBackup();
+					case "forward" -> c.isForward();
+					case "monster" -> c.isMonster();
+					default        -> c.isForward() || c.isBackup() || c.isMonster();
+				})
+				.filter(c -> elem == null || mw.effectiveContainsElement(c, elem))
+				.filter(c -> other == null || !c.name().equalsIgnoreCase(other))
+				.mapToInt(CardData::cost).sorted().toArray();
+		if (costs.length < count) return -1;
+		return Arrays.stream(costs, 0, count).sum();
+	}
+
+	/**
+	 * Whether {@code payoff} is damage, or a loss of power until the end of the turn, to one chosen
+	 * Forward that would break none of the opposing ones it can choose, as the board stands — printed
+	 * amount against power left, so a damage boost is not counted. {@code false} when there is no
+	 * opposing Forward to choose at all, which {@link #nothingToActOn} answers.
+	 */
+	private boolean damageBreaksNothing(String payoff, CardData source, boolean isP1) {
+		Matcher m = PAYOFF_DAMAGES_ONE.matcher(payoff.trim());
+		if (!m.matches()) m = PAYOFF_POWER_LOSS_ONE.matcher(payoff.trim());
+		if (!m.matches()) return false;
+		List<ForwardTarget> opposing = opposingChoiceTargets(payoff, source, isP1);
+		int damage = Integer.parseInt(m.group("n"));
+		return !opposing.isEmpty() && opposing.stream()
+				.noneMatch(t -> mw.fieldForwardBreakableBy(t.isP1(), t.zone(), t.idx(), damage));
+	}
+
+	/** The opposing Forwards and Monsters the choice leading {@code payoff} can reach. */
+	private List<ForwardTarget> opposingChoiceTargets(String payoff, CardData source, boolean isP1) {
+		TargetSpec spec = ActionResolver.targetSpec(payoff, source);
+		if (spec == null || spec.zone() != null) return List.of();
+		return mw.eligibleChoiceTargets(spec, source, isP1, false).stream()
+				.filter(t -> t.isP1() != isP1 && t.zone() != ForwardTarget.CardZone.BACKUP)
+				.toList();
+	}
+
+	/**
+	 * Which card in a seat's hand to discard so that a payoff turning on the discarded card lands
+	 * best. {@code keyed} is false for a payoff that does not, which the AI pays with its cheapest
+	 * cards as ever; {@code pick} is {@code null} when no card in hand would make it land.
+	 */
+	record DiscardPlan(boolean keyed, CardData pick) {
+		static final DiscardPlan NOT_KEYED = new DiscardPlan(false, null);
+	}
+
+	/** "choose 1 …. Deal it damage equal to the discarded Forward's power." (18-057C Kolka) */
+	private static final Pattern PAYOFF_DAMAGE_IS_DISCARDED_POWER = Pattern.compile(
+			"(?is)^choose\\s+1\\s+[^.]+\\.\\s+deal\\s+it\\s+damage\\s+equal\\s+to\\s+the\\s+discarded\\s+Forward's\\s+power\\s*\\.?$");
+
+	/**
+	 * "choose 1 …. Deal it 1000 damage for each CP required to cast the discarded card. If the
+	 * discarded card is a Job Member of the Turks, also deal it 5000 damage." (17-098R Cissnei)
+	 */
+	private static final Pattern PAYOFF_DAMAGE_PER_DISCARDED_CP = Pattern.compile(
+			"(?is)^choose\\s+1\\s+[^.]+\\.\\s+deal\\s+it\\s+(?<per>\\d+)\\s+damage\\s+for\\s+each\\s+CP\\s+required\\s+to\\s+cast\\s+"
+			+ "the\\s+discarded\\s+card\\.(?:\\s+If\\s+the\\s+discarded\\s+card\\s+is\\s+a\\s+Job\\s+(?<job>[^,]+),\\s+also\\s+"
+			+ "deal\\s+it\\s+(?<extra>\\d+)\\s+damage\\s*\\.?)?\\s*$");
+
+	/** "… all the Forwards of cost N opponent controls" — 8-039C Time Mage's freeze, filled in. */
+	private static final Pattern PAYOFF_OPPOSING_FORWARDS_OF_COST = Pattern.compile(
+			"(?i)\\ball\\s+the\\s+Forwards\\s+of\\s+cost\\s+(\\d+)\\s+opponent\\s+controls\\b");
+
+	/** "search for 1 Forward of cost N …" — 7-017H Meeth's search, filled in. */
+	private static final Pattern PAYOFF_SEARCHES_FORWARD_OF_COST = Pattern.compile(
+			"(?i)^search\\s+for\\s+1\\s+Forward\\s+of\\s+cost\\s+(\\d+)\\b");
+
+	/**
+	 * The discard that makes {@code effectText}'s payoff land best, for a payoff that turns on the
+	 * discarded card: 27-067C Pictomancer, 8-039C Time Mage and 7-017H Meeth's "of the same cost as
+	 * the discarded card", 18-057C Kolka's damage equal to the discarded Forward's power, 17-098R
+	 * Cissnei's 1000 per CP. Each card the price can take is scored by what its discard would do —
+	 * the dearest opposing card broken, the most opposing Forwards frozen, a Forward left in the deck
+	 * to find — and the cheapest of the best-scoring is the pick.
+	 */
+	DiscardPlan discardPlan(String effectText, CardData source, boolean isP1) {
+		if (effectText == null) return DiscardPlan.NOT_KEYED;
+		String text = effectText.trim();
+		Predicate<CardData> takes = c -> true;
+		ToIntFunction<CardData> score;
+		Matcher same = ActionResolverPatterns.DISCARD_THEN_SAME_AS_DISCARDED.matcher(text);
+		if (same.matches() && ActionResolverPatterns.SAME_COST_AS_DISCARDED.matcher(same.group("payoff")).find()) {
+			String payoff = same.group("payoff").trim();
+			score = c -> sameCostScore(ActionResolverHand.fillSameAsDiscarded(payoff, true, String.valueOf(c.cost())),
+					source, isP1);
+		} else {
+			String price = CPUOptional.priceOf(text);
+			String payoff = CPUOptional.payoffOf(text);
+			if (price == null || payoff == null) return DiscardPlan.NOT_KEYED;
+			Matcher pm = PRICE_DISCARDS.matcher(price.trim());
+			if (!pm.matches() || !pm.group("n").equals("1")) return DiscardPlan.NOT_KEYED;
+			String what = pm.group("what").trim();
+			Matcher power = PAYOFF_DAMAGE_IS_DISCARDED_POWER.matcher(payoff.trim());
+			Matcher perCp = PAYOFF_DAMAGE_PER_DISCARDED_CP.matcher(payoff.trim());
+			if (power.matches() && what.equalsIgnoreCase("Forward")) {
+				takes = CardData::isForward;
+				score = c -> dearestBrokenBy(c.power(), payoff, source, isP1);
+			} else if (perCp.matches() && what.equalsIgnoreCase("card")) {
+				int per = Integer.parseInt(perCp.group("per"));
+				String job = perCp.group("job");
+				int extra = perCp.group("extra") != null ? Integer.parseInt(perCp.group("extra")) : 0;
+				score = c -> dearestBrokenBy(per * c.cost()
+						+ (job != null && CardFilters.meetsJobFilter(c, job.trim()) ? extra : 0), payoff, source, isP1);
+			} else return DiscardPlan.NOT_KEYED;
+		}
+		int best = -1;
+		List<CardData> bestCards = new ArrayList<>();
+		for (CardData c : mw.playerHand(isP1)) {
+			if (!takes.test(c)) continue;
+			int s = score.applyAsInt(c);
+			if (s < 0) continue;
+			if (s > best) { best = s; bestCards.clear(); }
+			if (s == best) bestCards.add(c);
+		}
+		return new DiscardPlan(true, bestCards.isEmpty() ? null : bestCards.get(MainWindow.pickWorstHandCard0(bestCards)));
+	}
+
+	/**
+	 * What a "same cost as the discarded card" payoff, filled in with one card's cost, would do:
+	 * the most opposing Forwards a freeze of that cost reaches, the dearest opposing card a choice of
+	 * it can take, 0 for a search the deck can answer — and {@code -1} when it would do nothing. A
+	 * filled payoff this does not read scores 0, landing as far as can be told.
+	 */
+	private int sameCostScore(String filled, CardData source, boolean isP1) {
+		Matcher all = PAYOFF_OPPOSING_FORWARDS_OF_COST.matcher(filled);
+		if (all.find()) {
+			int cost = Integer.parseInt(all.group(1));
+			long n = mw.playerForwardCards(!isP1).stream().filter(f -> f != null && f.cost() == cost).count();
+			return n > 0 ? (int) n : -1;
+		}
+		Matcher search = PAYOFF_SEARCHES_FORWARD_OF_COST.matcher(filled);
+		if (search.find()) {
+			int cost = Integer.parseInt(search.group(1));
+			return (isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).stream()
+					.anyMatch(c -> c.isForward() && c.cost() == cost) ? 0 : -1;
+		}
+		if (!PAYOFF_CHOICE.matcher(filled).find() || ActionResolver.targetSpec(filled, source) == null) return 0;
+		return opposingChoiceTargets(filled, source, isP1).stream()
+				.mapToInt(t -> fieldCardData(t).cost()).max().orElse(-1);
+	}
+
+	/** The printed cost of the dearest opposing Forward {@code damage} would break, or {@code -1}. */
+	private int dearestBrokenBy(int damage, String payoff, CardData source, boolean isP1) {
+		if (damage <= 0) return -1;
+		return opposingChoiceTargets(payoff, source, isP1).stream()
+				.filter(t -> mw.fieldForwardBreakableBy(t.isP1(), t.zone(), t.idx(), damage))
+				.mapToInt(t -> fieldCardData(t).cost()).max().orElse(-1);
+	}
+
+	/** A payoff that breaks one card and does nothing else: "break it." or "choose 1 … Break it." */
+	private static final Pattern PAYOFF_BREAKS_ONE = Pattern.compile(
+			"(?is)^(?:(?<choice>choose\\s+1\\s+[^.]+)\\.\\s+)?break\\s+it\\s*\\.?$");
+
+	/**
+	 * The printed cost of the opposing card {@code payoff} would break, for {@link CPUOptional}'s break
+	 * chance, or {@code -1} when the payoff is not a lone break of an opposing card or there is none
+	 * to break. "break it." is the card whose arrival fired the ability (26-031H Cid Raines); "choose 1
+	 * … Break it." is the dearest opposing card the choice reaches (28-058R Arciela, 12-073C Red Mage),
+	 * which is the one the AI picks for a removal ({@code GameContextImpl.aiSelectCharacters}).
+	 */
+	int breakTargetCost(String payoff, CardData source, boolean isP1) {
+		if (payoff == null) return -1;
+		Matcher m = PAYOFF_BREAKS_ONE.matcher(payoff.trim());
+		if (!m.matches()) return -1;
+		if (m.group("choice") == null) {
+			CardData arrived = mw.triggeringEnteredCard;
+			if (arrived == null || !Boolean.valueOf(!isP1).equals(mw.gameState.getIdentity().get(arrived))) return -1;
+			return enteringCardTarget(arrived, !isP1) != null ? arrived.cost() : -1;
+		}
+		TargetSpec spec = ActionResolver.targetSpec(payoff, source);
+		if (spec == null || spec.zone() != null) return -1;
+		return mw.eligibleChoiceTargets(spec, source, isP1, false).stream()
+				.filter(t -> t.isP1() != isP1)
+				.mapToInt(t -> fieldCardData(t).cost())
+				.max().orElse(-1);
 	}
 
 	/** "Your opponent discards …", which needs a card in the opponent's hand. */
 	private static final Pattern PAYOFF_OPPONENT_DISCARDS = Pattern.compile("(?i)^your\\s+opponent\\s+discards\\b");
+
+	/** "gain 《C》…" — Crystals, which keep from turn to turn but are worth having only to spend. */
+	private static final Pattern PAYOFF_GAINS_CRYSTALS = Pattern.compile("(?i)^gain\\s+《C》");
+
+	/** A gain of Crystals in a card's text, which is not a use of them: "gain 《C》《C》", "gain 《C》 for each CP paid as X". */
+	private static final Pattern GAINS_CRYSTALS = Pattern.compile("(?i)\\bgains?\\s+(?:《C》)+(?:\\s+for\\s+each\\b[^.]*)?");
+
+	/** Crystals in a card's text once its gains are taken out: a 《C》 cost, "for each Crystal you have". */
+	private static final Pattern SPENDS_CRYSTALS = Pattern.compile("《C》|\\bCrystals?\\b");
+
+	/** Whether {@code card}'s text uses Crystals — a 《C》 cost, or a reading of them — rather than only gaining them. */
+	static boolean usesCrystals(CardData card) {
+		String text = card == null ? null : card.textEn();
+		return text != null && SPENDS_CRYSTALS.matcher(GAINS_CRYSTALS.matcher(text).replaceAll("")).find();
+	}
+
+	/** Whether any of {@code isP1}'s own cards — deck, hand, field, LB deck — uses Crystals. */
+	private boolean ownCardsUseCrystals(boolean isP1) {
+		return Stream.of(isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck(),
+						mw.playerHand(isP1), mw.fieldCards(isP1),
+						isP1 ? mw.gameState.getP1LbDeck() : mw.gameState.getP2LbDeck())
+				.flatMap(Collection::stream)
+				.anyMatch(AutoAbilityTriggers::usesCrystals);
+	}
 
 	/**
 	 * A payoff that reaches the opponent's Forwards without choosing among them: "your opponent
@@ -3929,6 +4281,8 @@ final class AutoAbilityTriggers {
 			return mw.playerForwardCards(!isP1).isEmpty() ? "no opposing Forward to reach" : null;
 		if (PAYOFF_OWN_FORWARDS.matcher(part).find())
 			return mw.playerForwardCards(isP1).isEmpty() ? "no Forward of its own to reach" : null;
+		if (PAYOFF_GAINS_CRYSTALS.matcher(part).find())
+			return ownCardsUseCrystals(isP1) ? null : "no card of its own that spends Crystals";
 		if (PAYOFF_PLAYS_FROM_HAND.matcher(part).find()) {
 			Function<GameContext, CardData> play = ActionResolverHand.bestPlayableFromHand(part, 0);
 			return play != null && play.apply(new GameContextImpl(mw, isP1, false)) == null
@@ -6032,8 +6386,10 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
-		// Select the card(s) to remove from the field
+		// Select the card(s) to remove from the field — a price, when they are the controller's own,
+		// which the AI pays with its cheapest (without the hint it picked one at random).
 		GameContext ctx = mw.buildGameContext(effectIsP1);
+		if (selfOnly) ctx.setAiOwnPick(GameContext.AiOwnPick.SPEND, source);
 		String element = m.group("element");
 		String except  = m.group("except") != null ? m.group("except").trim() : null;
 		java.util.List<ForwardTarget> targets = ctx.selectCharacters(count, false,
@@ -6087,8 +6443,10 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
-		// Select the card(s) to put into the Break Zone
+		// Select the card(s) to put into the Break Zone: the price, which the AI pays with its
+		// cheapest (without the hint it picked one at random).
 		GameContext ctx = mw.buildGameContext(effectIsP1);
+		ctx.setAiOwnPick(GameContext.AiOwnPick.SPEND, source);
 		java.util.List<ForwardTarget> targets = ctx.selectCharacters(count, false,
 				false, true, null, elementFilter, -1, null, -1, null,
 				inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, null, null, false, null, false);
@@ -6300,6 +6658,7 @@ final class AutoAbilityTriggers {
 		}
 
 		GameContext priceCtx = mw.buildGameContext(effectIsP1);
+		priceCtx.setAiOwnPick(GameContext.AiOwnPick.SPEND, source);
 		List<ForwardTarget> price = priceCtx.selectCharacters(priceCount, false, false, true,
 				condition, element, priceCost, null, -1, null,
 				priceFwd, priceBkp, priceMon, null, null, null, exclude, false, null, false);

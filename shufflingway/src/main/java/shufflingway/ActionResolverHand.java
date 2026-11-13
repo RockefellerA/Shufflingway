@@ -570,6 +570,7 @@ final class ActionResolverHand {
         return ctx -> {
             ctx.logEntry("Effect: Discard 1 card");
             ctx.resetEffectProgress();
+            ctx.planAiDiscard(text, source);
             ctx.selfDiscard(1);
             CardData discarded = ctx.lastDiscardedCard();
             if (!ctx.effectMadeProgress() || discarded == null) {
@@ -646,7 +647,7 @@ final class ActionResolverHand {
         };
     }
 
-    private static String fillSameAsDiscarded(String payoff, boolean byCost, String value) {
+    static String fillSameAsDiscarded(String payoff, boolean byCost, String value) {
         return byCost
                 ? SAME_COST_AS_DISCARDED.matcher(payoff).replaceAll("of cost " + value)
                 : SAME_TYPE_AS_DISCARDED.matcher(payoff).replaceAll(value);

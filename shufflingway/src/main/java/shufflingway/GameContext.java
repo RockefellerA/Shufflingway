@@ -2772,7 +2772,7 @@ public interface GameContext {
         /**
          * Spent for good: broken, put into the Break Zone, removed from the game
          * ({@link ActionResolver#chooseEffectSpendsTarget}). The AI gives up its cheapest
-         * ({@link MainWindow#aiCheapestOwnTargets}).
+         * ({@link MainWindow#aiCheapestOwnTargets}), and from the opponent takes their dearest.
          */
         SPEND,
         /**
@@ -2809,6 +2809,15 @@ public interface GameContext {
      * Advisory, and scoped to this context instance: no effect on a human's choice.
      */
     void setAiOwnPick(AiOwnPick pick, CardData source);
+
+    /**
+     * Tells this context that the discard it is about to make pays for {@code effectText}, whose
+     * payoff turns on the discarded card — 27-067C Pictomancer's "of the same cost as the discarded
+     * card", 18-057C Kolka's "damage equal to the discarded Forward's power" — so an AI controller
+     * discards the card that makes the payoff land ({@code AutoAbilityTriggers.discardPlan}) rather
+     * than its cheapest. Advisory, read by the next discard only: no effect on a human's choice.
+     */
+    default void planAiDiscard(String effectText, CardData source) {}
 
     /**
      * Grants {@code source} "EX Bursts of cards put into the Damage Zone due to [source] cannot be
@@ -3930,6 +3939,54 @@ public interface GameContext {
      * P1 is shown a dialog; P2 AI auto-accepts.
      */
     void playerMayDoEffect(String prompt, java.util.function.Consumer<GameContext> effect);
+
+    /**
+     * {@link #playerMayDoEffect} for an effect on cards already chosen — "Deal it 7000 damage?",
+     * "Return it to its owner's hand?" — which the CPU weighs by whose they are: an effect on its
+     * own card is taken only for a reason (CPUOptional decision 14).
+     *
+     * @param chosen  the cards the effect would act on
+     * @param buys    what doing it buys — the sentence after it, "If you do so, draw 1 card." — or
+     *                {@code null} when nothing follows
+     */
+    default void playerMayDoEffectOn(String prompt, List<ForwardTarget> chosen, String buys,
+            java.util.function.Consumer<GameContext> effect) {
+        playerMayDoEffect(prompt, effect);
+    }
+
+    /**
+     * Tells this context that the next {@link #promptYouMay} offers a search whose find is removed
+     * from the game to upgrade what happens to cards already chosen — 29-117H Ark's "If you do so,
+     * break the chosen Forwards. If not, deal 8000 damage …", 29-116H Madeen's break into a removal —
+     * so the CPU pays only where the upgrade changes something and its deck holds a card to pay with
+     * (CPUOptional decision 14). Advisory, read by the next prompt only: no effect on a human's
+     * answer. A hint rather than a prompt of its own, so a test stubbing {@link #promptYouMay} still
+     * answers the question.
+     *
+     * @param ifDone what happens to {@code chosen} when the search is paid
+     * @param ifNot  what happens to them when it is not
+     * @param sought the deck card the search would remove
+     */
+    default void adviseSearchUpgrade(List<ForwardTarget> chosen, String ifDone, String ifNot,
+            java.util.function.Predicate<CardData> sought) {}
+
+    /**
+     * Tells this context what an enclosing "X. If/When you do so, Y" runs once X is done — so a
+     * "you may" inside X ({@link #playerMayDoEffectOn}) can weigh what saying yes buys: 5-067R
+     * Miounne's return is worth its draw. {@code null} clears it. Advisory: no effect on a human's
+     * answer.
+     */
+    default void adviseDoSoPayoff(String payoff) {}
+
+    /**
+     * Tells this context what the next optional price buys in damage, for the CPU's answer: 4-006L
+     * Bahamut's and 5-003C Ifrit's discard ({@code chosen}: the Forward already chosen; {@code ifNot}:
+     * what declining deals, 0 for nothing), and the replay offers ("You may pay 《Earth》. When you do
+     * so, use this special ability again" — {@code chosen} null, the targets read off
+     * {@code chooseText}). The CPU pays only when the damage bought breaks an opposing Forward that
+     * declining would not (CPUOptional decision 15). Advisory, read by the next offer only.
+     */
+    default void adviseOptionalDamage(List<ForwardTarget> chosen, String chooseText, int ifDone, int ifNot) {}
 
     /**
      * Discards all cards from the ability user's hand to their Break Zone.  No CP is generated.

@@ -4917,9 +4917,17 @@ public class CardBehaviorTest {
         mw.gameState.getIdentity().put(heavy, false);
         mw.gameState.getP2Hand().add(heavy);
         placeP1Forward(mw, makeForward("Theirs", "Water", 5, 10000));
-        placeP2Forward(mw, makeForwardWithText("Kolka", "Earth", 2, 5000, "When Kolka enters the field, you may "
-                + "discard 1 Forward. When you do so, choose 1 Forward opponent controls. Deal it damage equal to "
-                + "the discarded Forward's power."));
+        // 8000 breaks nothing here, so the CPU would decline the offer; this is about what the
+        // payoff reads, not about that choice.
+        boolean wasTakingEveryOffer = CPUOptional.acceptsEveryOffer;
+        CPUOptional.acceptsEveryOffer = true;
+        try {
+            placeP2Forward(mw, makeForwardWithText("Kolka", "Earth", 2, 5000, "When Kolka enters the field, you may "
+                    + "discard 1 Forward. When you do so, choose 1 Forward opponent controls. Deal it damage equal to "
+                    + "the discarded Forward's power."));
+        } finally {
+            CPUOptional.acceptsEveryOffer = wasTakingEveryOffer;
+        }
 
         mw.resolveTopOfStack();
         assertTrue(mw.gameState.getP2BreakZone().contains(heavy), "the price");
@@ -75555,6 +75563,499 @@ public class CardBehaviorTest {
 				mw.autoAbilityTriggers.nothingToActOn(payoff, palom, false));
 		stackP2Deck(mw, makeForward("Porom", "Water", 1, 3000), makeForward("Palom", "Ice", 1, 3000));
 		assertNull(mw.autoAbilityTriggers.nothingToActOn(payoff, palom, false));
+	}
+
+	// =========================================================================================
+	// A card the CPU puts into the Break Zone to break an opposing one. (Board behaviour.)
+	//
+	// CPUOptional takes the trade with chance (cost / 5)², on the printed cost of what it breaks:
+	// the arrival behind 26-031H Cid Raines' "break it.", or the dearest card a "choose 1 … Break it."
+	// reaches (28-058R Arciela) — which the AI's picker then breaks. The roll is pinned.
+	// =========================================================================================
+
+	private static final String CID_RAINES_26_031H = "When a Forward enters your opponent's field other than from "
+			+ "their hand, you may put Cid Raines into the Break Zone. When you do so, break it.";
+
+	/** P1's Forward of {@code cost} arriving other than from hand, under a CPU Cid Raines rolling {@code roll}. */
+	private static CardData arrivalUnderCpuCidRaines(MainWindow mw, int cost, double roll) {
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, makeTextCard("Cid Raines", "Ice", "Forward", 2, 5000, "l'Cie", CID_RAINES_26_031H));
+		CardData arrival = makeForward("Arrival", "Water", cost, 7000);
+		CPUOptional.roll = () -> roll;
+		try {
+			mw.lastCardWasCast = false;
+			placeP1Forward(mw, arrival);
+			resolveStack(mw);
+		} finally {
+			CPUOptional.roll = Math::random;
+		}
+		return arrival;
+	}
+
+	@Test
+	void aCpuCidRainesAlwaysBreaksAnArrivalOfCostFive() {
+		MainWindow mw = new MainWindow();
+		CardData arrival = arrivalUnderCpuCidRaines(mw, 5, 0.99);
+		assertTrue(mw.gameState.getP1BreakZone().contains(arrival));
+		assertTrue(mw.gameState.getP2BreakZone().stream().anyMatch(c -> c.name().equals("Cid Raines")));
+		assertTrue(mw.gameLogText().contains("[CPU] accepts (breaking a cost-5 card is worth the sacrifice)"));
+	}
+
+	@Test
+	void aCpuCidRainesTradesForACheapArrivalOnlyWhenTheRollComesInUnder() {
+		MainWindow under = new MainWindow();
+		CardData taken = arrivalUnderCpuCidRaines(under, 2, 0.125);
+		assertTrue(under.gameState.getP1BreakZone().contains(taken), "12 is under cost 2's 16%");
+		assertTrue(under.gameLogText().contains(
+				"[CPU] accepts (breaking a cost-2 card is worth the sacrifice 16% of the time; rolled 12)"));
+
+		MainWindow over = new MainWindow();
+		CardData spared = arrivalUnderCpuCidRaines(over, 2, 0.25);
+		assertTrue(over.p1ForwardCards.contains(spared));
+		assertTrue(over.p2ForwardCards.stream().anyMatch(c -> c.name().equals("Cid Raines")), "kept");
+		assertTrue(over.gameLogText().contains(
+				"[CPU] declines (breaking a cost-2 card is worth the sacrifice 16% of the time; rolled 25)"));
+	}
+
+	private static final String ARCIELA_28_058R = "When a Category XI Forward of cost 6 or more enters your field, you "
+			+ "may put Arciela into the Break Zone. When you do so, choose 1 Character opponent controls. Break it.";
+
+	/** A CPU Arciela rolling {@code roll} as a Category XI cost-6 Forward joins her, against {@code p1Forwards}. */
+	private static MainWindow cpuArcielaAgainst(double roll, CardData... p1Forwards) {
+		MainWindow mw = new MainWindow();
+		for (CardData f : p1Forwards) placeP1Forward(mw, f);
+		CardData arciela = dealt("Arciela", "Water", "Backup", 3, 0, "Archduchess", "XI", ARCIELA_28_058R);
+		mw.gameState.getIdentity().put(arciela, false);
+		mw.placeP2CardInFirstBackupSlot(arciela);
+		CPUOptional.roll = () -> roll;
+		try {
+			placeP2Forward(mw, dealt("Prishe", "Earth", "Forward", 6, 9000, "Monk", "XI", ""));
+			resolveStack(mw);
+		} finally {
+			CPUOptional.roll = Math::random;
+		}
+		return mw;
+	}
+
+	@Test
+	void aCpuArcielaBreaksTheDearestOpposingCharacter() {
+		// Three times over: a random pick among three would get this right only one time in 27.
+		for (int i = 0; i < 3; i++) {
+			CardData cheap = makeForward("Cheap", "Fire", 2, 5000);
+			CardData dear  = makeForward("Dear", "Fire", 6, 9000);
+			CardData mid   = makeForward("Mid", "Fire", 3, 7000);
+			MainWindow mw = cpuArcielaAgainst(0.99, cheap, dear, mid);
+			assertTrue(mw.gameState.getP1BreakZone().contains(dear), "the cost-6 Forward, not a cheaper one");
+			assertTrue(mw.p1ForwardCards.containsAll(List.of(cheap, mid)));
+			assertTrue(mw.gameLogText().contains("[CPU] accepts (breaking a cost-6 card is worth the sacrifice)"));
+		}
+	}
+
+	@Test
+	void aCpuArcielaKeepsHerselfWhenOnlyACheapCharacterIsThereAndTheRollIsOver() {
+		CardData cheap = makeForward("Cheap", "Fire", 2, 5000);
+		MainWindow mw = cpuArcielaAgainst(0.25, cheap);
+		assertTrue(mw.p1ForwardCards.contains(cheap));
+		assertTrue(mw.gameState.getP2BreakZone().stream().noneMatch(c -> c.name().equals("Arciela")));
+		assertTrue(mw.gameLogText().contains(
+				"[CPU] declines (breaking a cost-2 card is worth the sacrifice 16% of the time; rolled 25)"));
+	}
+
+	@Test
+	void theBreakTargetIsReadOnlyOffALoneBreakOfAnOpposingCard() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Rival", "Fire", 4, 8000));
+		placeP2Forward(mw, makeForward("Own", "Fire", 6, 9000));
+		CardData redMage = makePlainBackup("Red Mage", "Fire", 3);
+		AutoAbilityTriggers triggers = mw.autoAbilityTriggers;
+		assertEquals(4, triggers.breakTargetCost("choose 1 Forward of cost 4 or less. Break it.", redMage, false));
+		assertEquals(-1, triggers.breakTargetCost("choose 1 Forward of cost 3 or less. Break it.", redMage, false),
+				"nothing opposing in reach — its own cost-6 Forward does not count");
+		assertEquals(-1, triggers.breakTargetCost("choose 1 Forward. Break it. Draw 1 card.", redMage, false),
+				"a break and something else");
+		assertEquals(-1, triggers.breakTargetCost("choose 1 Forward. Deal it 8000 damage.", redMage, false));
+		assertEquals(-1, triggers.breakTargetCost("break it.", redMage, false), "no arrival behind \"it\"");
+	}
+
+	// =========================================================================================
+	// A card the CPU discards for a payoff. (Board behaviour.)
+	//
+	// One card for a payoff that lands is a fair trade and stays a yes. CPUOptional declines damage
+	// that would break nothing, two or more cards for what costs less than they do (summed printed
+	// cost of its cheapest), a payoff turning on the discarded card that no card in hand would make
+	// land — and the AI discards the card that does — and Crystals with nothing of its own to spend
+	// them on.
+	// =========================================================================================
+
+	/** P2 holds {@code cards}. */
+	private static void holdP2(MainWindow mw, CardData... cards) {
+		for (CardData c : cards) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2Hand().add(c);
+		}
+	}
+
+	/** A CPU {@code name} entering with {@code text}, holding {@code hand}, against P1's {@code rivals}. */
+	private static MainWindow cpuDiscarderArrives(String name, String text, List<CardData> rivals, CardData... hand) {
+		MainWindow mw = new MainWindow();
+		for (CardData r : rivals) placeP1Forward(mw, r);
+		holdP2(mw, hand);
+		placeP2Forward(mw, makeTextCard(name, "Fire", "Forward", 2, 5000, null, text));
+		resolveStack(mw);
+		return mw;
+	}
+
+	private static final String RED_XIII_17_021C = "When Red XIII enters the field, you may discard 1 card. When you do "
+			+ "so, choose 1 Forward. Deal it 7000 damage.";
+
+	@Test
+	void aCpuRedXiiiKeepsItsCardWhenTheDamageWouldBreakNothing() {
+		CardData spare = makePlainBackup("Spare", "Fire", 1);
+		CardData rival = makeForward("Rival", "Ice", 4, 8000);
+		MainWindow mw = cpuDiscarderArrives("Red XIII", RED_XIII_17_021C, List.of(rival), spare);
+		assertTrue(mw.gameState.getP2Hand().contains(spare));
+		assertTrue(mw.gameLogText().contains("[CPU] declines (its damage would break no opposing Forward)"));
+	}
+
+	@Test
+	void aCpuRedXiiiDiscardsForDamageThatBreaks() {
+		CardData spare = makePlainBackup("Spare", "Fire", 1);
+		CardData rival = makeForward("Rival", "Ice", 3, 7000);
+		MainWindow mw = cpuDiscarderArrives("Red XIII", RED_XIII_17_021C, List.of(rival), spare);
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+		assertTrue(mw.gameState.getP1BreakZone().contains(rival));
+	}
+
+	private static final String HEIDEGGER_14_086R = "When Heidegger enters the field, you may discard 2 cards. When you "
+			+ "do so, choose 1 Forward. Break it.";
+
+	@Test
+	void aCpuHeideggerPaysTwoCardsForAForwardDearerThanBoth() {
+		CardData rival = makeForward("Rival", "Ice", 5, 9000);
+		MainWindow mw = cpuDiscarderArrives("Heidegger", HEIDEGGER_14_086R, List.of(rival),
+				makePlainBackup("Cheap A", "Fire", 2), makePlainBackup("Cheap B", "Fire", 2));
+		assertTrue(mw.gameState.getP1BreakZone().contains(rival));
+		assertTrue(mw.gameLogText().contains("[CPU] accepts (a cost-5 card is worth 2 cards costing 4)"));
+	}
+
+	@Test
+	void aCpuHeideggerKeepsTwoCardsDearerThanTheForward() {
+		CardData rival = makeForward("Rival", "Ice", 3, 7000);
+		MainWindow mw = cpuDiscarderArrives("Heidegger", HEIDEGGER_14_086R, List.of(rival),
+				makePlainBackup("Cheap A", "Fire", 2), makePlainBackup("Cheap B", "Fire", 2));
+		assertTrue(mw.p1ForwardCards.contains(rival));
+		assertEquals(2, mw.gameState.getP2Hand().size());
+		assertTrue(mw.gameLogText().contains("[CPU] declines (a cost-3 card is not worth 2 cards costing 4)"));
+	}
+
+	@Test
+	void whatACardBringsBackIsPricedAtItsOwnCost() {
+		MainWindow mw = new MainWindow();
+		holdP2(mw, makePlainBackup("A", "Ice", 1), makePlainBackup("B", "Ice", 1), makePlainBackup("C", "Ice", 3));
+		CardData moggle = makeForward("Good King Moggle Mog XII", "Ice", 4, 8000);
+		CPUOptional.CardTrade back = mw.autoAbilityTriggers.cardTrade("discard 2 cards. If you do so, return "
+				+ "Good King Moggle Mog XII to your hand.", moggle, false, CPUOptional.Cost.DISCARD);
+		assertEquals(new CPUOptional.CardTrade(2, 2, 4, false, false), back, "its two cheapest, for itself");
+		CardData caius = makeForward("Caius", "Fire", 5, 9000);
+		assertEquals(5, mw.autoAbilityTriggers.cardTrade("discard 3 cards. When you do so, play Caius from the Break "
+				+ "Zone onto the field dull.", caius, false, CPUOptional.Cost.DISCARD).thrownCost(), "1 + 1 + 3");
+	}
+
+	// =========================================================================================
+	// A card of its own the CPU pays from the field. (Board behaviour.)
+	//
+	// Priced as a discard is (decision 13): one card for a payoff that lands, damage or a power loss
+	// that breaks, two or more for what costs as much — and paid with its cheapest eligible card. A
+	// sweep of both sides is paid only when it breaks more of the opponent's, by printed cost. A card
+	// from its own Break Zone costs next to nothing.
+	// =========================================================================================
+
+	private static final String BACKUP_FOR_8000 = "When Wakka enters the field, you may put 1 Backup you control into "
+			+ "the Break Zone. When you do so, choose 1 Forward. Deal it 8000 damage.";
+
+	/** P2 Backups {@code backups} on the field, then a CPU Wakka (20-126C's price, on arrival) against {@code rival}. */
+	private static MainWindow cpuWakkaArrives(CardData rival, CardData... backups) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, rival);
+		for (CardData b : backups) {
+			mw.gameState.getIdentity().put(b, false);
+			mw.placeP2CardInFirstBackupSlot(b);
+		}
+		placeP2Forward(mw, makeTextCard("Wakka", "Water", "Forward", 7, 9000, null, BACKUP_FOR_8000));
+		resolveStack(mw);
+		return mw;
+	}
+
+	@Test
+	void aCpuKeepsItsBackupWhenTheDamageItBuysWouldBreakNothing() {
+		CardData backup = makePlainBackup("Spare", "Water", 1);
+		CardData rival = makeForward("Rival", "Ice", 5, 9000);
+		MainWindow mw = cpuWakkaArrives(rival, backup);
+		assertTrue(Arrays.asList(mw.p2BackupCards).contains(backup));
+		assertTrue(mw.gameLogText().contains("[CPU] declines (its damage would break no opposing Forward)"));
+	}
+
+	@Test
+	void aCpuPaysWithItsCheapestBackup() {
+		// Three times over: a random pick between the two would get this right one time in 8.
+		for (int i = 0; i < 3; i++) {
+			CardData cheap = makePlainBackup("Cheap", "Water", 1);
+			CardData dear  = makePlainBackup("Dear", "Water", 5);
+			CardData rival = makeForward("Rival", "Ice", 4, 8000);
+			MainWindow mw = cpuWakkaArrives(rival, dear, cheap);
+			assertTrue(mw.gameState.getP2BreakZone().contains(cheap));
+			assertTrue(Arrays.asList(mw.p2BackupCards).contains(dear));
+			assertTrue(mw.gameState.getP1BreakZone().contains(rival));
+		}
+	}
+
+	private static final String SUSANO_SWEEP = "When Susano enters the field, you may put 1 Backup you control into the "
+			+ "Break Zone. When you do so, deal 9000 damage to all the Forwards other than Susano.";
+
+	/** A CPU Susano (14-011H's sweep) beside its own {@code ally}, against P1's {@code rival}. */
+	private static MainWindow cpuSusanoSweeps(CardData ally, CardData rival) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, rival);
+		CardData backup = makePlainBackup("Spare", "Fire", 1);
+		mw.gameState.getIdentity().put(backup, false);
+		mw.placeP2CardInFirstBackupSlot(backup);
+		mw.suppressAutoAbilityForNextCards = 1;
+		placeP2Forward(mw, ally);
+		placeP2Forward(mw, makeTextCard("Susano", "Fire", "Forward", 6, 8000, null, SUSANO_SWEEP));
+		resolveStack(mw);
+		return mw;
+	}
+
+	@Test
+	void aCpuSusanoSweepsWhenItTakesMoreOfTheirsThanItsOwn() {
+		CardData ally  = makeForward("Ally", "Fire", 2, 5000);
+		CardData rival = makeForward("Rival", "Ice", 5, 9000);
+		MainWindow mw = cpuSusanoSweeps(ally, rival);
+		assertTrue(mw.gameState.getP1BreakZone().contains(rival));
+		assertTrue(mw.gameState.getP2BreakZone().contains(ally), "the sweep is both sides'");
+		assertTrue(mw.gameLogText().contains("[CPU] accepts (its sweep breaks cost 5 of the opponent's Forwards and 2 of its own)"));
+	}
+
+	@Test
+	void aCpuSusanoHoldsTheSweepWhenItWouldCostItMore() {
+		CardData ally  = makeForward("Ally", "Fire", 5, 9000);
+		CardData rival = makeForward("Rival", "Ice", 2, 5000);
+		MainWindow mw = cpuSusanoSweeps(ally, rival);
+		assertTrue(mw.p2ForwardCards.contains(ally));
+		assertTrue(mw.p1ForwardCards.contains(rival));
+		assertTrue(mw.gameLogText().contains("[CPU] declines (its sweep breaks cost 2 of the opponent's Forwards and 5 of its own)"));
+	}
+
+	// =========================================================================================
+	// An effect the CPU may make on a card already chosen. (Board behaviour.)
+	//
+	// "Deal it N damage?", "Return it to its owner's hand?" (GameContext.playerMayDoEffectOn). On the
+	// opponent's card, the site's yes; on the CPU's own, damage is declined, and a return is made only
+	// to pull the card out of the way of the opponent's Stack entry or for what it buys (decision 14).
+	// =========================================================================================
+
+	@Test
+	void aCpuWillNotDealDamageToItsOwnForwardWhenItIsAllThereIsToChoose() {
+		MainWindow mw = new MainWindow();
+		CardData ally = makeForward("Ally", "Fire", 3, 7000);
+		placeP2Forward(mw, ally);
+		placeP2Forward(mw, makeTextCard("Burner", "Fire", "Forward", 2, 5000, null,
+				"When Burner enters the field, choose 1 Forward. You may deal it 6000 damage."));
+		resolveStack(mw);
+		assertTrue(mw.p2ForwardDamage.stream().allMatch(d -> d == 0), "nothing of its own is damaged");
+		assertTrue(mw.gameLogText().contains("[CPU] declines (it would damage its own "));
+	}
+
+	@Test
+	void aCpuDealsTheDamageToTheOpponentsForward() {
+		MainWindow mw = new MainWindow();
+		CardData rival = makeForward("Rival", "Ice", 3, 9000);
+		placeP1Forward(mw, rival);
+		placeP2Forward(mw, makeTextCard("Burner", "Fire", "Forward", 2, 5000, null,
+				"When Burner enters the field, choose 1 Forward. You may deal it 6000 damage."));
+		resolveStack(mw);
+		assertEquals(6000, (int) mw.p1ForwardDamage.get(mw.p1ForwardCards.indexOf(rival)));
+	}
+
+	@Test
+	void aCpuKeepsItsOwnCharacterOnTheFieldWhenReturningItBuysNothing() {
+		// 17-054R's wording.
+		MainWindow mw = new MainWindow();
+		CardData ally = makeForward("Ally", "Fire", 3, 7000);
+		placeP2Forward(mw, ally);
+		placeP2Forward(mw, makeTextCard("Bouncer", "Fire", "Forward", 2, 5000, null,
+				"When Bouncer enters the field, choose 1 Character other than Bouncer you control. You may return it "
+				+ "to its owner's hand."));
+		resolveStack(mw);
+		assertTrue(mw.p2ForwardCards.contains(ally));
+		assertTrue(mw.gameLogText().contains("[CPU] declines (returning its own Ally neither saves it nor buys anything)"));
+	}
+
+	@Test
+	void aCpuMiounneReturnsItsOwnCharacterForTheDraw() {
+		// 5-067R Miounne: "… If you do so, draw 1 card."
+		MainWindow mw = new MainWindow();
+		stackP2Deck(mw, makeForward("Top", "Wind", 1, 1000));
+		CardData ally = makeForward("Ally", "Wind", 3, 7000);
+		placeP2Forward(mw, ally);
+		placeP2Forward(mw, makeTextCard("Miounne", "Wind", "Forward", 2, 5000, null,
+				"When Miounne enters the field, choose 1 Character other than Miounne you control. You may return it "
+				+ "to its owner's hand. If you do so, draw 1 card."));
+		resolveStack(mw);
+		assertTrue(mw.gameState.getP2Hand().contains(ally));
+		assertEquals(2, mw.gameState.getP2Hand().size(), "the Ally back, and the draw");
+	}
+
+	// =========================================================================================
+	// 18-033R Yuna's replay: "Choose 1 Forward. Deal it 8000 damage. You may dull active Yuna. When
+	// you do so, use this special ability again without paying the cost." (Board behaviour.)
+	//
+	// The CPU used to pass on every replay; it now uses the ability again while the damage would
+	// break an opposing Forward (CPUOptional decision 15).
+	// =========================================================================================
+
+	private static final String YUNA_18_033R_SPECIAL = "Choose 1 Forward. Deal it 8000 damage. You may dull active "
+			+ "Yuna. When you do so, use this special ability again without paying the cost.";
+
+	/** A CPU Yuna using her special ability against P1's {@code theirs}. */
+	private static MainWindow cpuYunaUsesHerSpecialAgainst(CardData... theirs) {
+		MainWindow mw = new MainWindow();
+		for (CardData t : theirs) placeP1Forward(mw, t);
+		CardData yuna = makeForward("Yuna", "Water", 3, 5000);
+		placeP2Forward(mw, yuna);
+		mw.currentAbilitySource = yuna;
+		mw.currentAbilitySourceIsP1 = false;
+		mw.currentAbilityIsSpecial = true;
+		try {
+			ActionResolver.parse(YUNA_18_033R_SPECIAL, yuna).accept(mw.buildGameContext(false));
+			resolveStack(mw);
+		} finally {
+			mw.currentAbilitySource = null;
+			mw.currentAbilityIsSpecial = false;
+		}
+		return mw;
+	}
+
+	@Test
+	void aCpuYunaUsesHerAbilityAgainWhileAnotherForwardWouldBreak() {
+		MainWindow mw = cpuYunaUsesHerSpecialAgainst(makeForward("A", "Ice", 4, 8000), makeForward("B", "Ice", 4, 8000));
+		assertTrue(mw.p1ForwardCards.isEmpty(), "both broken");
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "Yuna dulled to use it again");
+	}
+
+	@Test
+	void aCpuYunaStaysActiveWhenNothingIsLeftToBreak() {
+		// When the replay is offered the first Forward is still on the field, its 8000 damage
+		// already lethal: it is going to the Break Zone whatever Yuna does.
+		MainWindow mw = cpuYunaUsesHerSpecialAgainst(makeForward("A", "Ice", 4, 8000));
+		assertTrue(mw.p1ForwardCards.isEmpty());
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0));
+		assertTrue(mw.gameLogText().contains("[CPU] declines (no opposing Forward for its damage to reach)"));
+	}
+
+	@Test
+	void aCpuYunaHitsAForwardTooBigForOneUseTwice() {
+		MainWindow mw = cpuYunaUsesHerSpecialAgainst(makeForward("Big", "Ice", 6, 10000));
+		assertTrue(mw.p1ForwardCards.isEmpty(), "8000 and 8000 more break the 10000 Forward");
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0));
+	}
+
+	private static final String LANN_16_102R = "When Lann enters the field, choose 1 Monster in your Break Zone. You may "
+			+ "remove it from the game. If you do so, Lann gains +2000 power and \"At the beginning of the Attack Phase "
+			+ "during each player's turn, choose 1 Forward opponent controls. Dull it.\" (This effect does not end at the "
+			+ "end of the turn.)";
+
+	@Test
+	void aCpuLannRemovesAMonsterFromItsBreakZoneForTheBoost() {
+		MainWindow mw = new MainWindow();
+		CardData monster = makeTextCard("Fallen", "Fire", "Monster", 2, 0, null, "");
+		mw.gameState.getIdentity().put(monster, false);
+		mw.gameState.getP2BreakZone().add(monster);
+		CardData lann = makeTextCard("Lann", "Fire", "Forward", 3, 7000, null, LANN_16_102R);
+		placeP2Forward(mw, lann);
+		resolveStack(mw);
+		assertTrue(mw.gameState.getP2RemovedFromGame().contains(monster));
+		assertEquals(9000, mw.effectiveP2ForwardPower(mw.p2ForwardCards.indexOf(lann)));
+		assertTrue(mw.gameLogText().contains("[CPU] accepts (a card from its Break Zone costs next to nothing)"));
+	}
+
+	private static final String PICTOMANCER_27_067C = "When Pictomancer enters the field, you may discard 1 card. When "
+			+ "you do so, choose 1 Forward of the same cost as the discarded card. Break it.";
+
+	@Test
+	void aCpuPictomancerDiscardsTheCardWhoseCostBreaksTheDearestForward() {
+		CardData cheap = makePlainBackup("Cheap", "Earth", 1);
+		CardData match = makeForward("Match", "Earth", 5, 9000);
+		CardData dear  = makeForward("Dear", "Ice", 5, 9000);
+		CardData mid   = makeForward("Mid", "Ice", 3, 7000);
+		MainWindow mw = cpuDiscarderArrives("Pictomancer", PICTOMANCER_27_067C, List.of(dear, mid), cheap, match);
+		assertTrue(mw.gameState.getP2BreakZone().contains(match), "the cost-5 card, not the cheapest");
+		assertTrue(mw.gameState.getP2Hand().contains(cheap));
+		assertTrue(mw.gameState.getP1BreakZone().contains(dear));
+		assertTrue(mw.p1ForwardCards.contains(mid));
+	}
+
+	@Test
+	void aCpuPictomancerKeepsItsHandWhenNoCostInItMatchesAnOpposingForward() {
+		MainWindow mw = cpuDiscarderArrives("Pictomancer", PICTOMANCER_27_067C,
+				List.of(makeForward("Three", "Ice", 3, 7000), makeForward("Four", "Ice", 4, 8000)),
+				makePlainBackup("One", "Earth", 1), makePlainBackup("Two", "Earth", 2));
+		assertEquals(2, mw.gameState.getP2Hand().size());
+		assertTrue(mw.gameLogText().contains("[CPU] declines (no card in its hand would make its payoff land)"));
+	}
+
+	private static final String KOLKA_18_057C = "When Kolka enters the field, you may discard 1 Forward. When you do so, "
+			+ "choose 1 Forward. Deal it damage equal to the discarded Forward's power.";
+
+	@Test
+	void aCpuKolkaDiscardsTheForwardStrongEnoughToBreak() {
+		CardData small = makeForward("Small", "Earth", 2, 5000);
+		CardData big   = makeForward("Big", "Earth", 5, 9000);
+		CardData rival = makeForward("Rival", "Ice", 4, 8000);
+		MainWindow mw = cpuDiscarderArrives("Kolka", KOLKA_18_057C, List.of(rival), small, big);
+		assertTrue(mw.gameState.getP2BreakZone().contains(big), "9000 breaks the 8000 Forward; 5000 would not");
+		assertTrue(mw.gameState.getP2Hand().contains(small));
+		assertTrue(mw.gameState.getP1BreakZone().contains(rival));
+	}
+
+	private static final String DOGA_19_061H = "When Doga enters the field, you may discard 1 Summon. When you do so, "
+			+ "gain 《C》《C》.";
+
+	@Test
+	void aCpuDogaTakesCrystalsWhenItsCardsSpendThem() {
+		MainWindow mw = new MainWindow();
+		stackP2Deck(mw, makeTextCard("Spender", "Earth", "Forward", 3, 7000, null,
+				"《Earth》《C》《Dull》: Choose 1 Forward. Break it."));
+		CardData summon = makeTextCard("Bolt", "Earth", "Summon", 2, 0, null, "Choose 1 Forward. Deal it 4000 damage.");
+		holdP2(mw, summon);
+		placeP2Forward(mw, makeTextCard("Doga", "Earth", "Forward", 2, 5000, null, DOGA_19_061H));
+		resolveStack(mw);
+		assertEquals(2, mw.gameState.getP2Crystals());
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+	}
+
+	@Test
+	void aCpuDogaKeepsItsSummonWhenNothingOfItsOwnSpendsCrystals() {
+		MainWindow mw = new MainWindow();
+		stackP2Deck(mw, makeForward("Plain", "Earth", 3, 7000));
+		CardData summon = makeTextCard("Bolt", "Earth", "Summon", 2, 0, null, "Choose 1 Forward. Deal it 4000 damage.");
+		holdP2(mw, summon);
+		placeP2Forward(mw, makeTextCard("Doga", "Earth", "Forward", 2, 5000, null, DOGA_19_061H));
+		resolveStack(mw);
+		assertEquals(0, mw.gameState.getP2Crystals());
+		assertTrue(mw.gameState.getP2Hand().contains(summon));
+		assertTrue(mw.gameLogText().contains("[CPU] declines (its payoff has no card of its own that spends Crystals)"));
+	}
+
+	@Test
+	void aCardUsesCrystalsWhenItSpendsOrCountsThemNotWhenItOnlyGainsThem() {
+		assertTrue(AutoAbilityTriggers.usesCrystals(makeTextCard("A", "Fire", "Forward", 2, 5000, null,
+				"《Fire》《C》《Dull》: Deal 7000 damage to all the Forwards opponent controls.")));
+		assertTrue(AutoAbilityTriggers.usesCrystals(makeTextCard("B", "Fire", "Forward", 2, 5000, null,
+				"B gains +1000 power for each Crystal you have.")));
+		assertFalse(AutoAbilityTriggers.usesCrystals(makeTextCard("C", "Fire", "Forward", 2, 5000, null, DOGA_19_061H)));
+		assertFalse(AutoAbilityTriggers.usesCrystals(makeTextCard("D", "Fire", "Backup", 2, 0, null,
+				"When D enters the field, you may pay 《X》. When you do so, gain 《C》 for each CP paid as X.")));
 	}
 
 	/** P1's {@code card} resolving auto ability {@code index} while P2 holds {@code oppHand} cards. */

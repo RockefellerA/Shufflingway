@@ -21,8 +21,9 @@ class CPUOptionalTest {
 	private static final boolean AS_STARTED = Boolean.getBoolean(CPUOptional.ACCEPTS_EVERY_OFFER_PROPERTY);
 
 	@AfterEach
-	void restoreTheDebugSwitch() {
+	void restoreTheDebugSwitchAndTheRoll() {
 		CPUOptional.acceptsEveryOffer = AS_STARTED;
+		CPUOptional.roll = Math::random;
 	}
 
 	private static CardData card(String name) {
@@ -259,6 +260,189 @@ class CPUOptionalTest {
 				+ "Backup other than Lulu you control into the Break Zone. If you do so, deal it 7000 damage."));
 		assertNull(CPUOptional.payoffOf("search for 1 Fire Character and play it onto the field."), "no do so");
 		assertNull(CPUOptional.payoffOf(null));
+	}
+
+	@Test
+	void theBreakChanceRisesWithTheSquareOfTheTargetsCost() {
+		assertEquals(0.0, CPUOptional.breakChance(0));
+		assertEquals(0.04, CPUOptional.breakChance(1), 1e-9);
+		assertEquals(0.16, CPUOptional.breakChance(2), 1e-9);
+		assertEquals(0.36, CPUOptional.breakChance(3), 1e-9);
+		assertEquals(0.64, CPUOptional.breakChance(4), 1e-9);
+		assertEquals(1.0, CPUOptional.breakChance(5));
+		assertEquals(1.0, CPUOptional.breakChance(9), "every time from 5 up");
+	}
+
+	/** 12-073C Red Mage's offer. */
+	private static final String RED_MAGE = "put Red Mage into the Break Zone. When you do so, choose 1 Forward of cost 3 "
+			+ "or less. Break it.";
+
+	/** A board on which the payoff would break an opposing card of printed {@code cost}. */
+	private static CPUOptional.Board breaking(int cost) {
+		return new CPUOptional.Board(40, 0, false, null, cost);
+	}
+
+	@Test
+	void aCardThatPutsItselfIntoTheBreakZoneToBreakOneIsTakenOnTheRoll() {
+		CPUOptional.acceptsEveryOffer = false;
+		CPUOptional.Offer redMage = new CPUOptional.Offer(Cost.SACRIFICE_SELF, "Red Mage — You may: " + RED_MAGE, 0, 0, 0,
+				() -> fail("the break chance settles it"));
+
+		CPUOptional.roll = () -> 0.25;
+		CPUOptional.Decision under = CPUOptional.decide(redMage, breaking(3));
+		assertTrue(under.accept(), "25 is under cost 3's 36%");
+		assertEquals("breaking a cost-3 card is worth the sacrifice 36% of the time; rolled 25", under.reason());
+		CPUOptional.roll = () -> 0.375;
+		assertFalse(CPUOptional.decide(redMage, breaking(3)).accept(), "37 is not");
+
+		CPUOptional.roll = () -> 0.99;
+		CPUOptional.Decision dear = CPUOptional.decide(redMage, breaking(5));
+		assertTrue(dear.accept());
+		assertEquals("breaking a cost-5 card is worth the sacrifice", dear.reason(), "no roll to report");
+
+		CPUOptional.roll = () -> 0.0;
+		CPUOptional.Decision free = CPUOptional.decide(redMage, breaking(0));
+		assertFalse(free.accept(), "a cost-0 card is never worth a card");
+		assertEquals("breaking a cost-0 card is not worth the sacrifice", free.reason());
+	}
+
+	@Test
+	void theBreakChanceIsOnlyForACardThatPutsItselfIntoTheBreakZone() {
+		CPUOptional.acceptsEveryOffer = false;
+		CPUOptional.roll = () -> 0.99;
+		CPUOptional.Offer pay = new CPUOptional.Offer(Cost.CP, "pay 《1》. When you do so, choose 1 Forward. Break it.",
+				0, 0, 0, () -> true);
+		CPUOptional.Decision paid = CPUOptional.decide(pay, breaking(1));
+		assertTrue(paid.accept());
+		assertNull(paid.reason(), "the call site's own answer");
+
+		CPUOptional.Offer redMage = new CPUOptional.Offer(Cost.SACRIFICE_SELF, RED_MAGE, 0, 0, 0, () -> true);
+		assertNull(CPUOptional.decide(redMage, deck(40)).reason(), "no break to judge: the call site's own answer");
+		assertFalse(CPUOptional.decide(redMage, nothingToActOn("its payoff has no opposing card to choose")).accept(),
+				"nothing to break is declined before any roll");
+		CPUOptional.acceptsEveryOffer = true;
+		assertTrue(CPUOptional.decide(redMage, breaking(1)).accept(), "the debug switch takes it anyway");
+	}
+
+	/** A board for a discard offer that trades {@code trade}. */
+	private static CPUOptional.Board discarding(CPUOptional.CardTrade trade) {
+		return new CPUOptional.Board(40, 0, false, null, -1, trade);
+	}
+
+	/** 14-086R Heidegger's offer: two cards for a break. */
+	private static final CPUOptional.Offer HEIDEGGER = new CPUOptional.Offer(Cost.DISCARD,
+			"Heidegger — You may: discard 2 cards. When you do so, choose 1 Forward. Break it.", 0, 0, 0,
+			() -> fail("the discard rules settle it"));
+
+	@Test
+	void twoCardsArePaidOnlyForWhatCostsAsMuchAsTheyDo() {
+		CPUOptional.acceptsEveryOffer = false;
+		CPUOptional.Decision worth = CPUOptional.decide(HEIDEGGER, discarding(new CPUOptional.CardTrade(2, 4, 5, false, false)));
+		assertTrue(worth.accept());
+		assertEquals("a cost-5 card is worth 2 cards costing 4", worth.reason());
+		assertTrue(CPUOptional.decide(HEIDEGGER, discarding(new CPUOptional.CardTrade(2, 4, 4, false, false))).accept(),
+				"an even trade is taken");
+		CPUOptional.Decision short_ = CPUOptional.decide(HEIDEGGER, discarding(new CPUOptional.CardTrade(2, 5, 4, false, false)));
+		assertFalse(short_.accept());
+		assertEquals("a cost-4 card is not worth 2 cards costing 5", short_.reason());
+		CPUOptional.Decision unpriced = CPUOptional.decide(HEIDEGGER, discarding(new CPUOptional.CardTrade(2, 4, -1, false, false)));
+		assertFalse(unpriced.accept(), "decline when unsure");
+		assertEquals("nothing prices what 2 cards would buy", unpriced.reason());
+	}
+
+	@Test
+	void oneCardForAPayoffThatLandsIsTheCallSitesAnswer() {
+		CPUOptional.acceptsEveryOffer = false;
+		CPUOptional.Offer redXiii = new CPUOptional.Offer(Cost.DISCARD, "discard 1 card. When you do so, choose 1 "
+				+ "Forward. Deal it 7000 damage.", 0, 0, 0, () -> true);
+		CPUOptional.Decision d = CPUOptional.decide(redXiii, discarding(new CPUOptional.CardTrade(1, 1, -1, false, false)));
+		assertTrue(d.accept());
+		assertNull(d.reason());
+		assertNull(CPUOptional.decide(redXiii, deck(40)).reason(), "no trade read: the call site's answer");
+	}
+
+	@Test
+	void aCardIsNotSpentOnDamageThatBreaksNothingOrAPayoffNoDiscardLands() {
+		CPUOptional.acceptsEveryOffer = false;
+		CPUOptional.Offer offer = new CPUOptional.Offer(Cost.DISCARD, "discard 1 card", 0, 0, 0, () -> true);
+		CPUOptional.Decision weak = CPUOptional.decide(offer, discarding(new CPUOptional.CardTrade(1, 1, -1, true, false)));
+		assertFalse(weak.accept());
+		assertEquals("its damage would break no opposing Forward", weak.reason());
+		CPUOptional.Decision keyed = CPUOptional.decide(offer, discarding(new CPUOptional.CardTrade(1, 1, -1, false, true)));
+		assertFalse(keyed.accept());
+		assertEquals("no card in its hand would make its payoff land", keyed.reason());
+		CPUOptional.acceptsEveryOffer = true;
+		assertTrue(CPUOptional.decide(offer, discarding(new CPUOptional.CardTrade(1, 1, -1, true, true))).accept(),
+				"the debug switch takes it anyway");
+	}
+
+	@Test
+	void aFieldCardIsPricedAsADiscardIs() {
+		CPUOptional.acceptsEveryOffer = false;
+		for (Cost cost : List.of(Cost.SACRIFICE_OTHER, Cost.REMOVE_OTHER, Cost.RETURN_TO_HAND)) {
+			CPUOptional.Offer offer = new CPUOptional.Offer(cost, "a card of its own", 0, 0, 0, () -> true);
+			assertFalse(CPUOptional.decide(offer, discarding(new CPUOptional.CardTrade(1, -1, -1, true, false))).accept(),
+					cost.name());
+			assertNull(CPUOptional.decide(offer, discarding(new CPUOptional.CardTrade(1, -1, -1, false, false))).reason(),
+					cost.name() + ": one card for a payoff that lands is the call site's answer");
+			assertFalse(CPUOptional.decide(offer, discarding(new CPUOptional.CardTrade(2, -1, 6, false, false))).accept(),
+					cost.name() + ": two cards with no price told for them");
+		}
+	}
+
+	@Test
+	void aSweepOfBothSidesIsPaidOnlyWhenItTakesMoreOfTheirs() {
+		CPUOptional.acceptsEveryOffer = false;
+		CPUOptional.Offer susano = new CPUOptional.Offer(Cost.SACRIFICE_OTHER, "Susano — You may: put 1 Backup you control "
+				+ "into the Break Zone. When you do so, deal 9000 damage to all the Forwards other than Susano.", 0, 0, 0,
+				() -> fail("the sweep rule settles it"));
+		CPUOptional.Decision more = CPUOptional.decide(susano, discarding(new CPUOptional.CardTrade(1, -1, -1, false, false, 6, 4)));
+		assertTrue(more.accept());
+		assertEquals("its sweep breaks cost 6 of the opponent's Forwards and 4 of its own", more.reason());
+		assertFalse(CPUOptional.decide(susano, discarding(new CPUOptional.CardTrade(1, -1, -1, false, false, 4, 4))).accept(),
+				"an even sweep is not worth the Backup");
+		assertFalse(CPUOptional.decide(susano, discarding(new CPUOptional.CardTrade(1, -1, -1, false, false, 0, 0))).accept());
+	}
+
+	@Test
+	void aCardFromItsOwnBreakZoneIsPaidEvenWhereTheSiteWouldSayNo() {
+		CPUOptional.acceptsEveryOffer = false;
+		String prompt = "Remove the chosen card in the Break Zone from the game?";
+		assertEquals(Cost.REMOVE_FROM_BZ, CPUOptional.costOfPrompt(prompt, card("Lann")));
+		List<String> log = new ArrayList<>();
+		assertTrue(CPUOptional.ask(CPUOptional.costOfPrompt(prompt, card("Lann")), prompt, () -> false, log::add).getAsBoolean());
+		assertEquals(List.of("[CPU] accepts (a card from its Break Zone costs next to nothing): " + prompt), log);
+	}
+
+	@Test
+	void cardsOffTheTopOfTheDeckAreAMillNotACardOfItsOwn() {
+		assertEquals(Cost.MILL, CPUOptional.costOf("put the top 2 cards of your deck into the Break Zone. When you do so, "
+				+ "choose 1 Category VIII Forward other than Card Name Seifer in your Break Zone. Add it to your hand.",
+				card("Seifer")));
+		assertEquals(Cost.MILL, CPUOptional.costOf("remove the top 10 cards of your deck from the game. If you do so, "
+				+ "return Cloud to the field dull.", card("Cloud")));
+		assertEquals(Cost.REMOVE_SELF, CPUOptional.costOf(GHIS, card("Ghis")), "Ghis's price is himself");
+	}
+
+	@Test
+	void aPriceNothingReadsIsDeclined() {
+		CPUOptional.acceptsEveryOffer = false;
+		CPUOptional.Decision d = CPUOptional.decide(new CPUOptional.Offer(Cost.OTHER, "an unread price", 0, 0, 0,
+				() -> fail("decline when unsure")), deck(40));
+		assertFalse(d.accept());
+		assertEquals("nothing tells what it costs", d.reason());
+		assertFalse(CPUOptional.decide(new CPUOptional.Offer(Cost.OTHER, "an unread price", 0, 0, 0, () -> true), null)
+				.accept(), "with no board as well");
+		CPUOptional.acceptsEveryOffer = true;
+		assertTrue(CPUOptional.decide(new CPUOptional.Offer(Cost.OTHER, "x", 0, 0, 0, () -> false), null).accept());
+	}
+
+	@Test
+	void thePriceIsWhatComesAheadOfTheDoSo() {
+		assertEquals("discard 2 cards", CPUOptional.priceOf("discard 2 cards. When you do so, choose 1 Forward. Break it."));
+		assertEquals("put 1 Backup other than Lulu you control into the Break Zone", CPUOptional.priceOf("choose 1 Forward. "
+				+ "You may put 1 Backup other than Lulu you control into the Break Zone. If you do so, deal it 7000 damage."));
+		assertNull(CPUOptional.priceOf("search for 1 Fire Character and play it onto the field."));
 	}
 
 	@Test

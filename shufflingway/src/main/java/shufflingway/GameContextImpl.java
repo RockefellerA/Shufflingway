@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -29,6 +30,7 @@ import java.util.function.IntSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.swing.BorderFactory;
@@ -106,6 +108,19 @@ final class GameContextImpl implements GameContext {
 	 */
 	private AiOwnPick aiOwnPick       = AiOwnPick.NONE;
 	private CardData  aiOwnPickSource = null;
+	/**
+	 * The hand card the AI's next discard leads with, chosen for a payoff that turns on it — see
+	 * {@link GameContext#planAiDiscard}. Taken, and cleared, by the next {@link #worstHandCards}.
+	 */
+	private CardData aiDiscardPick = null;
+	/** What the next {@link #promptYouMay}'s search would upgrade — see {@link GameContext#adviseSearchUpgrade}. */
+	private record SearchUpgrade(List<ForwardTarget> chosen, String ifDone, String ifNot, Predicate<CardData> sought) {}
+	private SearchUpgrade searchUpgradeAdvice = null;
+	/** The payoff an enclosing "If you do so, …" runs — see {@link GameContext#adviseDoSoPayoff}. */
+	private String doSoPayoffAdvice = null;
+	/** What the next optional price buys in damage — see {@link GameContext#adviseOptionalDamage}. */
+	private record OptionalDamage(List<ForwardTarget> chosen, String chooseText, int ifDone, int ifNot) {}
+	private OptionalDamage optionalDamageAdvice = null;
 	/**
 	 * Budget the selection about to be made must keep its chosen Forwards' printed costs within,
 	 * or {@code -1} when the selection is unbounded. Set for the length of one call by
@@ -1894,12 +1909,19 @@ final class GameContextImpl implements GameContext {
 				// choices that are equally the best one.
 				boolean orderByPower = false;
 				if (aiDamageTargetHint > 0) {
+					// Not one the damage already on it dooms: mid-resolution it is still on the field,
+					// and a second hit on it (18-033R Yuna's replay) is a hit wasted.
 					List<ForwardTarget> lethal = pool.stream()
 							.filter(t -> t.isP1() != isP1)
-							.filter(t -> wouldBreakUnderDamage(t, aiDamageTargetHint))
+							.filter(t -> wouldBreakUnderDamage(t, aiDamageTargetHint) && !wouldBreakUnderDamage(t, 0))
 							.toList();
 					if (!lethal.isEmpty()) { pool = lethal; orderByPower = true; }
 				}
+				// A removal aimed at the opponent — broken, put into the Break Zone, removed from the
+				// game — takes their dearest card: the most board it removes for the same effect, and
+				// the pick CPUOptional's break chance is judged on (26-031H Cid Raines' family).
+				boolean orderByCost = !orderByPower && aiOwnPick == AiOwnPick.SPEND
+						&& pool.stream().allMatch(t -> t.isP1() != isP1);
 				List<ForwardTarget> copy = new ArrayList<>(pool);
 				java.util.Collections.shuffle(copy);
 				// Biggest of the breakable first — same cost, strictly more removed — so a
@@ -1908,6 +1930,8 @@ final class GameContextImpl implements GameContext {
 				if (orderByPower)
 					copy.sort(java.util.Comparator.comparingInt(
 							(ForwardTarget t) -> fieldPowerAt(t)).reversed());
+				else if (orderByCost)
+					copy.sort(Comparator.comparingInt((ForwardTarget t) -> cardAtTarget(t).cost()).reversed());
 				List<ForwardTarget> picked = List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
 				picked.forEach(t -> {
 					CardData c = switch (t.zone()) {
@@ -5797,10 +5821,18 @@ final class GameContextImpl implements GameContext {
 				return out;
 			}
 
-			/** The AI's pick: {@code count} of the eligible hand cards, least valuable first. */
+			/**
+			 * The AI's pick: {@code count} of the eligible hand cards, least valuable first — led by the
+			 * card {@link #planAiDiscard} chose, when that card is among them.
+			 */
 			private List<Integer> worstHandCards(List<CardData> hand, List<Integer> eligible, int count) {
 				List<Integer> pool = new ArrayList<>(eligible);
 				List<Integer> out  = new ArrayList<>();
+				CardData planned = aiDiscardPick;
+				aiDiscardPick = null;
+				if (planned != null && count > 0)
+					for (int i : pool)
+						if (hand.get(i) == planned) { out.add(i); pool.remove(Integer.valueOf(i)); break; }
 				while (out.size() < count && !pool.isEmpty()) {
 					List<CardData> cards = new ArrayList<>();
 					for (int i : pool) cards.add(hand.get(i));
@@ -7936,6 +7968,9 @@ final class GameContextImpl implements GameContext {
 			@Override public void suppressExBurstsThisAbility() { mw.suppressExBurstsThisAbility = true; }
 			@Override public void setAiPrefersOwnTargets(boolean preferOwn) { mw.aiPrefersOwnTargets = preferOwn; }
 			@Override public void setAiDamageTargetHint(int damage) { aiDamageTargetHint = Math.max(0, damage); }
+			@Override public void planAiDiscard(String effectText, CardData source) {
+				aiDiscardPick = mw.autoAbilityTriggers.discardPlan(effectText, source, isP1).pick();
+			}
 			@Override public void setAiOwnPick(AiOwnPick pick, CardData source) {
 				aiOwnPick       = pick == null ? AiOwnPick.NONE : pick;
 				aiOwnPickSource = aiOwnPick == AiOwnPick.NONE ? null : source;
@@ -9406,12 +9441,12 @@ final class GameContextImpl implements GameContext {
 					java.util.function.Consumer<GameContext> ifNot) {
 				// No markEffectFizzled() here, unlike selfDiscardByType: declining is not a dead
 				// end for these cards, it is the branch ifNot spells out.
-				if (offerDiscardOfType(cardType)) ifDiscarded.accept(this);
-				else                              ifNot.accept(this);
+				if (offerDiscardOfType(cardType, takeOptionalDamageAdvice())) ifDiscarded.accept(this);
+				else                                                           ifNot.accept(this);
 			}
 
 			@Override public void mayDiscardCardOfTypeFromHand(String cardType) {
-				if (!offerDiscardOfType(cardType)) markEffectFizzled();
+				if (!offerDiscardOfType(cardType, null)) markEffectFizzled();
 			}
 
 			@Override public void discardCardOfTypeFromHandThenIfDidSo(String cardType,
@@ -9443,14 +9478,18 @@ final class GameContextImpl implements GameContext {
 			 * (7000 damage rather than 5000) is a valuation question, not part of making the offer
 			 * declinable.
 			 */
-			private boolean offerDiscardOfType(String cardType) {
+			private boolean offerDiscardOfType(String cardType, OptionalDamage advice) {
 				List<CardData> hand = mw.playerHand(isP1);
 				boolean anyEligible = hand.stream().anyMatch(c -> matchesDiscardType(c, cardType));
 				if (!anyEligible) {
 					logEntry("[Effect] No " + cardType + " in hand — optional discard skipped");
 					return false;
 				}
-				if (!offerOptionalDiscard("Discard 1 " + cardType + " from hand?")) {
+				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+				boolean taken = advice == null ? offerOptionalDiscard("Discard 1 " + cardType + " from hand?")
+						: mayDoAdvised(CPUOptional.Cost.DISCARD, src + " — Discard 1 " + cardType + " from hand?",
+								"You May Discard", "Discard", "Pass", () -> true, advice, () -> true);
+				if (!taken) {
 					logEntry("[Effect] Declined to discard a " + cardType);
 					return false;
 				}
@@ -9534,13 +9573,76 @@ final class GameContextImpl implements GameContext {
 	// =========================================================================================
 	// Optional payments and "you may" prompts
 	// =========================================================================================
+			@Override public void adviseOptionalDamage(List<ForwardTarget> chosen, String chooseText, int ifDone, int ifNot) {
+				optionalDamageAdvice = new OptionalDamage(chosen, chooseText, ifDone, ifNot);
+			}
+
+			/** The advice for the offer about to be made, taken so it cannot reach a later one. */
+			private OptionalDamage takeOptionalDamageAdvice() {
+				OptionalDamage advice = optionalDamageAdvice;
+				optionalDamageAdvice = null;
+				return advice;
+			}
+
+			/**
+			 * {@link #mayDo}, answered for the CPU on {@code advice} when there is any: it pays — when
+			 * {@code canPay} — unless the damage bought breaks no opposing Forward that declining
+			 * would not ({@link #optionalDamageIdle}). Without advice, {@code cpuAnswer} as ever.
+			 */
+			private boolean mayDoAdvised(CPUOptional.Cost cost, String question, String title, String yes, String no,
+					BooleanSupplier cpuAnswer, OptionalDamage advice, BooleanSupplier canPay) {
+				if (advice == null) return mayDo(cost, question, title, yes, no, cpuAnswer);
+				CPUOptional.Offer offer = new CPUOptional.Offer(cost, question, 0, 0, 0, canPay);
+				return mw.decideYesNo(isP1, "Waiting for your opponent: " + question,
+						() -> mw.showEffectOptionDialog(question, title, new Object[]{yes, no}) == 0,
+						CPUOptional.ask(offer, () -> new CPUOptional.Board(
+								(isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).size(),
+								(isP1 ? mw.gameState.getP1DamageZone() : mw.gameState.getP2DamageZone()).size(),
+								mw.cannotLoseTheGame(isP1), optionalDamageIdle(advice)), this::logEntry));
+			}
+
+			/**
+			 * Why the damage an optional price buys is not worth it, or {@code null} when it is: it
+			 * breaks no opposing Forward it can reach — printed damage against power left — or every
+			 * one it would break, declining breaks too.
+			 */
+			private String optionalDamageIdle(OptionalDamage advice) {
+				List<ForwardTarget> reach;
+				if (advice.chosen() != null) {
+					reach = advice.chosen();
+				} else {
+					TargetSpec spec = ActionResolver.targetSpec(advice.chooseText(), mw.currentAbilitySource);
+					reach = spec == null || spec.zone() != null ? List.of()
+							: mw.eligibleChoiceTargets(spec, mw.currentAbilitySource, isP1, mw.currentAbilityIsSpecial);
+				}
+				// A Forward the damage already on it dooms is going to the Break Zone whatever is paid:
+				// mid-resolution it is still on the field, which is when a replay is offered.
+				List<ForwardTarget> theirs = reach.stream()
+						.filter(t -> t.isP1() != isP1 && (t.zone() == ForwardTarget.CardZone.FORWARD
+								|| t.zone() == ForwardTarget.CardZone.MONSTER))
+						.filter(t -> !mw.fieldForwardBreakableBy(t.isP1(), t.zone(), t.idx(), 0))
+						.toList();
+				if (theirs.isEmpty()) return "no opposing Forward for its damage to reach";
+				Predicate<ForwardTarget> brokenByIt =
+						t -> mw.fieldForwardBreakableBy(t.isP1(), t.zone(), t.idx(), advice.ifDone());
+				if (theirs.stream().noneMatch(brokenByIt)) return "its damage would break no opposing Forward";
+				if (advice.ifNot() > 0 && theirs.stream().filter(brokenByIt)
+						.allMatch(t -> mw.fieldForwardBreakableBy(t.isP1(), t.zone(), t.idx(), advice.ifNot())))
+					return advice.ifNot() + " damage already breaks what " + advice.ifDone() + " would";
+				return null;
+			}
+
 			@Override public void mayPayToReplayAbility(String element, java.util.function.Consumer<GameContext> replayAction) {
+				OptionalDamage advice = takeOptionalDamageAdvice();
 				String label = "Pay 《" + element + "》 to use this ability again?";
 				String src   = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
-				if (!mayDo(CPUOptional.Cost.CP, src + " — " + label, "Replay Ability", "Pay", "Pass", () -> {
+				Map<String, Integer> needs = element != null ? Map.of(element, 1) : Map.of();
+				if (!mayDoAdvised(CPUOptional.Cost.CP, src + " — " + label, "Replay Ability", "Pay", "Pass", () -> {
 					logEntry("[P2 AI] Passes on ability replay (pay 《" + element + "》)");
 					return false;
-				})) { logEntry("Replay: declined to pay 《" + element + "》"); return; }
+				}, advice, () -> mw.autoAbilityTriggers.aiPlanCp(isP1, 1, needs, null, true) != null)) {
+					logEntry("Replay: declined to pay 《" + element + "》"); return;
+				}
 				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src + " (replay)", 1, 1, isP1, 0,
 						element != null ? Map.of(element, 1) : Map.of(), paid -> {
 					if (paid >= 1) { logEntry("Replay: paid 《" + element + "》 — using ability again"); replayAction.accept(this); }
@@ -9687,6 +9789,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void mayDullActiveCardToReplayAbility(String cardName, java.util.function.Consumer<GameContext> replayAction) {
+				OptionalDamage advice = takeOptionalDamageAdvice();
 				// Find an active card of that name on the ability user's side
 				List<CardData>  fwds      = mw.playerForwardCards(isP1);
 				List<CardState> fwdStates = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
@@ -9709,11 +9812,11 @@ final class GameContextImpl implements GameContext {
 					return;
 				}
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
-				if (!mayDo(CPUOptional.Cost.DULL, src + " — Dull active " + cardName + " to use this ability again?",
+				if (!mayDoAdvised(CPUOptional.Cost.DULL, src + " — Dull active " + cardName + " to use this ability again?",
 						"Replay Ability", "Dull", "Pass", () -> {
 							logEntry("[P2 AI] Passes on ability replay (dull " + cardName + ")");
 							return false;
-						})) { logEntry("Replay: declined to dull " + cardName); return; }
+						}, advice, () -> true)) { logEntry("Replay: declined to dull " + cardName); return; }
 				if (fwdIdx >= 0) {
 					if (isP1) dullP1Forward(fwdIdx); else dullP2Forward(fwdIdx);
 				} else {
@@ -9725,6 +9828,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void mayDiscardCardNameToReplayAbility(String cardName, java.util.function.Consumer<GameContext> replayAction) {
+				OptionalDamage advice = takeOptionalDamageAdvice();
 				List<CardData> hand = mw.playerHand(isP1);
 				int handIdx = -1;
 				for (int i = 0; i < hand.size(); i++) {
@@ -9732,11 +9836,11 @@ final class GameContextImpl implements GameContext {
 				}
 				if (handIdx < 0) { logEntry("Replay: no " + cardName + " in hand — offer skipped"); return; }
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
-				if (!mayDo(CPUOptional.Cost.DISCARD, src + " — Discard " + cardName + " from hand to use this ability again?",
+				if (!mayDoAdvised(CPUOptional.Cost.DISCARD, src + " — Discard " + cardName + " from hand to use this ability again?",
 						"Replay Ability", "Discard", "Pass", () -> {
 							logEntry("[P2 AI] Passes on ability replay (discard " + cardName + ")");
 							return false;
-						})) { logEntry("Replay: declined to discard " + cardName); return; }
+						}, advice, () -> true)) { logEntry("Replay: declined to discard " + cardName); return; }
 				mw.discardFromHand(isP1, List.of(handIdx), " (replay)");
 				logEntry("Replay: using ability again");
 				replayAction.accept(this);
@@ -9745,6 +9849,7 @@ final class GameContextImpl implements GameContext {
 			@Override public void mayDiscardCardNameFromHandOrElse(String cardName,
 					java.util.function.Consumer<GameContext> ifDiscarded,
 					java.util.function.Consumer<GameContext> ifNot) {
+				OptionalDamage advice = takeOptionalDamageAdvice();
 				List<CardData> hand = mw.playerHand(isP1);
 				int handIdx = -1;
 				for (int i = 0; i < hand.size(); i++) {
@@ -9752,10 +9857,10 @@ final class GameContextImpl implements GameContext {
 				}
 				if (handIdx < 0) { logEntry("[Effect] No " + cardName + " in hand — optional discard skipped"); ifNot.accept(this); return; }
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
-				if (!mayDo(CPUOptional.Cost.DISCARD, src + " — Discard " + cardName + " from hand?", "You May Discard", "Discard", "Pass", () -> {
+				if (!mayDoAdvised(CPUOptional.Cost.DISCARD, src + " — Discard " + cardName + " from hand?", "You May Discard", "Discard", "Pass", () -> {
 					logEntry("[P2 AI] Passes on optional discard of " + cardName);
 					return false;
-				})) { logEntry("[Effect] Declined to discard " + cardName); ifNot.accept(this); return; }
+				}, advice, () -> true)) { logEntry("[Effect] Declined to discard " + cardName); ifNot.accept(this); return; }
 				mw.discardFromHand(isP1, List.of(handIdx), "");
 				ifDiscarded.accept(this);
 			}
@@ -9926,8 +10031,130 @@ final class GameContextImpl implements GameContext {
 				if (!mayDo(CPUOptional.costOfPrompt(prompt, mw.currentAbilitySource), src + " — " + prompt, "You May", "OK", "Decline", () -> {
 					logEntry("[P2 AI] Auto-accepts: " + prompt);
 					return true;
-				})) { logEntry("[Effect] Declined: " + prompt); return; }
+				})) { declinedMay(prompt); return; }
 				effect.accept(this);
+			}
+
+			/**
+			 * A declined "you may" did nothing, so an enclosing "If you do so, …" must not run its
+			 * payoff: 5-067R Miounne's draw used to follow a declined return, the choice before it
+			 * having counted as progress.
+			 */
+			private void declinedMay(String prompt) {
+				logEntry("[Effect] Declined: " + prompt);
+				markEffectFizzled();
+			}
+
+			@Override public void playerMayDoEffectOn(String prompt, List<ForwardTarget> chosen, String buys,
+					java.util.function.Consumer<GameContext> effect) {
+				CardData source = mw.currentAbilitySource;
+				String question = (source != null ? source.name() : "Ability") + " — " + prompt;
+				CPUOptional.Offer offer = new CPUOptional.Offer(CPUOptional.costOfPrompt(prompt, source), question,
+						0, 0, 0, () -> {
+							logEntry("[P2 AI] Auto-accepts: " + prompt);
+							return true;
+						});
+				boolean taken = mw.decideYesNo(isP1, "Waiting for your opponent: " + question,
+						() -> mw.showEffectOptionDialog(question, "You May", new Object[]{"OK", "Decline"}) == 0,
+						CPUOptional.ask(offer, () -> new CPUOptional.Board(
+								(isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).size(),
+								(isP1 ? mw.gameState.getP1DamageZone() : mw.gameState.getP2DamageZone()).size(),
+								mw.cannotLoseTheGame(isP1),
+								onlyOwnCardsGain(prompt, chosen, buys != null ? buys : doSoPayoffAdvice, source)),
+								this::logEntry));
+				if (!taken) { declinedMay(prompt); return; }
+				effect.accept(this);
+			}
+
+			@Override public void adviseDoSoPayoff(String payoff) { doSoPayoffAdvice = payoff; }
+
+			@Override public void adviseSearchUpgrade(List<ForwardTarget> chosen, String ifDone, String ifNot,
+					Predicate<CardData> sought) {
+				searchUpgradeAdvice = new SearchUpgrade(chosen, ifDone, ifNot, sought);
+			}
+
+			/** {@link #promptYouMay} for the search {@code advice} describes — see {@link GameContext#adviseSearchUpgrade}. */
+			private boolean promptSearchUpgrade(String prompt, SearchUpgrade advice) {
+				CardData source = mw.currentAbilitySource;
+				CPUOptional.Offer offer = new CPUOptional.Offer(CPUOptional.costOfPrompt(prompt, source), prompt, 0, 0, 0,
+						() -> {
+							logEntry("[P2 AI] Searches: \"" + advice.ifDone() + "\" does what \"" + advice.ifNot()
+									+ "\" would not");
+							return true;
+						});
+				return askYesNo(isP1, ChoiceKind.MAY, prompt, "You May", "Waiting for your opponent: " + prompt,
+						CPUOptional.ask(offer, () -> new CPUOptional.Board(
+								(isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).size(),
+								(isP1 ? mw.gameState.getP1DamageZone() : mw.gameState.getP2DamageZone()).size(),
+								mw.cannotLoseTheGame(isP1),
+								searchUpgradeIdle(advice.chosen(), advice.ifDone(), advice.ifNot(), advice.sought())),
+								this::logEntry));
+			}
+
+			/**
+			 * Why paying for a search-upgrade would change nothing, or {@code null} when it would: the
+			 * deck holds no card to pay with; damage the "if not" branch deals already breaks every
+			 * chosen opposing Forward (29-117H Ark); a break already sticks on every one — none of them
+			 * cannot be broken or has an ability that fires as it goes to the Break Zone (29-116H
+			 * Madeen). Any other pair of branches cannot be weighed, and is declined.
+			 */
+			private String searchUpgradeIdle(List<ForwardTarget> chosen, String ifDone, String ifNot,
+					Predicate<CardData> sought) {
+				if ((isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).stream().noneMatch(sought))
+					return "no card in its deck for the search to find";
+				List<ForwardTarget> theirs = chosen.stream()
+						.filter(t -> t.isP1() != isP1 && t.zone() != ForwardTarget.CardZone.BREAK_ZONE).toList();
+				if (theirs.isEmpty()) return "nothing of the opponent's is chosen";
+				String done = ifDone.trim().toLowerCase(Locale.ROOT);
+				String not  = ifNot.trim().toLowerCase(Locale.ROOT);
+				Matcher dmg = Pattern.compile("^deal\\s+(\\d+)\\s+damage\\s+to\\s+the\\s+chosen\\s+forwards?\\.?$").matcher(not);
+				boolean breaks = done.matches("^break\\s+the\\s+chosen\\s+forwards?\\.?$");
+				if (breaks && dmg.matches()) {
+					int n = Integer.parseInt(dmg.group(1));
+					return theirs.stream().allMatch(t -> mw.fieldForwardBreakableBy(t.isP1(), t.zone(), t.idx(), n))
+							? n + " damage already breaks every chosen Forward" : null;
+				}
+				if (not.matches("^break\\s+the\\s+chosen\\s+forwards?\\.?$")
+						&& done.matches("^remove\\s+the\\s+chosen\\s+forwards?\\s+from\\s+the\\s+game\\.?$")) {
+					boolean wontStick = theirs.stream().anyMatch(t -> {
+						CardData c = mw.autoAbilityTriggers.fieldCardData(t);
+						if (c == null) return false;
+						if (t.zone() == ForwardTarget.CardZone.FORWARD
+								&& mw.effectiveHasTrait(t.isP1(), t.idx(), CardData.Trait.CANNOT_BE_BROKEN)) return true;
+						return mw.effectiveAutoAbilities(c).stream()
+								.anyMatch(fa -> fa.trigger().toLowerCase(Locale.ROOT).contains("break zone"));
+					});
+					return wontStick ? null : "a break already sticks on every chosen Forward";
+				}
+				return "it cannot tell what the search is worth";
+			}
+
+			/**
+			 * Why an effect on {@code chosen} would only cost the AI — "it would damage its own Cloud" —
+			 * or {@code null} when it acts on an opposing card, or on the AI's own for a reason: a
+			 * return that pulls a card out of the way of the opponent's Stack entry, or one that buys
+			 * something that lands ({@code buys}, read as {@code AutoAbilityTriggers.nothingToActOn}
+			 * reads a payoff).
+			 */
+			private String onlyOwnCardsGain(String prompt, List<ForwardTarget> chosen, String buys, CardData source) {
+				List<CardData> own = new ArrayList<>();
+				for (ForwardTarget t : chosen)
+					if (t.isP1() == isP1 && t.zone() != ForwardTarget.CardZone.BREAK_ZONE) {
+						CardData c = mw.autoAbilityTriggers.fieldCardData(t);
+						if (c != null) own.add(c);
+					}
+				if (own.isEmpty()) return null;
+				String names = own.stream().map(CardData::name).collect(Collectors.joining(" and "));
+				String p = prompt.trim().toLowerCase(Locale.ROOT);
+				if (p.startsWith("deal it")) return "it would damage its own " + names;
+				if (!p.startsWith("return it")) return null;
+				Set<CardData> threatened = mw.threatenedOnStack(isP1);
+				if (own.stream().anyMatch(threatened::contains)) return null;
+				String payoff = buys == null ? null
+						: buys.trim().replaceFirst("(?i)^(?:If|When)\\s+you\\s+do\\s+so,?\\s+", "").trim();
+				if (payoff != null && !payoff.isEmpty() && mw.autoAbilityTriggers.nothingToActOn(payoff, source, isP1) == null)
+					return null;
+				return "returning its own " + names + " neither saves it nor buys anything";
 			}
 
 			@Override public int placeUpToFromHandToBottomOfDeck(int max) {
@@ -10948,6 +11175,9 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public boolean promptYouMay(String prompt) {
+				SearchUpgrade advice = searchUpgradeAdvice;
+				searchUpgradeAdvice = null;
+				if (advice != null) return promptSearchUpgrade(prompt, advice);
 				// The AI declines every optional effect. That is not a considered heuristic — it
 				// is what the P2 branch used to hardcode — but it is the safe answer of the two,
 				// since every caller treats "no" as the effect simply not happening.

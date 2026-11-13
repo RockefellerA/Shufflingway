@@ -19,6 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
+import scraper.DeckDatabase.DeckCardDetail;
+
 /**
  * Behaviour tests for Summons, one section per card, against a real {@link MainWindow} wherever
  * the effect touches the board.
@@ -2079,6 +2081,48 @@ class SummonBehaviorTest {
 
 		assertEquals(5000, damageOn(mw, theirs));
 		assertEquals(List.of(spare), mw.gameState.getP2Hand(), "only a card named Ifrit pays");
+	}
+
+	// The CPU's own answer (CPUOptional decision 15): the copy pays only for a Forward the 10000
+	// breaks and the 5000 would not.
+
+	/** P2's CPU casts Ifrit holding a copy of it, against P1's {@code theirs}; returns the copy. */
+	private static CardData cpuCastsIfritHoldingACopy(MainWindow mw, CardData theirs) {
+		placeP1Forward(mw, theirs);
+		CardData copy = makeSummon("Ifrit", "Fire", 2, IFRIT_5_003C);
+		mw.gameState.getIdentity().put(copy, false);
+		mw.gameState.getP2Hand().add(copy);
+		castAsP2(mw, makeSummon("Ifrit", "Fire", 2, IFRIT_5_003C));
+		return copy;
+	}
+
+	@Test
+	void aCpuIfritSpendsItsCopyWhenOnly10000Breaks() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 5, 9000);
+		CardData copy = cpuCastsIfritHoldingACopy(mw, theirs);
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs));
+		assertTrue(mw.gameState.getP2BreakZone().contains(copy));
+	}
+
+	@Test
+	void aCpuIfritKeepsItsCopyWhen5000AlreadyBreaks() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 2, 5000);
+		CardData copy = cpuCastsIfritHoldingACopy(mw, theirs);
+		assertTrue(mw.gameState.getP1BreakZone().contains(theirs));
+		assertTrue(mw.gameState.getP2Hand().contains(copy));
+		assertTrue(mw.gameLogText().contains("[CPU] declines (5000 damage already breaks what 10000 would)"));
+	}
+
+	@Test
+	void aCpuIfritKeepsItsCopyWhen10000BreaksNothing() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeForward("Theirs", "Water", 7, 12000);
+		CardData copy = cpuCastsIfritHoldingACopy(mw, theirs);
+		assertEquals(5000, damageOn(mw, theirs));
+		assertTrue(mw.gameState.getP2Hand().contains(copy));
+		assertTrue(mw.gameLogText().contains("[CPU] declines (its damage would break no opposing Forward)"));
 	}
 
 	// =========================================================================================
@@ -11243,6 +11287,71 @@ class SummonBehaviorTest {
 
 		assertEquals(List.of(8000, 8000), mw.p1ForwardDamage, "nothing removed, so \"if not\"");
 		assertTrue(mw.gameState.getP2RemovedFromGame().isEmpty());
+	}
+
+	// The CPU's own answer to Ark's and Madeen's search (CPUOptional decision 14): it pays a card
+	// from its deck only where the upgrade changes something.
+
+	/** P2's CPU resolving {@code summon} against P1's {@code theirs}, with {@code deck} to search. */
+	private static MainWindow cpuResolves(CardData summon, List<CardData> theirs, CardData... deck) {
+		MainWindow mw = new MainWindow();
+		for (CardData t : theirs) placeP1Forward(mw, t);
+		for (CardData c : deck) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+		ActionResolver.parse(summon.summonEffect(), summon).accept(mw.buildGameContext(false));
+		return mw;
+	}
+
+	@Test
+	void aCpuArkPaysADarkForwardWhen8000FallsShort() {
+		CardData dark = makeForward("Dark One", "Dark", 4, 8000);
+		MainWindow mw = cpuResolves(makeSummon("Ark", "Dark", 5, ARK_29_117H),
+				List.of(makeForward("Theirs A", "Water", 6, 10000), makeForward("Theirs B", "Water", 6, 10000)), dark);
+		assertTrue(mw.p1ForwardCards.isEmpty(), "both broken");
+		assertEquals(List.of(dark), mw.gameState.getP2RemovedFromGame());
+	}
+
+	@Test
+	void aCpuArkKeepsItsDarkForwardWhen8000AlreadyBreaksBoth() {
+		CardData dark = makeForward("Dark One", "Dark", 4, 8000);
+		MainWindow mw = cpuResolves(makeSummon("Ark", "Dark", 5, ARK_29_117H),
+				List.of(makeForward("Theirs A", "Water", 6, 8000), makeForward("Theirs B", "Water", 6, 7000)), dark);
+		assertTrue(mw.p1ForwardCards.isEmpty(), "8000 breaks both anyway");
+		assertTrue(mw.gameState.getP2MainDeck().contains(dark));
+		assertTrue(mw.gameLogText().contains("[CPU] declines (8000 damage already breaks every chosen Forward)"));
+	}
+
+	@Test
+	void aCpuMadeenRemovesAForwardThatCannotBeBroken() {
+		CardData light = makeForward("Light One", "Light", 4, 8000);
+		// Built as a dealt card is, which is where the printed "cannot be broken" becomes the trait.
+		CardData stubborn = MainWindow.buildCardData(new DeckCardDetail(null, "Stubborn", "Water", 5, 9000, "Forward",
+				false, 0, false, "Stubborn cannot be broken.", false, null, null, null));
+		MainWindow mw = cpuResolves(makeSummon("Madeen", "Light", 3, MADEEN_29_116H), List.of(stubborn), light);
+		assertTrue(mw.gameState.getP1RemovedFromGame().contains(stubborn));
+		assertEquals(List.of(light), mw.gameState.getP2RemovedFromGame());
+	}
+
+	@Test
+	void aCpuMadeenRemovesAForwardThatWouldActOnItsWayToTheBreakZone() {
+		CardData light = makeForward("Light One", "Light", 4, 8000);
+		CardData phoenix = makeTextCard("Rising", "Fire", "Forward", 5, 9000, null,
+				"When Rising is put from the field into the Break Zone, draw 1 card.");
+		MainWindow mw = cpuResolves(makeSummon("Madeen", "Light", 3, MADEEN_29_116H), List.of(phoenix), light);
+		assertTrue(mw.gameState.getP1RemovedFromGame().contains(phoenix));
+		assertEquals(List.of(light), mw.gameState.getP2RemovedFromGame());
+	}
+
+	@Test
+	void aCpuMadeenSimplyBreaksAForwardABreakWillHold() {
+		CardData light = makeForward("Light One", "Light", 4, 8000);
+		CardData plain = makeForward("Plain", "Water", 5, 9000);
+		MainWindow mw = cpuResolves(makeSummon("Madeen", "Light", 3, MADEEN_29_116H), List.of(plain), light);
+		assertTrue(mw.gameState.getP1BreakZone().contains(plain));
+		assertTrue(mw.gameState.getP2MainDeck().contains(light));
+		assertTrue(mw.gameLogText().contains("[CPU] declines (a break already sticks on every chosen Forward)"));
 	}
 
 	// =========================================================================================
