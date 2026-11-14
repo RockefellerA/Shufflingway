@@ -38,6 +38,7 @@ public final class ThirdPartyNotices extends JDialog {
 			"/licenses/libwebp.txt",
 			"/licenses/giflib.txt",
 			"/licenses/fonts.txt",
+			"/licenses/Pixel_Emulator.txt",
 			"/licenses/Apache-2.0.txt");
 
 	/** Every notice's text, one after another. */

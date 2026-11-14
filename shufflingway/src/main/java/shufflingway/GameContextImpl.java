@@ -1834,6 +1834,15 @@ final class GameContextImpl implements GameContext {
 			 * opponent's Stack entry is aimed at.
 			 */
 			private List<ForwardTarget> aiOwnPicks(List<ForwardTarget> pool, int maxCount, boolean upTo) {
+				// A combat trick is aimed at one Forward (MainWindow.aiAimedTarget): a buff or a
+				// shield goes there when it is among the picks it may make, and the aim is spent.
+				if ((aiOwnPick == AiOwnPick.BUFF || aiOwnPick == AiOwnPick.SHIELD) && mw.aiAimedTarget != null) {
+					for (ForwardTarget t : pool)
+						if (cardAtTarget(t) == mw.aiAimedTarget) {
+							mw.aiAimedTarget = null;
+							return List.of(t);
+						}
+				}
 				return switch (aiOwnPick) {
 					case SPEND    -> upTo ? List.of() : mw.aiCheapestOwnTargets(pool, maxCount, aiOwnPickSource);
 					case BLINK    -> mw.aiBestOwnBlinkTargets(pool, maxCount, aiOwnPickSource);
@@ -1900,6 +1909,16 @@ final class GameContextImpl implements GameContext {
 					List<ForwardTarget> picked = aiOwnPicks(pool, maxCount, upTo);
 					picked.forEach(t -> logEntry("[AI] chose " + cardAtTarget(t).name()));
 					return picked;
+				}
+				// A removal the AI plays on P1's turn is aimed at one Forward (MainWindow.aiAimedTarget):
+				// P1's attacker, or the dearest it breaks. The choice goes there when it can.
+				if (mw.aiAimedTarget != null) {
+					for (ForwardTarget t : pool)
+						if (t.isP1() != isP1 && cardAtTarget(t) == mw.aiAimedTarget) {
+							mw.aiAimedTarget = null;
+							logEntry("[AI] chose " + cardAtTarget(t).name());
+							return List.of(t);
+						}
 				}
 				// The selection is about to be dealt damage: aim it at an opponent's Character
 				// the damage would actually break. Left to the shuffle below, a 5000-damage

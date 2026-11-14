@@ -14098,10 +14098,13 @@ public class MainWindow {
 				awaitOpponentsStackPass(remote, entry);
 			else if (!cpuRespondsTo(entry))
 				resolveTopOfStack();
-			else if (gameState.peekStack() == entry)
-				// The response put nothing on top — a Back Attack Character with no ability to
-				// trigger — so the entry still waits, and the CPU is asked again as if the Stack had
-				// come back round to it. Without this the entry sat unresolved with no window open.
+			else
+				// The window follows the response. On top now — a Summon, an ability, or the arrival
+				// trigger of a Back Attack Character, whose push was held back while the response was
+				// built (cpuBuildingResponse) — it opens for P1 to answer. Nothing on top — a Back Attack
+				// Character with no ability to trigger — and the entry still waits: the CPU is asked
+				// again, as if the Stack had come back round to it. Either way no entry is left without
+				// a window.
 				showStackWindow();
 			return;
 		}
@@ -21639,6 +21642,15 @@ public class MainWindow {
 
 	/** How long {@link #p2AutoPass} shows P2 holding priority before it acts; tests shorten it. */
 	int p2AutoPassMs = 1500;
+
+	/**
+	 * The card a play the AI is making on P1's turn is aimed at (ComputerPlayer, decisions 5 and 6 of
+	 * HANDOFF-cpu-opponents-turn): a combat trick's Forward of its own, a removal's Forward of P1's.
+	 * The play's choice lands on it when it is eligible, rather than where the picker's general order
+	 * would put it. Taken by the first such choice that can take it; cleared when the AI passes the
+	 * window.
+	 */
+	CardData aiAimedTarget = null;
 
 	/**
 	 * Which window P2 holds priority in on P1's turn, read off where the turn stands: the phase,

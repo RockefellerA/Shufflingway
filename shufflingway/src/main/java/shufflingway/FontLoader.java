@@ -18,7 +18,7 @@ public class FontLoader {
      * artwork, a size at which a pixel face stays crisp and {@link #UI_FONT_FILE} does not.
      * Reached through {@link #loadOverlayFont}, never {@link #loadPixelFont}.
      */
-    private static final String OVERLAY_FONT_FILE = "Pixel_NES.otf";
+    private static final String OVERLAY_FONT_FILE = "Pixel_Emulator.otf";
 
     /** Bundled file for all other app text. Reached through {@link #loadPixelFont}. */
     private static final String UI_FONT_FILE = "FF36.ttf";
@@ -27,7 +27,7 @@ public class FontLoader {
     private static final float MEASURE_SIZE = 100f;
 
     /**
-     * Cap height of {@link #OVERLAY_FONT_FILE} (Pixel NES) at {@link #MEASURE_SIZE}. This is the size
+     * Cap height of {@link #OVERLAY_FONT_FILE} (Pixel Emulator) at {@link #MEASURE_SIZE}. This is the size
      * baseline: every {@code loadPixelFont} size constant was tuned against it, so the overlay font
      * scales by exactly 1.0 and every other font is matched to it.
      */

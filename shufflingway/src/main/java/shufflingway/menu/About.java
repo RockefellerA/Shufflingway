@@ -65,8 +65,8 @@ public class About extends JDialog {
 		}
 		// Line breaks are explicit: pack() sizes the dialog to the longest line.
 		JLabel text = new JLabel("<html><div style='text-align: center;'>Author: Andrew Rockefeller © 2023-2026<br/>" +
-				"Pixel NES font by Neale Davidson<br/>" +
-				"Final Fantasy 3/6 Font by Veylon, CC BY 3.0<br/>" +
+				"Pixel Emulator font by Neale Davidson<br/>" +
+				"Final Fantasy 3/6 Font by Veylon<br/>" +
 				"Non-API card images sourced from materiahunter.com<br/><br/>" +
 				"Version: " + UpdateChecker.currentVersion() + "<br/><br/>" +
 				"This is an unofficial fan tool — it is not affiliated with<br/>" +

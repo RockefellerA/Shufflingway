@@ -5,6 +5,6 @@ https://fontstruct.com/fontstructions/show/324181
 Licensed under Creative Commons Attribution 3.0:
 https://creativecommons.org/licenses/by/3.0/
 
-Pixel NES, by Neale Davidson (2011)
+Pixel Emulator, by Neale Davidson (2013-2016)
 https://www.pixelsagas.com/
-Made free for commercial and non-commercial use by Neale Davidson's estate.
+Licensed under the SIL Open Font License 1.1, which follows.

@@ -119,7 +119,7 @@ public class PreferencesDialog extends JDialog {
 		contentPanel.add(layoutPanel);
 		contentPanel.add(javax.swing.Box.createVerticalStrut(8));
 
-		// No font picker: typeface is fixed per role in FontLoader — Pixel NES for the numeric card
+		// No font picker: typeface is fixed per role in FontLoader — Pixel Emulator for the numeric card
 		// overlays, FF36 for everything else — because a single user-chosen face cannot serve both.
 
 		// ── Field Color ──────────────────────────────────────────────────────

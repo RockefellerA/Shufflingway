@@ -3852,13 +3852,61 @@ final class AutoAbilityTriggers {
 	/** What {@link CPUOptional#decide} reads of {@code isP1}'s side, for {@code source}'s offer {@code fa}. */
 	private CPUOptional.Board boardOf(boolean isP1, AutoAbility fa, CardData source) {
 		String payoff = CPUOptional.payoffOf(fa.effectText());
+		CPUOptional.Cost cost = CPUOptional.costOf(fa.effectText(), source);
+		String idle = nothingToActOn(payoff, source, isP1);
+		// A card that puts itself into the Break Zone for damage pays only for damage that breaks, now
+		// or with a follow-up still to come this turn (decision 16).
+		if (idle == null && cost == CPUOptional.Cost.SACRIFICE_SELF
+				&& Boolean.FALSE.equals(sacrificedDamageFinishes(payoff, source, isP1, source)))
+			idle = "its damage would break nothing, and nothing it can still play this turn would finish the Forward";
 		return new CPUOptional.Board(
 				(isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).size(),
 				(isP1 ? mw.gameState.getP1DamageZone() : mw.gameState.getP2DamageZone()).size(),
 				mw.cannotLoseTheGame(isP1),
-				nothingToActOn(payoff, source, isP1),
+				idle,
 				breakTargetCost(payoff, source, isP1),
-				cardTrade(fa.effectText(), source, isP1, CPUOptional.costOf(fa.effectText(), source)));
+				cardTrade(fa.effectText(), source, isP1, cost));
+	}
+
+	/**
+	 * For a payoff dealing damage to one opposing Forward — the one whose arrival fired it ("deal that
+	 * Forward 9000 damage", 28-010R Jack Garland; "deal it 8000 damage", 19-008R Buffasaur) or one it
+	 * chooses ("choose 1 Forward. Deal it 10000 damage.", 16-018C Lilty) — whether it is worth what is
+	 * sacrificed for it (you-may decision 16): the damage breaks a Forward it reaches by itself, or a
+	 * follow-up the AI can still play this turn would then finish it
+	 * ({@link ComputerPlayer#followUpFinishes}, without {@code spent}). {@code null} for any other
+	 * payoff, or where the arrival cannot be found — the site's answer stands.
+	 */
+	Boolean sacrificedDamageFinishes(String payoff, CardData source, boolean isP1, CardData spent) {
+		if (payoff == null) return null;
+		String first = payoff.trim().split("(?<=[.!])\\s+(?=[A-Z])", 2)[0].trim();
+		int damage;
+		List<ForwardTarget> reach;
+		Matcher arrival = SACRIFICE_PAYOFF_ON_ARRIVAL.matcher(first);
+		Matcher chosen = PAYOFF_DAMAGES_ONE.matcher(payoff.trim());
+		if (arrival.matches() && arrival.group("verb").equalsIgnoreCase("deal") && arrival.group("tail") != null) {
+			CardData arrived = mw.triggeringEnteredCard;
+			if (arrived == null || !Boolean.valueOf(!isP1).equals(mw.gameState.getIdentity().get(arrived))) return null;
+			ForwardTarget t = enteringCardTarget(arrived, !isP1);
+			if (t == null) return null;
+			damage = Integer.parseInt(arrival.group("tail").replaceAll("\\D", ""));
+			reach = List.of(t);
+		} else if (chosen.matches()) {
+			damage = Integer.parseInt(chosen.group("n"));
+			reach = opposingChoiceTargets(payoff, source, isP1);
+		} else {
+			return null;
+		}
+		ComputerPlayer cpu = !isP1 && mw.opponent instanceof ComputerPlayer c ? c : null;
+		for (ForwardTarget t : reach) {
+			if (mw.fieldForwardBreakableBy(t.isP1(), t.zone(), t.idx(), 0)) continue;   // doomed already
+			boolean unbreakable = t.zone() == ForwardTarget.CardZone.FORWARD
+					&& mw.effectiveHasTrait(t.isP1(), t.idx(), CardData.Trait.CANNOT_BE_BROKEN);
+			if (unbreakable) continue;
+			if (mw.fieldForwardBreakableBy(t.isP1(), t.zone(), t.idx(), damage)) return true;
+			if (cpu != null && cpu.followUpFinishes(t, damage, spent)) return true;
+		}
+		return false;
 	}
 
 	/** "deal N damage to all the Forwards opponent controls." — 9-048C Seven's arrival. */
@@ -3866,7 +3914,7 @@ final class AutoAbilityTriggers {
 			"(?is)^deal\\s+(?<n>\\d+)\\s+damage\\s+to\\s+all\\s+the\\s+Forwards\\s+opponent\\s+controls\\s*\\.?$");
 
 	/** {@code card}'s own enters-the-field abilities' effects. */
-	private static List<String> ownArrivalEffects(CardData card) {
+	static List<String> ownArrivalEffects(CardData card) {
 		List<String> out = new ArrayList<>();
 		for (AutoAbility fa : card.autoAbilities()) {
 			if (!fa.trigger().equals("enters the field")) continue;
@@ -3990,8 +4038,13 @@ final class AutoAbilityTriggers {
 			noLandingCard = plan.keyed() && plan.pick() == null;
 		}
 		int[] sweep = sweepCosts(payoff, isP1);
+		// Putting a card of its own into the Break Zone for damage counts a follow-up that would
+		// finish the Forward (decision 16, 23-119R Vincent's shape); a discard does not (decision 12).
+		boolean weak = damageBreaksNothing(payoff, source, isP1);
+		if (weak && cost == CPUOptional.Cost.SACRIFICE_OTHER
+				&& Boolean.TRUE.equals(sacrificedDamageFinishes(payoff, source, isP1, null))) weak = false;
 		return new CPUOptional.CardTrade(cards, thrown, boughtCost(payoff, source, isP1),
-				damageBreaksNothing(payoff, source, isP1), noLandingCard,
+				weak, noLandingCard,
 				sweep == null ? -1 : sweep[0], sweep == null ? -1 : sweep[1]);
 	}
 

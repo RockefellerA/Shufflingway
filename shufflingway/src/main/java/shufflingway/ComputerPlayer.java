@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.IntUnaryOperator;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -1336,7 +1337,26 @@ class ComputerPlayer implements OpponentController {
 	@Override
 	public void requestBlocker(int effectiveAttackerPower, ForwardTarget attacker, boolean forcedBlock,
 	                           Consumer<ForwardTarget> onChosen) {
-		onChosen.accept(chooseBlocker(effectiveAttackerPower, attacker, forcedBlock));
+		ForwardTarget planned = takePlannedBlock(attacker);
+		onChosen.accept(planned != null ? planned : chooseBlocker(effectiveAttackerPower, attacker, forcedBlock));
+	}
+
+	/**
+	 * The block a combat trick readied against {@code attacker} ({@link #makeWinningBlock}), while
+	 * its Forward is still a legal blocker and no Forward is compelled to block instead — or
+	 * {@code null}. Taken once, whatever the answer.
+	 */
+	private ForwardTarget takePlannedBlock(ForwardTarget attacker) {
+		PlannedBlock plan = plannedBlock;
+		plannedBlock = null;
+		if (plan == null || attacker == null || mw.autoAbilityTriggers.fieldCardData(attacker) != plan.attacker()) return null;
+		ForwardTarget slot = mw.findFieldSlot(plan.blocker(), false);
+		List<ForwardTarget> cands = blockCandidates(attacker);
+		if (slot == null || !cands.contains(slot)) return null;
+		for (ForwardTarget t : cands)
+			if (t.zone() == ForwardTarget.CardZone.FORWARD && mw.forwardCompelledToBlock(mw.p2ForwardCards.get(t.idx()),
+					plan.attacker())) return null;
+		return slot;
 	}
 
 	@Override
@@ -1360,6 +1380,8 @@ class ComputerPlayer implements OpponentController {
 			step(() -> holdPriority(window, onPass));
 			return;
 		}
+		// A trick's aim not taken by now was never going to be: it must not reach a later choice.
+		mw.aiAimedTarget = null;
 		onPass.run();
 	}
 
@@ -1380,8 +1402,379 @@ class ComputerPlayer implements OpponentController {
 	 *              {@code null} for every other window
 	 */
 	boolean playInWindow(PriorityWindow window, StackEntry entry) {
-		if (window == PriorityWindow.STACK_RESPONSE) return saveFromStackEntry(entry);
-		return activateReactiveShield() || playBackAttack(window);
+		if (window == PriorityWindow.STACK_RESPONSE) return saveFromStackEntry(entry) || answerStackEntry(entry);
+		return activateReactiveShield() || playBackAttack(window) || playCombatTrick(window) || playRemoval(window);
+	}
+
+	// ── Combat tricks (HANDOFF-cpu-opponents-turn.md decision 5) ─────────
+
+	/**
+	 * A P2 Forward a combat trick has readied to block {@code attacker}: the block
+	 * {@link #requestBlocker} makes when the attack reaches the block step, which
+	 * {@link #chooseBlocker} would not see — it reads power alone, not First Strike or a shield.
+	 */
+	private record PlannedBlock(CardData blocker, CardData attacker) {}
+	private PlannedBlock plannedBlock = null;
+
+	/** One side of a battle, as it stands or as a trick would leave it. */
+	record Fighter(int power, int damage, boolean firstStrike, boolean shielded) {
+		Fighter with(CombatTrick t) {
+			return new Fighter(power + t.power(), damage, firstStrike || t.firstStrike(), shielded || t.shield());
+		}
+	}
+
+	/** The Character at {@code t} as a fighter: power, damage on it, First Strike, "cannot be broken". */
+	private Fighter fighterAt(ForwardTarget t) {
+		boolean forward = t.zone() == ForwardTarget.CardZone.FORWARD;
+		return new Fighter(mw.fieldForwardPower(t.isP1(), t.zone(), t.idx()), mw.fieldCombatDamage(t.isP1(), t.zone(), t.idx()),
+				forward && mw.effectiveHasTrait(t.isP1(), t.idx(), CardData.Trait.FIRST_STRIKE),
+				forward && mw.effectiveHasTrait(t.isP1(), t.idx(), CardData.Trait.CANNOT_BE_BROKEN));
+	}
+
+	/**
+	 * Who comes out of a battle between P2's {@code mine} and P1's {@code theirs}:
+	 * {@code [mine survives, theirs survives]}. Each deals its power to the other; one with First
+	 * Strike the other lacks deals it first, and a Forward it breaks deals nothing back. A shielded
+	 * Forward of P2's is not broken.
+	 */
+	static boolean[] battle(Fighter mine, Fighter theirs) {
+		boolean mineFirst = mine.firstStrike() && !theirs.firstStrike();
+		boolean theirsFirst = theirs.firstStrike() && !mine.firstStrike();
+		boolean theirsBroken, mineBroken;
+		if (mineFirst) {
+			theirsBroken = theirs.damage() + mine.power() >= theirs.power();
+			mineBroken = !theirsBroken && !mine.shielded() && mine.damage() + theirs.power() >= mine.power();
+		} else if (theirsFirst) {
+			mineBroken = !mine.shielded() && mine.damage() + theirs.power() >= mine.power();
+			theirsBroken = !mineBroken && theirs.damage() + mine.power() >= theirs.power();
+		} else {
+			mineBroken = !mine.shielded() && mine.damage() + theirs.power() >= mine.power();
+			theirsBroken = theirs.damage() + mine.power() >= theirs.power();
+		}
+		return new boolean[] { !mineBroken, !theirsBroken };
+	}
+
+	/** A trick P2 could play now: what it is, what it does, how many cards it discards, and the play. */
+	private record TrickPlay(String what, CombatTrick trick, int discards, int cost, Runnable play) {}
+
+	/**
+	 * Plays a combat trick in {@code window} on P1's turn when it decides a battle, and returns
+	 * whether it did (decision 5):
+	 * <ul>
+	 *   <li>after P1 declares an attack P2 has no surviving blocker for — a trick that lets one of its
+	 *       Forwards block and survive ({@link #makeWinningBlock});</li>
+	 *   <li>after the block — one that saves the blocker the battle would break, or one that breaks
+	 *       the attacker the battle would leave standing ({@link #winTheBlock}).</li>
+	 * </ul>
+	 * A trick is a Summon from hand, an action ability on P2's field, or a Back Attack Character whose
+	 * arrival is the trick, cheapest first; it may discard to pay, since it decides the battle.
+	 */
+	private boolean playCombatTrick(PriorityWindow window) {
+		if (mw.gameState.getCurrentPlayer() != GameState.Player.P1) return false;
+		if (window == PriorityWindow.ATTACK_DECLARED) return makeWinningBlock();
+		if (window == PriorityWindow.BLOCK_DECLARED) return winTheBlock();
+		return false;
+	}
+
+	private boolean makeWinningBlock() {
+		ForwardTarget attacker = declaredP1Attacker();
+		if (attacker == null) return false;
+		CardData attackerCard = mw.autoAbilityTriggers.fieldCardData(attacker);
+		if (plannedBlock != null && plannedBlock.attacker() == attackerCard) return false;
+		int attackPower = mw.fieldForwardPower(true, attacker.zone(), attacker.idx());
+		if (chooseBlocker(attackPower, attacker) != null) return false;
+		Fighter theirs = fighterAt(attacker);
+		List<ForwardTarget> cands = blockCandidates(attacker);
+		// A Forward that survives the block already — by First Strike, or because it cannot be broken,
+		// neither of which chooseBlocker reads — blocks for nothing: no trick is spent on it.
+		for (ForwardTarget f : cands) {
+			if (f.zone() != ForwardTarget.CardZone.FORWARD || !battle(fighterAt(f), theirs)[0]) continue;
+			CardData blocker = mw.autoAbilityTriggers.fieldCardData(f);
+			mw.logEntry("[P2] " + blocker.name() + " will block " + attackerCard.name() + ": it survives the battle");
+			plannedBlock = new PlannedBlock(blocker, attackerCard);
+			return false;
+		}
+		for (ForwardTarget f : cands) {
+			if (f.zone() != ForwardTarget.CardZone.FORWARD) continue;
+			Fighter mine = fighterAt(f);
+			for (TrickPlay tp : availableTricks(f, true)) {
+				Fighter readied = mine.with(tp.trick());
+				if (!battle(readied, theirs)[0]) continue;
+				if (mw.attackerPowerFilterExcludes(attackerCard, true, readied.power())) continue;
+				if (mw.carriesHigherPowerBlockShield(attackerCard, true) && readied.power() > attackPower) continue;
+				CardData blocker = mw.autoAbilityTriggers.fieldCardData(f);
+				playTrick(tp, blocker, "so " + blocker.name() + " can block " + attackerCard.name() + " and survive");
+				plannedBlock = new PlannedBlock(blocker, attackerCard);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean winTheBlock() {
+		if (mw.p2BlockingIdx < 0 || mw.p2BlockedByAttacker == null) return false;
+		ForwardTarget attacker = mw.findFieldSlot(mw.p2BlockedByAttacker, true);
+		if (attacker == null || mw.p2BlockingIdx >= mw.p2ForwardCards.size()) return false;
+		ForwardTarget blocker = new ForwardTarget(false, mw.p2BlockingIdx, ForwardTarget.CardZone.FORWARD);
+		Fighter mine = fighterAt(blocker), theirs = fighterAt(attacker);
+		boolean[] now = battle(mine, theirs);
+		String blockerName = mw.p2ForwardCards.get(mw.p2BlockingIdx).name();
+		for (TrickPlay tp : availableTricks(blocker, false)) {
+			boolean[] after = battle(mine.with(tp.trick()), theirs);
+			String why = !now[0] && after[0] ? "to save " + blockerName
+					: now[0] && now[1] && after[0] && !after[1] ? "to break " + mw.p2BlockedByAttacker.name() : null;
+			if (why == null) continue;
+			playTrick(tp, mw.p2ForwardCards.get(mw.p2BlockingIdx), why);
+			return true;
+		}
+		return false;
+	}
+
+	/** Plays {@code tp} on {@code forward}, aiming its choice there ({@link MainWindow#aiAimedTarget}). */
+	private void playTrick(TrickPlay tp, CardData forward, String why) {
+		mw.logEntry("[P2] Combat trick — " + tp.what() + " " + why);
+		mw.aiAimedTarget = forward;
+		tp.play().run();
+	}
+
+	/**
+	 * The combat tricks P2 could play now that reach its Forward at {@code aimedAt}, cheapest first —
+	 * fewest cards discarded, then lowest printed cost. With {@code beforeBlock}, none that dulls the
+	 * Forward it is for: a dull Forward cannot block.
+	 */
+	private List<TrickPlay> availableTricks(ForwardTarget aimedAt, boolean beforeBlock) {
+		List<TrickPlay> out = new ArrayList<>();
+		List<CardData> hand = mw.gameState.getP2Hand();
+		if (!mw.p2CastLimitReached()) {
+			for (int i = 0; i < hand.size(); i++) {
+				CardData c = hand.get(i);
+				String text = c.isSummon() ? c.summonEffect() : null;
+				if (c.isSummon()) {
+					if (mw.summonCastingBanned(false) || mw.summonCastBlocked(c, false) || !mw.castRestrictionMet(c, false)) continue;
+				} else if (c.hasTrait(CardData.Trait.BACK_ATTACK) && castableOnOpponentsTurn(c)) {
+					text = AutoAbilityTriggers.ownArrivalEffects(c).stream()
+							.filter(e -> CombatTrick.of(e) != null).findFirst().orElse(null);
+				}
+				CombatTrick trick = CombatTrick.of(text);
+				if (trick == null || (beforeBlock && trick.dulls()) || !trickReaches(text, trick, c, aimedAt, false)) continue;
+				P2Plan plan = planCast(c, i, false);
+				if (plan == null) continue;
+				out.add(new TrickPlay(c.name(), trick, plan.discardIndices().size(), c.cost(), () -> executeP2HandPlay(plan)));
+			}
+		}
+		addFieldAbilityTricks(out, aimedAt, beforeBlock);
+		out.sort(Comparator.comparingInt(TrickPlay::discards).thenComparingInt(TrickPlay::cost));
+		return out;
+	}
+
+	/** The action abilities on P2's field, usable now, whose effect is a trick reaching {@code aimedAt}. */
+	private void addFieldAbilityTricks(List<TrickPlay> out, ForwardTarget aimedAt, boolean beforeBlock) {
+		for (int i = 0; i < mw.p2ForwardCards.size(); i++)
+			addFieldAbilityTricks(out, aimedAt, beforeBlock, new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD),
+					mw.p2ForwardCards.get(i), mw.p2ForwardFrozen.get(i), mw.p2ForwardStates.get(i), mw.p2ForwardPlayedOnTurn.get(i));
+		for (int i = 0; i < mw.p2BackupCards.length; i++)
+			if (mw.p2BackupCards[i] != null)
+				addFieldAbilityTricks(out, aimedAt, beforeBlock, new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP),
+						mw.p2BackupCards[i], mw.p2BackupFrozen[i], mw.p2BackupStates[i], 0);
+		for (int i = 0; i < mw.p2MonsterCards.size(); i++)
+			addFieldAbilityTricks(out, aimedAt, beforeBlock, new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER),
+					mw.p2MonsterCards.get(i), mw.p2MonsterFrozen.get(i), mw.p2MonsterStates.get(i), mw.p2MonsterPlayedOnTurn.get(i));
+	}
+
+	private void addFieldAbilityTricks(List<TrickPlay> out, ForwardTarget aimedAt, boolean beforeBlock,
+			ForwardTarget slot, CardData card, boolean frozen, CardState state, int playedOn) {
+		{
+			if (card == null || mw.lostAbilitiesCards.contains(card)) return;
+			for (ActionAbility ability : card.actionAbilities()) {
+				CombatTrick trick = CombatTrick.of(ability.effectText());
+				if (trick == null || (beforeBlock && trick.dulls())) continue;
+				// Dulling the Forward that has yet to block for its own trick leaves it unable to block.
+				if (beforeBlock && ability.requiresDull() && slot.equals(aimedAt)) continue;
+				if (!mw.canActivateAbility(ability, frozen, state, playedOn, card, false)) continue;
+				if (!trickReaches(ability.effectText(), trick, card, aimedAt, ability.isSpecial())) continue;
+				List<Integer>        backups     = new ArrayList<>();
+				Map<Integer, String> backupElems = new LinkedHashMap<>();
+				List<Integer>        discards    = new ArrayList<>();
+				Map<Integer, String> discElems   = new LinkedHashMap<>();
+				if (!p2PlanAbilityPayment(ability, card, backups, backupElems, discards, discElems)) continue;
+				out.add(new TrickPlay(card.name() + "'s ability", trick, discards.size(), ability.cpCost().size(),
+						() -> mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card, mw.abilityCostDull(slot),
+								backups, discards, 0)));
+			}
+		}
+	}
+
+	/** Whether {@code trick}, read off {@code text} on {@code source}, can be aimed at P2's Character at {@code aimedAt}. */
+	private boolean trickReaches(String text, CombatTrick trick, CardData source, ForwardTarget aimedAt, boolean special) {
+		if (trick.subject() == null) return true;
+		return choiceReaches(text, source, aimedAt, special);
+	}
+
+	/** Whether the choice leading {@code text}, made for {@code source}'s side, may take the card at {@code target}. */
+	private boolean choiceReaches(String text, CardData source, ForwardTarget target, boolean special) {
+		TargetSpec spec = ActionResolver.targetSpec(text, source);
+		if (spec == null || spec.zone() != null) return false;
+		return mw.eligibleChoiceTargets(spec, source, false, special).contains(target);
+	}
+
+	// ── Removal (HANDOFF-cpu-opponents-turn.md decision 6) ───────────────
+
+	/** A removal P2 could play now on one of P1's Forwards: what it is, how many cards it discards, and the play. */
+	private record RemovalPlay(String what, int discards, int cost, Runnable play) {}
+
+	/**
+	 * Breaks one of P1's Forwards with a removal on P1's turn, and returns whether it did
+	 * (decision 6): the declared attacker, after P1 declares it, when P2 has no block that survives it —
+	 * so its damage never lands; and as P1's Main Phase 2 ends, the dearest Forward it can break, so
+	 * it cannot block on P2's turn. Only a Forward the removal breaks outright, as the board stands.
+	 * A removal is a Summon from hand or an action ability on P2's field ({@link Removal}), cheapest
+	 * first; it may discard to pay. (A Back Attack Character whose arrival removes is
+	 * {@link #playBackAttack}'s.)
+	 */
+	private boolean playRemoval(PriorityWindow window) {
+		if (mw.gameState.getCurrentPlayer() != GameState.Player.P1) return false;
+		List<ForwardTarget> aims = new ArrayList<>();
+		if (window == PriorityWindow.ATTACK_DECLARED) {
+			ForwardTarget attacker = declaredP1Attacker();
+			if (attacker == null) return false;
+			CardData attackerCard = mw.autoAbilityTriggers.fieldCardData(attacker);
+			int attackPower = mw.fieldForwardPower(true, attacker.zone(), attacker.idx());
+			// A block that survives deals with the attacker already.
+			if (chooseBlocker(attackPower, attacker) != null
+					|| (plannedBlock != null && plannedBlock.attacker() == attackerCard)) return false;
+			aims.add(attacker);
+		} else if (window == PriorityWindow.MAIN_2_END) {
+			for (int i = 0; i < mw.p1ForwardCards.size(); i++)
+				if (mw.p1ForwardCards.get(i) != null) aims.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
+			aims.sort(Comparator.comparingInt((ForwardTarget t) -> mw.autoAbilityTriggers.fieldCardData(t).cost()).reversed());
+		} else {
+			return false;
+		}
+		for (ForwardTarget t : aims) {
+			List<RemovalPlay> plays = availableRemoval(t);
+			if (plays.isEmpty()) continue;
+			RemovalPlay rp = plays.get(0);
+			CardData target = mw.autoAbilityTriggers.fieldCardData(t);
+			mw.logEntry("[P2] Removal — " + rp.what() + " breaks " + target.name()
+					+ (window == PriorityWindow.ATTACK_DECLARED ? " before it deals damage" : " before P2's turn"));
+			mw.aiAimedTarget = target;
+			rp.play().run();
+			return true;
+		}
+		return false;
+	}
+
+	/** The removals P2 could play now that break P1's Forward at {@code target} outright, cheapest first. */
+	private List<RemovalPlay> availableRemoval(ForwardTarget target) {
+		List<RemovalPlay> out = new ArrayList<>();
+		List<CardData> hand = mw.gameState.getP2Hand();
+		if (!mw.p2CastLimitReached() && !mw.summonCastingBanned(false)) {
+			for (int i = 0; i < hand.size(); i++) {
+				CardData c = hand.get(i);
+				if (!c.isSummon() || mw.summonCastBlocked(c, false) || !mw.castRestrictionMet(c, false)) continue;
+				if (!removalBreaks(c.summonEffect(), c, target, false)) continue;
+				P2Plan plan = planCast(c, i, false);
+				if (plan == null) continue;
+				out.add(new RemovalPlay(c.name(), plan.discardIndices().size(), c.cost(), () -> executeP2HandPlay(plan)));
+			}
+		}
+		for (int i = 0; i < mw.p2ForwardCards.size(); i++)
+			addFieldRemoval(out, target, new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD), mw.p2ForwardCards.get(i),
+					mw.p2ForwardFrozen.get(i), mw.p2ForwardStates.get(i), mw.p2ForwardPlayedOnTurn.get(i));
+		for (int i = 0; i < mw.p2BackupCards.length; i++)
+			if (mw.p2BackupCards[i] != null)
+				addFieldRemoval(out, target, new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP), mw.p2BackupCards[i],
+						mw.p2BackupFrozen[i], mw.p2BackupStates[i], 0);
+		for (int i = 0; i < mw.p2MonsterCards.size(); i++)
+			addFieldRemoval(out, target, new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER), mw.p2MonsterCards.get(i),
+					mw.p2MonsterFrozen.get(i), mw.p2MonsterStates.get(i), mw.p2MonsterPlayedOnTurn.get(i));
+		out.sort(Comparator.comparingInt(RemovalPlay::discards).thenComparingInt(RemovalPlay::cost));
+		return out;
+	}
+
+	private void addFieldRemoval(List<RemovalPlay> out, ForwardTarget target, ForwardTarget slot, CardData card,
+			boolean frozen, CardState state, int playedOn) {
+		if (card == null || mw.lostAbilitiesCards.contains(card)) return;
+		for (ActionAbility ability : card.actionAbilities()) {
+			if (!mw.canActivateAbility(ability, frozen, state, playedOn, card, false)) continue;
+			if (!removalBreaks(ability.effectText(), card, target, ability.isSpecial())) continue;
+			List<Integer>        backups     = new ArrayList<>();
+			Map<Integer, String> backupElems = new LinkedHashMap<>();
+			List<Integer>        discards    = new ArrayList<>();
+			Map<Integer, String> discElems   = new LinkedHashMap<>();
+			if (!p2PlanAbilityPayment(ability, card, backups, backupElems, discards, discElems)) continue;
+			out.add(new RemovalPlay(card.name() + "'s ability", discards.size(), ability.cpCost().size(),
+					() -> mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card, mw.abilityCostDull(slot),
+							backups, discards, 0)));
+		}
+	}
+
+	/**
+	 * Whether {@code text}, made for {@code source}'s side, is a removal ({@link Removal}) whose choice
+	 * can take P1's Forward at {@code target} and that would break it outright as the board stands:
+	 * damage, or power lost, of at least what it has left — not one its damage already dooms — and
+	 * for a break or damage, not one that cannot be broken. Printed amounts, so a boost is not counted.
+	 */
+	private boolean removalBreaks(String text, CardData source, ForwardTarget target, boolean special) {
+		return removalBreaks(text, source, target, special, 0);
+	}
+
+	/** {@link #removalBreaks} with {@code extraDamage} more already on the Forward. */
+	private boolean removalBreaks(String text, CardData source, ForwardTarget target, boolean special, int extraDamage) {
+		Removal r = Removal.of(text);
+		if (r == null || !choiceReaches(text, source, target, special)) return false;
+		if (mw.fieldForwardBreakableBy(true, target.zone(), target.idx(), extraDamage)) return false;
+		boolean unbreakable = target.zone() == ForwardTarget.CardZone.FORWARD
+				&& mw.effectiveHasTrait(true, target.idx(), CardData.Trait.CANNOT_BE_BROKEN);
+		return switch (r.kind()) {
+			case BREAK      -> !unbreakable;
+			case DAMAGE     -> !unbreakable && mw.fieldForwardBreakableBy(true, target.zone(), target.idx(), r.amount() + extraDamage);
+			case POWER_LOSS -> mw.fieldForwardBreakableBy(true, target.zone(), target.idx(), r.amount() + extraDamage);
+		};
+	}
+
+	// ── Follow-up damage (HANDOFF-cpu-you-may.md decision 16) ────────────
+
+	/** The card a sacrifice is about to spend, whose own CP no follow-up may count on ({@link #p2CpBackups}). */
+	private CardData spentByTheOffer = null;
+
+	/**
+	 * Whether, with {@code extraDamage} dealt to P1's Forward at {@code target} — what a sacrifice
+	 * buys (28-010R Jack Garland's 9000) — P2 could finish it later this turn: a damage or power-loss
+	 * removal, a Summon from hand or an ability on its field, that would break it then and would not
+	 * now, which it can pay for without {@code spent}, while a window it plays removal in is still ahead
+	 * — the end of P1's Main Phase 2 on P1's turn (decision 6), its own Main Phase on its own.
+	 */
+	boolean followUpFinishes(ForwardTarget target, int extraDamage, CardData spent) {
+		GameState.GamePhase phase = mw.gameState.getCurrentPhase();
+		boolean ahead = mw.gameState.getCurrentPlayer() == GameState.Player.P1
+				? phase != GameState.GamePhase.END
+				: phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.ATTACK
+						|| phase == GameState.GamePhase.MAIN_2;
+		if (!ahead) return false;
+		spentByTheOffer = spent;
+		try {
+			List<CardData> hand = mw.gameState.getP2Hand();
+			for (int i = 0; i < hand.size(); i++) {
+				CardData c = hand.get(i);
+				if (!c.isSummon() || mw.summonCastingBanned(false) || !mw.castRestrictionMet(c, false)) continue;
+				if (!removalBreaks(c.summonEffect(), c, target, false, extraDamage)
+						|| removalBreaks(c.summonEffect(), c, target, false, 0)) continue;
+				if (planCast(c, i, false) != null) return true;
+			}
+			boolean[] found = { false };
+			forEachFieldAbility((slot, card, ability) -> {
+				if (found[0] || card == spent) return;
+				if (!removalBreaks(ability.effectText(), card, target, ability.isSpecial(), extraDamage)
+						|| removalBreaks(ability.effectText(), card, target, ability.isSpecial(), 0)) return;
+				List<Integer> backups = new ArrayList<>(), discards = new ArrayList<>();
+				if (p2PlanAbilityPayment(ability, card, backups, new LinkedHashMap<>(), discards, new LinkedHashMap<>()))
+					found[0] = true;
+			});
+			return found[0];
+		} finally {
+			spentByTheOffer = null;
+		}
 	}
 
 	// ── Back Attack (HANDOFF-cpu-opponents-turn.md decision 4) ───────────
@@ -1599,37 +1992,24 @@ class ComputerPlayer implements OpponentController {
 		return best;
 	}
 
-	ForwardTarget chooseBlocker(int effectiveAttackerPower, ForwardTarget attacker) {
-		return chooseBlocker(effectiveAttackerPower, attacker, false);
-	}
-
-	ForwardTarget chooseBlocker(int effectiveAttackerPower, ForwardTarget attacker, boolean forcedBlock) {
-		// Attacker-side restrictions are read off the attacking card, so they bind an attacker
-		// acting as a Forward from the Monster or Backup row just as they do one on the Forward row.
-		CardData p1AttackerCard       = null;
+	/**
+	 * The P2 Characters that may block {@code attacker} as the board stands — its Forwards, and its
+	 * Monsters and Backups acting as Forwards — with every restriction the attacker carries applied;
+	 * none when it cannot be blocked at all. What {@link #chooseBlocker} picks from, and what a combat
+	 * trick on P1's turn may turn into a blocker (decision 5).
+	 */
+	List<ForwardTarget> blockCandidates(ForwardTarget attacker) {
+		CardData p1AttackerCard = attacker != null && attacker.isP1() ? mw.autoAbilityTriggers.fieldCardData(attacker) : null;
 		boolean  p1AttackerHigherPower = false;
 		int      p1AttackerPower       = 0;
-		if (attacker != null && attacker.isP1()) {
-			p1AttackerCard = mw.autoAbilityTriggers.fieldCardData(attacker);
-		}
-		int      p1AttackerFieldPower = 0;
+		int      p1AttackerFieldPower  = 0;
 		if (p1AttackerCard != null) {
-			if (mw.p1CannotBeBlocked.contains(p1AttackerCard)) return null;
-			// The standing, damage-gated spelling of the same restriction (Ritz 11-063L), which is
-			// re-read per block rather than recorded in the set above.
-			if (mw.hasSelfCannotBeBlockedFieldAbility(p1AttackerCard, true)) return null;
-			// The conditional spelling (Zidane 8-115L's hand-size gate, the "If you control X"
-			// printings). P2's own attackers get this through attackerConditionallyUnblockable;
-			// this is the same check on the side where the AI is the one declining to block.
-			if (mw.attackerConditionallyUnblockable(p1AttackerCard, true)) return null;
+			if (mw.p1CannotBeBlocked.contains(p1AttackerCard) || mw.hasSelfCannotBeBlockedFieldAbility(p1AttackerCard, true)
+					|| mw.attackerConditionallyUnblockable(p1AttackerCard, true)) return List.of();
 			p1AttackerFieldPower  = mw.fieldForwardPower(true, attacker.zone(), attacker.idx());
-			// Printed or granted alike — Lann 1-027H prints it, Deathgaze 5-063H hands it to
-			// himself for the turn, and the AI has to decline the block either way.
 			p1AttackerHigherPower = mw.carriesHigherPowerBlockShield(p1AttackerCard, true);
 			if (p1AttackerHigherPower) p1AttackerPower = p1AttackerFieldPower;
 		}
-
-		// Candidate P2 blockers: Forwards plus Monsters/Backups acting as Forwards.
 		List<ForwardTarget> cands = new ArrayList<>();
 		for (int i = 0; i < mw.p2ForwardStates.size(); i++) {
 			CardData blocker = mw.p2ForwardCards.get(i);
@@ -1668,6 +2048,40 @@ class ComputerPlayer implements OpponentController {
 				mw.fieldForwardPower(false, ForwardTarget.CardZone.BACKUP, i) > p1AttackerFieldPower) continue;
 			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
 		}
+		return cands;
+	}
+
+	ForwardTarget chooseBlocker(int effectiveAttackerPower, ForwardTarget attacker) {
+		return chooseBlocker(effectiveAttackerPower, attacker, false);
+	}
+
+	ForwardTarget chooseBlocker(int effectiveAttackerPower, ForwardTarget attacker, boolean forcedBlock) {
+		// Attacker-side restrictions are read off the attacking card, so they bind an attacker
+		// acting as a Forward from the Monster or Backup row just as they do one on the Forward row.
+		CardData p1AttackerCard       = null;
+		boolean  p1AttackerHigherPower = false;
+		int      p1AttackerPower       = 0;
+		if (attacker != null && attacker.isP1()) {
+			p1AttackerCard = mw.autoAbilityTriggers.fieldCardData(attacker);
+		}
+		int      p1AttackerFieldPower = 0;
+		if (p1AttackerCard != null) {
+			if (mw.p1CannotBeBlocked.contains(p1AttackerCard)) return null;
+			// The standing, damage-gated spelling of the same restriction (Ritz 11-063L), which is
+			// re-read per block rather than recorded in the set above.
+			if (mw.hasSelfCannotBeBlockedFieldAbility(p1AttackerCard, true)) return null;
+			// The conditional spelling (Zidane 8-115L's hand-size gate, the "If you control X"
+			// printings). P2's own attackers get this through attackerConditionallyUnblockable;
+			// this is the same check on the side where the AI is the one declining to block.
+			if (mw.attackerConditionallyUnblockable(p1AttackerCard, true)) return null;
+			p1AttackerFieldPower  = mw.fieldForwardPower(true, attacker.zone(), attacker.idx());
+			// Printed or granted alike — Lann 1-027H prints it, Deathgaze 5-063H hands it to
+			// himself for the turn, and the AI has to decline the block either way.
+			p1AttackerHigherPower = mw.carriesHigherPowerBlockShield(p1AttackerCard, true);
+			if (p1AttackerHigherPower) p1AttackerPower = p1AttackerFieldPower;
+		}
+
+		List<ForwardTarget> cands = blockCandidates(attacker);
 
 		// A P2 Forward compelled to block (MainWindow.forwardCompelledToBlock: Dio 26-075C's
 		// attacker-specific grant, Ricard 6-103H's printing, a turn's "must block" such as Mika
@@ -2318,6 +2732,197 @@ class ComputerPlayer implements OpponentController {
 		return false;
 	}
 
+	// ── Stack responses (HANDOFF-cpu-opponents-turn.md decision 7) ───────
+
+	/** What a P1 entry would do to one of P2's Characters it has chosen. */
+	private enum Threat { BREAK, DAMAGE, REMOVE, POWER_LOSS }
+
+	/** "… remove it/them from the game." / "… put it/them into the Break Zone." — gone either way. */
+	private static final Pattern REMOVES_CHOSEN = Pattern.compile(
+			"(?i)\\b(?:remove\\s+(?:it|them)\\s+from\\s+the\\s+game|put\\s+(?:it|them)\\s+into\\s+the\\s+Break\\s+Zone)\\b");
+	/** "… it loses N power" / "they lose N power" — to 0 or less, and it is put into the Break Zone. */
+	private static final Pattern LOSES_POWER_CHOSEN = Pattern.compile("(?i)\\b(?:it\\s+loses|they\\s+lose)\\s+(\\d+)\\s+power\\b");
+
+	/**
+	 * What P1's entry, reading {@code text}, would do to the P2 Character at {@code t} that it has
+	 * chosen — break it, deal it lethal damage, remove it, take its power to 0 — or {@code null}
+	 * when it would leave it on the field. Read as {@link #p2EffectWouldBreak} reads it: narrowly,
+	 * so nothing is paid for on a guess. A break or damage aimed at a Forward that cannot be broken
+	 * threatens nothing.
+	 */
+	private Threat threatTo(String text, ForwardTarget t) {
+		boolean unbreakable = t.zone() == ForwardTarget.CardZone.FORWARD
+				&& mw.effectiveHasTrait(false, t.idx(), CardData.Trait.CANNOT_BE_BROKEN);
+		if (REMOVES_CHOSEN.matcher(text).find()) return Threat.REMOVE;
+		Matcher loses = LOSES_POWER_CHOSEN.matcher(text);
+		if (loses.find() && t.zone() != ForwardTarget.CardZone.BACKUP
+				&& mw.fieldForwardBreakableBy(false, t.zone(), t.idx(), Integer.parseInt(loses.group(1)))) return Threat.POWER_LOSS;
+		if (unbreakable) return null;
+		if (BREAKS_CHOSEN.matcher(text).find()) return Threat.BREAK;
+		Matcher dmg = DAMAGES_CHOSEN.matcher(text);
+		if (dmg.find() && t.zone() != ForwardTarget.CardZone.BACKUP
+				&& mw.fieldForwardBreakableBy(false, t.zone(), t.idx(), Integer.parseInt(dmg.group(1)))) return Threat.DAMAGE;
+		return null;
+	}
+
+	/** A response P2 could make now: what it is, what it does, how many cards it discards, and the play. */
+	private record ResponsePlay(String what, int discards, int cost, Runnable play) {}
+
+	/**
+	 * Answers P1's Stack {@code entry} (decision 7), and returns whether P2 did — after the
+	 * self-bounce save, which it keeps. Only the choices the entry has already made are weighed
+	 * ({@link MainWindow#liveTargets}):
+	 * <ul>
+	 *   <li>an entry that would break or remove one of P2's Characters is <b>cancelled</b> — a Summon,
+	 *       ability or Back Attack arrival whose cancel takes it ({@link ActionResolver#stackCancelFilter})
+	 *       — or the Character is <b>shielded</b> — a "damage becomes 0" trick against damage, a "cannot
+	 *       be broken" one against damage or a break — whichever is cheapest;</li>
+	 *   <li>an entry that buffs one of P1's Forwards ({@link CombatTrick}) is answered by <b>breaking
+	 *       that Forward</b> with a removal that breaks it outright now ({@link #availableRemoval}).</li>
+	 * </ul>
+	 * It may discard to pay: the response saves or breaks a card.
+	 */
+	private boolean answerStackEntry(StackEntry entry) {
+		if (entry == null || !entry.isP1()) return false;
+		String text = mw.resolvingEffectText(entry);
+		List<ForwardTarget> targets = mw.liveTargets(entry, false);
+		if (text == null || targets == null) return false;
+		String source = entry.source().name();
+
+		List<ResponsePlay> saves = new ArrayList<>(cancelsFor(entry));
+		for (ForwardTarget t : targets) {
+			if (t.isP1() || t.zone() == ForwardTarget.CardZone.BREAK_ZONE) continue;
+			Threat threat = threatTo(text, t);
+			if (threat != null) saves.addAll(shieldsFor(t, threat));
+		}
+		boolean threatens = targets.stream().anyMatch(t -> !t.isP1() && t.zone() != ForwardTarget.CardZone.BREAK_ZONE
+				&& threatTo(text, t) != null);
+		if (threatens && !saves.isEmpty()) {
+			saves.sort(Comparator.comparingInt(ResponsePlay::discards).thenComparingInt(ResponsePlay::cost));
+			ResponsePlay best = saves.get(0);
+			mw.logEntry("[P2] Answers " + source + " — " + best.what());
+			best.play().run();
+			return true;
+		}
+
+		if (CombatTrick.of(text) != null) {
+			for (ForwardTarget t : targets) {
+				if (!t.isP1() || t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+				List<RemovalPlay> plays = availableRemoval(t);
+				if (plays.isEmpty()) continue;
+				CardData buffed = mw.autoAbilityTriggers.fieldCardData(t);
+				mw.logEntry("[P2] Answers " + source + " — " + plays.get(0).what() + " breaks " + buffed.name()
+						+ " before the buff lands");
+				mw.aiAimedTarget = buffed;
+				plays.get(0).play().run();
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** "… of cost N or less/more" in a cancel's choice — 4-136C Summoner's bound. */
+	private static final Pattern CANCEL_COST_BOUND = Pattern.compile("(?i)\\bof\\s+cost\\s+(\\d+)\\s+or\\s+(less|more)\\b");
+
+	/**
+	 * Whether the cancel reading {@code text}, made for P2, takes {@code entry}: its own filter
+	 * ({@link ActionResolver#stackCancelFilter}), a printed cost bound, and the entry not protected
+	 * from cancels. A cancel that lets P1 pay or discard to keep the entry is no answer — P1 decides it.
+	 */
+	private boolean cancels(String text, StackEntry entry) {
+		if (text == null || text.matches("(?is).*\\b(?:doesn't|does\\s+not|unless)\\b.*")) return false;
+		Predicate<StackEntry> filter = ActionResolver.stackCancelFilter(text, false);
+		if (filter == null || !filter.test(entry) || mw.stackEntryProtectedFromCancel(entry)) return false;
+		Matcher bound = CANCEL_COST_BOUND.matcher(text);
+		if (bound.find()) {
+			int n = Integer.parseInt(bound.group(1));
+			int cost = entry.source().cost();
+			if (bound.group(2).equalsIgnoreCase("less") ? cost > n : cost < n) return false;
+		}
+		return true;
+	}
+
+	/** The cancels P2 could play now that take {@code entry}: Summons, Back Attack arrivals, abilities on its field. */
+	private List<ResponsePlay> cancelsFor(StackEntry entry) {
+		List<ResponsePlay> out = new ArrayList<>();
+		List<CardData> hand = mw.gameState.getP2Hand();
+		if (!mw.p2CastLimitReached()) {
+			for (int i = 0; i < hand.size(); i++) {
+				CardData c = hand.get(i);
+				String text = null;
+				if (c.isSummon()) {
+					if (mw.summonCastingBanned(false) || mw.summonCastBlocked(c, false) || !mw.castRestrictionMet(c, false)) continue;
+					text = c.summonEffect();
+				} else if (c.hasTrait(CardData.Trait.BACK_ATTACK) && castableOnOpponentsTurn(c)) {
+					text = AutoAbilityTriggers.ownArrivalEffects(c).stream().filter(e -> cancels(e, entry)).findFirst().orElse(null);
+				}
+				if (!cancels(text, entry)) continue;
+				P2Plan plan = planCast(c, i, false);
+				if (plan == null) continue;
+				out.add(new ResponsePlay("cancel with " + c.name(), plan.discardIndices().size(), c.cost(),
+						() -> executeP2HandPlay(plan)));
+			}
+		}
+		forEachFieldAbility((slot, card, ability) -> {
+			if (!cancels(ability.effectText(), entry)) return;
+			addAbilityResponse(out, "cancel with " + card.name() + "'s ability", slot, card, ability);
+		});
+		return out;
+	}
+
+	/** The shields P2 could play now that keep its Character at {@code t} from what {@code threat} would do. */
+	private List<ResponsePlay> shieldsFor(ForwardTarget t, Threat threat) {
+		List<ResponsePlay> out = new ArrayList<>();
+		if (t.zone() != ForwardTarget.CardZone.FORWARD || (threat != Threat.DAMAGE && threat != Threat.BREAK)) return out;
+		CardData forward = mw.autoAbilityTriggers.fieldCardData(t);
+		for (TrickPlay tp : availableTricks(t, false)) {
+			CombatTrick trick = tp.trick();
+			if (!trick.shield() || (threat == Threat.BREAK && !trick.unbreakable())) continue;
+			out.add(new ResponsePlay("shields " + forward.name() + " with " + tp.what(), tp.discards(), tp.cost(), () -> {
+				mw.aiAimedTarget = forward;
+				tp.play().run();
+			}));
+		}
+		return out;
+	}
+
+	/** Something on P2's field that may have an ability to use: its slot, the card, and the ability. */
+	@FunctionalInterface
+	private interface FieldAbilityVisitor { void visit(ForwardTarget slot, CardData card, ActionAbility ability); }
+
+	/** Every action ability on P2's field usable now, as {@link MainWindow#canActivateAbility} judges it. */
+	private void forEachFieldAbility(FieldAbilityVisitor visitor) {
+		for (int i = 0; i < mw.p2ForwardCards.size(); i++)
+			visitAbilities(visitor, new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD), mw.p2ForwardCards.get(i),
+					mw.p2ForwardFrozen.get(i), mw.p2ForwardStates.get(i), mw.p2ForwardPlayedOnTurn.get(i));
+		for (int i = 0; i < mw.p2BackupCards.length; i++)
+			if (mw.p2BackupCards[i] != null)
+				visitAbilities(visitor, new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP), mw.p2BackupCards[i],
+						mw.p2BackupFrozen[i], mw.p2BackupStates[i], 0);
+		for (int i = 0; i < mw.p2MonsterCards.size(); i++)
+			visitAbilities(visitor, new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER), mw.p2MonsterCards.get(i),
+					mw.p2MonsterFrozen.get(i), mw.p2MonsterStates.get(i), mw.p2MonsterPlayedOnTurn.get(i));
+	}
+
+	private void visitAbilities(FieldAbilityVisitor visitor, ForwardTarget slot, CardData card, boolean frozen,
+			CardState state, int playedOn) {
+		if (card == null || mw.lostAbilitiesCards.contains(card)) return;
+		for (ActionAbility ability : card.actionAbilities())
+			if (mw.canActivateAbility(ability, frozen, state, playedOn, card, false)) visitor.visit(slot, card, ability);
+	}
+
+	/** Adds {@code ability} as a response when P2 can pay for it. */
+	private void addAbilityResponse(List<ResponsePlay> out, String what, ForwardTarget slot, CardData card, ActionAbility ability) {
+		List<Integer>        backups     = new ArrayList<>();
+		Map<Integer, String> backupElems = new LinkedHashMap<>();
+		List<Integer>        discards    = new ArrayList<>();
+		Map<Integer, String> discElems   = new LinkedHashMap<>();
+		if (!p2PlanAbilityPayment(ability, card, backups, backupElems, discards, discElems)) return;
+		out.add(new ResponsePlay(what, discards.size(), ability.cpCost().size(),
+				() -> mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card, mw.abilityCostDull(slot),
+						backups, discards, 0)));
+	}
+
 	/** "… break it/them." — the chosen are broken outright. */
 	private static final Pattern BREAKS_CHOSEN = Pattern.compile("(?i)\\bbreak\\s+(?:it|them)\\b");
 	/** "… deal it/them N damage." */
@@ -2685,9 +3290,12 @@ class ComputerPlayer implements OpponentController {
 	private CardData[] p2CpBackups() {
 		CardData[] row = mw.cpPayableBackupCards(false);
 		HeldBackAttack held = heldBackAttack();
-		if (held == null || held.backups().isEmpty()) return row;
+		boolean spending = spentByTheOffer != null && Arrays.asList(row).contains(spentByTheOffer);
+		if ((held == null || held.backups().isEmpty()) && !spending) return row;
 		CardData[] open = row.clone();
-		for (int bi : held.backups()) if (bi < open.length) open[bi] = null;
+		if (held != null) for (int bi : held.backups()) if (bi < open.length) open[bi] = null;
+		// A Backup a sacrifice is about to put into the Break Zone pays for nothing after it.
+		for (int bi = 0; bi < open.length; bi++) if (open[bi] == spentByTheOffer) open[bi] = null;
 		return open;
 	}
 

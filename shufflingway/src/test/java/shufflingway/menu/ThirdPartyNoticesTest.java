@@ -71,12 +71,17 @@ class ThirdPartyNoticesTest {
 		assertTrue(TEXT.contains("The GIFLIB distribution is Copyright (c) 1997  Eric S. Raymond"));
 	}
 
-	/** Both bundled fonts are credited; the CC BY one with its licence. */
+	/**
+	 * Both bundled fonts are credited, each with its licence: the CC BY one by link, the OFL one in
+	 * full with its copyright notice, which the OFL requires to travel with the font.
+	 */
 	@Test
 	void theBundledFontsAreCredited() {
 		assertTrue(TEXT.contains("Final Fantasy 3/6 Font, by Veylon"));
 		assertTrue(TEXT.contains("https://creativecommons.org/licenses/by/3.0/"));
-		assertTrue(TEXT.contains("Pixel NES, by Neale Davidson"));
+		assertTrue(TEXT.contains("Pixel Emulator, by Neale Davidson"));
+		assertTrue(TEXT.contains("Copyright (c) 2013-2016, Neale Davidson"));
+		assertTrue(TEXT.contains("SIL OPEN FONT LICENSE Version 1.1"));
 	}
 
 	/** The licence the earlier notices call "the last of these notices" is. */
