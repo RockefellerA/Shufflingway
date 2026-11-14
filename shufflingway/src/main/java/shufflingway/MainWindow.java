@@ -21622,10 +21622,12 @@ public class MainWindow {
 			((Timer) e.getSource()).stop();
 			p2AutoPassTimer = null;
 			runWhenBoardSettled(() -> {
-				// On P1's turn the opponent holds priority in the window P1 has just passed, and
-				// plays in it before passing. No opponent means a bare window (tests), where there
-				// is no one to ask.
-				if (gameState.getCurrentPlayer() == GameState.Player.P1 && opponent != null) {
+				// The opponent holds priority in the window and plays in it before passing: on P1's
+				// turn every window, on its own turn the combat rounds — its Main Phase plays are its
+				// own loop's. No opponent means a bare window (tests), where there is no one to ask.
+				boolean asked = gameState.getCurrentPlayer() == GameState.Player.P1
+						|| gameState.getCurrentPhase() == GameState.GamePhase.ATTACK;
+				if (asked && opponent != null) {
 					opponent.holdPriority(cpuPriorityWindow(), () -> {
 						phaseTracker.setHasPriority(true);
 						onDone.run();
@@ -21653,10 +21655,10 @@ public class MainWindow {
 	CardData aiAimedTarget = null;
 
 	/**
-	 * Which window P2 holds priority in on P1's turn, read off where the turn stands: the phase,
-	 * and in the Attack Phase the sub-step — every combat round on P1's turn runs on the sub-step
-	 * it announces for (Declare Attackers for the declaration, Block for the block), and the
-	 * sub-step only moves on once both players have passed.
+	 * Which window P2 holds priority in, read off where the turn stands: the phase, and in the Attack
+	 * Phase the sub-step — every combat round, on either player's turn, runs on the sub-step it
+	 * announces for (Declare Attackers for the declaration, Block for the block), and the sub-step
+	 * only moves on once both players have passed.
 	 */
 	PriorityWindow cpuPriorityWindow() {
 		return switch (gameState.getCurrentPhase()) {

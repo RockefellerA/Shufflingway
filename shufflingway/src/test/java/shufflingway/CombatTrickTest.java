@@ -80,4 +80,27 @@ class CombatTrickTest {
 		assertArrayEquals(new boolean[] { false, true }, ComputerPlayer.battle(f(7000, 0, false, false), f(7000, 0, true, false)),
 				"equal power, but theirs strikes first");
 	}
+
+	@Test
+	void aShieldKeepsTheirForwardWholeToo() {
+		assertArrayEquals(new boolean[] { true, true }, ComputerPlayer.battle(f(9000, 0, false, false), f(5000, 0, false, true)),
+				"9000 does not break a Forward that cannot be broken");
+		assertArrayEquals(new boolean[] { false, true }, ComputerPlayer.battle(f(5000, 0, true, false), f(5000, 0, false, true)),
+				"First Strike breaks nothing it cannot break, and the blow comes back");
+	}
+
+	@Test
+	void aFighterIsWeakenedByDamagePowerLossOrABreak() {
+		Fighter blocker = f(7000, 1000, false, false);
+		assertEquals(4000, blocker.weakenedBy(new Removal(Removal.Kind.DAMAGE, 3000)).damage());
+		assertEquals(4000, blocker.weakenedBy(new Removal(Removal.Kind.POWER_LOSS, 3000)).power());
+		assertFalse(blocker.weakenedBy(new Removal(Removal.Kind.DAMAGE, 3000)).gone());
+		assertTrue(blocker.weakenedBy(new Removal(Removal.Kind.DAMAGE, 6000)).gone());
+		assertTrue(blocker.weakenedBy(new Removal(Removal.Kind.BREAK, 0)).gone());
+
+		Fighter wall = f(7000, 0, false, true);
+		assertFalse(wall.weakenedBy(new Removal(Removal.Kind.BREAK, 0)).gone(), "it cannot be broken");
+		assertFalse(wall.weakenedBy(new Removal(Removal.Kind.DAMAGE, 9000)).gone());
+		assertTrue(wall.weakenedBy(new Removal(Removal.Kind.POWER_LOSS, 7000)).gone(), "no power left: into the Break Zone all the same");
+	}
 }

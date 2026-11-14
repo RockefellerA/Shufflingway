@@ -86,10 +86,10 @@ interface OpponentController {
 	                               Consumer<Map<Integer, Integer>> onAssigned);
 
 	/**
-	 * The opponent holds priority in {@code window}, on the local player's turn and after they have
-	 * passed, and runs {@code onPass} once it passes in turn. The AI plays there
-	 * ({@link ComputerPlayer#holdPriority}); a remote player acts inside its own window, so for it
-	 * this only passes.
+	 * The opponent holds priority in {@code window} — on the local player's turn after they have
+	 * passed, and in the combat rounds of its own turn, where it holds priority first — and runs
+	 * {@code onPass} once it passes. The AI plays there ({@link ComputerPlayer#holdPriority}); a remote
+	 * player acts inside its own window, so for it this only passes.
 	 */
 	void holdPriority(PriorityWindow window, Runnable onPass);
 }

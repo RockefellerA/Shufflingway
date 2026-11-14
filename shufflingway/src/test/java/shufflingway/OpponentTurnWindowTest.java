@@ -995,6 +995,242 @@ class OpponentTurnWindowTest {
 		assertEquals(1, mw.gameState.getP2BreakZone().size(), "a Fire Backup paid for it");
 	}
 
+	// ---- Combat tricks on the CPU's own attacks (HANDOFF-cpu-own-attack-tricks.md) -----------
+
+	/** P2's own Attack Phase, against the real CPU. */
+	private static MainWindow p2sAttackPhase() {
+		MainWindow mw = new MainWindow();
+		mw.p2AutoPassMs = 1;
+		mw.gameState.startFirstTurn(GameState.Player.P2);
+		while (mw.gameState.getCurrentPhase() != GameState.GamePhase.ATTACK) mw.gameState.advancePhase();
+		mw.opponent = new ScriptedCpu(mw);
+		return mw;
+	}
+
+	/** P1's active Forward {@code name}. */
+	private static CardData p1Blocker(MainWindow mw, String name, int power) {
+		CardData f = makeForward(name, "Water", 3, power);
+		placeP1Forward(mw, f);
+		return f;
+	}
+
+	/** P2's {@code attacker} attacks, P1 blocks it with {@code blocker}, and the battle is fought; returns once it is over. */
+	private static void p1BlocksTheCpusAttack(MainWindow mw, CardData attacker, CardData blocker) throws Exception {
+		boolean[] over = { false };
+		onEdt(() -> {
+			int idx = mw.p2ForwardCards.indexOf(attacker);
+			mw.p2ForwardStates.set(idx, CardState.DULL);
+			mw.initP1BlockDeclaration(attacker, idx, () -> over[0] = true);
+		});
+		playOut(mw, () -> mw.pendingP2Attacker != null, "P1 to be asked for a blocker");
+		onEdt(() -> {
+			mw.p1BlockerSelection = mw.p1ForwardCards.indexOf(blocker);
+			mw.handleP1BlockAction();
+		});
+		playOut(mw, () -> over[0], "the battle to end");
+	}
+
+	@Test
+	void theCpuSavesItsAttackerFromYourBlocker() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 7000);
+		CardData blocker = p1Blocker(mw, "Blocker", 8000);
+		p2Holds(mw, might(), 1);
+
+		p1BlocksTheCpusAttack(mw, striker, blocker);
+
+		assertTrue(mw.gameLogText().contains("[P2] Combat trick — Might to save Striker"));
+		assertTrue(mw.p2ForwardCards.contains(striker), "9000 survives 8000");
+		assertTrue(mw.gameState.getP1BreakZone().contains(blocker));
+	}
+
+	@Test
+	void theCpuBreaksABlockerItsAttackerWouldOnlyBounceOff() throws Exception {
+		// The Wall cannot be broken, so the battle leaves both standing; +2000 makes its 5000 enough.
+		MainWindow mw = p2sAttackPhase();
+		CardData wall = makeForwardWithTraits("Wall", "Fire", 5000, EnumSet.of(CardData.Trait.CANNOT_BE_BROKEN));
+		placeP2Forward(mw, wall);
+		mw.p2ForwardPlayedOnTurn.set(0, 0);
+		CardData blocker = p1Blocker(mw, "Blocker", 7000);
+		p2Holds(mw, might(), 1);
+
+		p1BlocksTheCpusAttack(mw, wall, blocker);
+
+		assertTrue(mw.gameLogText().contains("[P2] Combat trick — Might to break Blocker"));
+		assertTrue(mw.gameState.getP1BreakZone().contains(blocker));
+	}
+
+	@Test
+	void theCpuWeakensYourBlockerSoItsAttackerWins() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 7000);
+		CardData blocker = p1Blocker(mw, "Blocker", 9000);
+		p2Holds(mw, makeSummon("Sap", "Fire", 1,
+				"Choose 1 Forward opponent controls. It loses 3000 power until the end of the turn."), 1);
+
+		p1BlocksTheCpusAttack(mw, striker, blocker);
+
+		assertTrue(mw.gameLogText().contains("[P2] Combat trick — Sap to save Striker"));
+		assertTrue(mw.p2ForwardCards.contains(striker), "7000 against the 6000 left");
+		assertTrue(mw.gameState.getP1BreakZone().contains(blocker));
+	}
+
+	@Test
+	void damageTheBattleFinishesBreaksABlockerTheAttackerAloneCouldNot() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		CardData wall = makeForwardWithTraits("Wall", "Fire", 5000, EnumSet.of(CardData.Trait.CANNOT_BE_BROKEN));
+		placeP2Forward(mw, wall);
+		mw.p2ForwardPlayedOnTurn.set(0, 0);
+		CardData blocker = p1Blocker(mw, "Blocker", 7000);
+		p2Holds(mw, makeSummon("Spark", "Fire", 1, "Choose 1 Forward opponent controls. Deal it 3000 damage."), 1);
+
+		p1BlocksTheCpusAttack(mw, wall, blocker);
+
+		assertTrue(mw.gameLogText().contains("[P2] Combat trick — Spark to break Blocker"), "3000 and then 5000");
+		assertTrue(mw.gameState.getP1BreakZone().contains(blocker));
+	}
+
+	@Test
+	void noTrickIsSpentWhenItsAttackerAlreadyWins() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 9000);
+		CardData blocker = p1Blocker(mw, "Blocker", 7000);
+		CardData might = might();
+		p2Holds(mw, might, 1);
+
+		p1BlocksTheCpusAttack(mw, striker, blocker);
+
+		assertTrue(mw.gameState.getP2Hand().contains(might));
+		assertTrue(mw.gameState.getP1BreakZone().contains(blocker));
+	}
+
+	@Test
+	void noTrickIsSpentOnABattleItCannotTurn() throws Exception {
+		// +2000 makes 7000 into 9000, which still breaks against 10000 and does not break it.
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 7000);
+		CardData blocker = p1Blocker(mw, "Blocker", 10000);
+		CardData might = might();
+		p2Holds(mw, might, 1);
+
+		p1BlocksTheCpusAttack(mw, striker, blocker);
+
+		assertTrue(mw.gameState.getP2Hand().contains(might));
+		assertTrue(mw.gameState.getP2BreakZone().contains(striker));
+	}
+
+	@Test
+	void theCpuAnswersYourBoostToYourBlockerWithOneOfItsOwn() throws Exception {
+		// 8000 beats the 7000 blocker; P1's +3000 would turn that round. The CPU's +3000 resolves first
+		// and leaves 11000 against 10000.
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 8000);
+		CardData blocker = p1Blocker(mw, "Blocker", 7000);
+		p2Holds(mw, makeSummon("Surge", "Fire", 1, "Choose 1 Forward. It gains +3000 power until the end of the turn."), 1);
+		int si = mw.p2ForwardCards.indexOf(striker), bi = mw.p1ForwardCards.indexOf(blocker);
+		mw.p2ForwardStates.set(si, CardState.DULL);
+		mw.attackSubStep = 2;
+		mw.p2DeclaredAttackers.add(striker);
+		mw.p1DeclaredBlocker = blocker;
+		mw.p1BlockingIdx = bi;
+		mw.p1BlockedByAttacker = striker;
+
+		p1CastsAt(mw, makeSummon("Pump", "Water", 1, "Choose 1 Forward. It gains +3000 power until the end of the turn."),
+				new ForwardTarget(true, bi, ForwardTarget.CardZone.FORWARD));
+		playOut(mw, () -> mw.gameState.getStack().isEmpty(), "the Stack to empty");
+
+		assertTrue(mw.gameLogText().contains("[P2] Answers Pump — Surge to keep Striker alive"));
+		assertEquals(11000, mw.effectiveP2ForwardPower(si));
+		assertEquals(10000, mw.effectiveP1ForwardPower(bi));
+	}
+
+	@Test
+	void noAnswerToABoostThatDoesNotTurnTheBattle() throws Exception {
+		// 10000 against 7000: P1's +2000 leaves the blocker broken all the same.
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 10000);
+		CardData blocker = p1Blocker(mw, "Blocker", 7000);
+		CardData surge = makeSummon("Surge", "Fire", 1, "Choose 1 Forward. It gains +3000 power until the end of the turn.");
+		p2Holds(mw, surge, 1);
+		int si = mw.p2ForwardCards.indexOf(striker), bi = mw.p1ForwardCards.indexOf(blocker);
+		mw.p2ForwardStates.set(si, CardState.DULL);
+		mw.attackSubStep = 2;
+		mw.p2DeclaredAttackers.add(striker);
+		mw.p1DeclaredBlocker = blocker;
+		mw.p1BlockingIdx = bi;
+		mw.p1BlockedByAttacker = striker;
+
+		p1CastsAt(mw, makeSummon("Pump", "Water", 1, "Choose 1 Forward. It gains +2000 power until the end of the turn."),
+				new ForwardTarget(true, bi, ForwardTarget.CardZone.FORWARD));
+		playOut(mw, () -> mw.gameState.getStack().isEmpty(), "the Stack to empty");
+
+		assertTrue(mw.gameState.getP2Hand().contains(surge));
+	}
+
+	// ---- The trick held through Main Phase 1 -------------------------------------------------
+
+	@Test
+	void mainPhase1KeepsATrickAndTheBackupToCastItWhenTheCpuWillAttack() {
+		MainWindow mw = p2sMainPhaseWith(3);
+		p2Forward(mw, "Striker", 7000);
+		p1Blocker(mw, "Blocker", 8000);
+		CardData might = might();
+		CardData plain = makeForward("Plain", "Fire", 2, 5000);
+		p2Draws(mw, might);
+		p2Draws(mw, plain);
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+
+		assertSame(might, cpu.heldTrick().card());
+		assertTrue(cpu.castFromHandIfAble(), "the Plain Forward, with the two Backups not set aside");
+		assertFalse(cpu.castFromHandIfAble(), "Might is kept for the attack");
+		assertTrue(mw.gameState.getP2Hand().contains(might));
+		assertEquals(1, activeP2Backups(mw), "the one that casts it after the block");
+	}
+
+	@Test
+	void noTrickIsHeldWithNothingOfYoursToBlock() {
+		MainWindow mw = p2sMainPhaseWith(3);
+		p2Forward(mw, "Striker", 7000);
+		CardData resting = p1Blocker(mw, "Resting", 8000);
+		mw.p1ForwardStates.set(mw.p1ForwardCards.indexOf(resting), CardState.DULL);
+		p2Draws(mw, might());
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+
+		assertNull(cpu.heldTrick());
+	}
+
+	@Test
+	void noTrickIsHeldWithoutAForwardThatCanAttack() {
+		MainWindow mw = p2sMainPhaseWith(3);
+		CardData fresh = makeForward("Fresh", "Fire", 3, 7000);
+		placeP2Forward(mw, fresh);
+		mw.p2ForwardPlayedOnTurn.set(0, mw.gameState.getTurnNumber());
+		p1Blocker(mw, "Blocker", 8000);
+		p2Draws(mw, might());
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+
+		assertNull(cpu.heldTrick(), "played this turn, no Haste");
+	}
+
+	@Test
+	void theHeldTrickIsBackInMainPhase2AndWhileTheBattleIsFought() {
+		MainWindow mw = p2sMainPhaseWith(3);
+		p2Forward(mw, "Striker", 7000);
+		p1Blocker(mw, "Blocker", 8000);
+		p2Draws(mw, might());
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		mw.gameState.advancePhase();
+		assertEquals(GameState.GamePhase.ATTACK, mw.gameState.getCurrentPhase());
+
+		mw.attackSubStep = 0;
+		assertNotNull(cpu.heldTrick(), "Attack Preparation: still kept");
+		mw.attackSubStep = 2;
+		assertNull(cpu.heldTrick(), "after the block: there to be spent");
+		mw.attackSubStep = -1;
+		mw.gameState.advancePhase();
+		assertNull(cpu.heldTrick(), "Main Phase 2");
+	}
+
 	// ---- The seam itself --------------------------------------------------------------------
 
 	@Test
