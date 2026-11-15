@@ -6,6 +6,8 @@ import scraper.CardDatabase;
 import shufflingway.AppSettings;
 import shufflingway.DeckFormat;
 import shufflingway.UpdateChecker;
+import shufflingway.audio.Sound;
+import shufflingway.audio.SoundEffects;
 import shufflingway.dialog.FormatPicker;
 
 import javax.swing.*;
@@ -321,6 +323,9 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
 
     private void opponentConnected(GameConnection conn) {
         if (closed) { conn.close(); return; }
+        // Only past the handshake: a joiner turned away for a version or card-data mismatch never
+        // reaches here, so the chime means someone is really in the lobby.
+        SoundEffects.play(Sound.LOBBY_JOIN);
         // Assigned and first sent on the EDT, where the checkbox is read, so a toggle cannot fall
         // between the two and leave the joiner a stale value.
         connection = conn;

@@ -68,6 +68,12 @@ public enum ActionType {
     LOBBY_ERROR,    // payload: { "reason": "..." }
                     //   Relay server only: a LOBBY_CREATE, LOBBY_JOIN or DECK_LIST was refused.
                     //   Unlike DISCONNECT the connection stays open, so the player can try again.
+    LOBBY_OPPONENT, // payload: { "username": "...", "present": <bool> }
+                    //   Relay server → client: who sits opposite in the lobby. Sent to both seats
+                    //   when a joiner takes the second one, and to the creator ("present": false)
+                    //   when that joiner leaves before the match starts. Only to a client whose
+                    //   HELLO asked for it ("lobbyNotices": true): one that did not would drop the
+                    //   connection on a message it does not know.
     STATE_CHECKSUM, // payload: { "label": "...", "checksum": "..." }
                     //   Desync detection: a hash of state both clients must agree on.
 

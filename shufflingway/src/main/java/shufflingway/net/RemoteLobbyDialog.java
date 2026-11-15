@@ -5,6 +5,8 @@ import scraper.CardDatabase;
 import shufflingway.AppSettings;
 import shufflingway.DeckFormat;
 import shufflingway.UpdateChecker;
+import shufflingway.audio.Sound;
+import shufflingway.audio.SoundEffects;
 import shufflingway.dialog.DeckChooserPanel;
 import shufflingway.dialog.FormatPicker;
 import shufflingway.ThemeColors;
@@ -70,7 +72,13 @@ public class RemoteLobbyDialog extends JDialog {
     /** A create or join is in flight; its buttons stay off until the answer. */
     private boolean awaitingReply;
     private String  pendingLobbyName;
+    /** Whether the create or join in flight is a create. */
+    private boolean pendingCreate;
     private String  lobbyName;
+    /** Whether this client created the lobby it is in — the one a joiner is chimed in to. */
+    private boolean createdLobby;
+    /** Who sits opposite in the lobby, as the server last said; {@code null} for no one (or an old server). */
+    private String  opponentName;
     private boolean settingsSeen;
     /** The server's banlist reset count as last seen; sent with the deck. */
     private int     lastResets;
@@ -293,6 +301,7 @@ public class RemoteLobbyDialog extends JDialog {
         }
         awaitingReply = true;
         pendingLobbyName = lobby.name();
+        pendingCreate = false;
         statusLabel.setText("Joining \"" + lobby.name() + "\"…");
         conn.send(RemoteLobbyExchange.joinAction(lobby.name(), password));
         refreshControls();
@@ -314,6 +323,7 @@ public class RemoteLobbyDialog extends JDialog {
         }
         awaitingReply = true;
         pendingLobbyName = name;
+        pendingCreate = true;
         statusLabel.setText("Creating \"" + name + "\"…");
         conn.send(RemoteLobbyExchange.createAction(name, password, createRules.banlist(), debugBox.isSelected(),
                 createRules.format()));
@@ -335,6 +345,7 @@ public class RemoteLobbyDialog extends JDialog {
     private void applySettings(LobbyExchange.LobbySettings s) {
         if (lobbyName == null) {
             lobbyName = pendingLobbyName == null ? "the lobby" : pendingLobbyName;
+            createdLobby = pendingCreate;
             awaitingReply = false;
             pollTimer.stop();
         }
@@ -349,7 +360,7 @@ public class RemoteLobbyDialog extends JDialog {
             // A deck chosen before the lobby's settings were known stands if they allow it. The
             // banlist, if on, has already deselected one it refuses.
             if (deckChooser.getSelectedDeckId() >= 0) confirmDeck();
-            else statusLabel.setText("In \"" + lobbyName + "\". Choose a deck and confirm it.");
+            else showLobbyStatus("In \"" + lobbyName + "\".");
         } else if (reset) {
             unconfirm();
             deckChooser.clearSelection();
@@ -371,8 +382,33 @@ public class RemoteLobbyDialog extends JDialog {
         }
         confirmedDeckId = id;
         deckChooser.setEnabled(false);
-        statusLabel.setText("In \"" + lobbyName + "\". Deck confirmed; waiting for an opponent…");
+        showLobbyStatus("In \"" + lobbyName + "\".");
         refreshControls();
+    }
+
+    /**
+     * Someone has taken the seat opposite, or left it ({@code present} false). The lobby's creator
+     * hears a chime when someone joins — they may well have looked away while they waited.
+     */
+    private void opponentChanged(String username, boolean present) {
+        if (lobbyName == null) return;
+        String who = username.isEmpty() ? "An opponent" : username;
+        opponentName = present ? (username.isEmpty() ? "your opponent" : username) : null;
+        if (present && createdLobby) SoundEffects.play(Sound.LOBBY_JOIN);
+        showLobbyStatus(!present ? who + " left \"" + lobbyName + "\"."
+                : createdLobby ? who + " joined \"" + lobbyName + "\"."
+                : "In \"" + lobbyName + "\" with " + who + ".");
+    }
+
+    /**
+     * {@code lead}, then what is left before the match starts: a deck to confirm, or the opponent's —
+     * named once the server has said who it is — or, with no one opposite, an opponent to join.
+     */
+    private void showLobbyStatus(String lead) {
+        String rest = confirmedDeckId < 0 ? "Choose a deck and confirm it."
+                : opponentName != null ? "Deck confirmed; waiting for " + opponentName + " to confirm theirs…"
+                : "Deck confirmed; waiting for an opponent…";
+        statusLabel.setText(lead + " " + rest);
     }
 
     private void unconfirm() {
@@ -448,6 +484,9 @@ public class RemoteLobbyDialog extends JDialog {
                             @Override public void onSettings(LobbyExchange.LobbySettings settings) {
                                 onEdt(() -> applySettings(settings));
                             }
+                            @Override public void onOpponent(String username, boolean present) {
+                                onEdt(() -> opponentChanged(username, present));
+                            }
                         });
 
                 int[] deck = {-1};
@@ -469,6 +508,8 @@ public class RemoteLobbyDialog extends JDialog {
         awaitingReply    = false;
         pendingLobbyName = null;
         lobbyName        = null;
+        createdLobby     = false;
+        opponentName     = null;
         settingsSeen     = false;
         lastResets       = 0;
         unconfirm();

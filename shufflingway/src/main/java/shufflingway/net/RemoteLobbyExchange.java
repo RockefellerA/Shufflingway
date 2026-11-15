@@ -29,6 +29,7 @@ import shufflingway.DeckFormat;
  *   server → client : LOBBY_LIST     (the lobbies this client could join)
  *   client → server : LOBBY_CREATE or LOBBY_JOIN
  *   server → client : LOBBY_SETTINGS (now in the lobby) or LOBBY_ERROR (still browsing)
+ *   server → client : LOBBY_OPPONENT (whenever someone takes or leaves the seat opposite)
  *   client → server : DECK_LIST      (the confirmed deck, plus the "resets" it was confirmed under)
  *   server → client : DECK_LIST      (the opponent's deck, once both are in)
  *   server → client : GAME_SETUP     (seed, coin flip, final settings, "seat", "matchId")
@@ -46,12 +47,26 @@ public final class RemoteLobbyExchange {
 	public static final int LOBBY_NAME_MAX_LENGTH = 24;
 	public static final int PASSWORD_MAX_LENGTH   = 32;
 
-	/** Client → server: who this client is, so the server can list it and pair it with a match. */
+	/**
+	 * Client → server: who this client is, so the server can list it and pair it with a match — and
+	 * that it understands LOBBY_OPPONENT, which a server sends only to a client that says so.
+	 */
 	public static GameAction helloAction(String version, String cardChecksum) {
 		return GameAction.of(ActionType.HELLO, new JSONObject()
 				.put("version", version)
 				.put("cardChecksum", cardChecksum)
-				.put("username", AppSettings.getUsername()));
+				.put("username", AppSettings.getUsername())
+				.put(LOBBY_NOTICES, true));
+	}
+
+	/** The HELLO field a client sets to be sent LOBBY_OPPONENT. */
+	public static final String LOBBY_NOTICES = "lobbyNotices";
+
+	/** Server → client: {@code username} has taken the seat opposite ({@code present}), or left it. */
+	public static GameAction opponentAction(String username, boolean present) {
+		return GameAction.of(ActionType.LOBBY_OPPONENT, new JSONObject()
+				.put("username", username)
+				.put("present", present));
 	}
 
 	/** Client → server: asks for the lobbies this client could join. */
@@ -141,6 +156,11 @@ public final class RemoteLobbyExchange {
 		void onError(String reason);
 		/** The server's lobby options: the first one means this client is now in a lobby. */
 		void onSettings(LobbyExchange.LobbySettings settings);
+		/**
+		 * {@code username} (blank if they set none) has taken the seat opposite, or left it
+		 * ({@code present} false). Never sent by a server that predates it.
+		 */
+		default void onOpponent(String username, boolean present) { }
 	}
 
 	/** What the server sent to start the match: the opponent's deck and the GAME_SETUP. */
@@ -182,6 +202,8 @@ public final class RemoteLobbyExchange {
 				case LOBBY_LIST -> listener.onLobbies(lobbiesOf(action));
 				case LOBBY_ERROR -> listener.onError(action.payload().optString("reason", "Refused by server"));
 				case LOBBY_SETTINGS -> listener.onSettings(LobbyExchange.settingsOf(action));
+				case LOBBY_OPPONENT -> listener.onOpponent(action.payload().optString("username", ""),
+						action.payload().optBoolean("present", true));
 				case DECK_LIST -> opponent = LobbyExchange.remoteDeckOf(action);
 				case GAME_SETUP -> {
 					if (opponent == null) throw new IOException("Server started the match without an opponent's deck");

@@ -167,7 +167,15 @@ final class LobbyRegistry {
             lobbyOf.put(s, lobby);
         }
         log.accept(s + " joined lobby '" + lobby.name + "'");
+        lobby.creator.tellOpponent(s.username(), true);
         return lobby.settings();
+    }
+
+    /** Who sits opposite {@code s} in its lobby, or {@code null}: no lobby, or no one yet. */
+    synchronized ClientSession opponentInLobby(ClientSession s) {
+        Lobby lobby = lobbyOf.get(s);
+        if (lobby == null) return null;
+        return lobby.creator == s ? lobby.joiner : lobby.creator;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -254,6 +262,7 @@ final class LobbyRegistry {
     void leave(ClientSession s, boolean saidGoodbye) {
         ClientSession hangUp = null;
         String reason = null;
+        ClientSession leftBehind = null;   // a creator whose joiner left before the start
         synchronized (this) {
             Match match = matchOf.remove(s);
             if (match != null) {
@@ -276,11 +285,13 @@ final class LobbyRegistry {
                 } else {
                     lobby.joiner = null;
                     lobby.joinerDeck = null;
+                    leftBehind = lobby.creator;
                     log.accept(s + " left lobby '" + lobby.name + "'; it is open again");
                 }
             }
         }
         if (hangUp != null) hangUp.hangUp(saidGoodbye ? null : reason);
+        if (leftBehind != null) leftBehind.tellOpponent(s.username(), false);
     }
 
     synchronized int lobbyCount() {

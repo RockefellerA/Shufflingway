@@ -86,6 +86,22 @@ class RelayServerTest {
         return connect(username, CHECKSUM);
     }
 
+    /** A client that asks, as the app's own HELLO does, to be told who sits opposite in its lobby. */
+    private GameConnection connectAsking(String username) throws IOException {
+        GameConnection c = rawConnect();
+        c.send(GameAction.of(ActionType.HELLO, new JSONObject()
+                .put("version", VERSION).put("cardChecksum", CHECKSUM).put("username", username)
+                .put(RemoteLobbyExchange.LOBBY_NOTICES, true)));
+        RemoteLobbyExchange.awaitWelcome(c);
+        return c;
+    }
+
+    private static void assertOpponent(GameAction a, String username, boolean present) {
+        assertEquals(ActionType.LOBBY_OPPONENT, a.type());
+        assertEquals(username, a.payload().getString("username"));
+        assertEquals(present, a.payload().getBoolean("present"));
+    }
+
     private static List<RemoteLobbyExchange.LobbyInfo> list(GameConnection c) throws IOException {
         c.send(RemoteLobbyExchange.listAction());
         GameAction reply = c.receiveSync();
@@ -230,6 +246,73 @@ class RelayServerTest {
         GameAction bye = carol.receiveSync();
         assertEquals(ActionType.DISCONNECT, bye.type());
         assertEquals("The lobby's creator left", bye.payload().getString("reason"));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Who sits opposite (LOBBY_OPPONENT)
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    void bothSeatsAreToldWhoIsOppositeAndTheCreatorWhenTheJoinerLeaves() throws IOException {
+        GameConnection alice = connectAsking("Alice");
+        alice.send(RemoteLobbyExchange.createAction("Den", "", false, false));
+        assertEquals(ActionType.LOBBY_SETTINGS, alice.receiveSync().type());
+
+        GameConnection bob = connectAsking("Bob");
+        bob.send(RemoteLobbyExchange.joinAction("Den", ""));
+        assertEquals(ActionType.LOBBY_SETTINGS, bob.receiveSync().type(), "in the lobby first");
+        assertOpponent(bob.receiveSync(), "Alice", true);
+        assertOpponent(alice.receiveSync(), "Bob", true);
+
+        bob.close();
+        assertOpponent(alice.receiveSync(), "Bob", false);
+    }
+
+    @Test
+    void aClientThatDidNotAskIsToldNothingInEitherSeat() throws IOException {
+        // An older client hangs up on a message it does not know, so the notice must never reach one.
+        GameConnection oldCreator = connect("Old");
+        oldCreator.send(RemoteLobbyExchange.createAction("Den", "", false, false));
+        oldCreator.receiveSync();
+        GameConnection bob = connectAsking("Bob");
+        bob.send(RemoteLobbyExchange.joinAction("Den", ""));
+        bob.receiveSync();
+        assertOpponent(bob.receiveSync(), "Old", true);
+        oldCreator.send(deck("deck-a", "1-001H"));
+        bob.send(deck("deck-b", "2-002R"));
+        assertEquals(ActionType.DECK_LIST, oldCreator.receiveSync().type(), "no LOBBY_OPPONENT before the match");
+
+        GameConnection carol = connectAsking("Carol");
+        carol.send(RemoteLobbyExchange.createAction("Nook", "", false, false));
+        carol.receiveSync();
+        GameConnection oldJoiner = connect("Older");
+        oldJoiner.send(RemoteLobbyExchange.joinAction("Nook", ""));
+        assertEquals(ActionType.LOBBY_SETTINGS, oldJoiner.receiveSync().type());
+        assertOpponent(carol.receiveSync(), "Older", true);
+        carol.send(deck("deck-c", "1-001H"));
+        oldJoiner.send(deck("deck-d", "2-002R"));
+        assertEquals(ActionType.DECK_LIST, oldJoiner.receiveSync().type(), "no LOBBY_OPPONENT after the settings");
+    }
+
+    @Test
+    void theLobbyLoopHandsTheNoticeToItsListener() throws IOException {
+        GameConnection alice = connectAsking("Alice");
+        alice.send(RemoteLobbyExchange.createAction("Den", "", false, false));
+        GameConnection bob = connectAsking("Bob");
+        List<String> heard = Collections.synchronizedList(new ArrayList<>());
+        RemoteLobbyExchange.LobbyListener recording = new RemoteLobbyExchange.LobbyListener() {
+            @Override public void onLobbies(List<RemoteLobbyExchange.LobbyInfo> lobbies) { }
+            @Override public void onError(String reason) { fail(reason); }
+            @Override public void onSettings(LobbyExchange.LobbySettings settings) { }
+            @Override public void onOpponent(String username, boolean present) { heard.add(username + ":" + present); }
+        };
+        assertEquals(ActionType.LOBBY_SETTINGS, alice.receiveSync().type());
+        bob.send(RemoteLobbyExchange.joinAction("Den", ""));
+        bob.send(deck("deck-b", "2-002R"));
+        alice.send(deck("deck-a", "1-001H"));
+
+        RemoteLobbyExchange.awaitMatch(alice, recording);
+        assertEquals(List.of("Bob:true"), heard);
     }
 
     // ---------------------------------------------------------------------------------------------

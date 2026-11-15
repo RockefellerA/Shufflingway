@@ -68,6 +68,8 @@ final class ClientSession implements Runnable {
     private String username = "";
     private String version = "";
     private String cardChecksum = "";
+    /** Whether the client's HELLO asked for LOBBY_OPPONENT; one that did not would hang up on it. */
+    private boolean wantsLobbyNotices;
 
     /** The opponent, once the registry pairs this session into a match. */
     private volatile ClientSession peer;
@@ -93,6 +95,11 @@ final class ClientSession implements Runnable {
     String username()     { return username; }
     String version()      { return version; }
     String cardChecksum() { return cardChecksum; }
+
+    /** Tells this client that {@code username} has taken the seat opposite, or left it — if it asked to be told. */
+    void tellOpponent(String username, boolean present) {
+        if (wantsLobbyNotices) send(RemoteLobbyExchange.opponentAction(username, present));
+    }
     ClientSession peer()  { return peer; }
     InetAddress address() { return socket.getInetAddress(); }
 
@@ -212,6 +219,7 @@ final class ClientSession implements Runnable {
         version      = clean(p.optString("version"), 32);
         cardChecksum = clean(p.optString("cardChecksum"), 128);
         username     = clean(p.optString("username"), 8);
+        wantsLobbyNotices = p.optBoolean(RemoteLobbyExchange.LOBBY_NOTICES, false);
         if (version.isEmpty() || cardChecksum.isEmpty()) {
             hangUp("Missing version or card checksum");
             return false;
@@ -250,7 +258,13 @@ final class ClientSession implements Runnable {
                 }
             }
             case LOBBY_JOIN -> {
-                send(registry.join(this, clean(p.optString("name"), Integer.MAX_VALUE), p.optString("password")));
+                GameAction reply = registry.join(this, clean(p.optString("name"), Integer.MAX_VALUE), p.optString("password"));
+                send(reply);
+                // After the settings, which are what tell the joiner it is in: then who is opposite.
+                if (reply.type() == ActionType.LOBBY_SETTINGS) {
+                    ClientSession creator = registry.opponentInLobby(this);
+                    if (creator != null) tellOpponent(creator.username(), true);
+                }
                 if (passwordFailures >= MAX_PASSWORD_FAILURES) {
                     hangUp("Too many wrong passwords");
                     return false;
