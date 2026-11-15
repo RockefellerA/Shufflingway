@@ -6,6 +6,8 @@ import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.RenderingHints;
@@ -29,6 +31,7 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -718,11 +721,12 @@ public class CardPickerDialog {
     public int pickCardImage(List<CardData> cards, String title, boolean allowCancel,
             ToIntFunction<CardData> costFn) {
         if (cards.isEmpty()) return -1;
-        JDialog dlg = new JDialog(owner, title, true);
+        JDialog dlg = new JDialog(owner, "Choose a Card", true);
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(allowCancel ? JDialog.DISPOSE_ON_CLOSE : JDialog.DO_NOTHING_ON_CLOSE);
 
         int[] selection = { -1 };
+        int captionLines = captionLineCount(cards, costFn);
 
         JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 12));
         for (int idx = 0; idx < cards.size(); idx++) {
@@ -767,31 +771,16 @@ public class CardPickerDialog {
                 }
             }.execute();
 
-            JLabel nameLabel;
-            if (costFn != null) {
-                nameLabel = new JLabel("<html><div style='width:" + CARD_W + "px;text-align:center'>"
-                        + candidate.name() + "<br>(Cost: " + costFn.applyAsInt(candidate) + ")" + "</div></html>",
-                        SwingConstants.CENTER);
-            } else {
-                nameLabel = new JLabel(candidate.name(), SwingConstants.CENTER);
-                nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-            }
-            nameLabel.setFont(FontLoader.loadPixelFont(9));
-            nameLabel.setPreferredSize(new Dimension(CARD_W, costFn != null ? 30 : 18));
-
             wrapper.add(lbl, BorderLayout.CENTER);
-            wrapper.add(nameLabel, BorderLayout.SOUTH);
+            wrapper.add(cardCaption(candidate, costFn, captionLines), BorderLayout.SOUTH);
             cardsPanel.add(wrapper);
         }
 
-        JLabel hint = new JLabel(allowCancel ? "Click a card to play it, or close to decline"
-                : "Click a card to select it", SwingConstants.CENTER);
+        JLabel hint = new JLabel(allowCancel ? "Click a card to choose it, or close to decline"
+                : "Click a card to choose it", SwingConstants.CENTER);
         hint.setFont(FontLoader.loadPixelFont(9));
 
-        dlg.getContentPane().setLayout(new BorderLayout(0, 6));
-        dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
-        dlg.getContentPane().add(hint, BorderLayout.SOUTH);
-        dlg.pack();
+        layoutChooser(dlg, title, cardsPanel, hint);
         dlg.setLocationRelativeTo(owner);
         dlg.setVisible(true);
 
@@ -814,9 +803,11 @@ public class CardPickerDialog {
     public List<Integer> pickMultiCardImage(List<CardData> cards, String title, int count,
             boolean eachDifferentType, boolean showCost, int min) {
         if (cards.isEmpty() || count <= 0) return null;
-        JDialog dlg = new JDialog(owner, title, true);
+        JDialog dlg = new JDialog(owner, count == 1 ? "Choose a Card" : "Choose Cards", true);
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        ToIntFunction<CardData> costFn = showCost ? CardData::cost : null;
+        int captionLines = captionLineCount(cards, costFn);
 
         List<Integer> selected = new ArrayList<>();
         List<JLabel> labels = new ArrayList<>();
@@ -885,20 +876,8 @@ public class CardPickerDialog {
                 }
             }.execute();
 
-            JLabel nameLabel;
-            if (showCost) {
-                nameLabel = new JLabel("<html><div style='width:" + CARD_W + "px;text-align:center'>"
-                        + candidate.name() + "<br>(Cost: " + candidate.cost() + ")" + "</div></html>",
-                        SwingConstants.CENTER);
-            } else {
-                nameLabel = new JLabel(candidate.name(), SwingConstants.CENTER);
-                nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-            }
-            nameLabel.setFont(FontLoader.loadPixelFont(9));
-            nameLabel.setPreferredSize(new Dimension(CARD_W, showCost ? 30 : 18));
-
             wrapper.add(lbl, BorderLayout.CENTER);
-            wrapper.add(nameLabel, BorderLayout.SOUTH);
+            wrapper.add(cardCaption(candidate, costFn, captionLines), BorderLayout.SOUTH);
             cardsPanel.add(wrapper);
             labels.add(lbl);
         }
@@ -923,14 +902,98 @@ public class CardPickerDialog {
         btnRow.add(cancelBtn);
         south.add(btnRow, BorderLayout.SOUTH);
 
-        dlg.getContentPane().setLayout(new BorderLayout(0, 6));
-        dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
-        dlg.getContentPane().add(south, BorderLayout.SOUTH);
-        dlg.pack();
+        layoutChooser(dlg, title, cardsPanel, south);
         dlg.setLocationRelativeTo(owner);
         dlg.setVisible(true);
 
         return confirmed[0] ? new ArrayList<>(selected) : null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Image chooser layout: the prompt above, captions under the cards
+    // -------------------------------------------------------------------------
+
+    /** Padding inside an image chooser, so no text runs up against its edges. */
+    private static final int CHOOSER_PAD = UiScale.scale(12);
+
+    private static Font captionFont() { return FontLoader.loadPixelFont(9); }
+
+    private static Font promptFont() { return FontLoader.loadPixelFont(10); }
+
+    /**
+     * {@code text} broken at spaces into lines no wider than {@code width} in {@code font}; a word
+     * wider than that keeps a line to itself. Measured, rather than left to an HTML width, which
+     * Swing's renderer reads at its own CSS scale: a caption given the width of a 187-pixel card laid
+     * itself out 243 wide, and its centred text sat to the right of the card's centre.
+     */
+    static List<String> wrapToWidth(String text, Font font, int width) {
+        FontMetrics fm = new JLabel().getFontMetrics(font);
+        List<String> lines = new ArrayList<>();
+        String line = "";
+        for (String word : text.trim().split("\\s+")) {
+            String longer = line.isEmpty() ? word : line + " " + word;
+            if (!line.isEmpty() && fm.stringWidth(longer) > width) {
+                lines.add(line);
+                line = word;
+            } else {
+                line = longer;
+            }
+        }
+        if (!line.isEmpty()) lines.add(line);
+        return lines;
+    }
+
+    /** {@code lines} as one label's centred HTML, each escaped. */
+    private static String centredHtml(List<String> lines) {
+        return "<html><center>" + lines.stream()
+                .map(l -> l.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+                .collect(Collectors.joining("<br>")) + "</center></html>";
+    }
+
+    /** The caption under {@code card}: its name, wrapped to the card's width, then its cost when {@code costFn} is set. */
+    private static List<String> captionLines(CardData card, ToIntFunction<CardData> costFn) {
+        List<String> lines = new ArrayList<>(wrapToWidth(card.name(), captionFont(), CARD_W));
+        if (costFn != null) lines.add("(Cost: " + costFn.applyAsInt(card) + ")");
+        return lines;
+    }
+
+    /** The most caption lines any of {@code cards} needs ({@link #captionLines}). */
+    static int captionLineCount(List<CardData> cards, ToIntFunction<CardData> costFn) {
+        int most = 1;
+        for (CardData c : cards) most = Math.max(most, captionLines(c, costFn).size());
+        return most;
+    }
+
+    /**
+     * The caption centred under {@code card}'s image ({@link #captionLines}), {@code lines} lines tall —
+     * the most any card in the chooser needs, so every image sits at the same height.
+     */
+    static JLabel cardCaption(CardData card, ToIntFunction<CardData> costFn, int lines) {
+        JLabel caption = new JLabel(centredHtml(captionLines(card, costFn)), SwingConstants.CENTER);
+        caption.setFont(captionFont());
+        caption.setVerticalAlignment(SwingConstants.TOP);
+        int lineHeight = caption.getFontMetrics(captionFont()).getHeight();
+        caption.setPreferredSize(new Dimension(CARD_W, lines * lineHeight + UiScale.scale(4)));
+        return caption;
+    }
+
+    /**
+     * Lays out an image chooser and packs it: {@code prompt} — what the player is being asked —
+     * centred above {@code cards} and wrapped to the wider of the cards' row and {@code footer}, with
+     * {@code footer} below, all inside {@link #CHOOSER_PAD}. The prompt is here rather than in the title
+     * bar, which cuts a long one short.
+     */
+    static void layoutChooser(JDialog dlg, String prompt, JPanel cards, JComponent footer) {
+        int width = Math.max(cards.getPreferredSize().width, footer.getPreferredSize().width);
+        JLabel promptLabel = new JLabel(centredHtml(wrapToWidth(prompt, promptFont(), width)), SwingConstants.CENTER);
+        promptLabel.setFont(promptFont());
+        JPanel content = new JPanel(new BorderLayout(0, UiScale.scale(6)));
+        content.setBorder(BorderFactory.createEmptyBorder(CHOOSER_PAD, CHOOSER_PAD, CHOOSER_PAD, CHOOSER_PAD));
+        content.add(promptLabel, BorderLayout.NORTH);
+        content.add(cards, BorderLayout.CENTER);
+        content.add(footer, BorderLayout.SOUTH);
+        dlg.setContentPane(content);
+        dlg.pack();
     }
 
     // -------------------------------------------------------------------------
