@@ -4220,7 +4220,7 @@ public class MainWindow {
                                 autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhaseEachTurn(true);
                                 autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfOppAttackPhase(true);
                                 refreshAllForwardSlots();
-                                if (!hasAttackableForward() && !hasBackAttackInHand()) {
+                                if (!hasAttackableForward() && !hasPlayableBackAttackInHand()) {
                                     logEntry("No attackers available — skipping to Main Phase 2");
                                     onNextPhase();
                                     return;
@@ -4241,6 +4241,15 @@ public class MainWindow {
                                 logEntry("[Priority] P1 passes — P2 may respond.");
                                 if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
                                 offerPhasePriority(() -> {
+                                    // Nothing to declare — the phase was opened for a Back Attack play
+                                    // that has been made or passed up — so it closes, as it does once
+                                    // the last attacker has attacked.
+                                    if (!hasAttackableForward()) {
+                                        logEntry("No attackers available — skipping to Main Phase 2");
+                                        attackSubStep = -1;
+                                        onNextPhase();
+                                        return;
+                                    }
                                     setAttackSubStep(1);
                                     refreshPhaseTracker();
                                     refreshAttackButton();
@@ -23482,9 +23491,25 @@ public class MainWindow {
 		return worstIdx;
 	}
 
-	private boolean hasBackAttackInHand() {
-		return gameState.getP1Hand().stream()
-				.anyMatch(c -> c.hasTrait(CardData.Trait.BACK_ATTACK));
+	/**
+	 * Whether P1 holds a Back Attack card they could play in Attack Preparation — the reason an Attack
+	 * Phase with nothing to attack with is opened rather than skipped. Asked through the hand menu's
+	 * own check ({@link #p1HandCardHasAnyPlay}), as of that sub-step: the timing rules open a
+	 * Summon-speed play in the Attack Phase only there ({@link #p1MayActInAttackPhase}), so the
+	 * sub-step is pointed at it for the question and put back after. A card P1 cannot pay for is no
+	 * reason to stop.
+	 */
+	private boolean hasPlayableBackAttackInHand() {
+		int saved = attackSubStep;
+		attackSubStep = 0;
+		try {
+			List<CardData> hand = gameState.getP1Hand();
+			for (int i = 0; i < hand.size(); i++)
+				if (hand.get(i).hasTrait(CardData.Trait.BACK_ATTACK) && p1HandCardHasAnyPlay(hand.get(i), i)) return true;
+			return false;
+		} finally {
+			attackSubStep = saved;
+		}
 	}
 
 	/**

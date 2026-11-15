@@ -333,8 +333,8 @@ public final class AppSettings {
     }
 
     /**
-     * Master switch for the Debug section in the Preferences dialog. The Debug section (and any
-     * individual debug toggles) are hidden unless {@code settings.ini} contains {@code debug=1}.
+     * Master switch for the Debug menu. The menu, and with it every debug tool and toggle, is hidden
+     * unless {@code settings.ini} contains {@code debug=1}.
      * There is intentionally no setter — users opt in by editing the file by hand.
      */
     public static boolean isDebugEnabled() {

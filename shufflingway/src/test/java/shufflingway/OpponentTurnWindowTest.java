@@ -150,11 +150,14 @@ class OpponentTurnWindowTest {
 
 	@Test
 	void aSummonCastAtAttackPreparationResolvesAndDeclareAttackersFollows() throws Exception {
+		// Two that may attack, so one is left to declare whichever the Bolt breaks: with none left the
+		// phase ends instead.
 		MainWindow mw = p1sTurnAt(GameState.GamePhase.ATTACK);
 		mw.attackSubStep = 0;
 		p1Attacker(mw, 7000);
 		CardData target = makeForward("Target", "Water", 3, 7000);
 		placeP1Forward(mw, target);
+		mw.p1ForwardPlayedOnTurn.set(mw.p1ForwardCards.indexOf(target), 0);
 		p2Holds(mw, bolt(), 1);
 		ScriptedCpu cpu = new ScriptedCpu(mw);
 		mw.opponent = cpu.playing(PriorityWindow.ATTACK_PREPARATION, cpu::castFromHandIfAble);
@@ -1601,6 +1604,70 @@ class OpponentTurnWindowTest {
 		assertEquals(List.of(new ForwardTarget(true, mw.p1ForwardCards.indexOf(blocker), ForwardTarget.CardZone.FORWARD)), blockers);
 		assertNull(mw.pendingP2Attacker);
 		assertEquals(-1, mw.pendingP2AttackerIdx);
+	}
+
+	// ---- Your Attack Phase with nothing to attack with ---------------------------------------
+
+	/** P1 holds {@code card} in hand. */
+	private static void p1Holds(MainWindow mw, CardData card) {
+		mw.gameState.getIdentity().put(card, true);
+		mw.gameState.getP1Hand().add(card);
+	}
+
+	/** A Water Forward with Back Attack, cost 3, power 9000 — for P1's hand. */
+	private static CardData p1Ambusher(String name) {
+		return makeForwardWithTraits(name, "Water", 9000, EnumSet.of(CardData.Trait.BACK_ATTACK));
+	}
+
+	@Test
+	void aBackAttackCardYouCannotPayForDoesNotOpenAnAttackPhaseWithNoAttackers() throws Exception {
+		// The playtest: a hand of Back Attack cards, nothing to pay for one, no Forward to attack with.
+		MainWindow mw = p1sTurnAt(GameState.GamePhase.MAIN_1);
+		p1Holds(mw, p1Ambusher("Lurker"));
+
+		onEdt(mw::onNextPhase);
+		playOut(mw, () -> mw.gameState.getCurrentPhase() == GameState.GamePhase.MAIN_2, "Main Phase 2");
+
+		assertTrue(mw.gameLogText().contains("No attackers available — skipping to Main Phase 2"));
+	}
+
+	@Test
+	void aBackAttackCardYouCanPayForOpensAttackPreparation() throws Exception {
+		MainWindow mw = p1sTurnAt(GameState.GamePhase.MAIN_1);
+		for (int i = 0; i < 3; i++) placeP1Backup(mw, makeBackup("Ally " + i, "Water", 1));
+		p1Holds(mw, p1Ambusher("Lurker"));
+
+		onEdt(mw::onNextPhase);
+		playOut(mw, () -> mw.gameState.getCurrentPhase() == GameState.GamePhase.ATTACK && mw.attackSubStep == 0,
+				"Attack Preparation");
+	}
+
+	@Test
+	void passingAttackPreparationWithNothingToAttackWithEndsThePhase() throws Exception {
+		// Held open for the Back Attack card; passed up, there is nothing to declare.
+		MainWindow mw = p1sTurnAt(GameState.GamePhase.MAIN_1);
+		for (int i = 0; i < 3; i++) placeP1Backup(mw, makeBackup("Ally " + i, "Water", 1));
+		p1Holds(mw, p1Ambusher("Lurker"));
+		onEdt(mw::onNextPhase);
+		playOut(mw, () -> mw.attackSubStep == 0, "Attack Preparation");
+
+		onEdt(mw::onNextPhase);
+		playOut(mw, () -> mw.gameState.getCurrentPhase() == GameState.GamePhase.MAIN_2, "Main Phase 2");
+		assertEquals(-1, mw.attackSubStep);
+	}
+
+	@Test
+	void removalOnYourOnlyAttackerInAttackPreparationEndsThePhase() throws Exception {
+		MainWindow mw = p1sTurnAt(GameState.GamePhase.ATTACK);
+		mw.attackSubStep = 0;
+		CardData attacker = p1Attacker(mw, 7000);
+		p2Holds(mw, bolt(), 1);
+		ScriptedCpu cpu = new ScriptedCpu(mw);
+		mw.opponent = cpu.playing(PriorityWindow.ATTACK_PREPARATION, cpu::castFromHandIfAble);
+
+		onEdt(mw::onNextPhase);
+		playOut(mw, () -> mw.gameState.getCurrentPhase() == GameState.GamePhase.MAIN_2, "Main Phase 2");
+		assertTrue(mw.gameState.getP1BreakZone().contains(attacker));
 	}
 
 	// ---- The seam itself --------------------------------------------------------------------
