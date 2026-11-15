@@ -18,10 +18,13 @@ public class DebugMenu extends JMenu {
     /**
      * @param cpuAcceptsEveryOffer initial state of the "CPU Accepts Every 'You May'" switch
      * @param setCpuAcceptsEveryOffer called with the switch's new state when it is toggled
+     * @param cpuShowsReasoning initial state of the "Show CPU Reasoning" switch
+     * @param setCpuShowsReasoning called with the switch's new state when it is toggled
      */
     public DebugMenu(Runnable spawnOnField, Runnable addToHand, Runnable addToBreakZone,
                      Runnable addRemoveCounters, Runnable activateDullBreakCards, Runnable setDamageAndCrystals,
-                     boolean cpuAcceptsEveryOffer, Consumer<Boolean> setCpuAcceptsEveryOffer) {
+                     boolean cpuAcceptsEveryOffer, Consumer<Boolean> setCpuAcceptsEveryOffer,
+                     boolean cpuShowsReasoning, Consumer<Boolean> setCpuShowsReasoning) {
         super("Debug");
 
         addItem("Spawn Card on Field…",
@@ -51,6 +54,12 @@ public class DebugMenu extends JMenu {
                 + "cost, a chance to use an ability again — instead of weighing it. For playtesting card text.");
         acceptsEvery.addActionListener((ActionEvent e) -> setCpuAcceptsEveryOffer.accept(acceptsEvery.isSelected()));
         add(acceptsEvery);
+
+        JCheckBoxMenuItem reasoning = new JCheckBoxMenuItem("Show CPU Reasoning", cpuShowsReasoning);
+        reasoning.setToolTipText("The log says why the CPU plays as it does — why it holds an attacker back, "
+                + "plays a trick, or declines an offer — as well as what it plays. Remembered between sessions.");
+        reasoning.addActionListener((ActionEvent e) -> setCpuShowsReasoning.accept(reasoning.isSelected()));
+        add(reasoning);
     }
 
     private void addItem(String label, String tooltip, Runnable action) {

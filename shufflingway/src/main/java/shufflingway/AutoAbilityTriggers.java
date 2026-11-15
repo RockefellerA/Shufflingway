@@ -2842,6 +2842,53 @@ final class AutoAbilityTriggers {
 	private static final Pattern ATTACK_SUBJECT_SELF =
 			Pattern.compile("(?i)^this\\s+(?:forward|backup|monster|character)$");
 
+	/** A triggered ability's effect, with the card it belongs to — the source its choice is made for. */
+	record TriggeredEffect(CardData source, String effectText) {}
+
+	/**
+	 * The effects that trigger when {@code card} attacks alone for {@code isP1}: its own "When …
+	 * attacks" abilities, and "When 1 or more Forwards you control attack" on the cards of its side —
+	 * the first two walks {@link #triggerAutoAbilitiesForAttack} makes, read without firing them, for
+	 * the CPU foreseeing what an attack brings with it. The filtered watchers are left out.
+	 */
+	List<TriggeredEffect> attackEffects(CardData card, boolean isP1) {
+		List<TriggeredEffect> out = new ArrayList<>();
+		if (!mw.lostAbilitiesCards.contains(card))
+			for (AutoAbility fa : mw.effectiveAutoAbilities(card)) {
+				if (!fa.triggerCard().equalsIgnoreCase(card.name())
+						&& !ATTACK_SUBJECT_SELF.matcher(fa.triggerCard().trim()).matches()) continue;
+				if (!fa.trigger().equals("party attacks") && fa.trigger().contains("attack"))
+					out.add(new TriggeredEffect(card, fa.effectText()));
+			}
+		List<CardData> side = new ArrayList<>(isP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
+		side.addAll(isP1 ? mw.p1MonsterCards : mw.p2MonsterCards);
+		for (CardData c : isP1 ? mw.p1BackupCards : mw.p2BackupCards) if (c != null) side.add(c);
+		for (CardData c : side) {
+			if (mw.lostAbilitiesCards.contains(c)) continue;
+			for (AutoAbility fa : mw.effectiveAutoAbilities(c))
+				if (fa.trigger().equals("attack")) out.add(new TriggeredEffect(c, fa.effectText()));
+		}
+		return out;
+	}
+
+	/** {@code card}'s own effects that trigger when it blocks — what {@link #triggerAutoAbilitiesForBlock} fires. */
+	List<String> blockEffects(CardData card) {
+		return ownEffects(card, Set.of("blocks", "attacks or blocks", "blocks or is blocked"));
+	}
+
+	/** {@code card}'s own effects that trigger when it is blocked — what {@link #triggerAutoAbilitiesForIsBlocked} fires. */
+	List<String> isBlockedEffects(CardData card) {
+		return ownEffects(card, Set.of("is blocked", "blocks or is blocked", "is blocked or chosen by opponent's ability"));
+	}
+
+	private List<String> ownEffects(CardData card, Set<String> triggers) {
+		if (card == null || mw.lostAbilitiesCards.contains(card)) return List.of();
+		List<String> out = new ArrayList<>();
+		for (AutoAbility fa : mw.effectiveAutoAbilities(card))
+			if (fa.triggerCard().equalsIgnoreCase(card.name()) && triggers.contains(fa.trigger())) out.add(fa.effectText());
+		return out;
+	}
+
 	void triggerAutoAbilitiesForAttack(CardData card, boolean isP1) {
 		withBatch(() -> {
 			for (AutoAbility fa : mw.effectiveAutoAbilities(card)) {

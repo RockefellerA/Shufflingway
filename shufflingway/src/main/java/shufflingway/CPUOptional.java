@@ -274,8 +274,8 @@ final class CPUOptional {
 
 	/**
 	 * The CPU's answer to an offer, as the supplier {@link MainWindow#decideYesNo} takes for its CPU
-	 * seat — run only when the seat is the CPU's. An answer other than the call site's own is logged
-	 * with its reason.
+	 * seat — run only when the seat is the CPU's. An answer other than the call site's own is logged,
+	 * with its reason while {@link ComputerPlayer#showsReasoning}.
 	 *
 	 * @param board the answering seat's board, built only when the answer is asked for
 	 */
@@ -283,7 +283,8 @@ final class CPUOptional {
 		return () -> {
 			Decision d = decide(offer, board.get());
 			if (d.reason() != null)
-				log.accept("[CPU] " + (d.accept() ? "accepts" : "declines") + " (" + d.reason() + "): " + offer.what());
+				log.accept("[CPU] " + (d.accept() ? "accepts" : "declines")
+						+ ComputerPlayer.reasoning(" (" + d.reason() + ")") + ": " + offer.what());
 			return d.accept();
 		};
 	}

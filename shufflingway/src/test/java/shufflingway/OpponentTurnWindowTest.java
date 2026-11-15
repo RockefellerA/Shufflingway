@@ -1231,6 +1231,378 @@ class OpponentTurnWindowTest {
 		assertNull(cpu.heldTrick(), "Main Phase 2");
 	}
 
+	// ---- The CPU's attack choice (HANDOFF-cpu-backlog.md item 6) -----------------------------
+
+	/**
+	 * The real CPU declares its next attack on {@link #p2sAttackPhase}'s board: true when it has
+	 * ({@link MainWindow#p2DeclaredAttackers} names the attacker), false when it ended the phase
+	 * without one. Both happen before the call returns — the battle that follows is left to run.
+	 */
+	private static boolean cpuAttacks(MainWindow mw) throws Exception {
+		boolean[] declined = { false };
+		onEdt(() -> ((ComputerPlayer) mw.opponent).doAttackPhase(() -> declined[0] = true));
+		return !declined[0];
+	}
+
+	@Test
+	void theCpuHoldsBackAnAttackerYourBlockerWouldBreak() throws Exception {
+		// The playtest: 28-017C Firion, cast with Haste, against an 8000 that can block him.
+		MainWindow mw = p2sAttackPhase();
+		CardData firion = makeForwardWithTraits("Firion", "Fire", 5000, EnumSet.of(CardData.Trait.HASTE));
+		placeP2Forward(mw, firion);
+		mw.p2ForwardPlayedOnTurn.set(0, mw.gameState.getTurnNumber());
+		p1Blocker(mw, "Blocker", 8000);
+
+		assertFalse(cpuAttacks(mw));
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0), "still there to block on your turn");
+		assertTrue(mw.gameLogText().contains("[P2] Holds back Firion: Blocker would block and break it"));
+	}
+
+	@Test
+	void theCpuAttacksWithAForwardThatSurvivesEveryBlock() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 9000);
+		p1Blocker(mw, "Blocker", 8000);
+
+		assertTrue(cpuAttacks(mw));
+		assertEquals(List.of(striker), mw.p2DeclaredAttackers);
+	}
+
+	@Test
+	void theCpuAttacksWithTheForwardThatWinsAndHoldsTheOneThatLoses() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		p2Forward(mw, "Weak", 5000);
+		CardData strong = p2Forward(mw, "Strong", 9000);
+		p1Blocker(mw, "Blocker", 8000);
+
+		assertTrue(cpuAttacks(mw));
+		assertEquals(List.of(strong), mw.p2DeclaredAttackers);
+	}
+
+	@Test
+	void aBlockerThatCannotBlockIsNoReasonToHoldBack() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		p2Forward(mw, "Striker", 5000);
+		p1Blocker(mw, "Resting", 8000);
+		mw.p1ForwardStates.set(0, CardState.DULL);
+		CardData barred = p1Blocker(mw, "Barred", 8000);
+		mw.p1CannotBlock.add(barred);
+
+		assertTrue(cpuAttacks(mw));
+	}
+
+	@Test
+	void firstStrikeOnYourBlockerTurnsAnEvenTradeIntoALoss() throws Exception {
+		// 6000 against 6000 would trade; First Strike breaks the attacker before it deals its damage.
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 6000);
+		placeP1Forward(mw, makeForwardWithTraits("Duelist", "Water", 6000, EnumSet.of(CardData.Trait.FIRST_STRIKE)));
+
+		assertFalse(cpuAttacks(mw));
+		assertTrue(mw.p2ForwardCards.contains(striker));
+	}
+
+	@Test
+	void anEvenTradeIsTaken() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 5000);   // cost 3
+		p1Blocker(mw, "Blocker", 5000);                       // cost 3
+
+		assertTrue(cpuAttacks(mw));
+		assertEquals(List.of(striker), mw.p2DeclaredAttackers);
+	}
+
+	@Test
+	void aTradeThatCostsTheCpuTheDearerCardIsNot() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		placeP2Forward(mw, makeForward("Star", "Fire", 5, 5000));
+		mw.p2ForwardPlayedOnTurn.set(0, 0);
+		placeP1Forward(mw, makeForward("Cheap", "Water", 2, 5000));
+
+		assertFalse(cpuAttacks(mw));
+		assertTrue(mw.gameLogText().contains("[P2] Holds back Star: Cheap would trade with it, and costs less (2 to 5)"));
+	}
+
+	@Test
+	void theCpuAttacksIntoYourBlockerWithATrickThatWinsTheBattle() throws Exception {
+		// Might makes 7000 into 9000 against 8000. It is held for the attack, its Backup with it — the
+		// hold that must not hide it from the question of whether to attack.
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 7000);
+		p1Blocker(mw, "Blocker", 8000);
+		p2Holds(mw, might(), 1);
+		assertNotNull(((ComputerPlayer) mw.opponent).heldTrick());
+
+		assertTrue(cpuAttacks(mw));
+		assertEquals(List.of(striker), mw.p2DeclaredAttackers);
+	}
+
+	@Test
+	void aTrickThatCannotTurnTheBattleIsNoReasonToAttack() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		p2Forward(mw, "Striker", 7000);
+		p1Blocker(mw, "Blocker", 10000);
+		p2Holds(mw, might(), 1);
+
+		assertFalse(cpuAttacks(mw));
+	}
+
+	@Test
+	void aForwardThatMustAttackAttacksWhateverItMeets() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 5000);
+		p1Blocker(mw, "Blocker", 8000);
+		mw.p2MustAttack.add(striker);
+
+		assertTrue(cpuAttacks(mw));
+		assertEquals(List.of(striker), mw.p2DeclaredAttackers);
+	}
+
+	// ---- What the CPU foresees: your known tricks, triggers on both sides ---------------------
+
+	/** P1 holds {@code card}, and has shown it — revealed it from hand or on its way in. */
+	private static void p1HoldsRevealed(MainWindow mw, CardData card) {
+		mw.gameState.getIdentity().put(card, true);
+		mw.gameState.getP1Hand().add(card);
+		mw.noteShownInHand(true, List.of(card));
+	}
+
+	private static CardData pump() {
+		return makeSummon("Pump", "Water", 1, "Choose 1 Forward you control. It gains +3000 power until the end of the turn.");
+	}
+
+	/** A P2 Forward from {@code text}, on the field since an earlier turn. */
+	private static CardData p2TextForward(MainWindow mw, String name, int power, String text) {
+		CardData f = makeTextCard(name, "Fire", "Forward", 3, power, null, text);
+		placeP2Forward(mw, f);
+		mw.p2ForwardPlayedOnTurn.set(mw.p2ForwardCards.indexOf(f), 0);
+		return f;
+	}
+
+	@Test
+	void aTrickYouRevealedIsForeseen() {
+		// 9000 beats 8000, but not the 11000 your Pump would make of it.
+		MainWindow mw = p2sAttackPhase();
+		p2Forward(mw, "Striker", 9000);
+		p1Blocker(mw, "Blocker", 8000);
+		placeP1Backup(mw, makeBackup("Ally", "Water", 1));
+		p1HoldsRevealed(mw, pump());
+
+		assertEquals("Striker: Blocker would block and break it with Pump",
+				new ComputerPlayer(mw).weighAttack(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD),
+						mw.p2ForwardCards.get(0)).hold());
+	}
+
+	@Test
+	void aTrickYouHaveNotRevealedIsNot() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		p2Forward(mw, "Striker", 9000);
+		p1Blocker(mw, "Blocker", 8000);
+		placeP1Backup(mw, makeBackup("Ally", "Water", 1));
+		CardData pump = pump();
+		mw.gameState.getIdentity().put(pump, true);
+		mw.gameState.getP1Hand().add(pump);
+
+		assertTrue(cpuAttacks(mw));
+	}
+
+	@Test
+	void aRevealedTrickYouCannotPayForIsNoThreat() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		p2Forward(mw, "Striker", 9000);
+		p1Blocker(mw, "Blocker", 8000);
+		p1HoldsRevealed(mw, pump());   // no Backup, and no other card to discard
+
+		assertTrue(cpuAttacks(mw));
+	}
+
+	@Test
+	void anAbilityOnYourFieldIsForeseen() {
+		MainWindow mw = p2sAttackPhase();
+		p2Forward(mw, "Striker", 9000);
+		p1Blocker(mw, "Blocker", 8000);
+		placeP1Backup(mw, makeTextCard("Coach", "Water", "Backup", 2, 0, null,
+				"《Dull》: Choose 1 Forward you control. It gains +3000 power until the end of the turn."));
+
+		assertEquals("Striker: Blocker would block and break it with Coach's ability",
+				new ComputerPlayer(mw).weighAttack(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD),
+						mw.p2ForwardCards.get(0)).hold());
+	}
+
+	@Test
+	void yourBlockersOwnBlockBoostIsForeseen() {
+		// 1-113C Delita: 7000 that blocks as 9000.
+		MainWindow mw = p2sAttackPhase();
+		p2Forward(mw, "Striker", 8000);
+		placeP1Forward(mw, makeTextCard("Delita", "Water", "Forward", 3, 7000, null,
+				"When Delita blocks, Delita gains +2000 power until the end of the turn."));
+
+		assertNotNull(new ComputerPlayer(mw).weighAttack(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD),
+				mw.p2ForwardCards.get(0)).hold());
+	}
+
+	@Test
+	void itsOwnAttackBoostIsCounted() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		CardData charger = p2TextForward(mw, "Charger", 6000, "When Charger attacks, Charger gains +3000 power until the end of the turn.");
+		p1Blocker(mw, "Blocker", 8000);
+
+		assertTrue(cpuAttacks(mw));
+		assertEquals(List.of(charger), mw.p2DeclaredAttackers);
+	}
+
+	@Test
+	void itsOwnDamageToTheBlockerIsCounted() throws Exception {
+		// 15-096C Noel's wording: the blocker is gone before the battle.
+		MainWindow mw = p2sAttackPhase();
+		p2TextForward(mw, "Noel", 5000, "When Noel is blocked, deal 9000 damage to the Forward that blocks Noel.");
+		p1Blocker(mw, "Blocker", 8000);
+
+		assertTrue(cpuAttacks(mw));
+	}
+
+	@Test
+	void anAttackTriggerIsAimedAtTheBlockerThatWouldBeatIt() throws Exception {
+		// Left to itself the damage would take the biggest Forward it breaks, the dull Resting, which
+		// cannot block; aimed, it takes the Blocker that can.
+		MainWindow mw = p2sAttackPhase();
+		CardData sniper = p2TextForward(mw, "Sniper", 5000,
+				"When Sniper attacks, choose 1 Forward opponent controls. Deal it 8000 damage.");
+		CardData resting = p1Blocker(mw, "Resting", 8000);
+		mw.p1ForwardStates.set(mw.p1ForwardCards.indexOf(resting), CardState.DULL);
+		CardData blocker = p1Blocker(mw, "Blocker", 7000);
+
+		assertTrue(cpuAttacks(mw));
+		assertEquals(List.of(sniper), mw.p2DeclaredAttackers);
+		playOut(mw, () -> mw.gameState.getP1BreakZone().contains(blocker) || mw.gameState.getP1BreakZone().contains(resting),
+				"the attack trigger to resolve");
+		assertTrue(mw.gameState.getP1BreakZone().contains(blocker));
+		assertTrue(mw.p1ForwardCards.contains(resting));
+	}
+
+	@Test
+	void anAttackTriggerThatKeepsTheBlockerFromBlockingLetsItAttack() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		p2TextForward(mw, "Taunter", 5000, "When Taunter attacks, choose 1 Forward opponent controls. It cannot block this turn.");
+		p1Blocker(mw, "Blocker", 8000);
+
+		assertTrue(cpuAttacks(mw));
+	}
+
+	// ---- Parties, lethal, and keeping a blocker home ------------------------------------------
+
+	@Test
+	void twoForwardsYourBlockerBeatsAloneAttackAsAParty() throws Exception {
+		// 10000 breaks the 8000, whose 8000 breaks only one of them: an even trade at worst.
+		MainWindow mw = p2sAttackPhase();
+		p2Forward(mw, "Left", 5000);
+		p2Forward(mw, "Right", 5000);
+		p1Blocker(mw, "Blocker", 8000);
+
+		assertTrue(cpuAttacks(mw));
+		assertTrue(mw.gameLogText().contains("[P2] Party Attack! "));
+	}
+
+	@Test
+	void noPartyYourBlockerWouldBreakAndSurvive() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		p2Forward(mw, "Left", 3000);
+		p2Forward(mw, "Right", 3000);
+		p1Blocker(mw, "Blocker", 8000);
+
+		assertFalse(cpuAttacks(mw));
+	}
+
+	@Test
+	void oneHitFromLosingYouMustBlockEveryAttackAndThreeWearYourBlockerDown() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		for (int i = 0; i < 6; i++) mw.gameState.getP1DamageZone().add(makeForward("Dmg " + i, "Water", 1, 1000));
+		placeP2Forward(mw, makeForward("Fire", "Fire", 3, 5000));
+		placeP2Forward(mw, makeForward("Ice", "Ice", 3, 5000));
+		placeP2Forward(mw, makeForward("Wind", "Wind", 3, 5000));
+		for (int i = 0; i < 3; i++) mw.p2ForwardPlayedOnTurn.set(i, 0);
+		p1Blocker(mw, "Blocker", 8000);
+
+		assertTrue(cpuAttacks(mw));
+		assertTrue(mw.gameLogText().contains("[P2] Goes for lethal"));
+	}
+
+	@Test
+	void twoCannotWearItDownAndAreHeld() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		for (int i = 0; i < 6; i++) mw.gameState.getP1DamageZone().add(makeForward("Dmg " + i, "Water", 1, 1000));
+		placeP2Forward(mw, makeForward("Fire", "Fire", 3, 5000));
+		placeP2Forward(mw, makeForward("Ice", "Ice", 3, 5000));
+		for (int i = 0; i < 2; i++) mw.p2ForwardPlayedOnTurn.set(i, 0);
+		p1Blocker(mw, "Blocker", 8000);
+
+		assertFalse(cpuAttacks(mw));
+	}
+
+	@Test
+	void theCpuKeepsHomeTheBlockerThatKeepsItAlive() throws Exception {
+		// One hit from losing: attacking would leave your 7000 nothing to stop it next turn.
+		MainWindow mw = p2sAttackPhase();
+		for (int i = 0; i < 6; i++) mw.gameState.getP2DamageZone().add(makeForward("Dmg " + i, "Fire", 1, 1000));
+		p2Forward(mw, "Guard", 9000);
+		p1Blocker(mw, "Raider", 7000);
+
+		assertFalse(cpuAttacks(mw));
+		assertTrue(mw.gameLogText().contains("[P2] Holds back Guard: kept to block on your turn"));
+	}
+
+	@Test
+	void aSafeAttackerIsNotKeptHomeWhenAnotherCanBlock() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		for (int i = 0; i < 6; i++) mw.gameState.getP2DamageZone().add(makeForward("Dmg " + i, "Fire", 1, 1000));
+		CardData striker = p2Forward(mw, "Striker", 9000);
+		p2Forward(mw, "Guard", 9000);
+		p1Blocker(mw, "Raider", 7000);
+
+		assertTrue(cpuAttacks(mw));
+		assertEquals(List.of(striker), mw.p2DeclaredAttackers);
+	}
+
+	// ---- The CPU's reasoning in the log (a debug setting) -------------------------------------
+
+	@Test
+	void withReasoningOffAnAttackerHeldBackLeavesNoLine() throws Exception {
+		ComputerPlayer.showsReasoning = false;
+		MainWindow mw = p2sAttackPhase();
+		p2Forward(mw, "Striker", 5000);
+		p1Blocker(mw, "Blocker", 8000);
+
+		assertFalse(cpuAttacks(mw));
+		assertFalse(mw.gameLogText().contains("Holds back"));
+	}
+
+	@Test
+	void withReasoningOffAPlayIsLoggedWithoutItsReason() throws Exception {
+		ComputerPlayer.showsReasoning = false;
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 7000);
+		CardData blocker = p1Blocker(mw, "Blocker", 8000);
+		p2Holds(mw, might(), 1);
+
+		p1BlocksTheCpusAttack(mw, striker, blocker);
+
+		assertTrue(mw.gameLogText().contains("[P2] Combat trick — Might"));
+		assertFalse(mw.gameLogText().contains("to save Striker"));
+	}
+
+	@Test
+	void askingWhoCouldBlockLeavesNoAttackPending() {
+		MainWindow mw = p2sAttackPhase();
+		p2Forward(mw, "Striker", 5000);
+		CardData blocker = p1Blocker(mw, "Blocker", 8000);
+
+		List<ForwardTarget> blockers = mw.p1BlockersAgainst(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD));
+
+		assertEquals(List.of(new ForwardTarget(true, mw.p1ForwardCards.indexOf(blocker), ForwardTarget.CardZone.FORWARD)), blockers);
+		assertNull(mw.pendingP2Attacker);
+		assertEquals(-1, mw.pendingP2AttackerIdx);
+	}
+
 	// ---- The seam itself --------------------------------------------------------------------
 
 	@Test

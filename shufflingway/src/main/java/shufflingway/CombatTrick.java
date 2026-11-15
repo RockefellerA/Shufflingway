@@ -83,6 +83,27 @@ record CombatTrick(String subject, int power, boolean firstStrike, boolean shiel
 		return null;
 	}
 
+	/** "for each …": a rate, not an amount, which a "gains" clause read for its "+N power" would get wrong. */
+	private static final Pattern RATE = Pattern.compile("(?i)\\bfor\\s+each\\b");
+
+	/**
+	 * What {@code effectText} grants the card it is printed on, named {@code selfName} or "this
+	 * Forward": "Fang gains First Strike until the end of the turn.", "Until the end of the turn, Delita
+	 * gains +2000 power." — the trick a "When … attacks" or "When … blocks" ability plays on its own
+	 * card. A rate ("+1000 power for each …") is no amount and reads as nothing. {@code subject} is
+	 * {@code null}: nothing is chosen.
+	 */
+	static CombatTrick ofSelf(String effectText, String selfName) {
+		if (effectText == null || selfName == null) return null;
+		String text = EX_BURST.matcher(effectText.trim()).replaceFirst("").trim();
+		String self = "(?:" + Pattern.quote(selfName) + "|this\\s+(?:Forward|Character|Monster|Backup))";
+		Matcher m = Pattern.compile("(?is)^(?:until\\s+the\\s+end\\s+of\\s+the\\s+turn,\\s+" + self + "\\s+gains\\s+(?<g1>[^.\"]+?)"
+				+ "|" + self + "\\s+gains\\s+(?<g2>[^.\"]+?)\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn)\\s*\\.(?<rest>.*)$").matcher(text);
+		if (!m.matches() || !harmless(m.group("rest"))) return null;
+		String granted = m.group("g1") != null ? m.group("g1") : m.group("g2");
+		return RATE.matcher(granted).find() ? null : gains(null, granted);
+	}
+
 	/** What a "gains …" clause grants; {@code null} when it grants nothing a battle turns on. */
 	private static CombatTrick gains(String subject, String granted) {
 		Matcher p = PLUS_POWER.matcher(granted);

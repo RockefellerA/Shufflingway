@@ -366,4 +366,17 @@ public final class AppSettings {
     public static void setDebugAlwaysWinCoinFlip(boolean enabled) {
         props.setProperty("debug.always.win.coin.flip", Boolean.toString(enabled));
     }
+
+    /**
+     * Debug toggle: when {@code true}, the CPU logs why it plays as it does beside what it plays
+     * ({@code ComputerPlayer.showsReasoning}). Set from the Debug menu. Defaults to {@code false}.
+     */
+    public static boolean isDebugCpuReasoning() {
+        return Boolean.parseBoolean(props.getProperty("debug.cpu.reasoning", "false"));
+    }
+
+    /** Sets the CPU-reasoning debug flag (call {@link #save()} to persist). */
+    public static void setDebugCpuReasoning(boolean enabled) {
+        props.setProperty("debug.cpu.reasoning", Boolean.toString(enabled));
+    }
 }

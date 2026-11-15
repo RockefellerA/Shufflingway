@@ -2068,7 +2068,12 @@ public class MainWindow {
 			DebugUtility debug = debugUtility;
 			debugMenu = new DebugMenu(debug::spawnOnField, debug::addToHand, debug::addToBreakZone,
 					debug::addRemoveCounters, debug::activateDullCardsOrBreak, debug::setDamageAndCrystals,
-					CPUOptional.acceptsEveryOffer, on -> CPUOptional.acceptsEveryOffer = on);
+					CPUOptional.acceptsEveryOffer, on -> CPUOptional.acceptsEveryOffer = on,
+					ComputerPlayer.showsReasoning, on -> {
+						ComputerPlayer.showsReasoning = on;
+						AppSettings.setDebugCpuReasoning(on);
+						AppSettings.save();
+					});
 			menuBar.add(debugMenu);
 		}
 
@@ -8489,6 +8494,56 @@ public class MainWindow {
 
 	private boolean p1BlockRestricted(CardData c) {
 		return p1CannotBlock.contains(c) || p1CannotBlockPersistent.contains(c);
+	}
+
+	/**
+	 * The Characters P1 could block P2's {@code attacker} with were it declared now — Forwards, and
+	 * Monsters and Backups acting as Forwards — by the block step's own checks
+	 * ({@link #isForwardBlockSelectable}, {@link #isMonsterBlockSelectable},
+	 * {@link #isBackupBlockSelectable}). Asked by the CPU weighing an attack before it makes one.
+	 *
+	 * <p>Those checks read the attack from the pending-attacker fields, so the fields are pointed at
+	 * {@code attacker} for the question and put back after; nothing is repainted in between.
+	 */
+	List<ForwardTarget> p1BlockersAgainst(ForwardTarget attacker) {
+		return p1BlockersAgainst(
+				attacker.zone() == ForwardTarget.CardZone.FORWARD && p2ForwardPrimedTop.get(attacker.idx()) != null
+						? p2ForwardPrimedTop.get(attacker.idx()) : autoAbilityTriggers.fieldCardData(attacker),
+				attacker.idx(), attacker.zone(), null);
+	}
+
+	/** {@link #p1BlockersAgainst}, for P2's party at slot codes {@code codes}. */
+	List<ForwardTarget> p1BlockersAgainstParty(List<Integer> codes) {
+		return p1BlockersAgainst(null, -1, ForwardTarget.CardZone.FORWARD, codes);
+	}
+
+	private List<ForwardTarget> p1BlockersAgainst(CardData attacker, int idx, ForwardTarget.CardZone zone, List<Integer> party) {
+		CardData      savedAttacker = pendingP2Attacker;
+		int           savedIdx      = pendingP2AttackerIdx;
+		boolean       savedMonster  = pendingP2AttackerIsMonster;
+		boolean       savedBackup   = pendingP2AttackerIsBackup;
+		List<Integer> savedParty    = pendingP2PartyIndices;
+		try {
+			pendingP2Attacker          = attacker;
+			pendingP2AttackerIdx       = idx;
+			pendingP2AttackerIsMonster = zone == ForwardTarget.CardZone.MONSTER;
+			pendingP2AttackerIsBackup  = zone == ForwardTarget.CardZone.BACKUP;
+			pendingP2PartyIndices      = party;
+			List<ForwardTarget> out = new ArrayList<>();
+			for (int i = 0; i < p1ForwardCards.size(); i++)
+				if (isForwardBlockSelectable(i)) out.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
+			for (int i = 0; i < p1MonsterCards.size(); i++)
+				if (isMonsterBlockSelectable(i)) out.add(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER));
+			for (int i = 0; i < p1BackupCards.length; i++)
+				if (isBackupBlockSelectable(i)) out.add(new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP));
+			return out;
+		} finally {
+			pendingP2Attacker          = savedAttacker;
+			pendingP2AttackerIdx       = savedIdx;
+			pendingP2AttackerIsMonster = savedMonster;
+			pendingP2AttackerIsBackup  = savedBackup;
+			pendingP2PartyIndices      = savedParty;
+		}
 	}
 
 	/** {@code attackerIndices} are P2's party as slot codes ({@link ForwardTarget#slotCode()}). */

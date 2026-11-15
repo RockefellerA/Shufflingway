@@ -28,6 +28,27 @@ class CombatTrickTest {
 	}
 
 	@Test
+	void aBoostACardGivesItselfIsReadByItsName() {
+		// 1-020R Fang, 1-113C Delita, and a granted ability's "this Forward".
+		CombatTrick fang = CombatTrick.ofSelf("Fang gains First Strike until the end of the turn.", "Fang");
+		assertTrue(fang.firstStrike());
+		assertNull(fang.subject());
+		assertEquals(2000, CombatTrick.ofSelf("Delita gains +2000 power until the end of the turn.", "Delita").power());
+		assertEquals(3000, CombatTrick.ofSelf("Until the end of the turn, this Forward gains +3000 power.", "Zack").power());
+	}
+
+	@Test
+	void aSelfBoostItCannotCountOrThatNamesAnotherCardIsNone() {
+		// 16-002H Ace: a rate, not an amount.
+		assertNull(CombatTrick.ofSelf("Ace gains +1000 power for each different Element among Characters you control "
+				+ "until the end of the turn.", "Ace"));
+		// 13-079L Behemoth K: a second sentence this does not read.
+		assertNull(CombatTrick.ofSelf("Behemoth K gains +3000 power until the end of the turn. Behemoth K deals your "
+				+ "opponent 1 point of damage.", "Behemoth K"));
+		assertNull(CombatTrick.ofSelf("Delita gains +2000 power until the end of the turn.", "Ramza"));
+	}
+
+	@Test
 	void shieldsAreReadAndATrickThatDullsItsForwardSaysSo() {
 		CombatTrick siren = CombatTrick.of("[[ex]]EX BURST[[/]] Choose 1 Forward. During this turn, the next damage dealt "
 				+ "to it becomes 0 instead. Draw 1 card.");
