@@ -149,6 +149,7 @@ import shufflingway.graphics.ExBurstGlow;
 import shufflingway.graphics.FieldCardIcon;
 import shufflingway.graphics.FieldSlotLabel;
 import shufflingway.graphics.GradientPanel;
+import shufflingway.graphics.PriorityGlow;
 import shufflingway.graphics.GrayscaleLabel;
 import shufflingway.graphics.HandFanOverlapLayout;
 import shufflingway.graphics.HandFanPanel;
@@ -339,11 +340,13 @@ public class MainWindow {
 	private int p2BreakAnimHide = 0;
 	// Horizontal separator where the P1 and P2 fields meet (anchor for centered effect prompts)
 	private JSeparator fieldDivider;
+	/** The glow against {@link #fieldDivider} showing who holds priority — red above it, blue below. */
+	private PriorityGlow priorityGlow;
 	// Player field/board panels — retained so the Preferences field-color dropdowns can retint them
 	private GradientPanel p1Board;
 	private GradientPanel p2Board;
-	private JPanel p1ZonesPanel;
-	private JPanel p2ZonesPanel;
+	private BoardEdgeFadePanel p1ZonesPanel;
+	private BoardEdgeFadePanel p2ZonesPanel;
 	// Opening hand confirmation popup
 	private JWindow openingHandPopup;
 	// Hand hover popover (deck zone mouseover)
@@ -2470,6 +2473,16 @@ public class MainWindow {
 		divider.setForeground(Color.LIGHT_GRAY);
 		fieldDivider = divider;
 
+		// Kept inside the zones' fade band (BoardEdgeFadePanel#setGlow), where what sits on them is
+		// non-opaque; the board strips either side of the line can shrink to nothing.
+		priorityGlow = new PriorityGlow(Math.min(UiScale.scale(36), BOARD_FADE_H));
+		priorityGlow.setLine(divider);
+		priorityGlow.setShown(this::gameInProgress);
+		p2ZonesPanel.setGlow(priorityGlow);
+		p2Board.setGlow(priorityGlow);
+		p1Board.setGlow(priorityGlow);
+		p1ZonesPanel.setGlow(priorityGlow);
+
 		JPanel gameBoard = new JPanel(new GridBagLayout());
 		gameBoard.setBackground(UIManager.getColor("Panel.background"));
 
@@ -2587,6 +2600,7 @@ public class MainWindow {
 		placeAutoAdvanceStack("right".equals(AppSettings.getSidePanelSide()));
 
 		phaseTracker = new PhaseTracker();
+		phaseTracker.setPriorityListener(priorityGlow::setYouHavePriority);
 
 		JPanel sideNorth = new JPanel();
 		sideNorth.setLayout(new BoxLayout(sideNorth, BoxLayout.Y_AXIS));
@@ -4424,6 +4438,8 @@ public class MainWindow {
 			isP1Turn
 		);
 		phaseTracker.setHasPriority(isP1Turn);
+		// Told even when priority has not moved: a game just begun is when the glow first shows.
+		priorityGlow.setYouHavePriority(phaseTracker.hasPriority());
 		if (gameState.getCurrentPhase() == GameState.GamePhase.ATTACK && attackSubStep >= 0)
 			phaseTracker.setAttackStep(attackSubStep);
 		// The phase is the biggest single swing in what may be cast — nothing during Draw, the

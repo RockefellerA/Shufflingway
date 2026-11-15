@@ -16,6 +16,7 @@ import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.util.Locale;
+import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.JPanel;
@@ -348,14 +349,35 @@ public class PhaseTracker extends JPanel {
     public void setMyTurn(boolean isMyTurn) {
         if (this.isMyTurn == isMyTurn) return;
         this.isMyTurn = isMyTurn;
+        boolean priorityMoved = hasPriority != isMyTurn;
         this.hasPriority = isMyTurn;
         repaint();
+        if (priorityMoved) firePriority();
     }
 
     public void setHasPriority(boolean hasPriority) {
         if (this.hasPriority == hasPriority) return;
         this.hasPriority = hasPriority;
         repaint();
+        firePriority();
+    }
+
+    /** Whether this player holds priority — what the diamonds' colour shows. */
+    public boolean hasPriority() { return hasPriority; }
+
+    /**
+     * Told {@link #hasPriority} now and each time it changes after — the board's centre-line glow
+     * follows it ({@code graphics.PriorityGlow}). One listener; a second replaces the first.
+     */
+    public void setPriorityListener(Consumer<Boolean> listener) {
+        priorityListener = listener;
+        firePriority();
+    }
+
+    private Consumer<Boolean> priorityListener;
+
+    private void firePriority() {
+        if (priorityListener != null) priorityListener.accept(hasPriority);
     }
 
     /**

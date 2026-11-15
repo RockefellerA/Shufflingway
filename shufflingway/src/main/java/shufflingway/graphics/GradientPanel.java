@@ -20,6 +20,14 @@ public class GradientPanel extends JPanel {
 		repaint();
 	}
 
+	private PriorityGlow glow;
+
+	/** The priority glow, painted over this backdrop and under everything on it. */
+	public void setGlow(PriorityGlow glow) {
+		this.glow = glow;
+		glow.addPainter(this);
+	}
+
 	@Override
 	protected void paintComponent(Graphics g) {
 		super.paintComponent(g);
@@ -30,5 +38,6 @@ public class GradientPanel extends JPanel {
 		g2d.setPaint(new GradientPaint(0, 0, top, 0, getHeight(), bottom));
 		g2d.fillRect(0, 0, getWidth(), getHeight());
 		g2d.dispose();
+		if (glow != null) glow.paint(this, g);
 	}
 }

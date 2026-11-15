@@ -47,6 +47,17 @@ public class BoardEdgeFadePanel extends JPanel {
 		repaint();
 	}
 
+	private PriorityGlow glow;
+
+	/**
+	 * The priority glow, painted over this backdrop and under everything on it. It must reach no
+	 * deeper than the fade, where the zone's contents are non-opaque, or their backgrounds cut it.
+	 */
+	public void setGlow(PriorityGlow glow) {
+		this.glow = glow;
+		glow.addPainter(this);
+	}
+
 	@Override
 	protected void paintComponent(Graphics g) {
 		int w = getWidth(), h = getHeight();
@@ -73,5 +84,6 @@ public class BoardEdgeFadePanel extends JPanel {
 			}
 		}
 		g2.dispose();
+		if (glow != null) glow.paint(this, g);
 	}
 }
