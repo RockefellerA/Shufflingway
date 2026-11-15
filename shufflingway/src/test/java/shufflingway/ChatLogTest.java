@@ -79,6 +79,36 @@ class ChatLogTest {
 	}
 
 	@Test
+	void eachSpeakerIsTaggedByTheirUsername() {
+		assertEquals("[Alice]", MainWindow.chatTag(true, "Alice", "Bob"));
+		assertEquals("[Bob]", MainWindow.chatTag(false, "Alice", "Bob"));
+	}
+
+	@Test
+	void aPlayerWithNoUsernameKeepsTheGenericTag() {
+		assertEquals("[You]", MainWindow.chatTag(true, "", "Bob"));
+		assertEquals("[Bob]", MainWindow.chatTag(false, "", "Bob"));
+		assertEquals("[Alice]", MainWindow.chatTag(true, "Alice", null));
+		assertEquals("[Opponent]", MainWindow.chatTag(false, "Alice", null));
+	}
+
+	@Test
+	void twoPlayersWithTheSameNameAreToldApartByTheGenericTags() {
+		assertEquals("[You]", MainWindow.chatTag(true, "Alice", "alice"));
+		assertEquals("[Opponent]", MainWindow.chatTag(false, "Alice", "alice"));
+	}
+
+	/** Outside a networked match there are no names to show, whatever username is set. */
+	@Test
+	void aLocalGameKeepsTheGenericTags() {
+		MainWindow mw = new MainWindow();
+		mw.logChat(true, "hello there");
+		mw.logChat(false, "hi back");
+		assertTrue(mw.gameLogText().contains("[You] hello there"));
+		assertTrue(mw.gameLogText().contains("[Opponent] hi back"));
+	}
+
+	@Test
 	void theLogTextKeepsBareLineFeeds() {
 		MainWindow mw = new MainWindow();
 		mw.logChat(true, "one");

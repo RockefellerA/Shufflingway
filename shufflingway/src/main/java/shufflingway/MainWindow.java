@@ -4487,11 +4487,33 @@ public class MainWindow {
 	 * Appends a chat line to the game log in its side's colour, with the speaker's tag in bold, so a
 	 * glance tells it from the game's own lines. A line is styled as chat by which method logged it,
 	 * never by what it says, so a message typed to look like a game line still reads as chat.
+	 *
+	 * <p>The tag names the speaker as the turn pill does (see {@link #applyTurnPillNames()}): both
+	 * usernames in a networked match, neither in a local game.
 	 */
 	void logChat(boolean mine, String msg) {
 		if (gameLog == null) return;
 		Style style = gameLog.getStyledDocument().getStyle(chatStyleName(mine));
-		appendLogLine(style, mine ? "[You]" : "[Opponent]", " " + msg);
+		String myName    = matchSetup == null ? null : AppSettings.getUsername();
+		String theirName = matchSetup == null ? null : matchSetup.remoteUsername();
+		appendLogLine(style, chatTag(mine, myName, theirName), " " + msg);
+	}
+
+	/**
+	 * The bold tag on a chat line: the speaker's username in brackets, or "[You]" / "[Opponent]"
+	 * for a player who set none. Two players who share a name both get the generic tags, so the
+	 * log never shows one name speaking to itself.
+	 */
+	static String chatTag(boolean mine, String myName, String theirName) {
+		String me   = myName    == null ? "" : myName.trim();
+		String them = theirName == null ? "" : theirName.trim();
+		if (!me.isEmpty() && me.equalsIgnoreCase(them)) {
+			me   = "";
+			them = "";
+		}
+		String name = mine ? me : them;
+		if (name.isEmpty()) return mine ? "[You]" : "[Opponent]";
+		return "[" + name + "]";
 	}
 
 	/**
