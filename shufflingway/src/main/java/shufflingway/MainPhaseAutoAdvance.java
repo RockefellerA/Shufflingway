@@ -2,7 +2,7 @@ package shufflingway;
 
 /**
  * Decides when P1's own Main Phase should advance by itself because there is nothing left they
- * could do in it.
+ * could do in it — or a priority window they hold, after they have used it, should pass.
  *
  * <p>The window polls this with a verdict — "the board is settled, Next is live, and P1 has no
  * play" — and it answers whether to press Next now. The verdict has to hold unbroken for

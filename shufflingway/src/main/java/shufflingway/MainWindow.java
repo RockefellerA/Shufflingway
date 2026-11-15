@@ -21618,7 +21618,8 @@ public class MainWindow {
 	private static final int MAIN_PHASE_AUTO_ADVANCE_POLL_MS = 150;
 
 	/**
-	 * Starts the watcher that presses Next for P1 in a Main Phase they have nothing to do in.
+	 * Starts the watcher that presses Next for P1 in a Main Phase they have nothing to do in, or a
+	 * priority window they hold with nothing left to do ({@link #pollMainPhaseAutoAdvance}).
 	 * Idempotent; started when a game begins rather than with the window, so a window built only
 	 * to test board state never has a timer running under it.
 	 */
@@ -21628,11 +21629,46 @@ public class MainWindow {
 		mainPhaseAutoAdvanceTimer.start();
 	}
 
-	/** One tick of the watcher: advance the phase once it has been idle long enough. */
+	/**
+	 * One tick of the watcher: once P1 has been idle long enough with nothing to do, press Next —
+	 * advancing their own Main Phase or Attack Preparation ({@link #mainPhaseAutoAdvanceReady}), or
+	 * passing a priority window they still hold ({@link #heldPriorityAutoPassReady}).
+	 */
 	private void pollMainPhaseAutoAdvance() {
-		if (!mainPhaseAutoAdvance.poll(mainPhaseAutoAdvanceReady(), System.currentTimeMillis())) return;
-		logEntry("No plays available — advancing automatically.");
+		boolean held = heldPriorityAutoPassReady();
+		if (!mainPhaseAutoAdvance.poll(held || mainPhaseAutoAdvanceReady(), System.currentTimeMillis())) return;
+		logEntry(held ? "Nothing you can play — passing priority automatically."
+				: "No plays available — advancing automatically.");
 		onNextPhase();
+	}
+
+	/**
+	 * {@link #heldPriorityHasNothingLeft}, with the conditions the watcher shares with
+	 * {@link #mainPhaseAutoAdvanceReady}: the Auto setting is on — Wait means P1 always clicks —
+	 * Next is live, and nothing else is under way on screen.
+	 */
+	private boolean heldPriorityAutoPassReady() {
+		if (!AppSettings.isAutoAdvanceMainPhases() || gameState.isP1GameOver()) return false;
+		if (nextPhaseButton == null || !nextPhaseButton.isEnabled() || !nextPhaseButton.isShowing()) return false;
+		if (fieldTargetingActive || p2AutoPassTimer != null) return false;
+		if (MenuSelectionManager.defaultManager().getSelectedPath().length > 0) return false;
+		return heldPriorityHasNothingLeft();
+	}
+
+	/**
+	 * Whether P1 holds a priority window — a combat checkpoint on either player's turn, or the
+	 * opponent's Main Phase — with nothing left they could do in it: the board is settled
+	 * ({@link #isBoardSettled}: the Stack empty, no dialog open) and they have no play
+	 * ({@link #p1HasAnyPlay}).
+	 *
+	 * <p>Each of those windows asks once, as it opens, and passes itself when P1 has nothing
+	 * ({@link #p1HoldPriority}, {@link #offerP1MainPhasePriority}). This asks again after P1 has used
+	 * the window: a trick they cast resolves, priority comes back to them — rightly, they may play
+	 * again — and with nothing left, there was no reason to wait for a click.
+	 */
+	boolean heldPriorityHasNothingLeft() {
+		if (p1CombatPriorityOnPass == null && p1PriorityInP2MainOnDone == null) return false;
+		return isBoardSettled() && !p1HasAnyPlay();
 	}
 
 	/**

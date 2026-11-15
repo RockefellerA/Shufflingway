@@ -1670,6 +1670,33 @@ class OpponentTurnWindowTest {
 		assertTrue(mw.gameState.getP1BreakZone().contains(attacker));
 	}
 
+	// ---- A combat window you have used ---------------------------------------------------------
+
+	@Test
+	void aCombatWindowHasNothingLeftOnceYourTrickHasResolved() throws Exception {
+		// The playtest: a trick on your attacker, and then nothing else to play — priority comes back
+		// to you, and the auto-advance watcher may pass it for you.
+		MainWindow mw = p1sTurnAt(GameState.GamePhase.ATTACK);
+		mw.attackSubStep = 1;
+		p1Attacker(mw, 7000);
+		placeP1Backup(mw, makeBackup("Ally", "Water", 1));
+		CardData pump = makeSummon("Pump", "Water", 1, "Choose 1 Forward you control. It gains +3000 power until the end of the turn.");
+		p1Holds(mw, pump);
+		mw.opponent = new ScriptedCpu(mw);
+
+		onEdt(() -> mw.executeP1Attack(List.of(0)));
+		playOut(mw, () -> mw.gameLogText().contains("Use an ability or summon, or pass priority with 'Next'"),
+				"P1 to hold priority after declaring");
+		assertFalse(mw.heldPriorityHasNothingLeft(), "Pump in hand, and a Backup to pay for it");
+
+		onEdt(() -> mw.gameState.getP1Hand().remove(pump));
+		p1CastsAt(mw, pump, new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD));
+		playOut(mw, () -> mw.gameState.getStack().isEmpty(), "the Pump to resolve");
+
+		assertEquals(10000, mw.effectiveP1ForwardPower(0));
+		assertTrue(mw.heldPriorityHasNothingLeft(), "the window is still P1's, with nothing left to play");
+	}
+
 	// ---- The seam itself --------------------------------------------------------------------
 
 	@Test

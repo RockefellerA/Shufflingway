@@ -164,6 +164,29 @@ public class MainPhaseAutoAdvanceTest {
     }
 
     @Test
+    void anOpponentsMainPhaseWindowYouHaveUsedUpHasNothingLeft() {
+        boolean saved = AppSettings.isAutoAdvanceMainPhases();
+        AppSettings.setAutoAdvanceMainPhases(true);
+        try {
+            MainWindow mw = inP2Phase(GameState.GamePhase.MAIN_1);
+            CardData payer = backup("Scholar", "Water", 2, SPECIAL_BACKUP_TEXT);
+            mw.gameState.getP1Hand().add(payer);
+            mw.offerP1MainPhasePriority(() -> {});
+            assertFalse(mw.heldPriorityHasNothingLeft(), "the Special can still be paid for");
+
+            mw.gameState.getP1Hand().remove(payer);   // spent, as paying the 《S》 would
+            assertTrue(mw.heldPriorityHasNothingLeft(), "the window is still P1's, with nothing left in it");
+        } finally {
+            AppSettings.setAutoAdvanceMainPhases(saved);
+        }
+    }
+
+    @Test
+    void noWindowHeldIsNothingToPass() {
+        assertFalse(inP1Main1().heldPriorityHasNothingLeft(), "P1's own Main Phase is the other check's");
+    }
+
+    @Test
     void anOpponentsAttackPreparationPassesWhenTheOnlyAbilityIsAnUnpayableSpecial() {
         MainWindow mw = inP2Phase(GameState.GamePhase.ATTACK);
         boolean[] passed = { false };
