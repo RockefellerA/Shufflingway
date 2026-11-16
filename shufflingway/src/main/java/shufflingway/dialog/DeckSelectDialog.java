@@ -26,6 +26,7 @@ import javax.swing.JScrollPane;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
+import javax.swing.UIManager;
 
 import scraper.DeckDatabase;
 import scraper.DeckDatabase.DeckSummary;
@@ -216,6 +217,14 @@ public class DeckSelectDialog extends JDialog {
         public Component getListCellRendererComponent(
                 JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            // Both sides' picks keep the focused highlight. FlatLaf greys the selection of a list
+            // without focus, which reads as that side having no deck chosen.
+            if (isSelected) {
+                Color bg = UIManager.getColor("List.selectionBackground");
+                Color fg = UIManager.getColor("List.selectionForeground");
+                if (bg != null) setBackground(bg);
+                if (fg != null) setForeground(fg);
+            }
             setToolTipText(null);
             if (value instanceof DeckSummary d) {
                 setText(d.name() + "  (" + d.mainCardCount() + " / 50"
