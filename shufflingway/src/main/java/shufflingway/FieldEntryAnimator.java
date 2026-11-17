@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
+import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.JLayeredPane;
@@ -18,6 +19,7 @@ import javax.swing.Timer;
 
 import shufflingway.graphics.CardAnimation;
 import shufflingway.graphics.CardLimitBreakAnimator;
+import shufflingway.graphics.CardPrimingAnimator;
 import shufflingway.graphics.CardRfpAnimator;
 import shufflingway.graphics.CardSlideAnimator;
 import static shufflingway.graphics.CardAnimation.CARD_H;
@@ -38,6 +40,9 @@ import static shufflingway.graphics.CardAnimation.CARD_W;
  *       placement methods.</li>
  * </ul>
  * Both are released by {@link #finish} once the animation has run its course.
+ *
+ * <p>A Priming is sequenced the same way, though nothing arrives: {@link #primeWithAnim} holds the
+ * Forward's slot while it burns into its top card, and its Priming triggers until it has.
  *
  * <p>Extracted from MainWindow so any future "card enters the field from zone X" animation only
  * has to add a {@link Style} constant and the case that starts it.
@@ -75,6 +80,13 @@ final class FieldEntryAnimator {
 	 * end step must not advance the turn out from under an ability the player is still resolving.
 	 */
 	private int inFlight;
+
+	/**
+	 * What a held slot keeps showing until its animation covers it, for a card that was already on
+	 * the field when the hold began — a Forward about to be primed. A held card with no entry here is
+	 * held blank.
+	 */
+	private final Map<CardData, Icon> heldIcons = new IdentityHashMap<>();
 
 	/** Fully transparent slot icon: reserves an occupied slot without drawing its card yet. */
 	private static ImageIcon blankIcon;
@@ -115,13 +127,104 @@ final class FieldEntryAnimator {
 
 	/**
 	 * Keeps a slot blank while its card is still animating its way onto the field — a transparent
-	 * icon reserves the slot (so it still counts as occupied) without drawing the card.  Returns
-	 * {@code true} when the caller must skip its normal slot render.
+	 * icon reserves the slot (so it still counts as occupied) without drawing the card.  A Forward
+	 * waiting on its Priming animation keeps the icon it had instead, until the animation covers it.
+	 * Returns {@code true} when the caller must skip its normal slot render.
 	 */
 	boolean holdSlotBlank(JLabel slot, CardData card) {
 		if (card == null || !pending.containsKey(card)) return false;
-		if (slot != null) { slot.setIcon(blankIcon()); slot.setText(null); }
+		if (slot != null) {
+			Icon held = heldIcons.get(card);
+			slot.setIcon(held != null ? held : blankIcon());
+			slot.setText(null);
+		}
 		return true;
+	}
+
+	/**
+	 * Plays the Priming transformation over {@code base}'s Forward slot, then runs
+	 * {@code afterwards} — the Priming's auto abilities — so their popups land on the primed card
+	 * rather than over the flames.
+	 *
+	 * <p>{@code base} is the card in the slot and {@code top} the card it was just primed into; the
+	 * top card must already be set. The slot keeps showing {@code base} as it was until the
+	 * animation has loaded and covers it, and is held against re-renders until the last frame.
+	 *
+	 * <p>Everything happens at once when the slot is not on screen: a {@code MainWindow} built under
+	 * test is never shown, and its Priming triggers must have fired by the time the call returns.
+	 */
+	void primeWithAnim(CardData base, CardData top, boolean isP1, Runnable afterwards) {
+		JLabel slot = mw.findFieldSlotLabel(base, isP1);
+		String url  = top.imageUrl();
+		if (mw.frame == null || !mw.frame.isShowing()) {
+			mw.refreshFieldSlotFor(base, isP1);
+			afterwards.run();
+			return;
+		}
+		String skip = mw.primingAnimator == null ? "no animator"
+				: slot == null ? "no slot for the primed Forward"
+				: !slot.isShowing() || slot.getWidth() == 0 ? "slot not on screen"
+				: url == null ? "no art for " + top.name()
+				: pending.containsKey(base) ? "slot already animating"
+				: null;
+		if (skip != null) {
+			AppLogger.log("Priming animation skipped (" + skip + "): " + base.name() + " -> " + top.name(), null);
+			mw.refreshFieldSlotFor(base, isP1);
+			afterwards.run();
+			return;
+		}
+		Icon shown = slot.getIcon();
+		BufferedImage shownImg = shown instanceof ImageIcon ii && ii.getImage() instanceof BufferedImage bi ? bi : null;
+		JLayeredPane lp      = mw.frame.getRootPane().getLayeredPane();
+		Point        center  = SwingUtilities.convertPoint(slot, slot.getWidth() / 2, slot.getHeight() / 2, lp);
+		CardState    state   = mw.fieldSlotState(base, isP1);
+		String       baseUrl = base.imageUrl();
+		String[]     element = top.elements();
+
+		// From here the slot is held and isBusy() is true, so every path below must reach finish().
+		List<Runnable> queue = new ArrayList<>();
+		queue.add(afterwards);
+		pending.put(base, queue);
+		if (shown != null) heldIcons.put(base, shown);
+		inFlight++;
+		new SwingWorker<BufferedImage[], Void>() {
+			@Override protected BufferedImage[] doInBackground() throws Exception {
+				Image raw = ImageCache.load(url);
+				if (raw == null) return null;
+				BufferedImage to   = CardAnimation.renderBackupCard(CardAnimation.toARGB(raw, CARD_W, CARD_H), state);
+				BufferedImage from = shownImg;
+				if (from == null && baseUrl != null) {
+					Image rawBase = ImageCache.load(baseUrl);
+					if (rawBase != null)
+						from = CardAnimation.renderBackupCard(CardAnimation.toARGB(rawBase, CARD_W, CARD_H), state);
+				}
+				return from == null ? null : new BufferedImage[] { from, to };
+			}
+			@Override protected void done() {
+				BufferedImage[] imgs = null;
+				Throwable why = null;
+				try { imgs = get(); } catch (InterruptedException | ExecutionException e) { why = e; }
+				if (imgs == null)
+					AppLogger.log("Priming animation skipped: no art for " + base.name() + " -> " + top.name(), why);
+				heldIcons.remove(base);
+				if (imgs == null) { finish(base, isP1, null); return; }
+				final BufferedImage to = imgs[1];
+				try {
+					mw.primingAnimator.start(imgs[0], to, center, element);
+				} catch (RuntimeException e) {
+					AppLogger.log("Priming animation skipped: " + base.name() + " -> " + top.name(), e);
+					finish(base, isP1, null);
+					return;
+				}
+				// The overlay now draws the card, so the slot goes blank beneath it in the same pass.
+				JLabel held = mw.findFieldSlotLabel(base, isP1);
+				if (held != null) { held.setIcon(blankIcon()); held.setText(null); }
+				Timer t = new Timer(CardPrimingAnimator.TOTAL_FRAMES * CardPrimingAnimator.FRAME_MS,
+						e -> finish(base, isP1, to));
+				t.setRepeats(false);
+				t.start();
+			}
+		}.execute();
 	}
 
 	/**

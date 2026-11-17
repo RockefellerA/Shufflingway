@@ -503,13 +503,19 @@ class Priming {
 		mw.refreshP2BreakLabel();
 	}
 
-	/** Places {@code chosen} as the primed top card on {@code isP1}'s {@code slotIdx} and logs the action. */
+	/**
+	 * Places {@code chosen} as the primed top card on {@code isP1}'s {@code slotIdx}, logs the action,
+	 * and burns the Forward into it on screen. The Priming's auto abilities fire once the flames have
+	 * cleared — at once when the board is not on screen — so their popups land on the primed card.
+	 */
 	void applyPrimedCard(CardData chosen, CardData primingCard, int slotIdx, boolean isP1) {
 		(isP1 ? mw.p1ForwardPrimedTop : mw.p2ForwardPrimedTop).set(slotIdx, chosen);
 		mw.logEntry((isP1 ? "" : "[P2] ") + "Primed: \"" + primingCard.name() + "\" topped with \"" + chosen.name() + "\"");
-		if (isP1) mw.refreshP1ForwardSlot(slotIdx); else mw.refreshP2ForwardSlot(slotIdx);
-		mw.autoAbilityTriggers.triggerAutoAbilitiesForPrimedInto(primingCard, chosen, isP1);
-		mw.autoAbilityTriggers.triggerAutoAbilitiesForPriming(primingCard, isP1);
+		CardData base = (isP1 ? mw.p1ForwardCards : mw.p2ForwardCards).get(slotIdx);
+		mw.fieldEntryAnimator.primeWithAnim(base, chosen, isP1, () -> {
+			mw.autoAbilityTriggers.triggerAutoAbilitiesForPrimedInto(primingCard, chosen, isP1);
+			mw.autoAbilityTriggers.triggerAutoAbilitiesForPriming(primingCard, isP1);
+		});
 	}
 
 	/**

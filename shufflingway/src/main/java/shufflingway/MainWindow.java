@@ -140,6 +140,7 @@ import static shufflingway.graphics.CardAnimation.CARD_H;
 import static shufflingway.graphics.CardAnimation.CARD_W;
 import shufflingway.graphics.CardBreakAnimator;
 import shufflingway.graphics.CardLimitBreakAnimator;
+import shufflingway.graphics.CardPrimingAnimator;
 import shufflingway.graphics.CardRfpAnimator;
 import shufflingway.graphics.CardSlideAnimator;
 import shufflingway.graphics.CrystalDisplay;
@@ -320,6 +321,8 @@ public class MainWindow {
 	private CardBreakAnimator breakAnimator;
 	CardRfpAnimator           rfpAnimator;
 	CardLimitBreakAnimator    limitBreakAnimator;
+	/** A primed Forward burning away into its top card; see {@link FieldEntryAnimator#primeWithAnim}. */
+	CardPrimingAnimator       primingAnimator;
 	/** Damage floating up off the Characters it was dealt to; see {@link #floatDamage}. */
 	private DamageNumberOverlay damageNumbers;
 	/** Draws P1's attackers and blocker — Forwards, Monsters and Backups — raised out of their rows; see {@link #syncCombatLift}. */
@@ -2742,6 +2745,7 @@ public class MainWindow {
 		breakAnimator     = CardBreakAnimator.install(frame);
 		rfpAnimator       = CardRfpAnimator.install(frame);
 		limitBreakAnimator = CardLimitBreakAnimator.install(frame);
+		primingAnimator   = CardPrimingAnimator.install(frame);
 		damageNumbers     = DamageNumberOverlay.install(frame);
 		gameOverOverlay   = GameOverOverlay.install(frame, mainArea, fieldDivider);
 	}
