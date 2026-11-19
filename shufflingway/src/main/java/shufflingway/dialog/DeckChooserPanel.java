@@ -18,6 +18,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.ListModel;
 import javax.swing.ListSelectionModel;
+import javax.swing.SwingUtilities;
 
 import scraper.DeckDatabase;
 import scraper.DeckDatabase.DeckSummary;
@@ -90,6 +91,24 @@ public class DeckChooserPanel extends JPanel {
         DeckSummary sel = deckList.getSelectedValue();
         if (sel != null && !isEligible(sel)) deckList.clearSelection();
         deckList.repaint();
+    }
+
+    /**
+     * Selects the deck with {@code deckId}, as a rematch starts from the deck just played. Does
+     * nothing when that deck no longer exists or the current rules refuse it.
+     */
+    public void selectDeck(int deckId) {
+        ListModel<DeckSummary> model = deckList.getModel();
+        for (int i = 0; i < model.getSize(); i++) {
+            DeckSummary d = model.getElementAt(i);
+            if (d.id() != deckId) continue;
+            if (!isEligible(d)) return;
+            int index = i;
+            deckList.setSelectedIndex(index);
+            // Deferred until the dialog holding this panel is shown and laid out, which a scroll needs.
+            SwingUtilities.invokeLater(() -> deckList.ensureIndexIsVisible(index));
+            return;
+        }
     }
 
     /** Drops the selection, as if nothing had been picked. */

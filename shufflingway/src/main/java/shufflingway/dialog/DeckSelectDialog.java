@@ -26,6 +26,7 @@ import javax.swing.JScrollPane;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
 import scraper.DeckDatabase;
@@ -50,7 +51,16 @@ public class DeckSelectDialog extends JDialog {
     private Map<Integer, String> refused = Map.of();
     private final List<DeckSummary> decks;
 
+    /** Opens with nothing selected. */
     public DeckSelectDialog(JFrame parent) {
+        this(parent, -1, -1);
+    }
+
+    /**
+     * Opens with {@code selectPlayer} and {@code selectCpu} already selected, so a rematch is one
+     * click. Either is left unselected when it is -1, no longer exists, or the current rules refuse it.
+     */
+    public DeckSelectDialog(JFrame parent, int selectPlayer, int selectCpu) {
         super(parent, "New Game – Choose Decks", true);
         setSize(700, 500);
         setLocationRelativeTo(parent);
@@ -100,6 +110,9 @@ public class DeckSelectDialog extends JDialog {
                 else updateStart.run();
             }
         });
+
+        preselect(playerList, selectPlayer);
+        preselect(cpuList,    selectCpu);
 
         JLabel headerLabel = new JLabel();
         headerLabel.setBorder(BorderFactory.createEmptyBorder(6, 0, 4, 0));
@@ -210,6 +223,20 @@ public class DeckSelectDialog extends JDialog {
 
     private boolean isEligible(DeckSummary d) {
         return d.mainCardCount() == 50 && !refused.containsKey(d.id());
+    }
+
+    /** Selects the deck with {@code deckId} in {@code list}, when it is there and eligible. */
+    private void preselect(JList<DeckSummary> list, int deckId) {
+        for (int i = 0; i < decks.size(); i++) {
+            DeckSummary d = decks.get(i);
+            if (d.id() != deckId) continue;
+            if (!isEligible(d)) return;
+            int index = i;
+            list.setSelectedIndex(index);
+            // Deferred until the dialog is shown and laid out, which a scroll needs.
+            SwingUtilities.invokeLater(() -> list.ensureIndexIsVisible(index));
+            return;
+        }
     }
 
     private class DeckListRenderer extends DefaultListCellRenderer {

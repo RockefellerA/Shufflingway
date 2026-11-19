@@ -122,12 +122,14 @@ import shufflingway.audio.Sound;
 import shufflingway.audio.SoundEffects;
 import shufflingway.dialog.AltCostPaymentDialog;
 import shufflingway.dialog.BreakZoneDialog;
+import shufflingway.dialog.DeckSelectDialog;
 import shufflingway.dialog.DivideIntoGroupsDialog;
 import shufflingway.dialog.ExtraCostBzSelectDialog;
 import shufflingway.dialog.HandPickDialog;
 import shufflingway.dialog.LbDialog;
 import shufflingway.dialog.LbPaymentDialog;
 import shufflingway.dialog.OverflowDamageDialog;
+import shufflingway.dialog.PlayAgainDialog;
 import shufflingway.dialog.RemovedFromPlayDialog;
 import shufflingway.dialog.StandardPaymentDialog;
 import shufflingway.dialog.WarpPaymentDialog;
@@ -865,6 +867,12 @@ public class MainWindow {
 	private Timer         mainPhaseAutoAdvanceTimer;
 	/** The open File → New Game negotiation on a multiplayer connection, or {@code null}. */
 	private NewGameDialog newGameDialog;
+	/** "Play Again?" while it is on screen, or {@code null}; see {@link #schedulePlayAgain}. */
+	private PlayAgainDialog playAgainDialog;
+	/** Holds "Play Again?" back until the end-of-game banners have faded in, or {@code null}. */
+	private Timer           playAgainTimer;
+	/** The decks the last game against the CPU started with, selected when the next one is chosen; -1 before one. */
+	private int lastP1DeckId = -1, lastCpuDeckId = -1;
 	/**
 	 * The Debug menu's tools. Built whether or not this client shows the menu: in a multiplayer
 	 * game with debugging enabled, the opponent's debug changes are applied through it here too.
@@ -2036,10 +2044,9 @@ public class MainWindow {
 		// --- Menu Bar ---
 		JMenuBar menuBar = new JMenuBar();
 		frame.setJMenuBar(menuBar);
-		menuBar.add(new FileMenu(frame, this::startGame,
+		menuBar.add(new FileMenu(frame, this::newGameFromMenu,
 				() -> applySidePanelSide(AppSettings.getSidePanelSide()),
-				this::applyBoardColor,
-				this::multiplayerConnected, this::requestMultiplayerNewGame));
+				this::applyBoardColor));
 		multiplayerMenu = new MultiplayerMenu(frame,
 				setup -> {
 					SwingUtilities.invokeLater(() -> {
@@ -2052,6 +2059,7 @@ public class MainWindow {
 					chatInput.setEnabled(false);
 					chatSendBtn.setEnabled(false);
 					if (newGameDialog != null) newGameDialog.connectionLost();
+					closePlayAgain();                   // no one left to play again with
 					refreshDebugMenuAvailability();   // the host's setting ends with the session
 					onOpponentDisconnected(reason);
 				}),
@@ -2814,6 +2822,8 @@ public class MainWindow {
 	private void startGame(int deckId, int p2DeckId, DeckFormat format) {
 		matchSetup = null;              // a local game against the AI
 		gameFormat = format;
+		lastP1DeckId  = deckId;
+		lastCpuDeckId = p2DeckId;
 		refreshDebugMenuAvailability();
 		resetForNewGame();
 		applyTurnPillNames();
@@ -2866,6 +2876,24 @@ public class MainWindow {
 		if (conn != null) conn.send(action);
 	}
 
+	/** File → New Game: asks the opponent while connected, and otherwise chooses decks for a game against the CPU. */
+	private void newGameFromMenu() {
+		if (multiplayerConnected()) requestMultiplayerNewGame();
+		else chooseCpuGame();
+	}
+
+	/**
+	 * The New Game dialog for a game against the CPU, opening on the decks the last one used.
+	 * Starts the game it sets up; cancelling leaves the board as it was.
+	 */
+	private void chooseCpuGame() {
+		DeckSelectDialog dialog = new DeckSelectDialog(frame, lastP1DeckId, lastCpuDeckId);
+		dialog.setVisible(true);
+		int p1Id = dialog.getPlayerDeckId();
+		int p2Id = dialog.getCpuDeckId();
+		if (p1Id >= 0 && p2Id >= 0) startGame(p1Id, p2Id, dialog.getFormat());
+	}
+
 	/**
 	 * File → New Game while connected: confirm, ask the opponent, and pick a deck while waiting
 	 * for them. The game in progress carries on underneath if either player cancels.
@@ -2875,8 +2903,66 @@ public class MainWindow {
 		int choice = JOptionPane.showConfirmDialog(frame, "Do you want to start a new game?",
 				"New Game", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
 		if (choice != JOptionPane.YES_OPTION) return;
+		askOpponentForNewGame();
+	}
+
+	/** Asks the opponent for a new game and opens the deck choice while waiting for them. */
+	private void askOpponentForNewGame() {
+		if (newGameDialog != null || matchSetup == null) return;
 		sendOnConnection(GameAction.of(ActionType.NEW_GAME_REQUEST));
 		openNewGameDialog(true);
+	}
+
+	/** How long after the result goes up "Play Again?" is asked: the banners' fade-in, then a beat to read them. */
+	private static final int PLAY_AGAIN_DELAY_MS = 1200;
+
+	/**
+	 * Asks "Play Again?" once the end-of-game banners are up. Yes opens the same deck choice as
+	 * File → New Game, on the decks just played: the CPU dialog, or the negotiation with the
+	 * opponent, skipping its "start a new game?" confirmation. No leaves a networked match, ending
+	 * the connection for both players; against the CPU it only closes the question.
+	 *
+	 * <p>Asked on each client separately. Whichever player says Yes first sends the request, and
+	 * the request withdraws the other's question as it opens their side of the negotiation.
+	 */
+	private void schedulePlayAgain(boolean won) {
+		closePlayAgain();
+		playAgainTimer = new Timer(PLAY_AGAIN_DELAY_MS, e -> showPlayAgain(won));
+		playAgainTimer.setRepeats(false);
+		playAgainTimer.start();
+	}
+
+	/** {@code won}: whether this player won, which the question's title says. */
+	private void showPlayAgain(boolean won) {
+		playAgainTimer = null;
+		// The game has been replaced, the opponent has already asked, or they have gone.
+		if (!gameState.isP1GameOver() || newGameDialog != null) return;
+		boolean networked = matchSetup != null;
+		if (networked && !multiplayerConnected()) return;
+		String opponent = networked ? matchSetup.remoteUsername() : null;
+		String noTip = !networked ? null
+				: "Leave the match and disconnect from "
+						+ (opponent == null || opponent.isBlank() ? "your opponent" : opponent);
+		playAgainDialog = new PlayAgainDialog(frame, won, this::playAgain, this::declinePlayAgain, noTip);
+		positionAtFieldDivider(playAgainDialog);
+		playAgainDialog.setVisible(true);
+	}
+
+	private void playAgain() {
+		playAgainDialog = null;
+		if (matchSetup == null) chooseCpuGame();
+		else if (multiplayerConnected()) askOpponentForNewGame();
+	}
+
+	private void declinePlayAgain() {
+		playAgainDialog = null;
+		if (matchSetup != null && multiplayerConnected()) multiplayerMenu.disconnect();
+	}
+
+	/** Withdraws "Play Again?", whether it is on screen or still waiting to be. */
+	private void closePlayAgain() {
+		if (playAgainTimer  != null) { playAgainTimer.stop();     playAgainTimer  = null; }
+		if (playAgainDialog != null) { playAgainDialog.dispose(); playAgainDialog = null; }
 	}
 
 	/** The messages {@link NewGameDialog} negotiates with. GAME_SETUP only arrives after the lobby for a new game. */
@@ -2899,6 +2985,7 @@ public class MainWindow {
 	 * {@link #onNewGameMessage} — including the GAME_SETUP that starts the game from inside it.
 	 */
 	private void openNewGameDialog(boolean requestedLocally) {
+		closePlayAgain();   // the opponent's request answers this player's "Play Again?" too
 		NewGameDialog dlg = new NewGameDialog(frame, matchSetup, requestedLocally,
 				this::sendOnConnection, this::startMultiplayerGame);
 		newGameDialog = dlg;
@@ -2949,6 +3036,7 @@ public class MainWindow {
 		closeStackWindow();
 		if (openingHandPopup     != null) { openingHandPopup.dispose();     openingHandPopup     = null; }
 		if (gameOverOverlay      != null) gameOverOverlay.clear();
+		closePlayAgain();
 		// Reset stack-resolution flags so new abilities can reach the stack window.
 		isResolvingStack         = false;
 		turnFlowGate.reset();
@@ -5079,7 +5167,10 @@ public class MainWindow {
 			return false;
 		}
 		triggerGameOver(reason);
-		if (gameOverOverlay != null) gameOverOverlay.showResult(!loserIsP1);
+		if (gameOverOverlay != null) {
+			gameOverOverlay.showResult(!loserIsP1);
+			schedulePlayAgain(!loserIsP1);
+		}
 		return true;
 	}
 

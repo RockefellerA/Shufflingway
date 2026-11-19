@@ -3,9 +3,6 @@ package shufflingway.menu;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.function.BiConsumer;
-import java.util.function.BooleanSupplier;
-
-import shufflingway.DeckFormat;
 
 import javax.swing.JFrame;
 import javax.swing.JMenu;
@@ -15,7 +12,6 @@ import javax.swing.KeyStroke;
 
 import shufflingway.CardBrowser;
 import shufflingway.DeckManager;
-import shufflingway.dialog.DeckSelectDialog;
 import shufflingway.dialog.PreferencesDialog;
 
 /**
@@ -24,35 +20,17 @@ import shufflingway.dialog.PreferencesDialog;
  */
 public class FileMenu extends JMenu {
 
-    /** Starts a game against the CPU with the two decks and the format the New Game dialog chose. */
-    @FunctionalInterface
-    public interface CpuGameStarter {
-        void start(int playerDeckId, int cpuDeckId, DeckFormat format);
-    }
-
     /**
-     * @param inMultiplayer       whether a multiplayer connection is open right now
-     * @param multiplayerNewGame  New Game while connected: asks the opponent instead of picking
-     *                            a CPU deck
+     * @param newGame New Game: the main window decides whether that means choosing decks for a
+     *                game against the CPU or asking a connected opponent
      */
-    public FileMenu(JFrame owner, CpuGameStarter startGame, Runnable onLayoutChanged,
-            BiConsumer<Boolean, String> onBoardColorChanged,
-            BooleanSupplier inMultiplayer, Runnable multiplayerNewGame) {
+    public FileMenu(JFrame owner, Runnable newGame, Runnable onLayoutChanged,
+            BiConsumer<Boolean, String> onBoardColorChanged) {
         super("File");
 
-        JMenuItem newGame = new JMenuItem("New Game");
-        add(newGame);
-        newGame.addActionListener((ActionEvent e) -> {
-            if (inMultiplayer.getAsBoolean()) {
-                multiplayerNewGame.run();
-                return;
-            }
-            DeckSelectDialog dialog = new DeckSelectDialog(owner);
-            dialog.setVisible(true);
-            int p1Id = dialog.getPlayerDeckId();
-            int p2Id = dialog.getCpuDeckId();
-            if (p1Id >= 0 && p2Id >= 0) startGame.start(p1Id, p2Id, dialog.getFormat());
-        });
+        JMenuItem newGameItem = new JMenuItem("New Game");
+        add(newGameItem);
+        newGameItem.addActionListener((ActionEvent e) -> newGame.run());
 
         JMenuItem deckManager = new JMenuItem("Deck Manager");
         add(deckManager);

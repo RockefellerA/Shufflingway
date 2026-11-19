@@ -88,7 +88,8 @@ public class NewGameDialog extends JDialog {
 
 	/**
 	 * @param current          the match being replaced: who hosts, the opponent's name, and the
-	 *                         debug setting, which the new game keeps
+	 *                         debug setting, which the new game keeps; this player's deck in it
+	 *                         starts selected, for a rematch
 	 * @param requestedLocally true when this player asked; false when the opponent did
 	 * @param send             delivers a message to the opponent
 	 * @param onStart          starts the new game; run once, if both players go through with it
@@ -114,7 +115,7 @@ public class NewGameDialog extends JDialog {
 		String message = requestedLocally
 				? "Select a deck for the new game and click 'Ready'."
 				: opponentName + " wants to start a new game. Select a deck and click 'Ready', "
-						+ "or click 'Cancel' to go back to the game in progress.";
+						+ "or click 'Cancel' to decline.";
 		JLabel messageLabel = new JLabel("<html><div style='width:280px'>" + message + "</div></html>");
 		content.add(messageLabel, BorderLayout.NORTH);
 
@@ -153,6 +154,7 @@ public class NewGameDialog extends JDialog {
 		content.add(btnRow, BorderLayout.SOUTH);
 
 		setContentPane(content);
+		deckChooser.selectDeck(current.localDeckId());   // after readyBtn exists: selecting refreshes
 		refresh();
 		pack();
 		setMinimumSize(new Dimension(360, 340));
@@ -182,7 +184,7 @@ public class NewGameDialog extends JDialog {
 				finished = true;
 				dispose();
 				JOptionPane.showMessageDialog(getOwner(),
-						opponentName + " cancelled the new game. Back to the game in progress.",
+						opponentName + " cancelled the new game.",
 						"New Game", JOptionPane.INFORMATION_MESSAGE);
 			}
 			// Both asked at once: each already has this dialog open, which is all a request asks for.

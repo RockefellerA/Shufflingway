@@ -21,6 +21,8 @@ import java.util.function.Consumer;
 public class MultiplayerMenu extends JMenu {
 
     private GameConnection activeConnection;
+    private final JFrame owner;
+    private final Consumer<String> onDisconnected;
     private final JMenuItem localItem  = new JMenuItem("Local…");
     private final JMenuItem remoteItem = new JMenuItem("Remote…");
     private final JMenuItem disconnectItem;
@@ -35,6 +37,8 @@ public class MultiplayerMenu extends JMenu {
     public MultiplayerMenu(JFrame owner, Consumer<MatchSetup> onConnected,
                            Consumer<String> onDisconnected, Consumer<GameAction> onActionReceived) {
         super("Multiplayer");
+        this.owner          = owner;
+        this.onDisconnected = onDisconnected;
 
         disconnectItem = new JMenuItem("Disconnect");
         refreshItems();
@@ -49,7 +53,7 @@ public class MultiplayerMenu extends JMenu {
         });
         add(localItem);
 
-        disconnectItem.addActionListener(e -> disconnect(owner, onDisconnected));
+        disconnectItem.addActionListener(e -> disconnect());
 
         remoteItem.addActionListener(e -> {
             RemoteLobbyDialog dlg = new RemoteLobbyDialog(owner);
@@ -97,7 +101,11 @@ public class MultiplayerMenu extends JMenu {
         conn.start();
     }
 
-    private void disconnect(JFrame owner, Consumer<String> onDisconnected) {
+    /**
+     * Multiplayer → Disconnect: tells the opponent, closes the connection — which ends the lobby
+     * for both players, host or not — and says so. Does nothing to the connection when none is open.
+     */
+    public void disconnect() {
         if (activeConnection != null) {
             activeConnection.send(GameAction.of(shufflingway.net.ActionType.DISCONNECT,
                     new org.json.JSONObject().put("reason", "Player left")));
