@@ -10,19 +10,21 @@ import java.awt.Graphics2D;
 import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import shufflingway.FontLoader;
 
 /**
- * The counters on a card, drawn as the face of a die: one orb for each named counter, the orbs
- * laid out as the pips a die shows for that many, each carrying how many counters of its name the
- * card holds. A card with Poison ×2 and Shuriken ×3 shows the two-pip face, one orb reading 2 and
- * the other 3.
+ * The counters on a card, drawn as the face of a die: one orb for each pile — the counters of one
+ * name that one player placed — the orbs laid out as the pips a die shows for that many, each
+ * carrying its pile's count in its placer's color. A card with Poison ×2 and Shuriken ×3 shows the
+ * two-pip face, one orb reading 2 and the other 3; Poison from both players makes two Poison orbs.
  *
- * <p>Orbs take the names in the order they were placed, reading the face top row first, left to
- * right. A face shows at most nine orbs: from {@link #OVERFLOW} names on it shows all nine, the
- * centre one marked "..." in place of a count and the other eight carrying the first eight names.
+ * <p>Orbs take the piles in the order they were placed, reading the face top row first, left to
+ * right. A face shows at most nine orbs: from {@link #OVERFLOW} piles on it shows all nine, the
+ * centre one marked "..." in place of a count and the other eight carrying the first eight piles.
  * The slot's tooltip lists every counter by name either way.
  */
 final class CounterDice {
@@ -83,38 +85,51 @@ final class CounterDice {
 		return out;
 	}
 
+	/** The centre pip's place in {@link #pips} order on the full nine-pip face. */
+	private static final int CENTRE = 4;
+
 	/**
-	 * What each orb of the face for {@code piles} carries, pip by pip in {@link #pips} order: the
-	 * count of each named counter in turn, or for an overflowing face {@link #MORE} on the centre
-	 * orb and the first eight counts around it.
+	 * Which of {@code total} piles the pip at {@code pip} ({@link #pips} order) shows. Every pile
+	 * in turn; on an overflowing face the first eight around the centre, and the centre — which
+	 * carries {@link #MORE} — standing for the ninth onward.
 	 */
-	static List<String> labels(List<Integer> piles) {
+	private static int pileAt(int pip, int total) {
+		if (total < OVERFLOW || pip < CENTRE) return pip;
+		return pip == CENTRE ? 8 : pip - 1;
+	}
+
+	/**
+	 * What each orb of the face for {@code counts} carries, pip by pip in {@link #pips} order: the
+	 * count of each pile in turn, or for an overflowing face {@link #MORE} on the centre orb and the
+	 * first eight counts around it.
+	 */
+	static List<String> labels(List<Integer> counts) {
+		int n = Math.min(counts.size(), 9);
+		boolean overflow = counts.size() >= OVERFLOW;
 		List<String> out = new ArrayList<>();
-		if (piles.size() < OVERFLOW) {
-			for (int count : piles) out.add(String.valueOf(count));
-			return out;
-		}
-		int next = 0;
-		for (int[] pip : pips(9))
-			out.add(pip[0] == 1 && pip[1] == 1 ? MORE : String.valueOf(piles.get(next++)));
+		for (int i = 0; i < n; i++)
+			out.add(overflow && i == CENTRE ? MORE : String.valueOf(counts.get(pileAt(i, counts.size()))));
 		return out;
 	}
 
 	/**
-	 * Draws the face for {@code piles} — how many counters of each name, in the order they were
-	 * placed — centred on the card, onto {@code g} set up so the upright card spans (0, 0) to
-	 * (CARD_W, CARD_H).
+	 * Draws the face for {@code orbs} — one per pile of counters, in the order they were placed,
+	 * each in its placer's color — centred on the card, onto {@code g} set up so the upright card
+	 * spans (0, 0) to (CARD_W, CARD_H). An overflowing face's centre orb takes the color of the
+	 * first pile it stands in for.
 	 */
-	static void draw(Graphics2D g, List<Integer> piles, String hex) {
-		if (piles.isEmpty()) return;
+	static void draw(Graphics2D g, List<CounterOrb> orbs) {
+		if (orbs.isEmpty()) return;
 		int    orbW = Math.max(16, CARD_W / 5);
 		int    orbH = (int) Math.round(orbW * ORB_ASPECT);
 		double step = orbW * PIP_SPACING;
-		BufferedImage orb = Counter.render(orbW, orbH, hex);
-		double[][]   at     = offsets(piles.size());
-		List<String> labels = labels(piles);
+		Map<String, BufferedImage> rendered = new HashMap<>();
+		double[][]   at     = offsets(orbs.size());
+		List<String> labels = labels(orbs.stream().map(CounterOrb::count).toList());
 		Font font = FontLoader.loadOverlayFont(10);
 		for (int i = 0; i < at.length; i++) {
+			String hex = orbs.get(pileAt(i, orbs.size())).hex();
+			BufferedImage orb = rendered.computeIfAbsent(hex, h -> Counter.render(orbW, orbH, h));
 			double cx = CARD_W / 2.0 + at[i][0] * step;
 			double cy = CARD_H / 2.0 + at[i][1] * step;
 			g.drawImage(orb, (int) Math.round(cx - orbW / 2.0), (int) Math.round(cy - orbH / 2.0), null);

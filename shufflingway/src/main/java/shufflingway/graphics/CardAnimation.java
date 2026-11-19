@@ -228,13 +228,14 @@ public class CardAnimation {
 	}
 
 	/**
-	 * Draws the counters on a card as the face of a die — an orb for each named counter, carrying
-	 * its count, laid out as {@link CounterDice} describes — turned with the card when it is dull.
+	 * Draws the counters on a card as the face of a die — an orb for each pile, carrying its count
+	 * in its placer's color, laid out as {@link CounterDice} describes — turned with the card when
+	 * it is dull.
 	 *
-	 * @param piles how many counters of each name the card carries, in the order they were placed
+	 * @param orbs the card's piles of counters, in the order they were placed
 	 */
-	public static void renderCounterOverlay(BufferedImage canvas, List<Integer> piles, CardState state, String hexColor) {
-		if (piles.isEmpty()) return;
+	public static void renderCounterOverlay(BufferedImage canvas, List<CounterOrb> orbs, CardState state) {
+		if (orbs.isEmpty()) return;
 		Graphics2D g = canvas.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -244,7 +245,7 @@ public class CardAnimation {
 		} else {
 			g.translate(LEFT_GUTTER, 0);   // active art starts past the tab gutter
 		}
-		CounterDice.draw(g, piles, hexColor);
+		CounterDice.draw(g, orbs);
 		g.dispose();
 	}
 

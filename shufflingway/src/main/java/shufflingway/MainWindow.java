@@ -143,6 +143,7 @@ import shufflingway.graphics.CardLimitBreakAnimator;
 import shufflingway.graphics.CardPrimingAnimator;
 import shufflingway.graphics.CardRfpAnimator;
 import shufflingway.graphics.CardSlideAnimator;
+import shufflingway.graphics.CounterOrb;
 import shufflingway.graphics.CrystalDisplay;
 import shufflingway.graphics.DamageNegateFlash;
 import shufflingway.graphics.DamageNumberOverlay;
@@ -15169,18 +15170,30 @@ public class MainWindow {
 	}
 
 	/**
-	 * How many counters of each name are in {@code countersMap}, in the order they were placed: the
-	 * orbs {@link CardAnimation#renderCounterOverlay} draws, one apiece. Copied here, on the EDT,
-	 * because the slot render that draws them runs on a worker while the live map can change.
+	 * The orbs {@link CardAnimation#renderCounterOverlay} draws for {@code piles}: one per pile, in
+	 * the counter color of the player who placed it — so a card can carry both players' colors.
+	 * Built here, on the EDT, because the slot render that draws them runs on a worker.
 	 */
-	static List<Integer> counterPiles(Map<String, Integer> countersMap) {
-		return countersMap.values().stream().filter(c -> c != null && c > 0).toList();
+	List<CounterOrb> counterOrbs(List<GameState.CounterPile> piles) {
+		return piles.stream().map(p -> new CounterOrb(p.count(), counterColorFor(p.byP1()))).toList();
 	}
 
-	private static String buildCounterTooltip(Map<String, Integer> countersMap) {
-		if (countersMap.isEmpty()) return null;
+	/**
+	 * The counter list in a field slot's tooltip: each pile as "Name ×N", marked (Yours) or (Theirs)
+	 * when both players have placed counters of that name — the one case where the name alone does
+	 * not say which orb is which.
+	 */
+	static String buildCounterTooltip(List<GameState.CounterPile> piles) {
+		if (piles.isEmpty()) return null;
+		Set<String> yours = new HashSet<>(), theirs = new HashSet<>();
+		for (GameState.CounterPile p : piles) (p.byP1() ? yours : theirs).add(p.name());
 		StringBuilder sb = new StringBuilder("<html>");
-		countersMap.forEach((name, count) -> sb.append(name).append(" ×").append(count).append("<br>"));
+		for (GameState.CounterPile p : piles) {
+			sb.append(escapeTooltipHtml(p.name())).append(" ×").append(p.count());
+			if (yours.contains(p.name()) && theirs.contains(p.name()))
+				sb.append(p.byP1() ? " (Yours)" : " (Theirs)");
+			sb.append("<br>");
+		}
 		sb.append("</html>");
 		return sb.toString();
 	}
@@ -15211,8 +15224,8 @@ public class MainWindow {
 	 *                      of its generic {@link TraitTab#description}
 	 */
 	void applyFieldSlotTooltip(JLabel slot, CardState state, List<CardData.Trait> traitTabs,
-			boolean primed, Map<CardData.Trait, List<String>> statusDetails, Map<String, Integer> countersMap) {
-		String base = buildCounterTooltip(countersMap);
+			boolean primed, Map<CardData.Trait, List<String>> statusDetails, List<GameState.CounterPile> counters) {
+		String base = buildCounterTooltip(counters);
 		slot.putClientProperty(SLOT_TIP_STATE,   state);
 		slot.putClientProperty(SLOT_TIP_TRAITS,  List.copyOf(traitTabs));
 		slot.putClientProperty(SLOT_TIP_BASE,    base);
@@ -15300,8 +15313,8 @@ public class MainWindow {
 		boolean selected  = isSelectedAttacker(ForwardTarget.CardZone.BACKUP, idx) || p1BlockerBackupIdx == idx;
 		int fwdPower = actingForward ? p1BackupForwardPower(idx) : 0;
 		int damage   = card != null ? p1BackupForwardDamage.getOrDefault(card, 0) : 0;
-		Map<String, Integer> countersMap = card != null ? gameState.getCountersMap(card) : Map.of();
-		List<Integer> counterPiles = counterPiles(countersMap);
+		List<GameState.CounterPile> counters = card != null ? gameState.getCounterPiles(card) : List.of();
+		List<CounterOrb> counterOrbs = counterOrbs(counters);
 		Map<CardData.Trait, List<String>> statusDetails = backupStatusDetails(true, idx);
 		List<CardData.Trait> traitTabs = visibleBackupTraitTabs(true, idx, statusDetails);
 		if (slot.getIcon() == null) slot.setIcon(new FieldCardIcon(CardAnimation.renderPlaceholder(state), state));
@@ -15315,15 +15328,15 @@ public class MainWindow {
 				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
-				if (!counterPiles.isEmpty())
-					CardAnimation.renderCounterOverlay(canvas, counterPiles, state, counterColorFor(true));
+				if (!counterOrbs.isEmpty())
+					CardAnimation.renderCounterOverlay(canvas, counterOrbs, state);
 				return new FieldCardIcon(canvas, state);
 			}
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
 					if (icon != null && p1BackupUrls[idx] != null) { slot.setIcon(icon); slot.setText(null); }
-					applyFieldSlotTooltip(slot, state, traitTabs, false, statusDetails, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, false, statusDetails, counters);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -20131,8 +20144,8 @@ public class MainWindow {
 				gameState.getCurrentPlayer() == GameState.Player.P1);
 		boolean actingForward = bfaActive || tempFwdPower != null;
 		int fwdPow = p1MonsterForwardPower(idx);
-		Map<String, Integer> countersMap = gameState.getCountersMap(card);
-		List<Integer> counterPiles = counterPiles(countersMap);
+		List<GameState.CounterPile> counters = gameState.getCounterPiles(card);
+		List<CounterOrb> counterOrbs = counterOrbs(counters);
 		Map<CardData.Trait, List<String>> statusDetails = monsterStatusDetails(true, idx);
 		List<CardData.Trait> traitTabs = visibleMonsterTraitTabs(true, idx, statusDetails);
 		final boolean primed = false;   // Priming tops a Forward slot; the Monster row has no tops
@@ -20150,15 +20163,15 @@ public class MainWindow {
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPow, new Color(80, 220, 80), state);
 				else if (power > basePower)
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
-				if (!counterPiles.isEmpty())
-					CardAnimation.renderCounterOverlay(canvas, counterPiles, state, counterColorFor(true));
+				if (!counterOrbs.isEmpty())
+					CardAnimation.renderCounterOverlay(canvas, counterOrbs, state);
 				return new FieldCardIcon(canvas, state);
 			}
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
-					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, counters);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -20227,8 +20240,8 @@ public class MainWindow {
 				gameState.getCurrentPlayer() == GameState.Player.P2);
 		boolean actingForward = bfaActive || tempFwdPower != null;
 		int fwdPow = p2MonsterForwardPower(idx);
-		Map<String, Integer> countersMap = gameState.getCountersMap(card);
-		List<Integer> counterPiles = counterPiles(countersMap);
+		List<GameState.CounterPile> counters = gameState.getCounterPiles(card);
+		List<CounterOrb> counterOrbs = counterOrbs(counters);
 		Map<CardData.Trait, List<String>> statusDetails = monsterStatusDetails(false, idx);
 		List<CardData.Trait> traitTabs = visibleMonsterTraitTabs(false, idx, statusDetails);
 		final boolean primed = false;   // Priming tops a Forward slot; the Monster row has no tops
@@ -20246,15 +20259,15 @@ public class MainWindow {
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPow, new Color(80, 220, 80), state);
 				else if (power > basePower)
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
-				if (!counterPiles.isEmpty())
-					CardAnimation.renderCounterOverlay(canvas, counterPiles, state, counterColorFor(false));
+				if (!counterOrbs.isEmpty())
+					CardAnimation.renderCounterOverlay(canvas, counterOrbs, state);
 				return new FieldCardIcon(canvas, state);
 			}
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
-					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, counters);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -20298,8 +20311,8 @@ public class MainWindow {
 		int basePower = (topCard != null ? topCard : p1ForwardCards.get(idx)).power();
 		boolean selected = isSelectedAttacker(ForwardTarget.CardZone.FORWARD, idx) || p1BlockerSelection == idx;
 		Color   glow     = combatGlowFor(effectiveP1Forward(idx), true);
-		Map<String, Integer> countersMap = gameState.getCountersMap(fwdCard);
-		List<Integer> counterPiles = counterPiles(countersMap);
+		List<GameState.CounterPile> counters = gameState.getCounterPiles(fwdCard);
+		List<CounterOrb> counterOrbs = counterOrbs(counters);
 		Map<CardData.Trait, List<String>> statusDetails = forwardStatusDetails(true, idx);
 		List<CardData.Trait> traitTabs = visibleTraitTabs(true, idx, statusDetails);
 		if (slot.getIcon() == null) slot.setIcon(new FieldCardIcon(CardAnimation.renderPlaceholder(state), state));
@@ -20318,8 +20331,8 @@ public class MainWindow {
 				} else if (power < basePower) {
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(230, 200, 60), state);
 				}
-				if (!counterPiles.isEmpty())
-					CardAnimation.renderCounterOverlay(canvas, counterPiles, state, counterColorFor(true));
+				if (!counterOrbs.isEmpty())
+					CardAnimation.renderCounterOverlay(canvas, counterOrbs, state);
 				return new FieldCardIcon(canvas, state);
 			}
 			@Override protected void done() {
@@ -20331,7 +20344,7 @@ public class MainWindow {
 						slot.setText(null);
 						slot.putClientProperty(SLOT_ART, new SlotArt(fwdCard, icon));
 					}
-					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, counters);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -24505,8 +24518,8 @@ public class MainWindow {
 		boolean actingForward = isP2BackupTemporarilyForward(idx);
 		int fwdPower = actingForward ? p2BackupForwardPower(idx) : 0;
 		int damage   = card != null ? p2BackupForwardDamage.getOrDefault(card, 0) : 0;
-		Map<String, Integer> countersMap = card != null ? gameState.getCountersMap(card) : Map.of();
-		List<Integer> counterPiles = counterPiles(countersMap);
+		List<GameState.CounterPile> counters = card != null ? gameState.getCounterPiles(card) : List.of();
+		List<CounterOrb> counterOrbs = counterOrbs(counters);
 		Map<CardData.Trait, List<String>> statusDetails = backupStatusDetails(false, idx);
 		List<CardData.Trait> traitTabs = visibleBackupTraitTabs(false, idx, statusDetails);
 		if (slot.getIcon() == null) slot.setIcon(new FieldCardIcon(CardAnimation.renderPlaceholder(state), state));
@@ -24520,15 +24533,15 @@ public class MainWindow {
 				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
-				if (!counterPiles.isEmpty())
-					CardAnimation.renderCounterOverlay(canvas, counterPiles, state, counterColorFor(false));
+				if (!counterOrbs.isEmpty())
+					CardAnimation.renderCounterOverlay(canvas, counterOrbs, state);
 				return new FieldCardIcon(canvas, state);
 			}
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
 					if (icon != null && p2BackupUrls[idx] != null) { slot.setIcon(icon); slot.setText(null); }
-					applyFieldSlotTooltip(slot, state, traitTabs, false, statusDetails, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, false, statusDetails, counters);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -24547,8 +24560,8 @@ public class MainWindow {
 		CardData fwdCard = p2ForwardCards.get(idx);
 		Color    glow    = combatGlowFor(effectiveP2Forward(idx), false);
 		int basePower = (topCard != null ? topCard : fwdCard).power();
-		Map<String, Integer> countersMap = gameState.getCountersMap(fwdCard);
-		List<Integer> counterPiles = counterPiles(countersMap);
+		List<GameState.CounterPile> counters = gameState.getCounterPiles(fwdCard);
+		List<CounterOrb> counterOrbs = counterOrbs(counters);
 		Map<CardData.Trait, List<String>> statusDetails = forwardStatusDetails(false, idx);
 		List<CardData.Trait> traitTabs = visibleTraitTabs(false, idx, statusDetails);
 		final boolean primed = isPrimedForward(false, idx);
@@ -24568,8 +24581,8 @@ public class MainWindow {
 				} else if (power < basePower) {
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(230, 200, 60), state);
 				}
-				if (!counterPiles.isEmpty())
-					CardAnimation.renderCounterOverlay(canvas, counterPiles, state, counterColorFor(false));
+				if (!counterOrbs.isEmpty())
+					CardAnimation.renderCounterOverlay(canvas, counterOrbs, state);
 				return new FieldCardIcon(canvas, state);
 			}
 			@Override protected void done() {
@@ -24581,7 +24594,7 @@ public class MainWindow {
 						slot.setText(null);
 						slot.putClientProperty(SLOT_ART, new SlotArt(fwdCard, icon));
 					}
-					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, primed, statusDetails, counters);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();

@@ -325,7 +325,7 @@ class TraitTabTest {
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
 		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, tabs, false,
 				Map.of(CardData.Trait.CANNOT_BLOCK, List.of("Cannot block Forwards forming a party.",
-						"Forwards of cost 5 or more cannot block (Edea & Co).")), Map.of());
+						"Forwards of cost 5 or more cannot block (Edea & Co).")), List.of());
 		int[] p = visibleCentre(TraitTab.layout(CardState.ACTIVE, tabs).get(0), CardState.ACTIVE);
 
 		String tip = mw.fieldSlotTooltipAt(slot, p[0], p[1]);
@@ -516,7 +516,7 @@ class TraitTabTest {
 	void slotTooltipNamesAndExplainsTheTraitUnderThePointer() {
 		MainWindow mw = new MainWindow();
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of(), Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of(), List.of());
 
 		for (TraitTab.Tab tab : TraitTab.layout(CardState.ACTIVE, ALL_GLYPHS)) {
 			int[] p = visibleCentre(tab, CardState.ACTIVE);
@@ -535,7 +535,7 @@ class TraitTabTest {
 		MainWindow mw = new MainWindow();
 		int pad = 40;
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H + pad, CardAnimation.CARD_H + pad);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of(), Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of(), List.of());
 
 		TraitTab.Tab tab = TraitTab.layout(CardState.ACTIVE, ALL_GLYPHS).get(0);
 		int[] canvasPt = visibleCentre(tab, CardState.ACTIVE);
@@ -552,7 +552,7 @@ class TraitTabTest {
 	void slotTooltipFallsBackToCountersAwayFromTabs() {
 		MainWindow mw = new MainWindow();
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of(), Map.of("Warp", 2));
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of(), List.of(new GameState.CounterPile("Warp", true, 2)));
 
 		int offTabX = CardAnimation.CARD_H - 5;   // deep in the card art, past every tab
 		int offTabY = CardAnimation.CARD_H / 2;
@@ -566,7 +566,7 @@ class TraitTabTest {
 	void slotTooltipIsAbsentWithNoTraitsAndNoCounters() {
 		MainWindow mw = new MainWindow();
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, List.of(), false, Map.of(), Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, List.of(), false, Map.of(), List.of());
 		assertNull(mw.fieldSlotTooltipAt(slot, CardAnimation.CARD_H / 2, CardAnimation.CARD_H / 2));
 		assertNull(slot.getToolTipText(), "a plain card should show no tooltip at all");
 	}
@@ -580,12 +580,12 @@ class TraitTabTest {
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
 		int[] p = visibleCentre(TraitTab.layout(CardState.ACTIVE, priming).get(0), CardState.ACTIVE);
 
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, priming, false, Map.of(), Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, priming, false, Map.of(), List.of());
 		String capable = mw.fieldSlotTooltipAt(slot, p[0], p[1]);
 		assertTrue(capable.contains("Priming"), "unprimed, the tab is named for the trait");
 		assertTrue(capable.contains(TraitTab.description(CardData.Trait.PRIMING, false)));
 
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, priming, true, Map.of(), Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, priming, true, Map.of(), List.of());
 		String primed = mw.fieldSlotTooltipAt(slot, p[0], p[1]);
 		assertTrue(primed.contains("Primed"), "once primed, the tab is named for the state");
 		assertTrue(primed.contains(TraitTab.description(CardData.Trait.PRIMING, true)));
@@ -598,10 +598,10 @@ class TraitTabTest {
 	void slotTooltipFollowsRerendersOfTheSameLabel() {
 		MainWindow mw = new MainWindow();
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of(), Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of(), List.of());
 
 		List<CardData.Trait> justHaste = List.of(CardData.Trait.HASTE);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, justHaste, false, Map.of(), Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, justHaste, false, Map.of(), List.of());
 
 		TraitTab.Tab tab = TraitTab.layout(CardState.ACTIVE, justHaste).get(0);
 		int[] p = visibleCentre(tab, CardState.ACTIVE);

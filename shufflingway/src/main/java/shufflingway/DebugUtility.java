@@ -351,7 +351,7 @@ class DebugUtility {
                     return "no " + op.optString("card") + " at " + (isP1 ? "P1" : "P2") + " "
                             + op.optString("zone") + " " + (op.optInt("index") + 1);
                 switch (op.getString("op")) {
-                    case "counter" -> applyCounter(slot, op.getString("name"), op.getBoolean("add"));
+                    case "counter" -> applyCounter(slot, op.getString("name"), op.getBoolean("add"), !fromOpponent);
                     case "state"   -> applyState(slot, op.getBoolean("dull") ? CardState.DULL : CardState.ACTIVE);
                     default        -> applyBreakAt(slot);
                 }
@@ -444,10 +444,11 @@ class DebugUtility {
         perform(slotOp("counter", slot).put("name", name).put("add", add));
     }
 
-    private void applyCounter(BoardSlot slot, String name, boolean add) {
+    /** {@code byP1}: the debug change was made on this client, so the counter is this player's. */
+    private void applyCounter(BoardSlot slot, String name, boolean add, boolean byP1) {
         CardData card = slot.card();
         if (add) {
-            mw.gameState.placeCounters(card, name, 1);
+            mw.gameState.placeCounters(card, name, 1, byP1);
             log("Added 1 " + name + " Counter to " + card.name()
                     + "  [now: " + mw.gameState.getCountersMap(card) + "]");
         } else {

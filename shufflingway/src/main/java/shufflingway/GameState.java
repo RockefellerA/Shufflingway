@@ -22,37 +22,78 @@ public class GameState {
 
     // --- Named counters on field cards (e.g. Shuriken Counters on Character) ---
     // IdentityHashMap so different CardData instances with the same name don't alias each other.
-    private final java.util.IdentityHashMap<CardData, Map<String, Integer>> cardCounters =
+    //
+    // Each name keeps its counters as a stack of who placed them, newest on top. The rules never
+    // ask whose a counter is, and everything the engine reads is by name; the placer is kept for
+    // the board, which draws each player's counters in that player's color. Removal takes the
+    // newest first, so the two clients, applying the same removals, agree on whose are left.
+    private final java.util.IdentityHashMap<CardData, Map<String, Deque<Boolean>>> cardCounters =
             new java.util.IdentityHashMap<>();
 
-    /** Places {@code count} counters named {@code name} on {@code card}. */
+    /**
+     * The counters of one name that one player placed on a card: what the board draws as one orb.
+     * {@code byP1} is from this client's seat, so the same pile reads the other way on the
+     * opponent's client.
+     */
+    public record CounterPile(String name, boolean byP1, int count) {}
+
+    /**
+     * Places {@code count} counters named {@code name} on {@code card} as P1's. For tests and
+     * setups where who placed them does not matter; the engine says, through
+     * {@link #placeCounters(CardData, String, int, boolean)}.
+     */
     public void placeCounters(CardData card, String name, int count) {
+        placeCounters(card, name, count, true);
+    }
+
+    /** Places {@code count} counters named {@code name} on {@code card}, placed by P1 when {@code byP1}. */
+    public void placeCounters(CardData card, String name, int count, boolean byP1) {
         if (count <= 0) return;
-        cardCounters.computeIfAbsent(card, k -> new java.util.LinkedHashMap<>())
-                    .merge(name, count, Integer::sum);
+        Deque<Boolean> stack = cardCounters.computeIfAbsent(card, k -> new LinkedHashMap<>())
+                .computeIfAbsent(name, k -> new ArrayDeque<>());
+        for (int i = 0; i < count; i++) stack.push(byP1);
     }
 
     /** Returns how many counters named {@code name} are currently on {@code card} (0 if none). */
     public int getCounters(CardData card, String name) {
-        Map<String, Integer> m = cardCounters.get(card);
-        return m == null ? 0 : m.getOrDefault(name, 0);
+        Map<String, Deque<Boolean>> m = cardCounters.get(card);
+        Deque<Boolean> stack = m == null ? null : m.get(name);
+        return stack == null ? 0 : stack.size();
     }
 
     /**
-     * Removes up to {@code count} counters named {@code name} from {@code card}.
+     * Removes up to {@code count} counters named {@code name} from {@code card}, newest first.
      * @return the number actually removed (may be less than {@code count})
      */
     public int removeCounters(CardData card, String name, int count) {
-        Map<String, Integer> m = cardCounters.get(card);
-        if (m == null) return 0;
-        int current = m.getOrDefault(name, 0);
-        int removed = Math.min(current, count);
-        if (removed > 0) {
-            int remaining = current - removed;
-            if (remaining == 0) m.remove(name); else m.put(name, remaining);
-            if (m.isEmpty()) cardCounters.remove(card);
-        }
+        Map<String, Deque<Boolean>> m = cardCounters.get(card);
+        Deque<Boolean> stack = m == null ? null : m.get(name);
+        if (stack == null) return 0;
+        int removed = Math.min(stack.size(), Math.max(0, count));
+        for (int i = 0; i < removed; i++) stack.pop();
+        if (stack.isEmpty()) m.remove(name);
+        if (m.isEmpty()) cardCounters.remove(card);
         return removed;
+    }
+
+    /**
+     * The counters on {@code card} pile by pile — each name in the order it was first placed, and
+     * within a name each placer in the order their first counter went on — for the board to draw.
+     */
+    public List<CounterPile> getCounterPiles(CardData card) {
+        Map<String, Deque<Boolean>> m = cardCounters.get(card);
+        if (m == null) return List.of();
+        List<CounterPile> out = new ArrayList<>();
+        m.forEach((name, stack) -> {
+            int byP1 = 0;
+            for (Boolean b : stack) if (Boolean.TRUE.equals(b)) byP1++;
+            int byP2 = stack.size() - byP1;
+            boolean p1First = Boolean.TRUE.equals(stack.peekLast());   // the bottom of the stack: who placed first
+            if (p1First  && byP1 > 0) out.add(new CounterPile(name, true,  byP1));
+            if (byP2 > 0)             out.add(new CounterPile(name, false, byP2));
+            if (!p1First && byP1 > 0) out.add(new CounterPile(name, true,  byP1));
+        });
+        return out;
     }
 
     /**
@@ -73,9 +114,15 @@ public class GameState {
      * answering for the counter he carried two stays ago.
      */
     public void clearCounters(CardData card) {
-        Map<String, Integer> had = cardCounters.remove(card);
-        countersWhenLeftField.put(card,
-                had == null ? Map.of() : java.util.Map.copyOf(had));
+        Map<String, Integer> had = totals(cardCounters.remove(card));
+        countersWhenLeftField.put(card, Map.copyOf(had));
+    }
+
+    /** How many counters of each name are in {@code byName}, in its order; empty for {@code null}. */
+    private static Map<String, Integer> totals(Map<String, Deque<Boolean>> byName) {
+        Map<String, Integer> out = new LinkedHashMap<>();
+        if (byName != null) byName.forEach((name, stack) -> out.put(name, stack.size()));
+        return out;
     }
 
     /**
@@ -97,10 +144,13 @@ public class GameState {
         return had == null ? 0 : had.getOrDefault(name, 0);
     }
 
-    /** Returns an unmodifiable view of all counter entries for {@code card}. */
+    /**
+     * How many counters of each name {@code card} carries, whoever placed them, in the order each
+     * name was first placed. A snapshot: it does not follow later placements and removals.
+     */
     public Map<String, Integer> getCountersMap(CardData card) {
-        Map<String, Integer> m = cardCounters.get(card);
-        return m == null ? Map.of() : java.util.Collections.unmodifiableMap(m);
+        Map<String, Deque<Boolean>> m = cardCounters.get(card);
+        return m == null ? Map.of() : Collections.unmodifiableMap(totals(m));
     }
 
     // --- The Job a card has named (Jack Garland 27-111L) ---

@@ -7563,7 +7563,7 @@ final class GameContextImpl implements GameContext {
 	// Counters
 	// =========================================================================================
 			@Override public void placeCounters(CardData card, String counterName, int count) {
-				mw.gameState.placeCounters(card, counterName, count);
+				mw.gameState.placeCounters(card, counterName, count, isP1);
 				Map<String, Integer> all = mw.gameState.getCountersMap(card);
 				logEntry(card.name() + " — placed " + count + " " + counterName
 						+ " Counter(s)  [now: " + all + "]");
@@ -7589,7 +7589,7 @@ final class GameContextImpl implements GameContext {
 				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
 				for (int i = 0; i < fwds.size(); i++) {
 					if (!mw.meetsJobFilterEffective(fwds.get(i), jobFilter)) continue;
-					mw.gameState.placeCounters(fwds.get(i), counterName, count);
+					mw.gameState.placeCounters(fwds.get(i), counterName, count, isP1);
 					if (isP1) mw.refreshP1ForwardSlot(i); else mw.refreshP2ForwardSlot(i);
 					logEntry((isP1 ? "" : "[P2] ") + fwds.get(i).name() + " — " + count + " "
 							+ counterName + " Counter(s) placed");
@@ -7597,7 +7597,7 @@ final class GameContextImpl implements GameContext {
 				CardData[] bkps = isP1 ? mw.p1BackupCards : mw.p2BackupCards;
 				for (int i = 0; i < bkps.length; i++) {
 					if (bkps[i] == null || !mw.meetsJobFilterEffective(bkps[i], jobFilter)) continue;
-					mw.gameState.placeCounters(bkps[i], counterName, count);
+					mw.gameState.placeCounters(bkps[i], counterName, count, isP1);
 					if (isP1) mw.refreshP1BackupSlot(i); else mw.refreshP2BackupSlot(i);
 					logEntry((isP1 ? "" : "[P2] ") + bkps[i].name() + " — " + count + " "
 							+ counterName + " Counter(s) placed");
@@ -7605,7 +7605,7 @@ final class GameContextImpl implements GameContext {
 				List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
 				for (int i = 0; i < mons.size(); i++) {
 					if (!mw.meetsJobFilterEffective(mons.get(i), jobFilter)) continue;
-					mw.gameState.placeCounters(mons.get(i), counterName, count);
+					mw.gameState.placeCounters(mons.get(i), counterName, count, isP1);
 					if (isP1) mw.refreshP1MonsterSlot(i); else mw.refreshP2MonsterSlot(i);
 					logEntry((isP1 ? "" : "[P2] ") + mons.get(i).name() + " — " + count + " "
 							+ counterName + " Counter(s) placed");
@@ -7619,14 +7619,14 @@ final class GameContextImpl implements GameContext {
 				int touched = 0;
 				if (touchP1) {
 					for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
-						mw.gameState.placeCounters(mw.p1ForwardCards.get(i), counterName, count);
+						mw.gameState.placeCounters(mw.p1ForwardCards.get(i), counterName, count, isP1);
 						mw.refreshP1ForwardSlot(i);
 						touched++;
 					}
 				}
 				if (touchP2) {
 					for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
-						mw.gameState.placeCounters(mw.p2ForwardCards.get(i), counterName, count);
+						mw.gameState.placeCounters(mw.p2ForwardCards.get(i), counterName, count, isP1);
 						mw.refreshP2ForwardSlot(i);
 						touched++;
 					}
@@ -7727,7 +7727,7 @@ final class GameContextImpl implements GameContext {
 					chosen = selectOption("Select a Counter to duplicate on " + card.name(), types);
 					if (chosen == null) chosen = types[0];
 				}
-				mw.gameState.placeCounters(card, chosen, 1);
+				mw.gameState.placeCounters(card, chosen, 1, isP1);
 				logEntry(card.name() + " — placed 1 additional " + chosen + " Counter  [now: "
 						+ mw.gameState.getCountersMap(card) + "]");
 				switch (t.zone()) {
@@ -7758,7 +7758,7 @@ final class GameContextImpl implements GameContext {
 				// assumed to be 1 for exactly that reason.
 				int have = counters.getOrDefault(chosen, 0);
 				if (have <= 0) { logEntry(card.name() + " — no " + chosen + " Counters to double (fizzle)"); return; }
-				mw.gameState.placeCounters(card, chosen, have);
+				mw.gameState.placeCounters(card, chosen, have, isP1);
 				logEntry(card.name() + " — doubled " + chosen + " Counters (" + have + " → " + (have * 2)
 						+ ")  [now: " + mw.gameState.getCountersMap(card) + "]");
 				switch (t.zone()) {
