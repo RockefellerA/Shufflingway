@@ -81,8 +81,6 @@ import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
 import javax.swing.JSpinner;
-import javax.swing.JTextField;
-import javax.swing.JTextPane;
 import javax.swing.JWindow;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
@@ -96,11 +94,6 @@ import javax.swing.border.BevelBorder;
 import javax.swing.border.SoftBevelBorder;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.SimpleAttributeSet;
-import javax.swing.text.Style;
-import javax.swing.text.StyleConstants;
-import javax.swing.text.StyleContext;
 import javax.swing.text.StyledDocument;
 
 import org.json.JSONArray;
@@ -278,11 +271,8 @@ public class MainWindow {
 	private GrayscaleLabel p2RemoveLabel;
 	private JButton        p1RemoveButton;
 	private JButton        p2RemoveButton;
-	// Game event log
-	private JTextPane gameLog;
-	// Chat bar (enabled only when connected to multiplayer)
-	private JTextField chatInput;
-	private JButton    chatSendBtn;
+	/** The game log and chat bar; built partway through {@link #initialize}, so {@code null} before that. */
+	private GameLogPanel gameLog;
 	// Multiplayer menu reference (to access active connection)
 	private MultiplayerMenu multiplayerMenu;
 	// Non-null for the duration of a networked game; null for a game against the AI.
@@ -2050,14 +2040,12 @@ public class MainWindow {
 		multiplayerMenu = new MultiplayerMenu(frame,
 				setup -> {
 					SwingUtilities.invokeLater(() -> {
-						chatInput.setEnabled(true);
-						chatSendBtn.setEnabled(true);
+						gameLog.setChatEnabled(true);
 						startMultiplayerGame(setup);
 					});
 				},
 				reason -> SwingUtilities.invokeLater(() -> {
-					chatInput.setEnabled(false);
-					chatSendBtn.setEnabled(false);
+					gameLog.setChatEnabled(false);
 					if (newGameDialog != null) newGameDialog.connectionLost();
 					closePlayAgain();                   // no one left to play again with
 					refreshDebugMenuAvailability();   // the host's setting ends with the session
@@ -2620,78 +2608,16 @@ public class MainWindow {
 		sideNorth.add(phaseTracker);
 		sideNorth.add(nextBtnRow);
 
-		// Game log (scrollable, fills the rest of the side panel)
-		// Its colours are set rather than left to the look, which would draw it in the panel's colour
-		// as a read-only field, so they are set again whenever Preferences switches the theme. The
-		// chat styles are recoloured with them (see colourChatStyles). A text pane wraps on word
-		// boundaries by itself.
-		gameLog = new JTextPane() {
-			@Override public void updateUI() {
-				super.updateUI();
-				setBackground(ThemeColors.logBackground());
-				setForeground(ThemeColors.logText());
-				setCaretColor(getBackground());
-				colourChatStyles(getStyledDocument());
-			}
-		};
-		gameLog.setEditable(false);
-		gameLog.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-		gameLog.setMargin(new Insets(4, 4, 4, 4));
-		colourChatStyles(gameLog.getStyledDocument());
+		// Game log and chat bar (fill the rest of the side panel)
+		gameLog = new GameLogPanel(() -> matchSetup, this::sendChat);
 		logEntry("Welcome to Shufflingway!");
-
-		JScrollPane logScrollPane = new JScrollPane(gameLog,
-				JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
-				JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-
-		// ── Chat bar ─────────────────────────────────────────────────────────
-		chatInput = new JTextField();
-		chatInput.setFont(new Font("Serif", Font.PLAIN, 11));
-		chatInput.setEnabled(false);
-		chatInput.setToolTipText("Connect to multiplayer to chat");
-
-		chatSendBtn = new JButton("Send");
-		chatSendBtn.setFont(new Font("Serif", Font.PLAIN, 11));
-		chatSendBtn.setEnabled(false);
-
-		Runnable sendChat = () -> {
-			// Cleaned as the receiver will clean it, so both logs show the same line.
-			String text = ChatText.clean(chatInput.getText());
-			if (text.isEmpty()) return;
-			GameConnection conn = multiplayerMenu == null ? null : multiplayerMenu.getActiveConnection();
-			if (conn == null) return;
-			conn.send(GameAction.of(ActionType.CHAT, new JSONObject().put("msg", text)));
-			logChat(true, text);
-			SoundEffects.play(Sound.CHAT_SEND);
-			chatInput.setText("");
-		};
-		chatInput.addActionListener(e -> sendChat.run());
-		chatSendBtn.addActionListener(e -> sendChat.run());
-
-		// The rule over the chat field is Classic's alone. FlatLaf boxes the log and the chat field
-		// each in a border of its own, so there the two are set apart by the same gap as the field
-		// and its Send button.
-		JPanel chatPanel = new JPanel(new BorderLayout(4, 0)) {
-			@Override public void updateUI() {
-				super.updateUI();
-				setBorder(ThemeColors.isFlat()
-						? BorderFactory.createEmptyBorder(4, 0, 0, 0)
-						: BorderFactory.createMatteBorder(1, 0, 0, 0, Color.GRAY));
-			}
-		};
-		chatPanel.add(chatInput,   BorderLayout.CENTER);
-		chatPanel.add(chatSendBtn, BorderLayout.EAST);
-
-		JPanel logWithChat = new JPanel(new BorderLayout());
-		logWithChat.add(logScrollPane, BorderLayout.CENTER);
-		logWithChat.add(chatPanel,     BorderLayout.SOUTH);
 
 		// No hand zone here any more: P1's hand is on the board, fanned along the bottom edge. The
 		// strip this used to occupy goes to the log, which is what the space was always competing with.
 		sidePanel = new JPanel(new BorderLayout());
 		sidePanel.setPreferredSize(new Dimension(sidePanelW, 0));
 		sidePanel.add(sideNorth,    BorderLayout.NORTH);
-		sidePanel.add(logWithChat,  BorderLayout.CENTER);
+		sidePanel.add(gameLog,      BorderLayout.CENTER);
 
 		// Draggable divider between game board and side panel.
 		// When the UI is scaled (smaller screen), resizing is disabled because
@@ -3135,7 +3061,7 @@ public class MainWindow {
 		clearUIZones();
 		clearPendingCombatState();
 		if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
-		if (gameLog != null) gameLog.setText("");
+		if (gameLog != null) gameLog.clear();
 		logEntry("Game Start");
 		refreshP1HandLabel();
 	}
@@ -4540,120 +4466,6 @@ public class MainWindow {
 		refreshHandCardStates();
 	}
 
-	/** The game log's current contents, for tests that assert on what a play wrote. */
-	String gameLogText() {
-		if (gameLog == null) return "";
-		// From the document, not getText(): a text pane writes its text out through the editor kit,
-		// which turns every line break into the platform's, \r\n on Windows.
-		StyledDocument doc = gameLog.getStyledDocument();
-		try {
-			return doc.getText(0, doc.getLength());
-		} catch (BadLocationException e) {
-			throw new IllegalStateException(e);
-		}
-	}
-
-	/** The game log's document, for tests that assert on how a line is styled. */
-	StyledDocument gameLogDocument() {
-		return gameLog.getStyledDocument();
-	}
-
-	/**
-	 * Logs the opponent's chat message and plays the incoming blip. Cleaned first, since the sender's
-	 * build is not ours to trust: a line break inside a message would otherwise start a forged log
-	 * line (see {@link ChatText}). A message that cleans to nothing is neither logged nor sounded.
-	 */
-	void onChatReceived(String raw) {
-		String msg = ChatText.clean(raw);
-		if (msg.isEmpty()) return;
-		logChat(false, msg);
-		SoundEffects.play(Sound.CHAT_RECEIVE);
-	}
-
-	/** Appends a timestamped entry to the game log. */
-	void logEntry(String text) {
-		if (gameLog == null) return;
-		appendLogLine(gameLog.getStyledDocument().getStyle(StyleContext.DEFAULT_STYLE), "", text);
-	}
-
-	/**
-	 * Appends a chat line to the game log in its side's colour, with the speaker's tag in bold, so a
-	 * glance tells it from the game's own lines. A line is styled as chat by which method logged it,
-	 * never by what it says, so a message typed to look like a game line still reads as chat.
-	 *
-	 * <p>The tag names the speaker as the turn pill does (see {@link #applyTurnPillNames()}): both
-	 * usernames in a networked match, neither in a local game.
-	 */
-	void logChat(boolean mine, String msg) {
-		if (gameLog == null) return;
-		Style style = gameLog.getStyledDocument().getStyle(chatStyleName(mine));
-		String myName    = matchSetup == null ? null : AppSettings.getUsername();
-		String theirName = matchSetup == null ? null : matchSetup.remoteUsername();
-		appendLogLine(style, chatTag(mine, myName, theirName), " " + msg);
-	}
-
-	/**
-	 * The bold tag on a chat line: the speaker's username in brackets, or "[You]" / "[Opponent]"
-	 * for a player who set none. Two players who share a name both get the generic tags, so the
-	 * log never shows one name speaking to itself.
-	 */
-	static String chatTag(boolean mine, String myName, String theirName) {
-		String me   = myName    == null ? "" : myName.trim();
-		String them = theirName == null ? "" : theirName.trim();
-		if (!me.isEmpty() && me.equalsIgnoreCase(them)) {
-			me   = "";
-			them = "";
-		}
-		String name = mine ? me : them;
-		if (name.isEmpty()) return mine ? "[You]" : "[Opponent]";
-		return "[" + name + "]";
-	}
-
-	/**
-	 * Appends {@code "HH:mm:ss  " + tag + text} as one log line, {@code tag} in bold, the whole line
-	 * in paragraph style {@code style}. The style is set on game lines too: a cleared log keeps one
-	 * empty paragraph carrying the style of the first line it held, which may have been a chat line.
-	 */
-	private void appendLogLine(Style style, String tag, String text) {
-		StyledDocument doc = gameLog.getStyledDocument();
-		String time = java.time.LocalTime.now()
-				.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"));
-		String prefix = time + "  ";
-		int start = doc.getLength();
-		try {
-			doc.insertString(start, prefix + tag + text + "\n", null);
-		} catch (BadLocationException e) {
-			throw new IllegalStateException(e);
-		}
-		if (!tag.isEmpty()) {
-			SimpleAttributeSet bold = new SimpleAttributeSet();
-			StyleConstants.setBold(bold, true);
-			doc.setCharacterAttributes(start + prefix.length(), tag.length(), bold, false);
-		}
-		doc.setLogicalStyle(start, style);
-		gameLog.setCaretPosition(doc.getLength());
-	}
-
-	private static String chatStyleName(boolean mine) {
-		return mine ? "chatYou" : "chatOpponent";
-	}
-
-	/**
-	 * Creates the log's two chat styles if they are missing, and colours them for the current theme.
-	 * A chat line takes its colour from its paragraph's style rather than holding one of its own, so
-	 * recolouring the style on a theme switch recolours every chat line already in the log. Each is a
-	 * child of the default style, which the text pane keeps in step with its font.
-	 */
-	private static void colourChatStyles(StyledDocument doc) {
-		if (doc == null) return;   // updateUI first runs from the constructor, before the document
-		Style parent = doc.getStyle(StyleContext.DEFAULT_STYLE);
-		for (boolean mine : new boolean[] {true, false}) {
-			Style style = doc.getStyle(chatStyleName(mine));
-			if (style == null) style = doc.addStyle(chatStyleName(mine), parent);
-			StyleConstants.setForeground(style, mine ? ThemeColors.logChatYou() : ThemeColors.logChatOpponent());
-		}
-	}
-
 	/** Resets all interactive UI zones to their empty state for a new game. */
 	private void clearUIZones() {
 		// Backup slots
@@ -4814,6 +4626,52 @@ public class MainWindow {
 		}
 		refreshP2DeckLabel();
 		refreshP2HandCountLabel();
+	}
+
+	// -------------------------------------------------------------------------
+	// Game log and chat - pass-throughs to the side panel's GameLogPanel
+	// -------------------------------------------------------------------------
+
+	/** Appends a timestamped entry to the game log. */
+	void logEntry(String text) {
+		if (gameLog != null) gameLog.logEntry(text);
+	}
+
+	/** Appends a chat line to the game log; see {@link GameLogPanel#logChat}. */
+	void logChat(boolean mine, String msg) {
+		if (gameLog != null) gameLog.logChat(mine, msg);
+	}
+
+	/**
+	 * Logs the opponent's chat message and plays the incoming blip. Cleaned first, since the sender's
+	 * build is not ours to trust: a line break inside a message would otherwise start a forged log
+	 * line (see {@link ChatText}). A message that cleans to nothing is neither logged nor sounded.
+	 */
+	void onChatReceived(String raw) {
+		String msg = ChatText.clean(raw);
+		if (msg.isEmpty()) return;
+		logChat(false, msg);
+		SoundEffects.play(Sound.CHAT_RECEIVE);
+	}
+
+	/**
+	 * The chat bar's send: hands an already-cleaned message to the opponent, returning whether a
+	 * connection was open to take it. The bar logs the message only when it went.
+	 */
+	private boolean sendChat(String text) {
+		if (!multiplayerConnected()) return false;
+		sendOnConnection(GameAction.of(ActionType.CHAT, new JSONObject().put("msg", text)));
+		return true;
+	}
+
+	/** The game log's current contents, for tests that assert on what a play wrote. */
+	String gameLogText() {
+		return gameLog == null ? "" : gameLog.text();
+	}
+
+	/** The game log's document, for tests that assert on how a line is styled. */
+	StyledDocument gameLogDocument() {
+		return gameLog.document();
 	}
 
 	// -------------------------------------------------------------------------

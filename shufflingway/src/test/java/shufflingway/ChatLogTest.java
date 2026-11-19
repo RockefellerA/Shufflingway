@@ -80,22 +80,22 @@ class ChatLogTest {
 
 	@Test
 	void eachSpeakerIsTaggedByTheirUsername() {
-		assertEquals("[Alice]", MainWindow.chatTag(true, "Alice", "Bob"));
-		assertEquals("[Bob]", MainWindow.chatTag(false, "Alice", "Bob"));
+		assertEquals("[Alice]", GameLogPanel.chatTag(true, "Alice", "Bob"));
+		assertEquals("[Bob]", GameLogPanel.chatTag(false, "Alice", "Bob"));
 	}
 
 	@Test
 	void aPlayerWithNoUsernameKeepsTheGenericTag() {
-		assertEquals("[You]", MainWindow.chatTag(true, "", "Bob"));
-		assertEquals("[Bob]", MainWindow.chatTag(false, "", "Bob"));
-		assertEquals("[Alice]", MainWindow.chatTag(true, "Alice", null));
-		assertEquals("[Opponent]", MainWindow.chatTag(false, "Alice", null));
+		assertEquals("[You]", GameLogPanel.chatTag(true, "", "Bob"));
+		assertEquals("[Bob]", GameLogPanel.chatTag(false, "", "Bob"));
+		assertEquals("[Alice]", GameLogPanel.chatTag(true, "Alice", null));
+		assertEquals("[Opponent]", GameLogPanel.chatTag(false, "Alice", null));
 	}
 
 	@Test
 	void twoPlayersWithTheSameNameAreToldApartByTheGenericTags() {
-		assertEquals("[You]", MainWindow.chatTag(true, "Alice", "alice"));
-		assertEquals("[Opponent]", MainWindow.chatTag(false, "Alice", "alice"));
+		assertEquals("[You]", GameLogPanel.chatTag(true, "Alice", "alice"));
+		assertEquals("[Opponent]", GameLogPanel.chatTag(false, "Alice", "alice"));
 	}
 
 	/** Outside a networked match there are no names to show, whatever username is set. */
