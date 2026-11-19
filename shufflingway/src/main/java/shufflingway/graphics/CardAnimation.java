@@ -15,6 +15,7 @@ import java.awt.RenderingHints;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.RescaleOp;
+import java.util.List;
 
 /** Static utilities for rendering and transforming card images. */
 public class CardAnimation {
@@ -226,11 +227,14 @@ public class CardAnimation {
 		renderPill(canvas, damage, new Color(255, 50, 50), false, state);
 	}
 
-	/** Blits a counter orb onto the card's top-left corner with the total counter count overlaid. */
-	public static void renderCounterOverlay(BufferedImage canvas, int totalCount, CardState state, String hexColor) {
-		int orbW = Math.max(16, CARD_W / 5);
-		int orbH = (int) Math.round(orbW * 56.0 / 64.0);
-		BufferedImage orb = Counter.render(orbW, orbH, hexColor);
+	/**
+	 * Draws the counters on a card as the face of a die — an orb for each named counter, carrying
+	 * its count, laid out as {@link CounterDice} describes — turned with the card when it is dull.
+	 *
+	 * @param piles how many counters of each name the card carries, in the order they were placed
+	 */
+	public static void renderCounterOverlay(BufferedImage canvas, List<Integer> piles, CardState state, String hexColor) {
+		if (piles.isEmpty()) return;
 		Graphics2D g = canvas.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -240,20 +244,7 @@ public class CardAnimation {
 		} else {
 			g.translate(LEFT_GUTTER, 0);   // active art starts past the tab gutter
 		}
-		int x = (CARD_W - orbW) / 2, y = (CARD_H - orbH) / 2;
-		g.drawImage(orb, x, y, null);
-		String text = String.valueOf(totalCount);
-		Font font = FontLoader.loadOverlayFont(10);
-		g.setFont(font);
-		FontMetrics fm = g.getFontMetrics();
-		int tx = x + (orbW - fm.stringWidth(text)) / 2;
-		int ty = y + (orbH + fm.getAscent()) / 2 - fm.getDescent();
-		g.setColor(new Color(0, 0, 0, 230));
-		for (int dx = 1; dx <= 2; dx++)
-			for (int dy = 1; dy <= 2; dy++)
-				g.drawString(text, tx + dx, ty + dy);
-		g.setColor(Color.WHITE);
-		g.drawString(text, tx, ty);
+		CounterDice.draw(g, piles, hexColor);
 		g.dispose();
 	}
 

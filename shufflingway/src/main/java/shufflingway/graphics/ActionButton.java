@@ -591,7 +591,7 @@ public final class ActionButton {
 		Graphics2D g = (Graphics2D) g0.create();
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-		// The same proportions as the orb on a card (CardAnimation.renderCounterOverlay).
+		// The same proportions as the orbs on a card (CounterDice).
 		int w = Math.max(1, Math.round(size)), h = Math.max(1, Math.round(size * 56f / 64f));
 		BufferedImage orb = Counter.render(w, h, hex != null ? hex : CounterColors.DEFAULT);
 		float ox = x + (size - w) / 2f, oy = y + (size - h) / 2f;
