@@ -1974,6 +1974,15 @@ public class MainWindow {
 	 */
 	private boolean choiceTravelsWithThePlay = false;
 
+	/**
+	 * Whether a networked game is inside a Summon cast whose targets ride in its PLAY_CARD. Neither
+	 * client can wait on the other there: the caster's has not sent the cast yet, so the other has
+	 * nothing to answer from.
+	 */
+	boolean insideCastWhoseChoicesTravelWithThePlay() {
+		return choiceTravelsWithThePlay && opponent instanceof RemoteOpponent;
+	}
+
 	/** Set when "Take 1 more turn; lose at the end of that turn" fires. */
 	boolean p1ExtraTurnThenLose = false;
 

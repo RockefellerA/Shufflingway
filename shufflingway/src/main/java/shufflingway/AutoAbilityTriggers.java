@@ -22,6 +22,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
@@ -125,9 +126,9 @@ final class AutoAbilityTriggers {
 	}
 
 	/**
-	 * Splits the batch by controller relative to the active player, prompts the
-	 * controlling player to order each side (only when human and size &gt;= 2),
-	 * then executes each ability in the chosen order.
+	 * Splits the batch by controller relative to the active player, has a human controller order
+	 * each side of two or more (the local player in the dialog, a remote one over the wire), then
+	 * executes each ability in the chosen order.
 	 */
 	private void dispatchSimultaneous(List<StackOrderingDialog.Item> batch) {
 		if (batch.isEmpty()) return;
@@ -147,31 +148,86 @@ final class AutoAbilityTriggers {
 
 	private void runOrdered(List<StackOrderingDialog.Item> items, boolean controllerIsP1, String role) {
 		if (items.isEmpty()) return;
-		// CPU controls P2 — only show the dialog when P1 is choosing.
-		if (controllerIsP1 && items.size() >= 2) {
-			// Dialog returns resolution order: index 0 = top of stack (resolves first).
-			String header = "Choose Stack Order — " + role + " (" + (controllerIsP1 ? "P1" : "P2") + ")";
-			List<StackOrderingDialog.Item> ordered = stackOrderChooser != null
-					? stackOrderChooser.apply(items)
-					: StackOrderingDialog.show(mw.frame, header, items);
-			// Run in the order chosen, each going on the Stack beneath the ones before it. The Stack
-			// ends up the same as pushing bottom-first, but every ability chooses its targets as it goes
-			// on, so the player meets the prompts in the order the dialog numbered them. Pushing
-			// bottom-first would ask for the last-numbered ability's targets first.
-			int base = mw.gameState.stackSize();
-			for (StackOrderingDialog.Item it : ordered) {
-				batchInsertDepth = base;
-				try {
-					runBatchItem(it);
-				} finally {
-					batchInsertDepth = -1;
-				}
-			}
-		} else {
-			// No dialog: preserve historical iteration order (first walked = pushed
-			// first = bottom of stack = resolves last).
+		// Nothing to ask with one trigger, nor of the built-in opponent; and nothing that can be asked
+		// inside a networked cast (see insideCastWhoseChoicesTravelWithThePlay). These go on in the
+		// order they were collected, the first collected at the bottom.
+		boolean askable = items.size() >= 2
+				&& (controllerIsP1 || mw.opponent instanceof RemoteOpponent)
+				&& !mw.insideCastWhoseChoicesTravelWithThePlay();
+		if (!askable) {
 			for (StackOrderingDialog.Item it : items) runBatchItem(it);
+			return;
 		}
+		List<StackOrderingDialog.Item> ordered = chosenOrder(items, controllerIsP1, role);
+		// Run in the order chosen, each going on the Stack beneath the ones before it. The Stack ends
+		// up the same as pushing bottom-first, but every ability chooses its targets as it goes on,
+		// so the player meets the prompts in the order the dialog numbered them. Pushing bottom-first
+		// would ask for the last-numbered ability's targets first.
+		int base = mw.gameState.stackSize();
+		for (StackOrderingDialog.Item it : ordered) {
+			batchInsertDepth = base;
+			try {
+				runBatchItem(it);
+			} finally {
+				batchInsertDepth = -1;
+			}
+		}
+	}
+
+	/**
+	 * The order the controller puts {@code items} on the Stack in, from the one to resolve first:
+	 * asked of the local player in the stack-ordering dialog, or the remote controller's answer.
+	 * Crosses as {@link ChoiceKind#STACK_ORDER}, positions in {@link #wireOrder}; when nothing usable
+	 * arrives — the game ended under the wait, or the answer was refused as a desync — the batch goes
+	 * on in the order it was offered.
+	 */
+	private List<StackOrderingDialog.Item> chosenOrder(List<StackOrderingDialog.Item> items,
+			boolean controllerIsP1, String role) {
+		List<StackOrderingDialog.Item> named = wireOrder(items);
+		int n = named.size();
+		List<Integer> answer = mw.decide(PlayerChoice.by(controllerIsP1, ChoiceKind.STACK_ORDER)
+				.prompting("Waiting for your opponent to order their auto abilities...")
+				.locally(() -> {
+					String header = "Choose Stack Order — " + role + " (" + (controllerIsP1 ? "P1" : "P2") + ")";
+					List<StackOrderingDialog.Item> picked = stackOrderChooser != null
+							? stackOrderChooser.apply(items)
+							: StackOrderingDialog.show(mw.frame, header, items);
+					List<Integer> positions = new ArrayList<>(picked.size());
+					for (StackOrderingDialog.Item it : picked) positions.add(indexOfSame(named, it));
+					return positions;
+				})
+				.legalWhen(a -> a.size() == n && new HashSet<>(a).size() == n
+								&& a.stream().allMatch(i -> i >= 0 && i < n),
+						"there are " + n + " abilities to order"));
+		if (answer.size() != n) return items;
+		List<StackOrderingDialog.Item> ordered = new ArrayList<>(n);
+		for (int i : answer) ordered.add(named.get(i));
+		return ordered;
+	}
+
+	/**
+	 * {@code items} in the order a {@link ChoiceKind#STACK_ORDER} answer counts them: sorted on what
+	 * both clients hold alike — the source's name, the trigger and its text, the cards that fired it.
+	 * Collection order is not that: each client walks the board from its own seat. Ties keep
+	 * collection order, and are abilities that read alike in everything the wire could name.
+	 */
+	static List<StackOrderingDialog.Item> wireOrder(List<StackOrderingDialog.Item> items) {
+		List<StackOrderingDialog.Item> out = new ArrayList<>(items);
+		out.sort(Comparator.comparing((StackOrderingDialog.Item it) -> it.source().name())
+				.thenComparing(it -> Objects.toString(it.ability().trigger(), ""))
+				.thenComparing(it -> Objects.toString(it.ability().effectText(), ""))
+				.thenComparing(it -> it.triggerCard() == null ? "" : it.triggerCard().name())
+				.thenComparing(it -> it.enteredCard() == null ? "" : it.enteredCard().name()));
+		return out;
+	}
+
+	/**
+	 * The position of {@code item} itself in {@code list}. Not {@link List#indexOf}: two triggers of
+	 * one ability on two copies of one card are equal records.
+	 */
+	private static int indexOfSame(List<StackOrderingDialog.Item> list, StackOrderingDialog.Item item) {
+		for (int i = 0; i < list.size(); i++) if (list.get(i) == item) return i;
+		return -1;
 	}
 
 	/** Runs one collected trigger with the arriving card it was collected under standing again. */

@@ -191,6 +191,18 @@ public enum ChoiceKind {
 	CHOSEN_TARGETS,
 
 	/**
+	 * The order the sender put their simultaneous auto abilities on the Stack in, from the one to
+	 * resolve first. Each integer is a position in the batch as both clients sort it — on the
+	 * source's name, the ability's text and the cards that fired it, never on the order a client
+	 * happened to collect it in — so the answer is a permutation and nothing flips.
+	 *
+	 * <p>Crosses before any of those abilities chooses a target, because they go on the Stack in
+	 * this order and choose as they go on: the {@link #CHOSEN_TARGETS} answers that follow are taken
+	 * oldest first, and only an agreed order makes the oldest the right one.
+	 */
+	STACK_ORDER,
+
+	/**
 	 * Targets chosen out of a Break Zone as an effect resolves — "Choose 1 Forward or Backup in
 	 * your Break Zone. Add it to your hand." (10-068C Cu Sith), either player's Break Zone, or a
 	 * pool that mixes the opponent's field with the chooser's own Break Zone.
