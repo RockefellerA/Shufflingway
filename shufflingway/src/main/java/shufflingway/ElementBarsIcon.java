@@ -13,8 +13,8 @@ import javax.swing.table.DefaultTableCellRenderer;
 
 /**
  * A row of small upright bars, one per Element, sized to the text it sits beside: a deck's
- * Elements before its name in the Deck Manager's deck lists, and a card's in the Element columns
- * of the Deck Manager and the Card Browser.
+ * Elements ({@link DeckElements}) before its name wherever decks are listed, and a card's in the
+ * Element columns of the Deck Manager and the Card Browser.
  *
  * <p>Each bar is its Element's board colour, with three exceptions. At this size the board's
  * grey-blue Water reads as Ice, so Water takes a deeper blue. Light and Dark, which only a card's
@@ -22,7 +22,7 @@ import javax.swing.table.DefaultTableCellRenderer;
  * Ice, Light) stand out on a light background, except Dark's, which is grey so it still shows on a
  * dark one.
  */
-final class ElementBarsIcon implements Icon {
+public final class ElementBarsIcon implements Icon {
 
     private static final Color WATER_BAR = new Color(0x2A, 0x6C, 0xC6);
     private static final Color DARK_EDGE = new Color(0x80, 0x80, 0x80);
@@ -31,7 +31,7 @@ final class ElementBarsIcon implements Icon {
     private final List<Color> edges = new ArrayList<>();
     private final int barW, gap, barH;
 
-    ElementBarsIcon(Collection<ElementColor> elements, int fontSize) {
+    public ElementBarsIcon(Collection<ElementColor> elements, int fontSize) {
         for (ElementColor ec : elements) {
             Color fill = switch (ec) {
                 case WATER -> WATER_BAR;
@@ -51,7 +51,7 @@ final class ElementBarsIcon implements Icon {
      * A card's Elements from its Element text ("Fire", "Lightning/Water"), in the order the text
      * names them, Light and Dark included. Empty for a card with no Element.
      */
-    static List<ElementColor> elementsOf(String elementText) {
+    public static List<ElementColor> elementsOf(String elementText) {
         List<ElementColor> out = new ArrayList<>();
         if (elementText == null) return out;
         for (String part : elementText.split("/")) {
@@ -62,7 +62,7 @@ final class ElementBarsIcon implements Icon {
     }
 
     /** A renderer for an Element column: the card's bars ahead of its Element text. */
-    static DefaultTableCellRenderer columnRenderer() {
+    public static DefaultTableCellRenderer columnRenderer() {
         return new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(

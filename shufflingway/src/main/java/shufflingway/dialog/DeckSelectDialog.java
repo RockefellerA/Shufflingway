@@ -10,6 +10,7 @@ import java.awt.event.KeyEvent;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
@@ -32,7 +33,10 @@ import javax.swing.UIManager;
 import scraper.DeckDatabase;
 import scraper.DeckDatabase.DeckSummary;
 import shufflingway.AppSettings;
+import shufflingway.DeckElements;
 import shufflingway.DeckFormat;
+import shufflingway.ElementBarsIcon;
+import shufflingway.ElementColor;
 import shufflingway.ThemeColors;
 
 /**
@@ -49,6 +53,8 @@ public class DeckSelectDialog extends JDialog {
 
     /** Decks the chosen format and banlist refuse, with why. */
     private Map<Integer, String> refused = Map.of();
+    /** Each deck's Elements, drawn as bars before its name; empty if they could not be read. */
+    private Map<Integer, Set<ElementColor>> elements = Map.of();
     private final List<DeckSummary> decks;
 
     /** Opens with nothing selected. */
@@ -201,7 +207,13 @@ public class DeckSelectDialog extends JDialog {
 
     private List<DeckSummary> loadDecks() {
         try (DeckDatabase db = new DeckDatabase()) {
-            return db.getDecksSummary();
+            List<DeckSummary> list = db.getDecksSummary();
+            try {
+                elements = DeckElements.forDecks(db, list.stream().map(DeckSummary::id).toList());
+            } catch (SQLException e) {
+                // The decks are still listed, just without their bars.
+            }
+            return list;
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, "Error loading decks:\n" + e.getMessage(),
                     "Database Error", JOptionPane.ERROR_MESSAGE);
@@ -256,6 +268,9 @@ public class DeckSelectDialog extends JDialog {
             if (value instanceof DeckSummary d) {
                 setText(d.name() + "  (" + d.mainCardCount() + " / 50"
                         + (d.lbCardCount() > 0 ? " +" + d.lbCardCount() + " LB" : "") + ")");
+                Set<ElementColor> deckElements = elements.get(d.id());
+                setIcon(deckElements == null || deckElements.isEmpty() ? null
+                        : new ElementBarsIcon(deckElements, getFont().getSize()));
                 String why = refused.get(d.id());
                 if (why != null) {
                     setForeground(ThemeColors.text(BANNED_FG));

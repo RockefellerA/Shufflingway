@@ -176,7 +176,7 @@ public class DeckManager extends JFrame {
     private final Banlist banlist = Banlist.get();
     /** Saved decks that break the Standard banlist; drives the My Decks highlight. */
     private final Set<Integer> banlistDeckIds = new HashSet<>();
-    /** Each saved deck's main-deck Elements (see {@link #mainDeckElements}); drawn as bars before its name in My Decks. */
+    /** Each saved deck's Elements (see {@link DeckElements}); drawn as bars before its name in My Decks. */
     private final Map<Integer, Set<ElementColor>> deckElements = new HashMap<>();
     /** What in the open deck breaks the Standard banlist; its serials render in red. */
     private Banlist.Violations standardViolations = Banlist.Violations.NONE;
@@ -750,7 +750,7 @@ public class DeckManager extends JFrame {
             List<Object[]> rows = db.getDeckCards(entry.id());
             if (!banlist.check(Banlist.STANDARD, Banlist.fromDeckRows(rows)).isEmpty())
                 banlistDeckIds.add(entry.id());
-            deckElements.put(entry.id(), mainDeckElements(rows));
+            deckElements.put(entry.id(), DeckElements.of(rows, lbSerials));
         }
         // Restore selection if the deck still exists
         for (int i = 0; i < deckListModel.size(); i++) {
@@ -790,21 +790,9 @@ public class DeckManager extends JFrame {
     }
 
     /**
-     * The Elements of a deck's main-deck cards, in printed order. Both Elements of a multi-Element
-     * card count. Light and Dark do not, since they only supplement a deck's Elements, and Limit
-     * Break cards are left out for the same reason.
-     */
-    private EnumSet<ElementColor> mainDeckElements(List<Object[]> rows) {
-        EnumSet<ElementColor> out = EnumSet.noneOf(ElementColor.class);
-        for (Object[] r : rows)
-            if (!lbSerials.contains((String) r[1])) addDeckElements(out, (String) r[4]);
-        return out;
-    }
-
-    /**
-     * A preconstructed deck's main-deck Elements, as {@link #mainDeckElements} reads a saved deck's.
-     * Its serials are resolved the way {@link #importDeckFromSerials} resolves them, so the bars
-     * show the deck an import would create.
+     * A preconstructed deck's Elements, as {@link DeckElements} reads a saved deck's. Its serials
+     * are resolved the way {@link #importDeckFromSerials} resolves them, so the bars show the deck
+     * an import would create.
      */
     private EnumSet<ElementColor> starterDeckElements(StarterDeck deck) throws SQLException {
         EnumSet<ElementColor> out = EnumSet.noneOf(ElementColor.class);
@@ -812,20 +800,14 @@ public class DeckManager extends JFrame {
             String canonical = canonicalSerial(serial);
             if (canonical == null || lbSerials.contains(canonical)) continue;
             DeckCardDetail card = db.getCardDetailBySerial(canonical);
-            if (card != null) addDeckElements(out, card.element());
+            if (card != null) DeckElements.addCard(out, card.element());
         }
         return out;
     }
 
-    /** Adds one card's Elements to a deck's, leaving out Light and Dark. */
-    private static void addDeckElements(EnumSet<ElementColor> deck, String element) {
-        for (ElementColor ec : ElementBarsIcon.elementsOf(element))
-            if (ec != ElementColor.LIGHT && ec != ElementColor.DARK) deck.add(ec);
-    }
-
     /** Re-reads an edited deck's Elements, repainting My Decks when its bars change. */
     private void refreshListedElements(int deckId, List<Object[]> rows) {
-        EnumSet<ElementColor> now = mainDeckElements(rows);
+        EnumSet<ElementColor> now = DeckElements.of(rows, lbSerials);
         if (!now.equals(deckElements.put(deckId, now))) deckList.repaint();
     }
 
