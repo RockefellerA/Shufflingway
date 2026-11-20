@@ -37,6 +37,10 @@ public final class Banlist {
 
     public static final String STANDARD = "Standard";
 
+    private static final String BANNED      = "Banned";
+    private static final String RESTRICTED  = "Restricted";
+    private static final String CONDITIONAL = "Conditional";
+
     private static final String RESOURCE = "/data/banlist.txt";
 
     private static final Pattern FORMAT_LINE   = Pattern.compile("^\\*\\*(.+?)\\*\\*$");
@@ -61,9 +65,43 @@ public final class Banlist {
 
         /** The names joined for display: "Chaos or Feral Chaos". */
         public String describeNames() {
-            if (names.size() == 1) return names.get(0);
-            return String.join(", ", names.subList(0, names.size() - 1))
-                    + " or " + names.get(names.size() - 1);
+            return joinWithOr(names);
+        }
+    }
+
+    /**
+     * One way a format's banlist lists a card.
+     *
+     * @param format   the format as the file prints it: "Standard", "Title"
+     * @param category "Banned", "Restricted" or "Conditional"
+     * @param limit    the copy limit for Restricted, the name limit for Conditional, 0 for Banned
+     * @param names    the names that share a Conditional limit; empty otherwise
+     */
+    public record Listing(String format, String category, int limit, List<String> names) {
+
+        public boolean banned() {
+            return category.equals(BANNED);
+        }
+
+        /** As the file heads it, then the format: "Restricted [1] (Standard)". */
+        public String label() {
+            String bracket = switch (category) {
+                case RESTRICTED  -> " [" + limit + "]";
+                case CONDITIONAL -> " [Name Limit " + limit + "]";
+                default          -> "";
+            };
+            return category + bracket + " (" + format + ")";
+        }
+
+        /** The rule as a sentence: "In Standard, a deck may hold at most 1 copy of this card." */
+        public String explanation() {
+            return switch (category) {
+                case RESTRICTED  -> "In " + format + ", a deck may hold at most " + limit
+                        + (limit == 1 ? " copy" : " copies") + " of this card.";
+                case CONDITIONAL -> "In " + format + ", a deck holding this card may hold at most "
+                        + limit + " cards named " + joinWithOr(names) + ".";
+                default          -> "In " + format + ", a deck may not hold this card.";
+            };
         }
     }
 
@@ -98,13 +136,17 @@ public final class Banlist {
     private final Map<String, Map<String, Integer>> restrictedByFormat;
     /** Conditional name limits, keyed by lower-cased format name. */
     private final Map<String, List<NameLimit>> nameLimitsByFormat;
+    /** Each format's name as the file prints it, keyed by lower-cased name, in file order. */
+    private final Map<String, String> formatNames;
 
     private Banlist(Map<String, Set<String>> bannedByFormat,
                     Map<String, Map<String, Integer>> restrictedByFormat,
-                    Map<String, List<NameLimit>> nameLimitsByFormat) {
+                    Map<String, List<NameLimit>> nameLimitsByFormat,
+                    Map<String, String> formatNames) {
         this.bannedByFormat = bannedByFormat;
         this.restrictedByFormat = restrictedByFormat;
         this.nameLimitsByFormat = nameLimitsByFormat;
+        this.formatNames = formatNames;
     }
 
     /** The banlist bundled with the app, read once. An absent or unreadable file bans nothing. */
@@ -112,10 +154,10 @@ public final class Banlist {
         if (instance == null) {
             try (InputStream is = Banlist.class.getResourceAsStream(RESOURCE)) {
                 instance = is == null
-                        ? new Banlist(Map.of(), Map.of(), Map.of())
+                        ? new Banlist(Map.of(), Map.of(), Map.of(), Map.of())
                         : parse(new InputStreamReader(is, StandardCharsets.UTF_8));
             } catch (IOException e) {
-                instance = new Banlist(Map.of(), Map.of(), Map.of());
+                instance = new Banlist(Map.of(), Map.of(), Map.of(), Map.of());
             }
         }
         return instance;
@@ -125,6 +167,7 @@ public final class Banlist {
         Map<String, Set<String>> banned = new HashMap<>();
         Map<String, Map<String, Integer>> restricted = new HashMap<>();
         Map<String, List<NameLimit>> nameLimits = new HashMap<>();
+        Map<String, String> formatNames = new LinkedHashMap<>();
         String format = null;
         String category = null;
         String bracket = null;
@@ -136,6 +179,7 @@ public final class Banlist {
             Matcher m;
             if ((m = FORMAT_LINE.matcher(line)).matches()) {
                 format = m.group(1).strip().toLowerCase(Locale.ROOT);
+                formatNames.putIfAbsent(format, m.group(1).strip());
                 category = null;
             } else if ((m = CARD_ROW.matcher(line)).matches()) {
                 String serial = m.group(1).strip();
@@ -163,7 +207,7 @@ public final class Banlist {
                 bracket = m.group(2) == null ? null : m.group(2).strip();
             }
         }
-        return new Banlist(banned, restricted, nameLimits);
+        return new Banlist(banned, restricted, nameLimits, formatNames);
     }
 
     /** The names in a Conditional row's trailing parentheses, or the row's own name without them. */
@@ -224,6 +268,25 @@ public final class Banlist {
 
     public boolean isLimitedInStandard(String serial) {
         return isLimited(STANDARD, serial);
+    }
+
+    /**
+     * Every listing of the card, format by format in file order, each format's in the order
+     * Banned, Restricted, Conditional. Empty for a card no format lists. Reprints count as for
+     * {@link #isBanned}.
+     */
+    public List<Listing> listings(String serial) {
+        List<Listing> out = new ArrayList<>();
+        for (String format : formatNames.values()) {
+            if (isBanned(format, serial)) out.add(new Listing(format, BANNED, 0, List.of()));
+            Map<String, Integer> limits = restricted(format);
+            String card = listedPrinting(limits.keySet(), serial);
+            if (card != null) out.add(new Listing(format, RESTRICTED, limits.get(card), List.of()));
+            for (NameLimit rule : nameLimits(format))
+                if (listedPrinting(Set.of(rule.trigger()), serial) != null)
+                    out.add(new Listing(format, CONDITIONAL, rule.limit(), rule.names()));
+        }
+        return out;
     }
 
     /**
@@ -295,6 +358,13 @@ public final class Banlist {
             if (listed.contains(p)) return p;
         }
         return null;
+    }
+
+    /** "Chaos", "Chaos or Feral Chaos", "A, B or C". */
+    private static String joinWithOr(List<String> names) {
+        if (names.size() == 1) return names.get(0);
+        return String.join(", ", names.subList(0, names.size() - 1))
+                + " or " + names.get(names.size() - 1);
     }
 
     private static String key(String format) {

@@ -154,6 +154,34 @@ class BanlistTest {
     }
 
     @Test
+    void listingsNameEachCategoryAndTheFormatAsPrinted() throws IOException {
+        Banlist b = sample();
+        assertEquals(List.of("Banned (Standard)"), labels(b, "1-089H"));
+        assertEquals(List.of("Restricted [1] (Standard)"), labels(b, "13-119L"));
+        assertEquals(List.of("Conditional [Name Limit 3] (Standard)"), labels(b, "23-117L"));
+        assertEquals(List.of("Banned (Title)"), labels(b, "10-098L"), "the format keeps its printed case");
+        assertEquals(List.of("Banned (Standard)"), labels(b, "27-001C / 1-089H"), "a reprint is listed as its original");
+        assertEquals(List.of(), labels(b, "1-001H"));
+    }
+
+    @Test
+    void listingsExplainTheirRule() throws IOException {
+        Banlist b = sample();
+        assertEquals("In Standard, a deck may not hold this card.",
+                b.listings("1-089H").get(0).explanation());
+        assertEquals("In Standard, a deck may hold at most 1 copy of this card.",
+                b.listings("13-119L").get(0).explanation());
+        assertEquals("In Standard, a deck holding this card may hold at most 3 cards named Chaos or Feral Chaos.",
+                b.listings("23-117L").get(0).explanation());
+        assertTrue(b.listings("1-089H").get(0).banned());
+        assertFalse(b.listings("13-119L").get(0).banned());
+    }
+
+    private static List<String> labels(Banlist b, String serial) {
+        return b.listings(serial).stream().map(Banlist.Listing::label).toList();
+    }
+
+    @Test
     void bundledFileLoads() {
         Set<String> standard = Banlist.get().banned(Banlist.STANDARD);
         assertFalse(standard.isEmpty(), "Standard banlist read from /data/banlist.txt");

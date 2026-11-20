@@ -33,8 +33,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +76,7 @@ import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableRowSorter;
 
 import scraper.DeckDatabase;
+import scraper.DeckDatabase.DeckCardDetail;
 import scraper.DeckDatabase.DeckEntry;
 
 public class DeckManager extends JFrame {
@@ -173,6 +176,8 @@ public class DeckManager extends JFrame {
     private final Banlist banlist = Banlist.get();
     /** Saved decks that break the Standard banlist; drives the My Decks highlight. */
     private final Set<Integer> banlistDeckIds = new HashSet<>();
+    /** Each saved deck's main-deck Elements (see {@link #mainDeckElements}); drawn as bars before its name in My Decks. */
+    private final Map<Integer, Set<ElementColor>> deckElements = new HashMap<>();
     /** What in the open deck breaks the Standard banlist; its serials render in red. */
     private Banlist.Violations standardViolations = Banlist.Violations.NONE;
 
@@ -197,6 +202,9 @@ public class DeckManager extends JFrame {
         cardImageLabel = new JLabel("Select a card to preview", SwingConstants.CENTER);
         cardImageLabel.setPreferredSize(new Dimension(PREVIEW_W, PREVIEW_H));
         cardImageLabel.setBorder(BorderFactory.createEtchedBorder());
+        // The banlist note is the label's text, under the card (see captionPreview).
+        cardImageLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
+        cardImageLabel.setHorizontalTextPosition(SwingConstants.CENTER);
 
         JPanel imagePanel = new JPanel(new BorderLayout());
         imagePanel.setPreferredSize(new Dimension(PREVIEW_W + 10, PREVIEW_H));
@@ -253,7 +261,11 @@ public class DeckManager extends JFrame {
             public Component getListCellRendererComponent(
                     JList<?> list, Object value, int index, boolean sel, boolean focus) {
                 super.getListCellRendererComponent(list, value, index, sel, focus);
-                if (value instanceof DeckEntry entry && banlistDeckIds.contains(entry.id())) {
+                DeckEntry entry = value instanceof DeckEntry d ? d : null;
+                Set<ElementColor> elements = entry == null ? null : deckElements.get(entry.id());
+                setIcon(elements == null || elements.isEmpty() ? null
+                        : new ElementBarsIcon(elements, getFont().getSize()));
+                if (entry != null && banlistDeckIds.contains(entry.id())) {
                     // Red text only, as in the card tables; a selected row keeps the selection colours.
                     if (!sel) setForeground(ThemeColors.text(BANNED_FG));
                     setToolTipText("Breaks the Standard banlist");
@@ -687,11 +699,13 @@ public class DeckManager extends JFrame {
 
         // Grey out Power (5) when 0 or null
         table.getColumnModel().getColumn(5).setCellRenderer(powerRenderer());
+        table.getColumnModel().getColumn(3).setCellRenderer(ElementBarsIcon.columnRenderer());
     }
 
     private void applyDeckRenderers(JTable table) {
         // Grey out Power (6) when 0 or null
         table.getColumnModel().getColumn(6).setCellRenderer(powerRenderer());
+        table.getColumnModel().getColumn(4).setCellRenderer(ElementBarsIcon.columnRenderer());
         // Grey out Job (7) and Category 2 (9) when empty
         DefaultTableCellRenderer greyIfEmpty = new DefaultTableCellRenderer() {
             @Override
@@ -730,10 +744,13 @@ public class DeckManager extends JFrame {
         int prevId = selectedDeckId;
         deckListModel.clear();
         banlistDeckIds.clear();
+        deckElements.clear();
         for (DeckEntry entry : db.getDecks()) {
             deckListModel.addElement(entry);
-            if (!banlist.check(Banlist.STANDARD, Banlist.fromDeckRows(db.getDeckCards(entry.id()))).isEmpty())
+            List<Object[]> rows = db.getDeckCards(entry.id());
+            if (!banlist.check(Banlist.STANDARD, Banlist.fromDeckRows(rows)).isEmpty())
                 banlistDeckIds.add(entry.id());
+            deckElements.put(entry.id(), mainDeckElements(rows));
         }
         // Restore selection if the deck still exists
         for (int i = 0; i < deckListModel.size(); i++) {
@@ -763,12 +780,53 @@ public class DeckManager extends JFrame {
             deckForwards.sort(bySerial); deckBackups.sort(bySerial);
             deckSummons.sort(bySerial);  deckMonsters.sort(bySerial); deckLbs.sort(bySerial);
             rebuildDeckModel();
+            refreshListedElements(deckId, rows);
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, "Error loading deck:\n" + e.getMessage(),
                     "Database Error", JOptionPane.ERROR_MESSAGE);
         }
         refreshAddMaxBtn();
         refreshFormatLegality();
+    }
+
+    /**
+     * The Elements of a deck's main-deck cards, in printed order. Both Elements of a multi-Element
+     * card count. Light and Dark do not, since they only supplement a deck's Elements, and Limit
+     * Break cards are left out for the same reason.
+     */
+    private EnumSet<ElementColor> mainDeckElements(List<Object[]> rows) {
+        EnumSet<ElementColor> out = EnumSet.noneOf(ElementColor.class);
+        for (Object[] r : rows)
+            if (!lbSerials.contains((String) r[1])) addDeckElements(out, (String) r[4]);
+        return out;
+    }
+
+    /**
+     * A preconstructed deck's main-deck Elements, as {@link #mainDeckElements} reads a saved deck's.
+     * Its serials are resolved the way {@link #importDeckFromSerials} resolves them, so the bars
+     * show the deck an import would create.
+     */
+    private EnumSet<ElementColor> starterDeckElements(StarterDeck deck) throws SQLException {
+        EnumSet<ElementColor> out = EnumSet.noneOf(ElementColor.class);
+        for (String serial : deck.cards().keySet()) {
+            String canonical = canonicalSerial(serial);
+            if (canonical == null || lbSerials.contains(canonical)) continue;
+            DeckCardDetail card = db.getCardDetailBySerial(canonical);
+            if (card != null) addDeckElements(out, card.element());
+        }
+        return out;
+    }
+
+    /** Adds one card's Elements to a deck's, leaving out Light and Dark. */
+    private static void addDeckElements(EnumSet<ElementColor> deck, String element) {
+        for (ElementColor ec : ElementBarsIcon.elementsOf(element))
+            if (ec != ElementColor.LIGHT && ec != ElementColor.DARK) deck.add(ec);
+    }
+
+    /** Re-reads an edited deck's Elements, repainting My Decks when its bars change. */
+    private void refreshListedElements(int deckId, List<Object[]> rows) {
+        EnumSet<ElementColor> now = mainDeckElements(rows);
+        if (!now.equals(deckElements.put(deckId, now))) deckList.repaint();
     }
 
     private void rebuildDeckModel() {
@@ -1284,16 +1342,26 @@ public class DeckManager extends JFrame {
      * the import was aborted due to a size violation.  Shows warning dialogs for missing
      * serials and size errors; throws {@link SQLException} for database failures.
      */
+    /**
+     * The database serial that a serial in an imported list stands for: an exact match, the full
+     * form of a dual serial, or a promo reprint found through the PR card map. {@code null} when
+     * none of those finds it.
+     */
+    private String canonicalSerial(String serial) throws SQLException {
+        String canonical = db.resolveSerial(serial);
+        if (canonical == null) {
+            String prKey = serial.endsWith("P") ? serial.substring(0, serial.length() - 1) : serial;
+            String mapped = getPrCardMap().get(prKey);
+            if (mapped != null) canonical = db.resolveSerial(mapped);
+        }
+        return canonical;
+    }
+
     private int importDeckFromSerials(String deckName, Map<String, Integer> cardMap) throws SQLException {
         List<String> missing = new ArrayList<>();
         Map<String, String> resolved = new LinkedHashMap<>();
         for (String serial : cardMap.keySet()) {
-            String canonical = db.resolveSerial(serial);
-            if (canonical == null) {
-                String prKey = serial.endsWith("P") ? serial.substring(0, serial.length() - 1) : serial;
-                String mapped = getPrCardMap().get(prKey);
-                if (mapped != null) canonical = db.resolveSerial(mapped);
-            }
+            String canonical = canonicalSerial(serial);
             if (canonical == null) missing.add(serial);
             else resolved.put(serial, canonical);
         }
@@ -1451,10 +1519,29 @@ public class DeckManager extends JFrame {
             return;
         }
 
-        String[] names = decks.stream().map(StarterDeck::name).toArray(String[]::new);
-        JList<String> deckNameList = new JList<>(names);
+        // The same Element bars My Decks shows. A deck whose cards cannot be read just goes without.
+        Map<StarterDeck, Set<ElementColor>> elements = new IdentityHashMap<>();
+        try {
+            for (StarterDeck deck : decks) elements.put(deck, starterDeckElements(deck));
+        } catch (SQLException e) {
+            elements.clear();
+        }
+
+        JList<StarterDeck> deckNameList = new JList<>(decks.toArray(StarterDeck[]::new));
+        deckNameList.setCellRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean sel, boolean focus) {
+                StarterDeck deck = (StarterDeck) value;
+                super.getListCellRendererComponent(list, deck.name(), index, sel, focus);
+                Set<ElementColor> deckElements = elements.get(deck);
+                setIcon(deckElements == null || deckElements.isEmpty() ? null
+                        : new ElementBarsIcon(deckElements, getFont().getSize()));
+                return this;
+            }
+        });
         deckNameList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-        deckNameList.setVisibleRowCount(Math.min(names.length, 12));
+        deckNameList.setVisibleRowCount(Math.min(decks.size(), 12));
         JScrollPane scroll = new JScrollPane(deckNameList);
         scroll.setPreferredSize(new Dimension(UiScale.scale(320), UiScale.scale(220)));
 
@@ -1463,19 +1550,18 @@ public class DeckManager extends JFrame {
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (pick != JOptionPane.OK_OPTION) return;
 
-        List<String> selected = deckNameList.getSelectedValuesList();
+        List<StarterDeck> selected = deckNameList.getSelectedValuesList();
         if (selected.isEmpty()) return;
 
         StringBuilder msg = new StringBuilder("Import the following deck(s)?");
-        for (String n : selected) msg.append("\n  • ").append(n);
+        for (StarterDeck deck : selected) msg.append("\n  • ").append(deck.name());
         int confirm = JOptionPane.showConfirmDialog(this, msg.toString(),
                 "Confirm Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
         if (confirm != JOptionPane.YES_OPTION) return;
 
         int lastId = -1;
         int importedCount = 0;
-        for (StarterDeck deck : decks) {
-            if (!selected.contains(deck.name())) continue;
+        for (StarterDeck deck : selected) {
             try {
                 int newId = importDeckFromSerials(deck.name(), deck.cards());
                 if (newId >= 0) { lastId = newId; importedCount++; }
@@ -1574,6 +1660,7 @@ public class DeckManager extends JFrame {
     private void loadCardImageAsync(String serial) {
         cardImageLabel.setIcon(null);
         cardImageLabel.setText("Loading…");
+        cardImageLabel.setToolTipText(null);
 
         new SwingWorker<Preview, Void>() {
             @Override
@@ -1604,19 +1691,44 @@ public class DeckManager extends JFrame {
                     Preview preview = get();
                     if (preview != null) {
                         cardImageLabel.setIcon(preview.icon());
-                        cardImageLabel.setText(null);
+                        captionPreview(serial, null);
                         // The preview may have just downloaded this card; show it in the binder too.
                         binderView.imageLoaded(serial, preview.url(), preview.thumb());
                     } else {
                         cardImageLabel.setIcon(null);
-                        cardImageLabel.setText("No image available");
+                        captionPreview(serial, "No image available");
                     }
                 } catch (InterruptedException | ExecutionException e) {
                     cardImageLabel.setIcon(null);
-                    cardImageLabel.setText("Error loading image");
+                    captionPreview(serial, "Error loading image");
                 }
             }
         }.execute();
+    }
+
+    /**
+     * Sets the preview's text: {@code message} if there is one ("No image available"), then each
+     * format's banlist note for the card, such as "Banned (Standard)". Banned notes are red and the
+     * rest orange, as in the card tables, and hovering shows the rules in full. Under an image with
+     * no note the text is one blank line, so the card sits at the same height either way.
+     */
+    private void captionPreview(String serial, String message) {
+        List<Banlist.Listing> listings = banlist.listings(serial);
+        if (listings.isEmpty()) {
+            cardImageLabel.setText(message != null ? message : "<html>&nbsp;</html>");
+            cardImageLabel.setToolTipText(null);
+            return;
+        }
+        List<String> lines = new ArrayList<>();
+        if (message != null) lines.add(message);
+        List<String> rules = new ArrayList<>();
+        for (Banlist.Listing listing : listings) {
+            Color c = ThemeColors.text(listing.banned() ? BANNED_FG : LIMITED_FG);
+            lines.add(String.format("<font color='#%06x'><b>%s</b></font>", c.getRGB() & 0xFFFFFF, listing.label()));
+            rules.add(listing.explanation());
+        }
+        cardImageLabel.setText("<html><center>" + String.join("<br>", lines) + "</center></html>");
+        cardImageLabel.setToolTipText("<html>" + String.join("<br>", rules) + "</html>");
     }
 
     // -------------------------------------------------------------------------
@@ -1640,7 +1752,7 @@ public class DeckManager extends JFrame {
         table.getColumnModel().getColumn(2).setMaxWidth(80);
         int[][] specs = {
             {0, 70,  90},  // Serial
-            {3, 90, 120},  // Element
+            {3, 110, 120}, // Element: room for two Elements' bars and names
             {4, 45,  60},  // Cost
             {5, 55,  70},  // Power
         };
@@ -1671,7 +1783,7 @@ public class DeckManager extends JFrame {
             {0,  28,  38},  // Qty
             {1,  70,  90},  // Serial
             {3,  80,  80},  // Type
-            {4,  90, 120},  // Element
+            {4, 110, 120},  // Element: room for two Elements' bars and names
             {5,  45,  60},  // Cost
             {6,  55,  70},  // Power
         };

@@ -152,6 +152,8 @@ public class CardBrowser extends JDialog {
             cardTable.getColumnModel().getColumn(col).setCellRenderer(greyIfEmpty);
         }
 
+        cardTable.getColumnModel().getColumn(3).setCellRenderer(ElementBarsIcon.columnRenderer());
+
         // Grey out Power (5) when value is 0 or null
         cardTable.getColumnModel().getColumn(5).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
