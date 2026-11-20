@@ -32,6 +32,7 @@ import java.util.function.Predicate;
 import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
 import java.util.function.ToIntFunction;
+import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -88,6 +89,19 @@ final class AutoAbilityTriggers {
 
 	private List<StackOrderingDialog.Item> pendingBatch;
 
+	/**
+	 * Answers in the stack-ordering dialog's place when set, as the dialog answers: resolution order,
+	 * the ability to resolve first at index 0. Lets a test order P1's triggers without a modal.
+	 */
+	UnaryOperator<List<StackOrderingDialog.Item>> stackOrderChooser;
+
+	/**
+	 * Where the ordered batch item now running goes on the Stack, counted from the bottom; -1 for
+	 * the top. {@link #runOrdered} sets it for one item and {@link #executeAutoAbilityImpl} takes it
+	 * as it starts, so nothing that item's choices or inline resolution push on the way inherits it.
+	 */
+	private int batchInsertDepth = -1;
+
 
 	// =========================================================================================
 	// Batching and ordered dispatch
@@ -136,11 +150,23 @@ final class AutoAbilityTriggers {
 		// CPU controls P2 — only show the dialog when P1 is choosing.
 		if (controllerIsP1 && items.size() >= 2) {
 			// Dialog returns resolution order: index 0 = top of stack (resolves first).
-			// Push in reverse so the first-resolving ability lands on top of the stack.
-			List<StackOrderingDialog.Item> ordered = StackOrderingDialog.show(mw.frame,
-					"Choose Stack Order — " + role + " (" + (controllerIsP1 ? "P1" : "P2") + ")",
-					items);
-			for (int i = ordered.size() - 1; i >= 0; i--) runBatchItem(ordered.get(i));
+			String header = "Choose Stack Order — " + role + " (" + (controllerIsP1 ? "P1" : "P2") + ")";
+			List<StackOrderingDialog.Item> ordered = stackOrderChooser != null
+					? stackOrderChooser.apply(items)
+					: StackOrderingDialog.show(mw.frame, header, items);
+			// Run in the order chosen, each going on the Stack beneath the ones before it. The Stack
+			// ends up the same as pushing bottom-first, but every ability chooses its targets as it goes
+			// on, so the player meets the prompts in the order the dialog numbered them. Pushing
+			// bottom-first would ask for the last-numbered ability's targets first.
+			int base = mw.gameState.stackSize();
+			for (StackOrderingDialog.Item it : ordered) {
+				batchInsertDepth = base;
+				try {
+					runBatchItem(it);
+				} finally {
+					batchInsertDepth = -1;
+				}
+			}
 		} else {
 			// No dialog: preserve historical iteration order (first walked = pushed
 			// first = bottom of stack = resolves last).
@@ -5844,6 +5870,8 @@ final class AutoAbilityTriggers {
 	}
 
 	private void executeAutoAbilityImpl(AutoAbility fa, CardData source, boolean isP1, boolean paidExtraCost) {
+		int insertAt = batchInsertDepth;
+		batchInsertDepth = -1;
 		// Damage threshold: skip if the controlling player doesn't have enough damage counters
 		if (fa.damageThreshold() > 0) {
 			int dmg = isP1 ? mw.gameState.getP1DamageZone().size() : mw.gameState.getP2DamageZone().size();
@@ -6029,8 +6057,9 @@ final class AutoAbilityTriggers {
 		// opponent can respond to what it is pointed at. The text is transformed the same way
 		// resolution will transform it, or a conditional clause could change the eligible set.
 		// The depth is taken first so any "when this is chosen" trigger the selection fires lands
-		// above this entry and resolves before it (see GameState.insertStack).
-		int depth = mw.gameState.stackSize();
+		// above this entry and resolves before it (see GameState.insertStack). An ordered batch item
+		// goes beneath the items ordered ahead of it (runOrdered).
+		int depth = insertAt >= 0 ? Math.min(insertAt, mw.gameState.stackSize()) : mw.gameState.stackSize();
 		String effectText = resolvedText;
 		// The size of the damage instance that fired an "is dealt damage" trigger travels as the
 		// entry's xValue, which is what that field means: the number this activation supplied, not

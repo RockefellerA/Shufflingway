@@ -37,10 +37,10 @@ import shufflingway.graphics.CardAnimation;
  * Modal dialog that asks the player to order simultaneous auto-ability triggers
  * before they are pushed onto the stack.
  *
- * <p>Cards are shown left-to-right. The leftmost card is pushed first (bottom of
- * stack, resolves last); the rightmost is pushed last (top of stack, resolves
- * first). A synchronized list below shows the resolution order (top of stack
- * first) and updates live as cards are dragged.</p>
+ * <p>Cards are shown left-to-right in resolution order: the leftmost ends up on top
+ * of the stack and resolves first, the rightmost at the bottom and resolves last.
+ * The list below numbers them in that order and updates live as cards are dragged.
+ * The caller also asks for each ability's targets in that order.</p>
  */
 public final class StackOrderingDialog {
 
