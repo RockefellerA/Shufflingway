@@ -8,6 +8,7 @@ import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Shape;
 import java.awt.geom.Line2D;
@@ -15,20 +16,27 @@ import java.awt.geom.PathIterator;
 import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
- * A comet of light running clockwise around the inside edge of one damage-zone slot, shown for as
- * long as that card's EX Burst is resolving.
+ * A comet of light running clockwise around the inside edge of one card, shown for as long as
+ * that card's effect is resolving: a damage-zone card whose EX Burst is resolving, or a card on
+ * the field whose auto ability is choosing its targets or resolving.
  *
- * <p>Overlays a single slot rather than the whole damage panel: the burst belongs to the one card
- * that was just flipped, and the glow is what says which one. {@link #start(int)} names the slot,
- * {@link #stop()} takes it away; both cross-fade, so a burst that turns out to have nothing to
- * resolve blinks rather than snapping.
+ * <p>Overlays a single card rather than a whole zone: the effect belongs to that one card, and the
+ * glow is what says which one. {@link #stop()} takes it away, and both ends cross-fade, so an
+ * effect that turns out to have nothing to ask blinks rather than snapping — or, if it starts and
+ * stops within one event, never shows at all.
  *
- * <p>EX Bursts bypass the stack, so only the player resolving one ever sees this — there is no
- * window for the opponent to respond in and nothing for them to read off it.
+ * <p>Placed one of two ways. {@link #start(int)} names a damage slot and leaves it to the damage
+ * panel's layout, which reads {@link #slotIndex()}, to lay the glow over that slot.
+ * {@link #track(Supplier)} hands over the bounds instead, read again every frame, so the glow
+ * follows a field card through a re-layout and goes dark if the card leaves the field.
+ *
+ * <p>It never takes the mouse: the card underneath stays hoverable and clickable, which matters
+ * when that card is one of the targets being chosen.
  */
-public class ExBurstGlow extends JComponent {
+public class ResolvingGlow extends JComponent {
 
 	/** Seconds the head takes to travel the perimeter once. */
 	private static final double REVOLUTION_SEC = 1.8;
@@ -48,11 +56,14 @@ public class ExBurstGlow extends JComponent {
 	private static final float CORE_W = UiScale.scale(2.5f);
 	private static final float CORNER = UiScale.scale(6f);
 
-	/** Slot this is currently drawn over, or -1 when idle.  Read by the damage panel's layout. */
+	/** Damage slot this is drawn over, or -1 when idle or tracking.  Read by the damage panel's layout. */
 	private int slot = -1;
+	/** Where to sit when following a field card, read every frame; {@code null} when not tracking. */
+	private Supplier<Rectangle> tracking;
 	private boolean fadingOut = false;
 	private float opacity = 0f;
 
+	/** Running while the glow is shown or fading; {@code null} when idle. */
 	private Timer timer;
 	private long lastFrameNs;
 	/** Head position along the perimeter, 0..1 clockwise from the top-left corner. */
@@ -62,7 +73,20 @@ public class ExBurstGlow extends JComponent {
 	private float[][] ring;
 	private int ringW = -1, ringH = -1;
 
-	public ExBurstGlow() {
+	/** Multiplies every layer's alpha; see {@link #ResolvingGlow(float)}. */
+	private final float strength;
+
+	/** A glow at the strength a damage slot's dark background wants. */
+	public ResolvingGlow() {
+		this(1f);
+	}
+
+	/**
+	 * @param strength how much brighter than a damage slot's glow to draw: a field card's art is
+	 *                 mostly light, and over it the slot's strength reads as a faint tint
+	 */
+	public ResolvingGlow(float strength) {
+		this.strength = strength;
 		setOpaque(false);
 	}
 
@@ -72,25 +96,58 @@ public class ExBurstGlow extends JComponent {
 	public void start(int slotIndex) {
 		if (slotIndex < 0) return;
 		if (slot != slotIndex) { slot = slotIndex; head = 0; }
+		tracking = null;
+		run();
+		// The slot is only known to the layout once it is set, so ask for one now.
+		revalidate();
+		repaint();
+	}
+
+	/**
+	 * Arms the glow over whatever {@code bounds} returns, in this component's parent's
+	 * coordinates, and fades it in. Asked again every frame; {@code null} hides the glow without
+	 * stopping it, as for a card that has left the field.
+	 */
+	public void track(Supplier<Rectangle> bounds) {
+		if (bounds == null) return;
+		if (tracking != bounds) { tracking = bounds; head = 0; }
+		slot = -1;
+		run();
+		follow();
+		repaint();
+	}
+
+	/** Fades the glow out; the slot or the tracked card is released once it has gone. */
+	public void stop() {
+		if (timer == null) return;
+		fadingOut = true;
+	}
+
+	/** The damage slot to sit over, or -1 when the glow is idle or tracking and wants no slot. */
+	public int slotIndex() { return slot; }
+
+	/** Never under the mouse, so the card beneath keeps its hover and its clicks. */
+	@Override
+	public boolean contains(int x, int y) {
+		return false;
+	}
+
+	private void run() {
 		fadingOut = false;
 		lastFrameNs = System.nanoTime();
 		if (timer == null) {
 			timer = new Timer(FRAME_MS, e -> step());
 			timer.start();
 		}
-		// The slot is only known to the layout once it is set, so ask for one now.
-		revalidate();
-		repaint();
 	}
 
-	/** Fades the glow out; the slot is released once it has gone. */
-	public void stop() {
-		if (slot < 0) return;
-		fadingOut = true;
+	/** Moves onto the tracked bounds, or off the board when there are none. */
+	private void follow() {
+		if (tracking == null) return;
+		Rectangle r = tracking.get();
+		if (r == null) r = new Rectangle();
+		if (!r.equals(getBounds())) setBounds(r);
 	}
-
-	/** The damage slot to sit over, or -1 when the glow is idle and wants no bounds. */
-	public int slotIndex() { return slot; }
 
 	// ---- Animation -----------------------------------------------------------
 
@@ -103,14 +160,19 @@ public class ExBurstGlow extends JComponent {
 		dt = Math.min(dt, 0.05);
 
 		head = (head + dt / REVOLUTION_SEC) % 1.0;
+		follow();
 
 		float delta = (float) (dt * 1000.0 / FADE_MS);
 		opacity = fadingOut ? Math.max(0f, opacity - delta) : Math.min(1f, opacity + delta);
 		if (fadingOut && opacity <= 0f) {
 			timer.stop();
 			timer = null;
-			slot = -1;
 			fadingOut = false;
+			if (tracking != null) {
+				tracking = null;
+				setBounds(0, 0, 0, 0);
+			}
+			slot = -1;
 			revalidate();
 		}
 		repaint();
@@ -167,9 +229,9 @@ public class ExBurstGlow extends JComponent {
 		}
 	}
 
-	private static Color alpha(Color c, float a) {
+	private Color alpha(Color c, float a) {
 		return new Color(c.getRed(), c.getGreen(), c.getBlue(),
-				Math.round(Math.max(0f, Math.min(1f, a)) * 255f));
+				Math.round(Math.max(0f, Math.min(1f, a * strength)) * 255f));
 	}
 
 	// ---- Perimeter geometry --------------------------------------------------

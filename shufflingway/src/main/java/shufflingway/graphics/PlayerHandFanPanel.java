@@ -71,16 +71,31 @@ public class PlayerHandFanPanel extends JComponent {
 	private static final int FRAME_MILLIS = 16;
 
 	/**
-	 * Extra height claimed above the resting peek, which is what the rise moves through. The panel
-	 * overlaps whatever is above it by this much; nothing is painted there until a card is hovered.
+	 * How far a hovered card rises: the height claimed above the resting peek for it to move
+	 * through. The panel overlaps whatever is above it by this much and the eye's headroom on top
+	 * ({@link #panelHeight}); until a card is hovered, nothing is painted there but the top half of
+	 * a revealed card's eye.
 	 */
 	public static int overhangHeight() {
 		return (int) Math.round(CardAnimation.CARD_H * HOVER_RISE_FRACTION);
 	}
 
-	/** Total height the panel wants: the visible peek plus the headroom a hovered card rises into. */
+	/**
+	 * Total height the panel wants: the visible peek, the headroom a hovered card rises into, and
+	 * above that room for the {@linkplain #drawShownBadge eye} on a fully risen card.
+	 */
 	public static int panelHeight() {
-		return HandFanLayout.peekHeight() + overhangHeight();
+		return HandFanLayout.peekHeight() + overhangHeight() + shownBadgeHeadroom();
+	}
+
+	/**
+	 * How far the eye reaches above its card's top edge: its radius and half its rim, and a pixel
+	 * for the antialiased fringe. Fully risen, the untilted middle card's top edge is at the top of
+	 * the rise, so its eye needs this much clear above that or the panel's edge cuts it off.
+	 */
+	private static int shownBadgeHeadroom() {
+		double d = CardAnimation.CARD_W * SHOWN_BADGE_FRACTION;
+		return (int) Math.ceil(d / 2 + d * SHOWN_RIM_FRACTION / 2) + 1;
 	}
 
 	// Matching HandFanPanel, so the two hands separate their overlaps the same way.
@@ -109,6 +124,8 @@ public class PlayerHandFanPanel extends JComponent {
 	private static final Color COST_DOWN = new Color(0x44EE44);
 	private static final Color COST_UP   = new Color(0xFF8844);
 	/** The badge on a card the opponent has seen: a dark disc, so the eye reads on any art. */
+	private static final double SHOWN_BADGE_FRACTION = 0.17;   // its diameter, of CARD_W
+	private static final double SHOWN_RIM_FRACTION   = 0.06;   // its rim's width, of the diameter
 	private static final Color SHOWN_DISC = new Color(20, 20, 28, 210);
 	private static final Color SHOWN_RIM  = new Color(255, 255, 255, 150);
 	private static final Color SHOWN_IRIS = new Color(70, 140, 230);
@@ -464,14 +481,14 @@ public class PlayerHandFanPanel extends JComponent {
 	private static void drawShownBadge(Graphics2D g0) {
 		Graphics2D g = (Graphics2D) g0.create();
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-		double d  = CardAnimation.CARD_W * 0.17;
+		double d  = CardAnimation.CARD_W * SHOWN_BADGE_FRACTION;
 		double cx = CardAnimation.CARD_W / 2.0;
 		double cy = 0;
 
 		g.setColor(SHOWN_DISC);
 		g.fill(new Ellipse2D.Double(cx - d / 2, cy - d / 2, d, d));
 		g.setColor(SHOWN_RIM);
-		g.setStroke(new BasicStroke((float) (d * 0.06)));
+		g.setStroke(new BasicStroke((float) (d * SHOWN_RIM_FRACTION)));
 		g.draw(new Ellipse2D.Double(cx - d / 2, cy - d / 2, d, d));
 
 		// Almond: two arcs meeting at the corners of the eye.

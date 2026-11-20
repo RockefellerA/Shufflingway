@@ -22,6 +22,7 @@ import java.awt.Insets;
 import java.awt.KeyEventDispatcher;
 import java.awt.KeyboardFocusManager;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.event.ComponentAdapter;
@@ -31,6 +32,7 @@ import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -142,7 +144,7 @@ import shufflingway.graphics.CounterOrb;
 import shufflingway.graphics.CrystalDisplay;
 import shufflingway.graphics.DamageNegateFlash;
 import shufflingway.graphics.DamageNumberOverlay;
-import shufflingway.graphics.ExBurstGlow;
+import shufflingway.graphics.ResolvingGlow;
 import shufflingway.graphics.FieldCardIcon;
 import shufflingway.graphics.FieldSlotLabel;
 import shufflingway.graphics.GradientPanel;
@@ -708,7 +710,9 @@ public class MainWindow {
 	 * Spinning glow over the damage slot whose EX Burst is resolving.  P1 only: an EX Burst never
 	 * reaches the stack, so the opponent has no window to respond in and nothing to read off it.
 	 */
-	private final ExBurstGlow p1ExBurstGlow = new ExBurstGlow();
+	private final ResolvingGlow p1ExBurstGlow = new ResolvingGlow();
+	/** The same glow over the field card whose auto ability is in focus; see {@link #withAbilityFocus}. */
+	private final ResolvingGlow abilitySourceGlow = new ResolvingGlow(1.8f);
 
 	// Next-phase button and its glow animation
 	JButton              nextPhaseButton;
@@ -2683,6 +2687,8 @@ public class MainWindow {
 		primingAnimator   = CardPrimingAnimator.install(frame);
 		damageNumbers     = DamageNumberOverlay.install(frame);
 		gameOverOverlay   = GameOverOverlay.install(frame, mainArea, fieldDivider);
+		// Over the board's cards, under the game-over banner; it tracks its card's bounds itself.
+		frame.getRootPane().getLayeredPane().add(abilitySourceGlow, JLayeredPane.PALETTE_LAYER);
 	}
 
 	// -------------------------------------------------------------------------
@@ -14519,7 +14525,9 @@ public class MainWindow {
 				currentAbilitySource     = entry.source();
 				currentAbilitySourceIsP1 = entry.isP1();
 				currentAbilityIsSpecial  = false;
-				try { payoff.accept(ctx); } finally { currentAbilitySource = null; }
+				try {
+					runWithAbilityFocus(entry.source(), entry.autoAbility().effectText(), () -> payoff.accept(ctx));
+				} finally { currentAbilitySource = null; }
 				refreshP1HandLabel();
 				refreshP1BreakLabel();
 			} else if (entry.isAutoAbility()) {
@@ -14554,7 +14562,9 @@ public class MainWindow {
 					currentAbilitySource     = entry.source();
 					currentAbilitySourceIsP1 = entry.isP1();
 					currentAbilityIsSpecial  = false;
-					try { effect.accept(ctx); } finally { currentAbilitySource = null; }
+					try {
+						runWithAbilityFocus(entry.source(), effectText, () -> effect.accept(ctx));
+					} finally { currentAbilitySource = null; }
 				} else if (!conditionHolds) {
 					declaredSelectActions.remove(entry);
 					logEntry("[AutoAbility] \"" + entry.source().name() + "\" — its condition no longer holds; "
@@ -14637,6 +14647,99 @@ public class MainWindow {
 		} finally {
 			choosingForStack--;
 		}
+	}
+
+	// -------------------------------------------------------------------------
+	// Ability focus: which auto ability is choosing or resolving, shown on the board
+	// -------------------------------------------------------------------------
+
+	/** An auto ability that is choosing its targets or resolving: its card, and the text it runs. */
+	record AbilityFocus(CardData source, String effectText) {}
+
+	/** Innermost first: a "when you do so" payoff chooses its targets inside its parent's resolution. */
+	private final Deque<AbilityFocus> abilityFocus = new ArrayDeque<>();
+	/** The card {@link #abilitySourceGlow} is following, or {@code null}. */
+	private CardData glowingAbilitySource;
+
+	/**
+	 * Runs {@code body} with {@code source}'s auto ability in focus, restoring the focus around it
+	 * afterwards. While it is in focus the card glows on the field, and a target prompt names the
+	 * effect under its instruction ({@link #abilityFocusCaption}), so a choice that opens after the
+	 * Stack window has closed still says which ability it is for.
+	 *
+	 * <p>Nothing shows unless {@code body} stops to ask the player something: an ability that
+	 * resolves straight through starts and stops the glow within one event, before it has faded in.
+	 */
+	<T> T withAbilityFocus(CardData source, String effectText, Supplier<T> body) {
+		abilityFocus.push(new AbilityFocus(source, effectText));
+		refreshAbilitySourceGlow();
+		try {
+			return body.get();
+		} finally {
+			abilityFocus.pop();
+			refreshAbilitySourceGlow();
+		}
+	}
+
+	/** {@link #withAbilityFocus} for a body with no result. */
+	void runWithAbilityFocus(CardData source, String effectText, Runnable body) {
+		withAbilityFocus(source, effectText, () -> { body.run(); return null; });
+	}
+
+	/** Points the glow at the innermost focused card, or fades it out when nothing is in focus. */
+	private void refreshAbilitySourceGlow() {
+		// The glow animates on a timer, so it only runs where someone can see it: never in a test
+		// harness, whose board is changed off the EDT the timer reads it from.
+		if (frame == null || !frame.isShowing()) return;
+		CardData source = abilityFocus.isEmpty() ? null : abilityFocus.peek().source();
+		if (source == glowingAbilitySource) return;
+		glowingAbilitySource = source;
+		if (source == null) abilitySourceGlow.stop();
+		else abilitySourceGlow.track(() -> fieldCardBounds(source));
+	}
+
+	/**
+	 * The line a target prompt shows under its instruction while an auto ability is in focus: the
+	 * card's name, then what the ability does with the pick — its text with the choose sentence it
+	 * opens with taken off, since the instruction above already says that. {@code null} when no
+	 * ability is in focus.
+	 */
+	String abilityFocusCaption() {
+		AbilityFocus focus = abilityFocus.peek();
+		if (focus == null) return null;
+		String rest = afterLeadingChoose(focus.effectText());
+		return focus.source().name() + (rest.isEmpty() ? "" : ": " + rest);
+	}
+
+	/**
+	 * {@code text} without the "Choose …" sentence it opens with — "choose 1 Forward. Deal it 10000
+	 * damage." gives "Deal it 10000 damage." — or the whole text when it opens with anything else,
+	 * since a choice in the middle of an effect is better shown in full. Empty when the choose
+	 * sentence is all there is.
+	 */
+	static String afterLeadingChoose(String text) {
+		String t = text == null ? "" : text.strip();
+		if (!t.regionMatches(true, 0, "choose ", 0, 7)) return t;
+		int end = t.indexOf(". ");
+		return end < 0 ? "" : t.substring(end + 2).strip();
+	}
+
+	/**
+	 * Where {@code card} is drawn on either player's field, in the frame's layered-pane
+	 * coordinates: the card itself within its slot ({@link #cardRectInSlot}), not the whole slot.
+	 * {@code null} when it is not on the field.
+	 */
+	private Rectangle fieldCardBounds(CardData card) {
+		if (frame == null) return null;
+		JLayeredPane lp = frame.getRootPane().getLayeredPane();
+		for (boolean side : new boolean[] {true, false}) {
+			ForwardTarget slot = findFieldSlot(card, side);
+			JLabel label = slot == null ? null : findFieldSlotLabel(card, side);
+			if (label == null || !SwingUtilities.isDescendingFrom(label, lp)) continue;
+			Rectangle inSlot = cardRectInSlot(fieldTargetState(slot) == CardState.DULL);
+			return SwingUtilities.convertRectangle(label, inSlot, lp);
+		}
+		return null;
 	}
 
 	/**
@@ -19485,22 +19588,29 @@ public class MainWindow {
 	}
 
 	/**
-	 * Border that paints the card-selection glow over the actual card rectangle within a
-	 * {@code CARD_H}×{@code CARD_H} slot (matching {@link CardAnimation#renderBackupCard}),
-	 * rather than the full label bounds, so the highlight hugs the art.
-	 *
-	 * <p>The two orientations anchor differently, exactly as {@code renderBackupCard} composites
-	 * them: an ACTIVE card is inset by {@link CardAnimation#LEFT_GUTTER} to leave the trait tabs
-	 * their strip, while a DULL card spans the full width and is inset from the top instead.
+	 * The card itself within a {@code CARD_H}×{@code CARD_H} field slot, in the slot's coordinates,
+	 * as {@link CardAnimation#renderBackupCard} composites it. The two orientations anchor
+	 * differently: an ACTIVE card is inset by {@link CardAnimation#LEFT_GUTTER} to leave the trait
+	 * tabs their strip, while a DULL card spans the full width and is inset from the top instead.
+	 */
+	static Rectangle cardRectInSlot(boolean dull) {
+		return dull ? new Rectangle(0, CardAnimation.LEFT_GUTTER, CARD_H, CARD_W)
+		            : new Rectangle(CardAnimation.LEFT_GUTTER, 0, CARD_W, CARD_H);
+	}
+
+	/**
+	 * Border that paints the card-selection glow over the actual card rectangle within its slot
+	 * ({@link #cardRectInSlot}) rather than the full label bounds, so the highlight hugs the art.
 	 */
 	private static javax.swing.border.Border cardBoundsGlowBorder(Color color, boolean dull) {
 		return new javax.swing.border.AbstractBorder() {
 			@Override public void paintBorder(java.awt.Component c, java.awt.Graphics g0,
 					int x, int y, int w, int h) {
-				int cw = dull ? CARD_H : CARD_W;
-				int ch = dull ? CARD_W : CARD_H;
-				int cx = dull ? x : x + CardAnimation.LEFT_GUTTER;
-				int cy = dull ? y + CardAnimation.LEFT_GUTTER : y;
+				Rectangle card = cardRectInSlot(dull);
+				int cw = card.width;
+				int ch = card.height;
+				int cx = x + card.x;
+				int cy = y + card.y;
 				java.awt.Graphics2D g = (java.awt.Graphics2D) g0.create();
 				g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
 						java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
@@ -19644,7 +19754,7 @@ public class MainWindow {
 		((javax.swing.JComponent) bar.getContentPane()).setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createRaisedBevelBorder(),
 				BorderFactory.createEmptyBorder(4, 6, 4, 6)));
-		bar.getContentPane().add(hdr, BorderLayout.CENTER);
+		bar.getContentPane().add(withFocusCaption(hdr), BorderLayout.CENTER);
 		if (upTo) {
 			// Confirm alone: choosing none is confirming an empty selection, so a Cancel would only
 			// be a second button that does the same thing.
@@ -19683,6 +19793,37 @@ public class MainWindow {
 
 		if (loop == null || !loop.enter()) finish.run();   // fallback if no secondary loop is available
 		return result;
+	}
+
+	/**
+	 * {@code instruction} with the {@link #abilityFocusCaption} under it in brackets while an auto
+	 * ability is in focus — "Choose 1 Forward" over "(Ravus: Deal it 10000 damage.)" — or
+	 * {@code instruction} alone when none is. A long caption wraps rather than widening the bar.
+	 */
+	private JComponent withFocusCaption(JLabel instruction) {
+		String caption = abilityFocusCaption();
+		if (caption == null) return instruction;
+		String text = "(" + caption + ")";
+		// The pixel font has no glyph for some of what card text prints (《Fire》); that text is read
+		// in the plain dialog font instead.
+		Font font = instruction.getFont();
+		if (font.canDisplayUpTo(text) != -1) font = new Font(Font.DIALOG, Font.PLAIN, 12);
+		JLabel line = new JLabel("", SwingConstants.CENTER);
+		line.setFont(font);
+		int maxW = UiScale.scale(340);
+		if (line.getFontMetrics(font).stringWidth(text) > maxW) {
+			String escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+			line.setText("<html><div style='text-align:center;width:" + maxW + "px'>" + escaped + "</div></html>");
+		} else {
+			line.setText(text);
+		}
+		instruction.setBorder(BorderFactory.createEmptyBorder(8, 12, 2, 12));
+		line.setBorder(BorderFactory.createEmptyBorder(0, 12, 6, 12));
+		JPanel both = new JPanel(new BorderLayout());
+		both.setOpaque(false);
+		both.add(instruction, BorderLayout.CENTER);
+		both.add(line,        BorderLayout.SOUTH);
+		return both;
 	}
 
 	/** Stacks {@code opponentRow} above {@code selfRow} with section labels; omits empty rows. */
@@ -24235,6 +24376,9 @@ public class MainWindow {
 	 * <p>The whole resolution — the accept/decline dialog, then target selection — runs on the EDT
 	 * inside a nested event loop rather than returning to the caller, and both forms of it keep
 	 * pumping events, so the glow animates and the slot stays lit right through the player's picks.
+	 *
+	 * <p>P1 only: an EX Burst never reaches the Stack, so the opponent has no window to respond in
+	 * and nothing to read off it.
 	 */
 	void startExBurstGlow(int slotIndex) {
 		if (slotIndex < 0 || slotIndex >= p1DamageSlots.length) return;

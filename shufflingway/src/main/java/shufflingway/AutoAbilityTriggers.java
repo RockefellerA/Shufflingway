@@ -3615,7 +3615,7 @@ final class AutoAbilityTriggers {
 				}
 				mw.logEntry("[AutoAbility] " + watcher.name() + " — chosen by " + actingCard.name()
 						+ "'s ability: " + fa.effectText());
-				withAbilitySource(watcher, () -> {
+				withAbilitySource(watcher, fa.effectText(), () -> {
 					payoff.accept(mw.buildGameContext(chosenSideIsP1), List.of(actingTarget));
 					return true;
 				});
@@ -5934,7 +5934,7 @@ final class AutoAbilityTriggers {
 		// — here, the payment — is made as it resolves (rule 11.8.14). The few that cannot wait
 		// resolve here and now (resolvesInlineAtTrigger), under the source established here.
 		boolean shapeOnStack = inlineShapeOf(resolvedText) != null && !resolvesInlineAtTrigger(resolvedFa);
-		if (!shapeOnStack && withAbilitySource(source,
+		if (!shapeOnStack && withAbilitySource(source, resolvedText,
 				() -> atTrigger(() -> dispatchInlineAutoAbility(resolvedFa, source, isP1, effectIsP1))))
 			return;
 
@@ -6019,7 +6019,8 @@ final class AutoAbilityTriggers {
 			Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
 			mw.logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText());
 			// Inline, so the source is established here rather than by the Stack entry.
-			withAbilitySource(source, () -> atTrigger(() -> { effect.accept(mw.buildGameContext(effectIsP1)); return true; }));
+			withAbilitySource(source, fa.effectText(),
+					() -> atTrigger(() -> { effect.accept(mw.buildGameContext(effectIsP1)); return true; }));
 			return;
 		}
 
@@ -6046,8 +6047,8 @@ final class AutoAbilityTriggers {
 		List<String> declared = null;
 		List<ForwardTarget> preTargets = null;
 		if (!effectText.isBlank() && !shapeOnStack) {
-			ActionResolver.StackChoices choices = mw.whileChoosingForStack(
-					() -> ActionResolver.chooseForStack(effectText, source, entryX, selectCtx));
+			ActionResolver.StackChoices choices = mw.withAbilityFocus(source, effectText, () -> mw.whileChoosingForStack(
+					() -> ActionResolver.chooseForStack(effectText, source, entryX, selectCtx)));
 			declared = choices.declared();
 			preTargets = targetsForStack(choices.targets(), choices.targetText(), source, selectCtx);
 		}
@@ -6307,7 +6308,7 @@ final class AutoAbilityTriggers {
 		// an "opponent may" ability.
 		boolean controllerIsP1 = ab.opponentMay() ? !entry.isP1() : entry.isP1();
 		mw.logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\": " + effectText);
-		withAbilitySource(entry.source(),
+		withAbilitySource(entry.source(), effectText,
 				() -> dispatchInlineAutoAbility(resolved, entry.source(), controllerIsP1, entry.isP1()));
 		return true;
 	}
@@ -6356,7 +6357,8 @@ final class AutoAbilityTriggers {
 		GameContext selectCtx = mw.buildGameContext(effectIsP1);
 		ActionResolver.StackChoices choices = carried != null
 				? new ActionResolver.StackChoices(null, carried, payoffText)
-				: mw.whileChoosingForStack(() -> ActionResolver.chooseForStack(payoffText, source, xValue, selectCtx));
+				: mw.withAbilityFocus(source, payoffText, () -> mw.whileChoosingForStack(
+						() -> ActionResolver.chooseForStack(payoffText, source, xValue, selectCtx)));
 		List<ForwardTarget> preTargets = carried != null ? carried
 				: targetsForStack(choices.targets(), choices.targetText(), source, selectCtx);
 		StackEntry entry = new StackEntry(source, null, AutoAbility.whenYouDoSo(payoffText), effectIsP1, xValue,
@@ -6445,8 +6447,11 @@ final class AutoAbilityTriggers {
 	 * name the logs and dialogs label an effect with — so an ability that resolves without it
 	 * silently loses all of them. Saved and restored rather than cleared, because these resolutions
 	 * nest.
+	 *
+	 * <p>The ability is also put in focus ({@link MainWindow#withAbilityFocus}) under
+	 * {@code effectText}, so a choice it stops for shows the card glowing and says what it is for.
 	 */
-	private boolean withAbilitySource(CardData source, BooleanSupplier body) {
+	private boolean withAbilitySource(CardData source, String effectText, BooleanSupplier body) {
 		CardData prevSource  = mw.currentAbilitySource;
 		boolean  prevSpecial = mw.currentAbilityIsSpecial;
 		mw.currentAbilitySource    = source;
@@ -6454,7 +6459,7 @@ final class AutoAbilityTriggers {
 		int prevSerial = mw.resolutionSerial;
 		mw.resolutionSerial = mw.nextResolutionSerial();
 		try {
-			return body.getAsBoolean();
+			return mw.withAbilityFocus(source, effectText, body::getAsBoolean);
 		} finally {
 			mw.currentAbilitySource    = prevSource;
 			mw.currentAbilityIsSpecial = prevSpecial;
@@ -9814,7 +9819,7 @@ final class AutoAbilityTriggers {
 				ForwardTarget self = findFieldTarget(watcher, watcherIsP1);
 				if (self == null) continue;
 				mw.logEntry("[AutoAbility] " + watcher.name() + " — " + user.name() + " used an action ability");
-				withAbilitySource(watcher, () -> {
+				withAbilitySource(watcher, fa.effectText(), () -> {
 					mw.buildGameContext(watcherIsP1).forceTargetToBreakZone(self);
 					boolean paid = (watcherIsP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone())
 							.stream().anyMatch(c -> c == watcher);
@@ -9864,8 +9869,8 @@ final class AutoAbilityTriggers {
 				mw.logEntry("[AutoAbility] " + watcher.name() + " uses " + user.name() + "'s action ability → " + text);
 				int depth = mw.gameState.stackSize();
 				// The copy is used anew, so a select menu in it declares again.
-				ActionResolver.StackChoices choices = mw.whileChoosingForStack(() -> ActionResolver.chooseForStack(
-						text, watcher, 0, mw.buildGameContext(userIsP1)));
+				ActionResolver.StackChoices choices = mw.withAbilityFocus(watcher, text, () -> mw.whileChoosingForStack(
+						() -> ActionResolver.chooseForStack(text, watcher, 0, mw.buildGameContext(userIsP1))));
 				StackEntry pushed = new StackEntry(watcher, copy, userIsP1, 0, choices.targets(), entry.revealedForwardPower());
 				mw.gameState.insertStack(depth, pushed);
 				if (choices.declared() != null) mw.declaredSelectActions.put(pushed, choices.declared());

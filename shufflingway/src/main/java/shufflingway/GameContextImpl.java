@@ -3519,8 +3519,9 @@ final class GameContextImpl implements GameContext {
 				// select menu in it is declared afresh the same way.
 				AutoAbility copied = chosen.autoAbility();
 				GameContext selectCtx = mw.buildGameContext(isP1);
-				ActionResolver.StackChoices choices = mw.whileChoosingForStack(
-						() -> ActionResolver.chooseForStack(copied.effectText(), newSource, 0, selectCtx));
+				ActionResolver.StackChoices choices = mw.withAbilityFocus(newSource, copied.effectText(),
+						() -> mw.whileChoosingForStack(
+								() -> ActionResolver.chooseForStack(copied.effectText(), newSource, 0, selectCtx)));
 				List<ForwardTarget> preTargets = AutoAbilityTriggers.targetsForStack(
 						choices.targets(), choices.targetText(), newSource, selectCtx);
 				StackEntry copyEntry = new StackEntry(newSource, null, copied, isP1, 0, false, preTargets,
