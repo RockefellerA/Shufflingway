@@ -15,6 +15,7 @@ import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
 import scraper.DeckDatabase.DeckCardDetail;
+import shufflingway.graphics.CardAnimation;
 
 /**
  * The windows the CPU holds priority in while P1 acts (tools/HANDOFF-cpu-opponents-turn.md), driven
@@ -262,6 +263,30 @@ class OpponentTurnWindowTest {
 		assertTrue(mw.p2ForwardCards.contains(ambusher), "it entered, and survived the block");
 		assertTrue(mw.gameState.getP1BreakZone().contains(attacker), "9000 breaks the 7000 attacker");
 		assertTrue(mw.gameState.getP2DamageZone().isEmpty(), "blocked, so no damage");
+	}
+
+	@Test
+	void theCpusBlockerGlowsOrangeFromTheBlockUntilTheBattleIsOver() throws Exception {
+		// What lowers the blocker out of its row is the same field, so this is the lift's lifetime too.
+		MainWindow mw = p1sTurnAt(GameState.GamePhase.ATTACK);
+		mw.attackSubStep = 1;
+		p1Attacker(mw, 7000);
+		CardData guard = p2Forward(mw, "Guard", 9000);
+		ScriptedCpu cpu = new ScriptedCpu(mw);
+		Object[] duringBlockStep = new Object[2];
+		mw.opponent = cpu.playing(PriorityWindow.BLOCK_DECLARED, () -> {
+			duringBlockStep[0] = mw.p2DeclaredBlocker;
+			duringBlockStep[1] = mw.combatGlowFor(guard, false);
+			return false;
+		});
+
+		p1AttacksWith(mw);
+
+		assertSame(guard, duringBlockStep[0], "declared as the blocker before anyone responds to the block");
+		assertEquals(CardAnimation.GLOW_BLOCKING, duringBlockStep[1]);
+		assertTrue(mw.p2ForwardCards.contains(guard), "it survived the battle");
+		assertNull(mw.p2DeclaredBlocker, "and once damage is dealt it is no longer blocking");
+		assertNull(mw.combatGlowFor(guard, false), "so the orange has come off");
 	}
 
 	// ---- P1's Stack entries ----------------------------------------------------------------
@@ -1045,6 +1070,26 @@ class OpponentTurnWindowTest {
 		assertTrue(mw.gameLogText().contains("[P2] Combat trick — Might to save Striker"));
 		assertTrue(mw.p2ForwardCards.contains(striker), "9000 survives 8000");
 		assertTrue(mw.gameState.getP1BreakZone().contains(blocker));
+	}
+
+	@Test
+	void yourBlockerStaysOrangeFromTheBlockUntilTheBattleIsOver() throws Exception {
+		MainWindow mw = p2sAttackPhase();
+		CardData striker = p2Forward(mw, "Striker", 7000);
+		CardData blocker = p1Blocker(mw, "Blocker", 9000);
+		ScriptedCpu cpu = new ScriptedCpu(mw);
+		Object[] duringBlockStep = new Object[1];
+		mw.opponent = cpu.playing(PriorityWindow.BLOCK_DECLARED, () -> {
+			duringBlockStep[0] = mw.combatGlowFor(blocker, true);
+			return false;
+		});
+
+		p1BlocksTheCpusAttack(mw, striker, blocker);
+
+		assertEquals(CardAnimation.GLOW_BLOCKING, duringBlockStep[0],
+				"still orange after the block is declared and P1's selection is cleared");
+		assertTrue(mw.p1ForwardCards.contains(blocker), "it survived the battle");
+		assertNull(mw.combatGlowFor(blocker, true), "and once damage is dealt the orange has come off");
 	}
 
 	@Test

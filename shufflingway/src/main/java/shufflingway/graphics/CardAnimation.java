@@ -101,6 +101,12 @@ public class CardAnimation {
 	public static final Color GLOW_ACTIONABLE = new Color(0, 220, 0);
 	/** Glow on a card that is part of a declared attack, on either side of the board. */
 	public static final Color GLOW_ATTACKING  = new Color(215, 45, 45);
+	/**
+	 * Glow on a declared blocker, on either side of the board, until its battle is over. The orange
+	 * of {@link #GLOW_SELECTED}, so P1's blocker reads the same once declared as while it was being
+	 * assigned, and the opponent's reads the same as P1's.
+	 */
+	public static final Color GLOW_BLOCKING   = GLOW_SELECTED;
 	/** Glow on a card that has attacked as often as it may this turn. */
 	public static final Color GLOW_EXHAUSTED  = new Color(140, 140, 140);
 

@@ -320,11 +320,14 @@ public class MainWindow {
 	CardPrimingAnimator       primingAnimator;
 	/** Damage floating up off the Characters it was dealt to; see {@link #floatDamage}. */
 	private DamageNumberOverlay damageNumbers;
-	/** Draws P1's attackers and blocker — Forwards, Monsters and Backups — raised out of their rows; see {@link #syncCombatLift}. */
+	/**
+	 * Draws P1's attackers and blocker — Forwards, Monsters and Backups — raised out of their rows,
+	 * and P2's blocker lowered out of its row; see {@link #syncCombatLift} and {@link #syncP2BlockerLift}.
+	 */
 	private SlotLiftOverlay   slotLift;
 	/** "WINNER" / "GAME OVER" over the two halves of the board once a player loses; cleared by {@link #resetForNewGame}. */
 	private GameOverOverlay   gameOverOverlay;
-	/** How far a selected or attacking/blocking P1 Character rises out of its row. */
+	/** How far a selected or attacking/blocking P1 Character rises out of its row, and P2's blocker drops out of its own. */
 	private static final int  COMBAT_LIFT = CARD_H / 12;
 	/** Non-null when the next startBreakAnim call should slide to the break zone instead of slashing. */
 	JLabel pendingCostBreakDestLabel;
@@ -830,6 +833,13 @@ public class MainWindow {
 	CardData p1BlockedByAttacker  = null; // P2 attacker that p1BlockingIdx is blocking
 	int      p2BlockingIdx        = -1;   // P2 forward blocking a P1 attacker
 	CardData p2BlockedByAttacker  = null; // P1 attacker that p2BlockingIdx is blocking
+	/**
+	 * The P2 Character blocking in the combat in progress, by identity — the slot's base card, as
+	 * {@link #slotLift} keys it — from block declaration until {@link #continueAttackPhase} ends the
+	 * battle. The mirror of {@link #p1DeclaredBlocker}: unlike {@link #p2BlockingIdx} it covers
+	 * Monsters and Backups acting as Forwards. Set by {@link #recordP2Block}.
+	 */
+	CardData p2DeclaredBlocker    = null;
 
 	// Power of the Forward dulled as "Dull N active Forward" ability cost; set during payment.
 	int      lastDullForwardCostPower = 0;
@@ -3111,6 +3121,7 @@ public class MainWindow {
 		p1BlockedByAttacker        = null;
 		p2BlockingIdx              = -1;
 		p2BlockedByAttacker        = null;
+		p2DeclaredBlocker          = null;
 		refreshAttackButton();
 	}
 
@@ -15372,6 +15383,8 @@ public class MainWindow {
 				&& isAttackCandidate(ForwardTarget.slotCode(ForwardTarget.CardZone.BACKUP, idx));
 		boolean canBlock  = isBackupBlockSelectable(idx);
 		boolean selected  = isSelectedAttacker(ForwardTarget.CardZone.BACKUP, idx) || p1BlockerBackupIdx == idx;
+		// Only the blocking glow: a Backup's slot has never carried the attack glows on either side.
+		Color   glow      = isDeclaredBlocker(card, true) ? CardAnimation.GLOW_BLOCKING : null;
 		int fwdPower = actingForward ? p1BackupForwardPower(idx) : 0;
 		int damage   = card != null ? p1BackupForwardDamage.getOrDefault(card, 0) : 0;
 		List<GameState.CounterPile> counters = card != null ? gameState.getCounterPiles(card) : List.of();
@@ -15384,7 +15397,7 @@ public class MainWindow {
 				Image raw = ImageCache.load(url);
 				if (raw == null) return new FieldCardIcon(CardAnimation.renderPlaceholder(state), state);
 				BufferedImage canvas = CardAnimation.renderBackupCard(
-						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack || canBlock, selected, p1BackupFrozen[idx]);
+						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack || canBlock, selected, p1BackupFrozen[idx], glow);
 				TraitTab.renderTraitTabs(canvas, state, traitTabs, false);
 				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
@@ -15985,6 +15998,11 @@ public class MainWindow {
 	 * <p>The two are ranked, not combined: an attacker mid-combat has usually spent its last
 	 * declaration already, and while it is swinging that is not what the player needs to see.
 	 *
+	 * <p>Orange on the declared blocker, on either side ({@link #p1DeclaredBlocker},
+	 * {@link #p2DeclaredBlocker}), from the block until the battle is over. While P1 is still
+	 * choosing, its pick is already orange through the slot's own selection; this keeps it orange
+	 * once the block is declared and the selection is cleared.
+	 *
 	 * <p>Both lists are compared by identity. {@link CardData} is a record, so two copies of the
 	 * same printing are equal — matching by value would light up the twin standing next to the
 	 * attacker.
@@ -15993,6 +16011,7 @@ public class MainWindow {
 		if (card == null) return null;
 		for (CardData attacker : declaredAttackers(isP1))
 			if (attacker == card) return CardAnimation.GLOW_ATTACKING;
+		if (isDeclaredBlocker(card, isP1)) return CardAnimation.GLOW_BLOCKING;
 		// Only while attacks are still being declared. attacksMadeThisTurn runs to end of turn, but
 		// once the phase is over nobody was going to attack again anyway, so the mark stops saying
 		// anything and is just clutter across both main phases.
@@ -16016,6 +16035,36 @@ public class MainWindow {
 		for (int i = 0; i < p1MonsterLabels.size(); i++) refreshP1MonsterSlot(i);
 		for (int i = 0; i < p2MonsterLabels.size(); i++) refreshP2MonsterSlot(i);
 		refreshP1ActingBackupSlots();
+		// A Backup only takes part in combat while it acts as a Forward, so only those can be
+		// P2's blocker, going down or coming back up.
+		for (int i = 0; i < p2BackupCards.length; i++)
+			if (isP2BackupTemporarilyForward(i)) refreshP2BackupSlot(i);
+	}
+
+	/**
+	 * True when {@code card} is {@code isP1}'s declared blocker: its slot's base card, or the top
+	 * card a primed blocker acts as, which is what {@link #effectiveP1Forward} and
+	 * {@link #effectiveP2Forward} hand the glow.
+	 */
+	private boolean isDeclaredBlocker(CardData card, boolean isP1) {
+		CardData blocker = isP1 ? p1DeclaredBlocker : p2DeclaredBlocker;
+		if (card == null || blocker == null) return false;
+		if (card == blocker) return true;
+		int idx = identityIndexOf(isP1 ? p1ForwardCards : p2ForwardCards, blocker);
+		return idx >= 0 && (isP1 ? p1ForwardPrimedTop : p2ForwardPrimedTop).get(idx) == card;
+	}
+
+	/**
+	 * Records the P2 Character at {@code blk} as blocking {@code attacker}, and redraws the board so
+	 * it goes down out of its row and glows orange. Call it before the block triggers: a "when this
+	 * blocks" ability may ask what it is in Battle with (17-068R Duke Snakeheart breaks it), and
+	 * {@code combatBattlePartnerOf} reads {@link #p2BlockingIdx} and {@link #p2BlockedByAttacker}.
+	 * {@link #continueAttackPhase} clears it once the battle has dealt its damage.
+	 */
+	private void recordP2Block(ForwardTarget blk, CardData attacker) {
+		if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
+		p2DeclaredBlocker = fieldCardDataOrNull(blk);
+		refreshCombatGlows();
 	}
 
 	/** The card acting at P1 Forward slot {@code idx} — the primed top card when one is stacked. */
@@ -20324,6 +20373,7 @@ public class MainWindow {
 		String url = p2MonsterUrls.get(idx);
 		CardState state = p2MonsterStates.get(idx);
 		JLabel slot = p2MonsterLabels.get(idx);
+		syncP2BlockerLift(p2MonsterCards.get(idx), slot);
 		if (url == null) return;
 		if (fieldEntryAnimator.holdSlotBlank(slot, p2MonsterCards.get(idx))) return;
 		CardData card     = p2MonsterCards.get(idx);
@@ -21080,6 +21130,17 @@ public class MainWindow {
 	 */
 	private void syncCombatLift(CardData card, JLabel slot, boolean inCombat) {
 		if (slotLift != null && card != null && slot != null) slotLift.setLifted(card, slot, inCombat);
+	}
+
+	/**
+	 * Lowers P2's blocker out of its row towards the centre of the board, or settles it back — the
+	 * mirror of {@link #syncCombatLift}, read from each P2 slot's refresh. It goes down when
+	 * {@link #recordP2Block} declares the block and comes back up once {@link #continueAttackPhase}
+	 * clears {@link #p2DeclaredBlocker}; a blocker that was broken has left its slot by then.
+	 */
+	private void syncP2BlockerLift(CardData card, JLabel slot) {
+		if (slotLift != null && card != null && slot != null)
+			slotLift.setLifted(card, slot, card == p2DeclaredBlocker, true);
 	}
 
 	/**
@@ -22346,8 +22407,10 @@ public class MainWindow {
 		sendCombatChecksum();
 		p1AttackSelection.clear();
 		p1DeclaredAttackers.clear();
-		// Combat is over: red comes off, and gray goes on for whatever has now spent its last
-		// declaration. Both rows, since the opponent's screen is showing the same board.
+		p2DeclaredBlocker = null;
+		// Combat is over: red and orange come off, the attackers and a surviving blocker settle back
+		// into their rows, and gray goes on for whatever has now spent its last declaration. Both
+		// rows, since the opponent's screen is showing the same board.
 		refreshCombatGlows();
 		for (int i = 0; i < p1BackupCards.length; i++) refreshP1BackupSlot(i);
 		if (attackDeclarationsExhausted(true)) {
@@ -22454,12 +22517,8 @@ public class MainWindow {
 				if (blk != null) {
 					CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 					logEntry("[P2] " + blocker.name() + " blocks!");
-					// The pairing is recorded before the trigger, not after: a "when this blocks"
-					// ability may ask what it is in Battle with (17-068R Duke Snakeheart breaks it),
-					// and combatBattlePartnerOf reads exactly these two fields. P1's own block site
-					// has always set them first; these three had not, so the ability ran against a
-					// Battle the engine did not yet believe in.
-					if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
+					// Recorded before the trigger: see recordP2Block.
+					recordP2Block(blk, attacker);
 					autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
 					autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 					combatPriorityRound(true, null, () -> {
@@ -22866,8 +22925,8 @@ public class MainWindow {
 				if (blk != null) {
 					CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 					logEntry("[P2] " + blocker.name() + " blocks!");
-					// Recorded before the trigger — see the Monster-attacker site above.
-					if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
+					// Recorded before the trigger: see recordP2Block.
+					recordP2Block(blk, attacker);
 					autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
 					autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 					combatPriorityRound(true, null, () -> {
@@ -23027,8 +23086,8 @@ public class MainWindow {
 					if (blk != null) {
 						CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 						logEntry("[P2] " + blocker.name() + " blocks!");
-						// Recorded before the trigger — see the Monster-attacker site above.
-						if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
+						// Recorded before the trigger: see recordP2Block.
+						recordP2Block(blk, attacker);
 						autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
 						autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 						// Second round: both players may respond to the block before damage.
@@ -23104,6 +23163,8 @@ public class MainWindow {
 			CardData      blocker     = blockerSlot != null ? fieldCardDataOrNull(blockerSlot) : null;
 			if (blocker != null) {
 				logEntry("[P2] " + blocker.name() + " blocks the party!");
+				p2DeclaredBlocker = blocker;   // the slot's base card, as fieldCardDataOrNull reads it
+				refreshCombatGlows();
 				// Both players may respond to the block before damage is worked out.
 				combatPriorityRound(true, null, () -> {
 					setAttackSubStep(3);
@@ -24614,10 +24675,18 @@ public class MainWindow {
 		CardState state = p2BackupStates[idx];
 		if (slot == null) return;
 		refreshPlayerDamageShieldIcon(false);
+		CardData occupant = p2BackupCards[idx];
+		if (occupant == null) {
+			if (slotLift != null) slotLift.lowerSlot(slot);
+		} else {
+			syncP2BlockerLift(occupant, slot);
+		}
 		if (url == null) { slot.setIcon(null); slot.setText(null); slot.setToolTipText(null); return; }
 		if (fieldEntryAnimator.holdSlotBlank(slot, p2BackupCards[idx])) return;
 		CardData card = p2BackupCards[idx];
 		boolean actingForward = isP2BackupTemporarilyForward(idx);
+		// Only the blocking glow: a Backup's slot has never carried the attack glows on either side.
+		Color glow = isDeclaredBlocker(card, false) ? CardAnimation.GLOW_BLOCKING : null;
 		int fwdPower = actingForward ? p2BackupForwardPower(idx) : 0;
 		int damage   = card != null ? p2BackupForwardDamage.getOrDefault(card, 0) : 0;
 		List<GameState.CounterPile> counters = card != null ? gameState.getCounterPiles(card) : List.of();
@@ -24630,7 +24699,7 @@ public class MainWindow {
 				Image raw = ImageCache.load(url);
 				if (raw == null) return new FieldCardIcon(CardAnimation.renderPlaceholder(state), state);
 				BufferedImage canvas = CardAnimation.renderBackupCard(
-						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, false, false, p2BackupFrozen[idx]);
+						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, false, false, p2BackupFrozen[idx], glow);
 				TraitTab.renderTraitTabs(canvas, state, traitTabs, false);
 				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
@@ -24651,6 +24720,7 @@ public class MainWindow {
 
 	void refreshP2ForwardSlot(int idx) {
 		refreshPlayerDamageShieldIcon(false);
+		syncP2BlockerLift(p2ForwardCards.get(idx), p2ForwardLabels.get(idx));
 		if (fieldEntryAnimator.holdSlotBlank(p2ForwardLabels.get(idx), p2ForwardCards.get(idx))) return;
 		CardData topCard = p2ForwardPrimedTop.get(idx);
 		String url      = topCard != null ? topCard.imageUrl() : p2ForwardUrls.get(idx);

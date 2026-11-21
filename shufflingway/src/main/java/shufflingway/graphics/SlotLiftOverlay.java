@@ -14,8 +14,9 @@ import java.util.Iterator;
 import java.util.Map;
 
 /**
- * Transparent overlay on the frame's PALETTE_LAYER that draws chosen card slots raised a few pixels
- * above where their layout puts them — P1's attackers and blocker, from selection until combat resolves.
+ * Transparent overlay on the frame's PALETTE_LAYER that draws chosen card slots a few pixels out of
+ * their rows, towards the centre of the board — P1's attackers and blocker raised above where their
+ * layout puts them, from selection until combat resolves, and P2's blocker lowered below it.
  *
  * <p>A slot cannot simply be moved. The Forward row lives in a scroll pane whose viewport clips to
  * the card row and sits flush against the centre-facing edge, and the Backup row is packed tight
@@ -42,6 +43,7 @@ public class SlotLiftOverlay extends JComponent {
 		JViewport viewport;
 		double    progress;   // 0 = resting in the row, 1 = fully raised
 		boolean   target;
+		int       direction = 1;   // +1 drawn above the row, -1 below it
 		Rectangle lastDrawn;  // overlay coordinates; erased when the slot leaves the tree
 	}
 
@@ -97,6 +99,15 @@ public class SlotLiftOverlay extends JComponent {
 	 * next few frames. {@code key} is compared by identity.
 	 */
 	public void setLifted(Object key, JLabel slot, boolean lifted) {
+		setLifted(key, slot, lifted, false);
+	}
+
+	/**
+	 * As {@link #setLifted(Object, JLabel, boolean)}, but drawn below the row rather than above it
+	 * when {@code downward} — for P2's half of the board, whose rows face the centre from above. A
+	 * card being lowered settles back the way it went out, whatever {@code downward} says.
+	 */
+	public void setLifted(Object key, JLabel slot, boolean lifted, boolean downward) {
 		synchronized (getTreeLock()) {
 			Lift l = lifts.get(key);
 			if (l == null) {
@@ -114,6 +125,7 @@ public class SlotLiftOverlay extends JComponent {
 				repaintSlot(slot);
 			}
 			l.target = lifted;
+			if (lifted) l.direction = downward ? -1 : 1;
 			if (!lifted && l.progress == 0) {
 				// Raised and lowered again before a frame drew it: nothing to animate back.
 				detach(l);
@@ -154,7 +166,10 @@ public class SlotLiftOverlay extends JComponent {
 		}
 	}
 
-	/** How far {@code slot} is drawn above its laid-out position right now, in pixels. */
+	/**
+	 * How far {@code slot} is drawn above its laid-out position right now, in pixels — negative
+	 * while it is drawn below it.
+	 */
 	public int offset(JLabel slot) {
 		synchronized (getTreeLock()) {
 			Lift l = liftFor(slot);
@@ -174,7 +189,7 @@ public class SlotLiftOverlay extends JComponent {
 	}
 
 	private int offset(Lift l) {
-		return (int) Math.round(maxLift * ease(l.progress));
+		return l.direction * (int) Math.round(maxLift * ease(l.progress));
 	}
 
 	private void tick() {
@@ -232,12 +247,12 @@ public class SlotLiftOverlay extends JComponent {
 		if (l.viewport != null) l.viewport.removeChangeListener(scrollListener);
 	}
 
-	/** Repaints the strip {@code slot} can occupy anywhere between resting and fully raised. */
+	/** Repaints the strip {@code slot} can occupy anywhere between fully lowered and fully raised. */
 	public void repaintSlot(JLabel slot) {
 		if (!slot.isShowing() || !isShowing()) return;
 		Point p = SwingUtilities.convertPoint(slot, 0, 0, this);
 		int pad = OverlayDirtyRegion.PAD;
-		repaint(p.x - pad, p.y - maxLift - pad, slot.getWidth() + 2 * pad, slot.getHeight() + maxLift + 2 * pad);
+		repaint(p.x - pad, p.y - maxLift - pad, slot.getWidth() + 2 * pad, slot.getHeight() + 2 * maxLift + 2 * pad);
 	}
 
 	@Override
@@ -254,12 +269,12 @@ public class SlotLiftOverlay extends JComponent {
 		Graphics2D g2 = (Graphics2D) g.create();
 		try {
 			// Stay inside the row's viewport sideways, so a card scrolled half out of view is not
-			// drawn over the neighbouring zone; upwards it may rise by the full lift.
+			// drawn over the neighbouring zone; up or down it may move by the full lift.
 			if (l.viewport != null && l.viewport.getParent() != null) {
 				Rectangle vr = SwingUtilities.convertRectangle(
 						l.viewport.getParent(), l.viewport.getBounds(), this);
 				vr.y      -= maxLift;
-				vr.height += maxLift;
+				vr.height += 2 * maxLift;
 				g2.clip(vr);
 			}
 			Point     p  = SwingUtilities.convertPoint(slot, 0, 0, this);

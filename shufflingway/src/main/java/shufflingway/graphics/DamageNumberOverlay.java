@@ -121,7 +121,8 @@ public class DamageNumberOverlay extends JComponent {
 	 * from that wider, shorter footprint; the digits stay upright and rise the same way as on an
 	 * active card.
 	 *
-	 * @param lift how far the slot is drawn above its laid-out position, by {@link SlotLiftOverlay}
+	 * @param lift how far the slot is drawn above its laid-out position, by {@link SlotLiftOverlay};
+	 *             negative while it is drawn below it
 	 */
 	public void spawn(JLabel slot, CardState state, int lift, int amount) {
 		if (!slot.isShowing() || !isShowing()) return;

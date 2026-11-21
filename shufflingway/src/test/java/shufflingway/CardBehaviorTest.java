@@ -23357,6 +23357,7 @@ public class CardBehaviorTest {
 	// Red marks a card that is part of a declared attack, on either side. The defender is choosing
 	// a blocker against it, so it stays up for the whole combat: declaration, both priority
 	// checkpoints, and damage. Gray marks one that has attacked as many times as it may this turn.
+	// Orange marks a declared blocker on either side, from the block until its battle is over.
 	//
 	// Gray is deliberately narrower than "cannot attack". A Forward played this turn, or held down
 	// by an effect, has spent nothing and stays unmarked — the mark is for a threat that is used
@@ -23454,6 +23455,53 @@ public class CardBehaviorTest {
 
 		assertNull(mw.combatGlowFor(twin, false),
 				"CardData is a record, so a value compare would light up the copy standing next to it");
+	}
+
+	@Test
+	void theOpponentsDeclaredBlockerGlowsOrangeAndOnlyIt() {
+		MainWindow mw = new MainWindow();
+		CardData blocker = attackedTwice(mw, makeForward("Dark Knight", "Ice", 3, 7000), 0);
+		CardData twin    = attackedTwice(mw, makeForward("Dark Knight", "Ice", 3, 7000), 0);
+		mw.p2DeclaredBlocker = blocker;
+
+		assertEquals(CardAnimation.GLOW_BLOCKING, mw.combatGlowFor(blocker, false));
+		assertNull(mw.combatGlowFor(twin, false), "matched by identity, like the attackers");
+		assertNull(mw.combatGlowFor(blocker, true), "P2's blocker says nothing about P1's side");
+
+		mw.p2DeclaredBlocker = null;   // the battle is over
+		assertNull(mw.combatGlowFor(blocker, false));
+	}
+
+	@Test
+	void aPrimedBlockerGlowsOrangeThroughItsTopCard() {
+		// The slot renders its glow for the card it acts as, while the block is recorded by the slot's
+		// base card — the one the lift is keyed on.
+		MainWindow mw = new MainWindow();
+		CardData base = attackedTwice(mw, makeForward("Base", "Fire", 3, 7000), 0);
+		CardData top  = makeForward("Top", "Fire", 5, 9000);
+		mw.p2ForwardPrimedTop.set(0, top);
+		mw.p2DeclaredBlocker = base;
+
+		assertEquals(CardAnimation.GLOW_BLOCKING, mw.combatGlowFor(top, false));
+	}
+
+	@Test
+	void yourOwnDeclaredBlockerGlowsOrangeAndOnlyOnYourSide() {
+		// While P1 is choosing, the slot's selection is what makes its pick orange; once the block is
+		// declared that selection is cleared, and this is what keeps the orange up.
+		MainWindow mw = new MainWindow();
+		CardData blocker = makeForward("Dark Knight", "Ice", 3, 7000);
+		CardData twin    = makeForward("Dark Knight", "Ice", 3, 7000);
+		placeP1Forward(mw, blocker);
+		placeP1Forward(mw, twin);
+		mw.p1DeclaredBlocker = blocker;
+
+		assertEquals(CardAnimation.GLOW_BLOCKING, mw.combatGlowFor(blocker, true));
+		assertNull(mw.combatGlowFor(twin, true), "matched by identity");
+		assertNull(mw.combatGlowFor(blocker, false), "P1's blocker says nothing about P2's side");
+
+		mw.p1DeclaredBlocker = null;   // the battle is over
+		assertNull(mw.combatGlowFor(blocker, true));
 	}
 
 	// =========================================================================================
