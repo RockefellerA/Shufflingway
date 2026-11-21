@@ -18,6 +18,8 @@ import javax.swing.Timer;
 import javax.swing.ToolTipManager;
 
 import shufflingway.CardState;
+import shufflingway.audio.Sound;
+import shufflingway.audio.SoundEffects;
 
 /**
  * The label a field card slot is drawn in. On top of the card icon it paints that card's
@@ -27,7 +29,8 @@ import shufflingway.CardState;
  * the context menu. Those are registered at each of the many places a slot is built; swallowing
  * the event here, ahead of all of them, is what keeps a button from also selecting the card.
  * A press arms the button and draws it pushed in, and the release fires it if the pointer is
- * still on it, like any button.
+ * still on it, like any button. Each move is heard as well as seen — {@link Sound#BUTTON_PRESS}
+ * as the button goes in, {@link Sound#BUTTON_RELEASE} whenever it comes back out, fired or not.
  *
  * <p>While {@link SlotLiftOverlay} has the slot raised, the label paints nothing and the overlay
  * paints both the icon and, through {@link #paintOverlays}, the buttons.
@@ -78,7 +81,11 @@ public class FieldSlotLabel extends JLabel {
 		this.actions = List.copyOf(actions);
 		if (buttons.equals(this.buttons)) return;
 		this.buttons = List.copyOf(buttons);
-		if (pressed >= buttons.size() || (pressed >= 0 && !buttons.get(pressed).usable())) pressed = -1;
+		if (pressed >= buttons.size() || (pressed >= 0 && !buttons.get(pressed).usable())) {
+			// Drawn back out with the pointer still down, so it is heard coming out here too.
+			pressed = -1;
+			SoundEffects.play(Sound.BUTTON_RELEASE);
+		}
 		if (hover >= buttons.size()) hover = -1;
 		repaintSlot();
 	}
@@ -180,7 +187,11 @@ public class FieldSlotLabel extends JLabel {
 				if (i >= 0 && SwingUtilities.isLeftMouseButton(e)) {
 					// Taken here even when the button is unusable: a click on a button is a click on
 					// the button, never on the card behind it.
-					if (buttons.get(i).usable()) { pressed = i; repaintSlot(); }
+					if (buttons.get(i).usable()) {
+						pressed = i;
+						repaintSlot();
+						SoundEffects.play(Sound.BUTTON_PRESS);
+					}
 					return;
 				}
 			}
@@ -189,6 +200,7 @@ public class FieldSlotLabel extends JLabel {
 					int i = pressed;
 					pressed = -1;
 					repaintSlot();
+					SoundEffects.play(Sound.BUTTON_RELEASE);
 					// Queued rather than run now, so the button is seen to come back up before a
 					// modal payment dialog takes over the event thread.
 					if (buttonAt(e.getX(), e.getY()) == i && i < actions.size())
