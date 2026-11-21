@@ -37,6 +37,5 @@ Once the application has been installed, you can update to any new releases from
 # Notes:
 
 * Opus 30 is now live! Cards can be fetched via the Card Browser card update button.
-* Some basic audio support has been added.
-* An animation occurs when damage is incurred.
-* There is now a visual for a win/lose state at the end of a game.
+* Sound effects and animations are being carefully added over time.
+* A new set of themes have been added to change the look and feel.
