@@ -4508,19 +4508,51 @@ final class AutoAbilityTriggers {
 	 */
 	String nothingToActOn(String payoff, CardData source, boolean isP1) {
 		if (payoff == null) return null;
+		List<String> empty = new ArrayList<>();
+		for (String part : payoffParts(payoff)) {
+			String why = partActsOnNothing(part, source, isP1);
+			if (why == null) return null;
+			empty.add(why);
+		}
+		return "its payoff has " + String.join(" and ", empty);
+	}
+
+	/**
+	 * {@code payoff}'s sentences, each one that speaks of what was chosen ("Play them onto the
+	 * field.") kept with the choice before it.
+	 */
+	private static List<String> payoffParts(String payoff) {
 		List<String> parts = new ArrayList<>();
 		for (String sentence : SENTENCE_BREAK.split(payoff.trim())) {
 			if (!parts.isEmpty() && ABOUT_THE_CHOSEN.matcher(sentence).find())
 				parts.set(parts.size() - 1, parts.get(parts.size() - 1) + " " + sentence);
 			else parts.add(sentence);
 		}
-		List<String> empty = new ArrayList<>();
-		for (String part : parts) {
-			String why = partActsOnNothing(part, source, isP1);
-			if (why == null) return null;
-			empty.add(why);
+		return parts;
+	}
+
+	/** A payoff part opening on a choice — the "choose" {@link ActionResolver#targetSpec} reads. */
+	private static final Pattern PAYOFF_OPENS_ON_CHOICE = Pattern.compile("(?i)^choose\\b");
+
+	/**
+	 * Whether every part of {@code payoff} is a choice out of a Break Zone that finds nothing there
+	 * — 15-140S Rufus's "choose any number of Job Member of the Turks … in your Break Zone. Play
+	 * them onto the field." with no Member of the Turks in it. Such an offer buys nothing whoever is
+	 * asked, so it is not made.
+	 *
+	 * <p>Narrower than {@link #nothingToActOn}, which also weighs which side the AI would aim a
+	 * choice at: that is a judgement for the CPU's answer, not grounds to withhold a player's offer.
+	 * A part that is anything else — a draw, a field choice — keeps the offer.
+	 */
+	boolean payoffFindsNothingInBreakZone(String payoff, CardData source, boolean isP1) {
+		if (payoff == null || payoff.isBlank()) return false;
+		for (String part : payoffParts(payoff)) {
+			if (!PAYOFF_OPENS_ON_CHOICE.matcher(part).find()) return false;
+			TargetSpec spec = ActionResolver.targetSpec(part, source);
+			if (spec == null || spec.zone() == null) return false;
+			if (!mw.eligibleChoiceTargets(spec, source, isP1, false).isEmpty()) return false;
 		}
-		return "its payoff has " + String.join(" and ", empty);
+		return true;
 	}
 
 	/** What {@code part} of a payoff lacks — "no opposing card to choose" — or {@code null}. */
@@ -7230,6 +7262,13 @@ final class AutoAbilityTriggers {
 				mw.logEntry("[AutoAbility] " + source.name() + " — cannot afford " + costRun + ", skipping");
 				return;
 			}
+		}
+
+		// Nor is the offer made when all it buys is a choice out of an empty Break Zone. Read off
+		// the board both clients share, so both skip it and neither waits on the other's answer.
+		if (payoffFindsNothingInBreakZone(subEffect, source, effectIsP1)) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — nothing in the Break Zone to choose, skipping");
+			return;
 		}
 
 		// The payer is asked, then pays. A CPU payer turns down a payoff with nothing to act on

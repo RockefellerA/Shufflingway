@@ -3017,6 +3017,13 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_PLAY_ONTO_FIELD = Pattern.compile(
         "(?i)Play\\s+(?:it|them)\\s+onto\\s+(?:the\\s+)?field"
     );
+    /**
+     * {@link #FOLLOWUP_PLAY_ONTO_FIELD} as the whole followup, with nothing qualifying it — the one
+     * followup a "with different names" choose is read behind (15-140S Rufus).
+     */
+    static final Pattern FOLLOWUP_PLAY_ONTO_FIELD_ALONE = Pattern.compile(
+        "(?i)^Play\\s+(?:it|them)\\s+onto\\s+the\\s+field[.!]?\\s*$"
+    );
 
     /**
      * Matches "Play it/them onto <b>your</b> field" — 19-127L Relm and 22-048H Nanaa Mihgo, both
@@ -7760,6 +7767,18 @@ final class ActionResolverPatterns {
      * off first fixes both arms at once and leaves the constraint as a flag the search can act on.
      */
     static final Pattern SEARCH_WITH_DIFFERENT_NAMES = Pattern.compile(
+        "(?i)\\s+with\\s+different\\s+names\\b"
+    );
+    /**
+     * The same rider on a choose header — "choose any number of Job Member of the Turks with
+     * different names in your Break Zone" (15-140S Rufus, the one printing).
+     *
+     * <p>Lifted off before {@link #CHOOSE_CHARACTER_PATTERN} reads the header, for the reason
+     * {@link #SEARCH_WITH_DIFFERENT_NAMES} is: that pattern's Job arm is a lazy run bounded by a
+     * lookahead this phrase is not in, so it would read the rider as the tail of the Job name —
+     * "Member of the Turks with different names", which no card has.
+     */
+    static final Pattern CHOOSE_WITH_DIFFERENT_NAMES = Pattern.compile(
         "(?i)\\s+with\\s+different\\s+names\\b"
     );
     /**

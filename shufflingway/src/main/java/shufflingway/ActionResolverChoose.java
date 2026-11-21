@@ -2518,6 +2518,27 @@ final class ActionResolverChoose {
         else ctx.logEntry(card.name() + " costs " + card.cost() + ", not " + cost + " — not played");
     }
 
+    /**
+     * {@code text} with "with different names" lifted off its choose header — 15-140S Rufus's
+     * "choose any number of Job Member of the Turks with different names in your Break Zone" —
+     * or {@code null} when no choose header in it carries the rider.
+     *
+     * <p>The rider says which cards may be taken <em>together</em> ({@link PickGate#DISTINCT_NAMES}),
+     * not which are eligible, so it is not one of the header's filters; left in, it is read as the
+     * tail of the Job name (see {@link ActionResolverPatterns#CHOOSE_WITH_DIFFERENT_NAMES}). One in
+     * the followup belongs to the followup and is left where it is.
+     *
+     * <p>Shared by the choose chain and {@link ActionResolver#targetSpec}, which must read the same
+     * header the same way.
+     */
+    static String liftChooseDifferentNames(String text) {
+        Matcher dn = CHOOSE_WITH_DIFFERENT_NAMES.matcher(text);
+        if (!dn.find()) return null;
+        String  lifted = text.substring(0, dn.start()) + text.substring(dn.end());
+        Matcher m      = CHOOSE_CHARACTER_PATTERN.matcher(lifted);
+        return m.find() && m.start() < dn.start() && dn.start() <= m.start("followup") ? lifted : null;
+    }
+
 
     // =========================================================================================
     // tryParseChooseCharacterInner: the followup chain
@@ -2526,6 +2547,10 @@ final class ActionResolverChoose {
         text = CHOOSE_ELEM_TYPE_ANDOR_ELEM_TYPE.matcher(text).replaceAll("$1$2 or $4 $3");
         text = ELEM_TYPE_OR_ELEM_TYPE.matcher(text).replaceAll("$1 or $3 $2");
         text = escapePeriodInName(text, source);
+        String  liftedRider = liftChooseDifferentNames(text);
+        if (liftedRider != null) text = liftedRider;
+        // Honoured by exactly one followup arm — see the guard after the sentence split.
+        final PickGate pickGate = liftedRider != null ? PickGate.DISTINCT_NAMES : PickGate.ANY;
         Matcher m = CHOOSE_CHARACTER_PATTERN.matcher(text);
         if (!m.find()) return null;
         // A choose inside a quotation belongs to a granted ability or an option of a menu, never
@@ -2534,7 +2559,10 @@ final class ActionResolverChoose {
         if (text.substring(0, m.start()).chars().filter(ch -> ch == '"').count() % 2 != 0) return null;
 
         boolean any          = m.group("anycount") != null;
-        boolean upTo         = m.group("upto") != null;
+        // "any number of" is an "up to" with no ceiling: every count is an answer, none included.
+        // Read as a fixed count it is one the selection layer satisfies by taking every eligible
+        // card without asking — 11-126R Rosa's return would empty her controller's field.
+        boolean upTo         = any || m.group("upto") != null;
         // "choose X dull Forwards" (25-057R Cutter) — X is what the ability's 《X》 cost was paid
         // for, threaded in as xValue by whoever resolved the payment. A count of X with no value
         // behind it is not a choice anyone can make, so the text stays unparsed rather than
@@ -3032,6 +3060,14 @@ final class ActionResolverChoose {
             }
         }
 
+        // A "with different names" rider is threaded through one arm only: the plain play out of a
+        // single Break Zone below (15-140S Rufus, the one printing). Behind any other followup it
+        // would be dropped and the cards chosen unconstrained — stronger than printed — so the text
+        // stays unread instead.
+        if (pickGate != PickGate.ANY && (zone == null || bothZones || secondaryText != null
+                || !FOLLOWUP_PLAY_ONTO_FIELD_ALONE.matcher(primaryFollowup.trim()).matches()))
+            return null;
+
         // Detect "You may [followup]" — followup is optional; player may decline the action after choosing the target
         final boolean followupIsOptional = primaryFollowup.toLowerCase(java.util.Locale.ROOT).startsWith("you may ");
         final String strippedPrimaryFollowup = followupIsOptional
@@ -3046,7 +3082,7 @@ final class ActionResolverChoose {
         String excludeLabel  = excludeName != null ? " (excl. " + excludeName + ")" : "";
         String zoneLabel     = zone != null
                 ? " in " + (bothZones ? "either player's" : opponentZone ? "opponent's" : "your") + " Break Zone" : "";
-        String choosePrefix = "Choose " + (upTo ? "up to " : any ? "any number of " : "") + (maxCount < Integer.MAX_VALUE ? maxCount : "")
+        String choosePrefix = "Choose " + (any ? "any number of " : upTo ? "up to " : "") + (maxCount < Integer.MAX_VALUE ? maxCount : "")
                 + (condition != null ? " " + condition : "")
                 + (element   != null ? " " + element   : "")
                 + categoryLabel + " " + targets + costLabel + powerLabel + controlLabel + excludeLabel + zoneLabel;
@@ -4189,7 +4225,7 @@ final class ActionResolverChoose {
                 return ctx -> {
                     int total = per * perWhat.applyAsInt(ctx);
                     ctx.logChooseHeader(choosePrefix + " — " + per + "×[" + what + "] = " + total + " damage, divided");
-                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, any || upTo,
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                             opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
                             costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
                             jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
@@ -4244,7 +4280,7 @@ final class ActionResolverChoose {
                 int fDamage = fBaseDamage;
                 if (insteadCond != null && insteadConditionMet(ctx, insteadCond)) fDamage = altDamage;
 
-                List<ForwardTarget> ts = selectTargets(ctx, maxCount, any || upTo,
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, null, null, null, false, false,
                         -1, null, -1, null,
                         true, false, false,
@@ -6615,11 +6651,12 @@ final class ActionResolverChoose {
                 etfCond = null; etfInner = null; etfInnerText = null;
             }
             return ctx -> {
-                ctx.logChooseHeader(choosePrefix + " — Play onto Field" + (dull ? " dull" : "")
+                ctx.logChooseHeader(choosePrefix + pickGate.hint() + " — Play onto Field" + (dull ? " dull" : "")
                         + (noAutoAbility ? " (its auto-ability will not trigger)" : ""));
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
-                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard,
+                        pickGate);
                 List<CardData> chosenCards = new ArrayList<>();
                 if (etfCond != null) {
                     for (ForwardTarget t : ts) {

@@ -117,6 +117,7 @@ import shufflingway.audio.Sound;
 import shufflingway.audio.SoundEffects;
 import shufflingway.dialog.AltCostPaymentDialog;
 import shufflingway.dialog.BreakZoneDialog;
+import shufflingway.dialog.CardPickerDialog;
 import shufflingway.dialog.DeckSelectDialog;
 import shufflingway.dialog.DivideIntoGroupsDialog;
 import shufflingway.dialog.ExtraCostBzSelectDialog;
@@ -174,7 +175,7 @@ import shufflingway.net.NewGameDialog;
 public class MainWindow {
 
 	JFrame frame;
-	shufflingway.dialog.CardPickerDialog cardPickerDialog;
+	CardPickerDialog cardPickerDialog;
 
 	final AutoAbilityTriggers autoAbilityTriggers = new AutoAbilityTriggers(this);
 	/** Cost and affordability rules; MainWindow keeps thin delegators to these. */
@@ -2039,7 +2040,7 @@ public class MainWindow {
 
 	private void initialize() {
 		frame = new JFrame("Shufflingway");
-		cardPickerDialog = new shufflingway.dialog.CardPickerDialog(frame, this::showZoomAt, this::hideZoom);
+		cardPickerDialog = new CardPickerDialog(frame, this::showZoomAt, this::hideZoom);
 		frame.getContentPane().setBackground(Color.LIGHT_GRAY);
 		frame.setBounds(0, 0, UiScale.windowWidth(), UiScale.windowHeight());
 		frame.setLocationRelativeTo(null);
@@ -6986,7 +6987,7 @@ public class MainWindow {
 					// AI: try to find a non-sharing pair, otherwise take one card
 					for (CardData c1 : pool1)
 						for (CardData c2 : pool2)
-							if (c1 != c2 && !shufflingway.dialog.CardPickerDialog.dualSearchSharesElement(c1, c2))
+							if (c1 != c2 && !CardPickerDialog.dualSearchSharesElement(c1, c2))
 								return List.of(c1, c2);
 					return List.of(!pool1.isEmpty() ? pool1.get(0) : pool2.get(0));
 				},
@@ -6996,7 +6997,7 @@ public class MainWindow {
 					CardData a = p.get(0), b = p.get(1);
 					boolean split = (identityIndexOf(pool1, a) >= 0 && identityIndexOf(pool2, b) >= 0)
 							|| (identityIndexOf(pool1, b) >= 0 && identityIndexOf(pool2, a) >= 0);
-					return a != b && split && !shufflingway.dialog.CardPickerDialog.dualSearchSharesElement(a, b);
+					return a != b && split && !CardPickerDialog.dualSearchSharesElement(a, b);
 				});
 		for (CardData pick : picks) {
 			removeByIdentity(deck, pick);
@@ -9198,10 +9199,25 @@ public class MainWindow {
 	                                           List<CardData> zone, int count, PickGate gate,
 	                                           String title, String waitPrompt,
 	                                           Supplier<List<ForwardTarget>> cpuPick) {
+		return selectBreakZoneTargets(ChoiceKind.OWN_FIELD_CARD, chooserIsP1, eligible, zone, count, false,
+				gate, title, waitPrompt, cpuPick);
+	}
+
+	/**
+	 * As above, crossing as {@code kind} and offering a Skip when {@code upTo}. An effect's own
+	 * choice out of a Break Zone as it resolves — "choose any number of Job Member of the Turks with
+	 * different names in your Break Zone" (15-140S Rufus) — is a
+	 * {@link ChoiceKind#BREAK_ZONE_TARGETS}, as every other such choice is.
+	 */
+	List<ForwardTarget> selectBreakZoneTargets(ChoiceKind kind, boolean chooserIsP1,
+	                                           List<ForwardTarget> eligible, List<CardData> zone,
+	                                           int count, boolean upTo, PickGate gate,
+	                                           String title, String waitPrompt,
+	                                           Supplier<List<ForwardTarget>> cpuPick) {
 		if (eligible.isEmpty()) return List.of();
-		List<Integer> answer = decide(PlayerChoice.by(chooserIsP1, ChoiceKind.OWN_FIELD_CARD)
+		List<Integer> answer = decide(PlayerChoice.by(chooserIsP1, kind)
 				.prompting(waitPrompt)
-				.locally(() -> showBreakZoneSelectDialog(eligible, zone, count, false, title, gate)
+				.locally(() -> showBreakZoneSelectDialog(eligible, zone, count, upTo, title, gate)
 						.stream().map(ForwardTarget::choiceCode).toList())
 				.byCpu(() -> cpuPick.get().stream().map(ForwardTarget::choiceCode).toList())
 				// The chooser packed their own side; from here that side is the opponent's.
@@ -19840,6 +19856,19 @@ public class MainWindow {
 				};
 				onSelectionChanged[0].run();   // paints the zero-pick state before the first click
 				south.add(totalLbl);
+			}
+			// "Any number of" (11-126R Rosa; "as many as you want", 2-077L Vincent) says on the
+			// button how many are picked, as the Break Zone picker's does. Sized for every eligible
+			// card at once, for the reason the total above is: the bar is packed exactly once.
+			if (maxCount == Integer.MAX_VALUE) {
+				confirmBtn.setText(CardPickerDialog.chosenLabel(eligible.size()));
+				confirmBtn.setPreferredSize(confirmBtn.getPreferredSize());
+				confirmBtn.setText(CardPickerDialog.chosenLabel(0));
+				Runnable budget = onSelectionChanged[0];
+				onSelectionChanged[0] = () -> {
+					budget.run();
+					confirmBtn.setText(CardPickerDialog.chosenLabel(sel.size()));
+				};
 			}
 			south.add(confirmBtn);
 			bar.getContentPane().add(south, BorderLayout.SOUTH);

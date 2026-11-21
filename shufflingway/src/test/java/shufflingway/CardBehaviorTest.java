@@ -33625,6 +33625,189 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Rufus 15-140S: "When Rufus enters the field, you may pay 《Ice》《Ice》《Lightning》《Lightning》
+	// 《2》. When you do so, choose any number of Job Member of the Turks with different names in
+	// your Break Zone. Play them onto the field."
+	//
+	// "with different names" says which cards may be taken together, not which are eligible. It
+	// is lifted off the choose header and carried to the Break Zone picker as
+	// PickGate.DISTINCT_NAMES. Read in place, the Choose pattern's lazy Job arm took it as the
+	// tail of the Job name, which no card has, so Rufus's 6 CP played nothing.
+	// =========================================================================================
+
+	private static final String RUFUS_PAYOFF =
+			"choose any number of Job Member of the Turks with different names in your Break Zone. "
+			+ "Play them onto the field.";
+
+	private static CardData rufus15140S() { return makeForward("Rufus", "Ice/Lightning", 4, 8000); }
+
+	@Test
+	void rufusChoosesByTheJobAloneUnderADistinctNamesGate() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharactersFromBreakZone(any(TargetSpec.class), any(PickGate.class)))
+				.thenReturn(List.of());
+
+		ActionResolver.parse(RUFUS_PAYOFF, rufus15140S()).accept(ctx);
+
+		ArgumentCaptor<TargetSpec> spec = ArgumentCaptor.forClass(TargetSpec.class);
+		verify(ctx).selectCharactersFromBreakZone(spec.capture(), eq(PickGate.DISTINCT_NAMES));
+		assertEquals("Member of the Turks", spec.getValue().jobFilter(), "the rider is not part of the Job");
+		assertEquals(Integer.MAX_VALUE, spec.getValue().maxCount(), "any number");
+		assertTrue(spec.getValue().upTo(), "any number is an up-to with no ceiling: none is an answer too");
+		assertFalse(spec.getValue().opponentZone(), "your Break Zone");
+	}
+
+	@Test
+	void anyNumberIsAnUpToOnTheFieldToo() {
+		// 11-126R Rosa. Read as a fixed count, "any number" was one the field picker met by taking
+		// every eligible card without asking, so her return emptied her controller's field.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+
+		ActionResolver.parse("Choose any number of Characters you control. Return them to their owners' hands. "
+				+ "You can only use this ability once per turn.", makeForward("Rosa", "Light", 3, 7000)).accept(ctx);
+
+		verify(ctx).selectCharacters(eq(Integer.MAX_VALUE), eq(true), eq(false), eq(true), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	/** The printed ability, threshold and all. */
+	private static final String RUFUS_15_140S_ETF = "Damage 5 -- When Rufus enters the field, you may pay "
+			+ "《Ice》《Ice》《Lightning》《Lightning》《2》. When you do so, choose any number of Job Member of the "
+			+ "Turks with different names in your Break Zone. Play them onto the field.";
+
+	private static CardData rufus15140SWithAbility() {
+		return makeJobForwardWithAutos("Rufus", "Ice/Lightning", 8000, "President", RUFUS_15_140S_ETF);
+	}
+
+	/**
+	 * Rufus entering P2's field after {@code damage} points, with the 6 CP his offer costs on hand:
+	 * four Backups for the Element CP and a card to discard for the rest. Resolves what he queues.
+	 */
+	private static void rufusEntersP2Field(MainWindow mw, int damage) {
+		takeDamage(mw, false, damage);
+		for (String e : new String[] {"Ice", "Ice", "Lightning", "Lightning"})
+			TestCards.placeP2Backup(mw, makePlainBackup(e + " Aide", e, 2));
+		CardData spare = makeForward("Spare", "Fire", 3, 5000);
+		mw.gameState.getIdentity().put(spare, false);
+		mw.gameState.getP2Hand().add(spare);
+		placeP2Forward(mw, rufus15140SWithAbility());
+		resolveStack(mw);
+	}
+
+	private static boolean anyP2BackupDull(MainWindow mw) {
+		for (CardState s : mw.p2BackupStates) if (s == CardState.DULL) return true;
+		return false;
+	}
+
+	@Test
+	void rufusCarriesHisDamageFiveThreshold() {
+		assertEquals(5, rufus15140SWithAbility().autoAbilities().get(0).damageThreshold());
+	}
+
+	@Test
+	void rufusPaysAndPlaysOneOfEachNameThroughTheTrigger() {
+		MainWindow mw = new MainWindow();
+		CardData rude = makeJobForward("Rude", "Earth", "Member of the Turks");
+		seedP2BreakZone(mw,
+				makeJobForward("Reno", "Lightning", "Member of the Turks"),
+				makeJobForward("Reno", "Lightning", "Member of the Turks"),
+				rude);
+
+		rufusEntersP2Field(mw, 5);
+
+		assertTrue(anyP2BackupDull(mw), "the offer was made and paid");
+		assertTrue(mw.p2ForwardCards.contains(rude));
+		assertEquals(1, mw.p2ForwardCards.stream().filter(c -> c.name().equals("Reno")).count());
+	}
+
+	@Test
+	void anEmptyBreakZoneMakesNoOffer() {
+		// The same board as above save the Break Zone, which holds no Member of the Turks. The AI
+		// took the offer above, so what keeps it from paying here is that it was never made.
+		MainWindow mw = new MainWindow();
+		seedP2BreakZone(mw, makeJobForward("Cloud", "Wind", "SOLDIER"));
+
+		rufusEntersP2Field(mw, 5);
+
+		assertFalse(anyP2BackupDull(mw), "nothing paid");
+		assertEquals(1, mw.gameState.getP2Hand().size(), "nothing discarded");
+		assertEquals(1, mw.p2ForwardCards.size(), "Rufus alone");
+	}
+
+	@Test
+	void belowFiveDamageRufusOffersNothing() {
+		MainWindow mw = new MainWindow();
+		seedP2BreakZone(mw, makeJobForward("Reno", "Lightning", "Member of the Turks"));
+
+		rufusEntersP2Field(mw, 4);
+
+		assertFalse(anyP2BackupDull(mw));
+		assertEquals(1, mw.gameState.getP2BreakZone().size(), "Reno stays buried");
+	}
+
+	@Test
+	void onlyAPayoffThatIsAllEmptyBreakZoneChoiceFindsNothing() {
+		MainWindow mw = new MainWindow();
+		CardData rufus = rufus15140S();
+		AutoAbilityTriggers triggers = mw.autoAbilityTriggers;
+		assertTrue(triggers.payoffFindsNothingInBreakZone(RUFUS_PAYOFF, rufus, false), "an empty Break Zone");
+		assertFalse(triggers.payoffFindsNothingInBreakZone("draw 1 card", rufus, false),
+				"a payoff that is not a Break Zone choice keeps its offer");
+		assertFalse(triggers.payoffFindsNothingInBreakZone(RUFUS_PAYOFF + " Draw 1 card.", rufus, false),
+				"nor does one with a part that does not need the choice");
+
+		seedP2BreakZone(mw, makeJobForward("Reno", "Lightning", "Member of the Turks"));
+		assertFalse(triggers.payoffFindsNothingInBreakZone(RUFUS_PAYOFF, rufus, false));
+		assertTrue(triggers.payoffFindsNothingInBreakZone(RUFUS_PAYOFF, rufus, true),
+				"P1's own Break Zone is still empty");
+	}
+
+	@Test
+	void rufusPlaysOneOfEachNameAndLeavesTheSecondCopy() {
+		MainWindow mw = new MainWindow();
+		CardData cloud = makeJobForward("Cloud", "Wind", "SOLDIER");
+		CardData rude  = makeJobForward("Rude", "Earth", "Member of the Turks");
+		seedP2BreakZone(mw,
+				makeJobForward("Reno", "Lightning", "Member of the Turks"),
+				makeJobForward("Reno", "Lightning", "Member of the Turks"),
+				rude, cloud);
+
+		resolveAsP2(mw, RUFUS_PAYOFF, rufus15140S());
+
+		assertEquals(2, mw.p2ForwardCards.size(), "one Reno and Rude");
+		assertEquals(1, mw.p2ForwardCards.stream().filter(c -> c.name().equals("Reno")).count(),
+				"a second Reno shares a name already taken");
+		assertTrue(mw.p2ForwardCards.contains(rude));
+		assertEquals(2, mw.gameState.getP2BreakZone().size());
+		assertTrue(mw.gameState.getP2BreakZone().contains(cloud), "not a Member of the Turks");
+	}
+
+	@Test
+	void targetSpecReadsRufusesHeaderAsTheChooseChainDoes() {
+		TargetSpec spec = ActionResolver.targetSpec(RUFUS_PAYOFF, rufus15140S());
+		assertNotNull(spec);
+		assertEquals("Member of the Turks", spec.jobFilter());
+		assertNotNull(spec.zone());
+	}
+
+	@Test
+	void theRiderIsDeclinedWhereNoPickerCanHonourIt() {
+		// Only the plain play out of one Break Zone threads the gate. Anywhere else the rider would
+		// be dropped and the cards chosen unconstrained, which is stronger than printed.
+		CardData src = rufus15140S();
+		assertNull(ActionResolverChoose.tryParseChooseCharacter("choose up to 2 Job Member of the Turks "
+				+ "with different names in your Break Zone. Add them to your hand.", src, 0), "another followup");
+		assertNull(ActionResolverChoose.tryParseChooseCharacter(
+				"choose 2 Job Member of the Turks with different names. Dull them.", src, 0), "the field");
+		assertNull(ActionResolver.targetSpec(
+				"choose 2 Job Member of the Turks with different names. Dull them.", src),
+				"a field spec cannot carry the rider, so it is not stated without it");
+	}
+
+	// =========================================================================================
 	// Leslie 16-084R: "At the end of each of your turns, you may give control of Leslie to your
 	// opponent." — the drawback half of a Backup whose other ability breaks two of your Forwards.
 	//

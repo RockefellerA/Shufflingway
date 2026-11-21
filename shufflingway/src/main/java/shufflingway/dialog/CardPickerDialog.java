@@ -1682,6 +1682,8 @@ public class CardPickerDialog {
         List<CardData> pool = new ArrayList<>(eligible.size());
         for (ForwardTarget t : eligible) pool.add(zone.get(t.idx()));
         int reachable = gate.maxSelectable(pool, maxCount);
+        boolean anyNumber = isAnyNumber(maxCount, upTo);
+        if (anyNumber) armAnyNumberConfirm(confirmBtn, eligible.size());
 
         for (int i = 0; i < eligible.size(); i++) {
             ForwardTarget target = eligible.get(i);
@@ -1699,7 +1701,7 @@ public class CardPickerDialog {
         });
         JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
         south.add(confirmBtn);
-        if (upTo) {
+        if (upTo && !anyNumber) {
             JButton skipBtn = new JButton("Skip");
             skipBtn.setFont(FontLoader.loadPixelFont(11));
             skipBtn.addActionListener(ae -> dlg.dispose());
@@ -1744,6 +1746,9 @@ public class CardPickerDialog {
         Border normalBorder   = BorderFactory.createLineBorder(new Color(100, 100, 100), 2);
         Border selectedBorder = BorderFactory.createLineBorder(Color.YELLOW, 3);
 
+        boolean anyNumber = isAnyNumber(maxCount, upTo);
+        if (anyNumber) armAnyNumberConfirm(confirmBtn, eligible.size());
+
         JPanel p1Row = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
         JPanel p2Row = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
         p1Row.setOpaque(false);
@@ -1766,7 +1771,7 @@ public class CardPickerDialog {
         });
         JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
         south.add(confirmBtn);
-        if (upTo) {
+        if (upTo && !anyNumber) {
             JButton skipBtn = new JButton("Skip");
             skipBtn.setFont(FontLoader.loadPixelFont(11));
             skipBtn.addActionListener(ae -> dlg.dispose());
@@ -1792,6 +1797,35 @@ public class CardPickerDialog {
         dlg.setLocationRelativeTo(owner);
         dlg.setVisible(true);
         return List.copyOf(chosen);
+    }
+
+    /**
+     * "Any number of" (15-140S Rufus): an "up to" with no ceiling. Every count is an answer, none
+     * included, so the picker offers one Confirm that says how many are picked instead of a Confirm
+     * and a Skip.
+     */
+    private static boolean isAnyNumber(int maxCount, boolean upTo) {
+        return upTo && maxCount == Integer.MAX_VALUE;
+    }
+
+    /**
+     * The any-number Confirm's label at {@code n} picks — here, and on the field's in-place target
+     * bar ({@code MainWindow.selectFieldTargetsInPlace}), so the two pickers word it alike.
+     */
+    public static String chosenLabel(int n) {
+        return "Confirm (" + n + " chosen)";
+    }
+
+    /**
+     * Readies {@code confirmBtn} for an any-number pick among {@code poolSize} cards: open from the
+     * start, since none is an answer, and sized for the most it could ever count — the dialog is
+     * packed once, so a button that only fits "0 chosen" would clip at two digits.
+     */
+    private static void armAnyNumberConfirm(JButton confirmBtn, int poolSize) {
+        confirmBtn.setText(chosenLabel(poolSize));
+        confirmBtn.setPreferredSize(confirmBtn.getPreferredSize());
+        confirmBtn.setText(chosenLabel(0));
+        confirmBtn.setEnabled(true);
     }
 
     /** Wraps a player's break-zone card row in a horizontally-scrollable, height-capped tab body. */
@@ -1874,7 +1908,8 @@ public class CardPickerDialog {
                     sel.add(fi);
                     imgLbl.setBorder(selectedBorder);
                 }
-                confirmBtn.setEnabled(upTo ? !sel.isEmpty() : sel.size() == reachable);
+                if (isAnyNumber(maxCount, upTo)) confirmBtn.setText(chosenLabel(sel.size()));
+                else confirmBtn.setEnabled(upTo ? !sel.isEmpty() : sel.size() == reachable);
             }
         };
         imgLbl.addMouseListener(cardListener);

@@ -290,6 +290,18 @@ public interface GameContext {
             String excludeElement, boolean withoutMulticard);
 
     /**
+     * As the method above, with {@code gate} refusing combinations the card text rules out —
+     * "choose any number of Job Member of the Turks with different names in your Break Zone"
+     * (15-140S Rufus). It binds the selection, not the pool: every eligible card is still offered,
+     * and it is taking a second card of a name already picked that is refused.
+     *
+     * <p>One Break Zone only: {@code spec.bothZones()} is refused, since the either-player picker
+     * takes no gate. The spec's field-only members ({@code opponentOnly}, {@code selfOnly}) are
+     * not read.
+     */
+    List<ForwardTarget> selectCharactersFromBreakZone(TargetSpec spec, PickGate gate);
+
+    /**
      * Presents the ability user with a list of Summons and auto-abilities on the stack
      * and cancels the one they choose, preventing its effect from resolving.
      */

@@ -8967,6 +8967,11 @@ public class ActionResolver {
         String text = CHOOSE_ELEM_TYPE_ANDOR_ELEM_TYPE.matcher(effectText).replaceAll("$1$2 or $4 $3");
         text = ELEM_TYPE_OR_ELEM_TYPE.matcher(text).replaceAll("$1 or $3 $2");
         text = escapePeriodInName(text, source);
+        // Lifted as the choose chain lifts it, so the two decoders read one header alike. The rider
+        // constrains the picks, not the pool, so the pool it leaves is the right answer to "is there
+        // anything to choose".
+        String  liftedRider = liftChooseDifferentNames(text);
+        if (liftedRider != null) text = liftedRider;
         Matcher m = CHOOSE_CHARACTER_PATTERN.matcher(text);
         if (!m.find()) return null;
 
@@ -9106,6 +9111,10 @@ public class ActionResolver {
         boolean bothZones   = zoneLower != null
                 && (zoneLower.contains("either player") || zoneLower.contains("any player"));
         boolean opponentZone = zoneLower != null && !bothZones && zoneLower.contains("opponent");
+        // The spec has no slot for the rider, and the callers that act on a spec — preselection
+        // and the redirect check — are field-only. A field choice carrying one is declined rather
+        // than stated without it, as the choose chain declines it.
+        if (liftedRider != null && (zone == null || bothZones)) return null;
 
         return new TargetSpec(maxCount, upTo, opponentOnly, selfOnly, condition, element,
                 costVal2, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
@@ -9222,6 +9231,29 @@ public class ActionResolver {
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
             String excludeElement, boolean withoutMulticard) {
+        return selectTargets(ctx, maxCount, upTo, opponentOnly, selfOnly, condition, element, zone,
+                opponentZone, bothZones, costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups,
+                inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons,
+                excludeElement, withoutMulticard, PickGate.ANY);
+    }
+
+    /**
+     * As above, with {@code gate} binding which eligible cards may be taken together — "with
+     * different names" (15-140S Rufus).
+     *
+     * <p>Only a single Break Zone selection can carry one. The field pickers and the either-player
+     * Break Zone picker take no gate, so a gate aimed at them is refused rather than dropped; the
+     * choose chain declines such a text before it gets this far.
+     */
+    static List<ForwardTarget> selectTargets(GameContext ctx,
+            int maxCount, boolean upTo, boolean opponentOnly, boolean selfOnly,
+            String condition, String element, String zone, boolean opponentZone, boolean bothZones,
+            int costVal, String costCmp, int powerVal, String powerCmp,
+            boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
+            String excludeElement, boolean withoutMulticard, PickGate gate) {
+        if (gate != PickGate.ANY && (zone == null || bothZones))
+            throw new IllegalArgumentException("a pick gate needs a single Break Zone selection");
         List<ForwardTarget> preloaded = ctx.consumePreloadedTargets();
         if (preloaded != null) {
             ctx.recordChosenTargets(preloaded);
@@ -9244,7 +9276,12 @@ public class ActionResolver {
                 return List.of();
             }
         }
-        List<ForwardTarget> result = zone != null
+        List<ForwardTarget> result = zone != null && gate != PickGate.ANY
+                ? ctx.selectCharactersFromBreakZone(new TargetSpec(maxCount, upTo, opponentOnly, selfOnly,
+                        condition, element, costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups,
+                        inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons,
+                        excludeElement, withoutMulticard, zone, opponentZone, bothZones), gate)
+                : zone != null
                 ? ctx.selectCharactersFromBreakZone(maxCount, upTo, opponentZone, bothZones, condition, element,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, excludeElement, withoutMulticard)
                 : ctx.selectCharacters(maxCount, upTo, opponentOnly, selfOnly, condition, element,

@@ -3297,6 +3297,46 @@ final class GameContextImpl implements GameContext {
 				return picked;
 			}
 
+			@Override
+			public List<ForwardTarget> selectCharactersFromBreakZone(TargetSpec spec, PickGate gate) {
+				if (spec.bothZones())
+					throw new IllegalArgumentException("the either-player Break Zone picker takes no pick gate");
+				PickGate g = gate == null ? PickGate.ANY : gate;
+				List<CardData> bz = isP1 != spec.opponentZone()
+						? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<ForwardTarget> eligible = eligibleCharactersFromBreakZone(spec);
+				int count = spec.maxCount();
+				String title = "Choose "
+						+ (count == Integer.MAX_VALUE ? "any number of" : (spec.upTo() ? "up to " : "") + count)
+						+ (spec.element() != null ? " " + spec.element() : "")
+						+ (spec.jobFilter() != null ? " Job " + spec.jobFilter() : "")
+						+ (spec.categoryFilter() != null ? " Category " + spec.categoryFilter() : "")
+						+ (spec.cardNameFilter() != null ? " Card Name " + spec.cardNameFilter() : "")
+						+ breakZoneTypeLabel(spec.inclForwards(), spec.inclBackups(), spec.inclMonsters(),
+								spec.inclSummons(), count)
+						+ formatCostFilterLabel(spec.costVal(), spec.costCmp())
+						+ " in " + (spec.opponentZone() ? "opponent's" : "your") + " Break Zone";
+				// The AI takes the first legal run in zone order, as a Break Zone removal does. The
+				// gate binds it too: a hand it could not legally have chosen is not one it may take.
+				Supplier<List<ForwardTarget>> cpuPick = () -> {
+					List<ForwardTarget> out   = new ArrayList<>();
+					List<CardData>      taken = new ArrayList<>();
+					for (ForwardTarget t : eligible) {
+						if (out.size() >= count) break;
+						CardData c = bz.get(t.idx());
+						if (!g.allows(taken, c)) continue;
+						out.add(t);
+						taken.add(c);
+					}
+					return out;
+				};
+				List<ForwardTarget> picked = mw.selectBreakZoneTargets(ChoiceKind.BREAK_ZONE_TARGETS,
+						isP1, eligible, bz, count, spec.upTo(), g, title,
+						"Waiting for your opponent to choose from a Break Zone...", cpuPick);
+				if (!isP1) picked.forEach(t -> logEntry("[P2] chose " + bz.get(t.idx()).name()));
+				return picked;
+			}
+
 			/** The AI's pick among {@code eligible}: up to {@code maxCount}, at random. */
 			private List<ForwardTarget> randomPicks(List<ForwardTarget> eligible, int maxCount) {
 				List<ForwardTarget> copy = new ArrayList<>(eligible);
