@@ -16,7 +16,11 @@ import java.awt.Insets;
 import java.awt.Polygon;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
+import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -49,6 +53,7 @@ import java.util.regex.Pattern;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
+import javax.swing.DropMode;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
@@ -70,6 +75,7 @@ import javax.swing.RowFilter;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.TransferHandler;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
@@ -97,6 +103,11 @@ public class DeckManager extends JFrame {
     // Deck list (left panel)
     private final DefaultListModel<DeckEntry> deckListModel = new DefaultListModel<>();
     private final JList<DeckEntry> deckList = new JList<>(deckListModel);
+    /**
+     * Set while {@link #moveDeck} takes a deck out of the list and puts it back elsewhere, so the
+     * selection churn that causes does not reload a deck that never changed.
+     */
+    private boolean movingDeck;
 
     // Card browser (top-center)
     private final DefaultTableModel browserModel;
@@ -256,6 +267,10 @@ public class DeckManager extends JFrame {
 
     private JPanel buildDeckListPanel() {
         deckList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        // Drag a deck to a gap between two others to move it there; a line marks the gap.
+        deckList.setDragEnabled(true);
+        deckList.setDropMode(DropMode.INSERT);
+        deckList.setTransferHandler(new DeckReorderHandler());
         deckList.setCellRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(
@@ -276,7 +291,7 @@ public class DeckManager extends JFrame {
             }
         });
         deckList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
+            if (!e.getValueIsAdjusting() && !movingDeck) {
                 DeckEntry entry = deckList.getSelectedValue();
                 if (entry != null) {
                     selectedDeckId = entry.id();
@@ -433,13 +448,7 @@ public class DeckManager extends JFrame {
         addMaxBtn = new JButton("Add Max to Deck");
         addMaxBtn.setEnabled(false);
         addMaxBtn.addActionListener(e -> addMaxOfSelectedCard());
-
-        // Double-click also adds one
-        cardTable.addMouseListener(new MouseAdapter() {
-            @Override public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) addSelectedCard();
-            }
-        });
+        holdNoKeyboardFocus(addBtn, addMaxBtn);
 
         // Refresh addMaxBtn label/state when the browser selection changes
         cardTable.getSelectionModel().addListSelectionListener(e -> {
@@ -460,14 +469,6 @@ public class DeckManager extends JFrame {
         CardBinderView.Switchable views = CardBinderView.around(cardTable, 0, 1, 3);
         browserViews = views;
         binderView = views.binder();
-        binderView.addMouseListener(new MouseAdapter() {
-            @Override public void mouseClicked(MouseEvent e) {
-                int i = binderView.locationToIndex(e.getPoint());
-                if (e.getClickCount() == 2 && i >= 0
-                        && binderView.getCellBounds(i, i).contains(e.getPoint()))
-                    addSelectedCard();
-            }
-        });
 
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createTitledBorder("Card Browser"));
@@ -551,6 +552,7 @@ public class DeckManager extends JFrame {
 
         JButton removeBtn    = new JButton("Remove 1 from Deck  ✕");
         JButton removeAllBtn = new JButton("Remove All From Deck");
+        holdNoKeyboardFocus(removeBtn, removeAllBtn);
         removeBtn.setEnabled(false);
         removeAllBtn.setEnabled(false);
 
@@ -570,8 +572,6 @@ public class DeckManager extends JFrame {
                         else collapsedSections.add(name);
                         rebuildDeckModel();
                     }
-                } else if (e.getClickCount() == 2) {
-                    removeSelectedCard();
                 }
             }
         });
@@ -761,6 +761,90 @@ public class DeckManager extends JFrame {
         }
     }
 
+    /**
+     * What a deck dragged in the list carries: its id, under a flavor nothing else offers and
+     * nothing else accepts — so it cannot be dropped as text into the search field, say.
+     */
+    private record DeckDrag(int deckId) implements Transferable {
+        static final DataFlavor FLAVOR = new DataFlavor(Integer.class, "Deck");
+
+        @Override public DataFlavor[] getTransferDataFlavors() { return new DataFlavor[] { FLAVOR }; }
+        @Override public boolean isDataFlavorSupported(DataFlavor f) { return FLAVOR.equals(f); }
+        @Override public Object getTransferData(DataFlavor f) throws UnsupportedFlavorException {
+            if (!isDataFlavorSupported(f)) throw new UnsupportedFlavorException(f);
+            return deckId;
+        }
+    }
+
+    /** Drag-and-drop reordering of the deck list: a deck dropped on a gap moves there. */
+    private final class DeckReorderHandler extends TransferHandler {
+        @Override public int getSourceActions(JComponent c) { return MOVE; }
+
+        /**
+         * Nothing goes to the clipboard. The list's Ctrl+X is Swing's cut, which exports whatever a
+         * drag would, and a deck move is nothing anything can paste: it would only wipe what the
+         * player had copied. A drag does not come through here.
+         */
+        @Override public void exportToClipboard(JComponent c, Clipboard clip, int action) {}
+
+        @Override protected Transferable createTransferable(JComponent c) {
+            DeckEntry entry = deckList.getSelectedValue();
+            return entry == null ? null : new DeckDrag(entry.id());
+        }
+
+        @Override public boolean canImport(TransferSupport support) {
+            return support.isDrop() && support.isDataFlavorSupported(DeckDrag.FLAVOR);
+        }
+
+        @Override public boolean importData(TransferSupport support) {
+            if (!canImport(support)) return false;
+            int deckId;
+            try {
+                deckId = (Integer) support.getTransferable().getTransferData(DeckDrag.FLAVOR);
+            } catch (UnsupportedFlavorException | IOException e) {
+                return false;
+            }
+            return moveDeck(deckId, ((JList.DropLocation) support.getDropLocation()).getIndex());
+        }
+    }
+
+    /**
+     * Moves deck {@code deckId} to {@code gap} — a position between rows, 0 above the first and
+     * the list's size below the last — and saves the new order. The selection stays on the deck
+     * it was on, which is not reloaded: moving a deck changes nothing in it.
+     *
+     * @return whether the deck moved; the gaps either side of it are where it already is
+     */
+    private boolean moveDeck(int deckId, int gap) {
+        int from = -1;
+        for (int i = 0; i < deckListModel.size(); i++)
+            if (deckListModel.get(i).id() == deckId) { from = i; break; }
+        if (from < 0 || gap < 0 || gap > deckListModel.size()) return false;
+        int to = gap > from ? gap - 1 : gap;
+        if (to == from) return false;
+
+        DeckEntry selected = deckList.getSelectedValue();
+        movingDeck = true;
+        try {
+            deckListModel.add(to, deckListModel.remove(from));
+            if (selected != null) deckList.setSelectedValue(selected, true);
+        } finally {
+            movingDeck = false;
+        }
+
+        List<Integer> order = new ArrayList<>(deckListModel.size());
+        for (int i = 0; i < deckListModel.size(); i++) order.add(deckListModel.get(i).id());
+        try {
+            db.reorderDecks(order);
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this, "Error saving the deck order:\n" + e.getMessage(),
+                    "Database Error", JOptionPane.ERROR_MESSAGE);
+            // Back to the order the database holds, rather than one shown but never saved.
+            try { loadDeckList(); } catch (SQLException ignored) {}
+        }
+        return true;
+    }
+
     private void loadDeckCards(int deckId) {
         clearDeckGroups();
         try {
@@ -935,8 +1019,17 @@ public class DeckManager extends JFrame {
     // Add / remove cards in the selected deck
     // -------------------------------------------------------------------------
 
+    /**
+     * Keeps {@code buttons} from taking keyboard focus when clicked. A focused button is pressed
+     * again by Space (and by Enter under FlatLaf), so a stray key after "Add 1 to Deck" would add a
+     * second copy. A click still works; the keyboard simply never lands on them.
+     */
+    private static void holdNoKeyboardFocus(JButton... buttons) {
+        for (JButton b : buttons) b.setFocusable(false);
+    }
+
     private void addSelectedCard() {
-        // No deck to add to: a double-click does nothing, the way the Add buttons are disabled.
+        // No deck to add to: nothing happens, the way the Add buttons are disabled.
         if (selectedDeckId < 0) return;
         int viewRow = cardTable.getSelectedRow();
         if (viewRow < 0) return;

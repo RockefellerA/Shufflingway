@@ -32,7 +32,12 @@ public class DeckDatabase implements AutoCloseable {
     private final Connection conn;
 
     public DeckDatabase() throws SQLException {
-        conn = DriverManager.getConnection(DB_URL);
+        this(DB_URL);
+    }
+
+    /** Opens the database at {@code url} — the user's own above, a scratch file in tests. */
+    DeckDatabase(String url) throws SQLException {
+        conn = DriverManager.getConnection(url);
         try (Statement s = conn.createStatement()) {
             s.execute("PRAGMA journal_mode=WAL");
             s.execute("PRAGMA foreign_keys=ON");
@@ -77,9 +82,14 @@ public class DeckDatabase implements AutoCloseable {
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
                     name       TEXT    NOT NULL,
                     created_at TEXT    DEFAULT (datetime('now')),
-                    updated_at TEXT    DEFAULT (datetime('now'))
+                    updated_at TEXT    DEFAULT (datetime('now')),
+                    position   INTEGER
                 )
                 """);
+            // The deck list's order, which the player sets by dragging. A deck from before there was
+            // one takes its id, which keeps the creation order the list showed until then.
+            try { s.execute("ALTER TABLE decks ADD COLUMN position INTEGER"); } catch (SQLException ignored) {}
+            s.execute("UPDATE decks SET position = id WHERE position IS NULL");
             s.execute("""
                 CREATE TABLE IF NOT EXISTS deck_cards (
                     deck_id INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
@@ -95,10 +105,11 @@ public class DeckDatabase implements AutoCloseable {
     // Deck CRUD
     // -------------------------------------------------------------------------
 
-    /** Creates a new empty deck and returns its generated ID. */
+    /** Creates a new empty deck at the end of the deck list and returns its generated ID. */
     public int createDeck(String name) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO decks (name) VALUES (?)",
+                "INSERT INTO decks (name, position) "
+                + "VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM decks))",
                 Statement.RETURN_GENERATED_KEYS)) {
             ps.setString(1, name);
             ps.executeUpdate();
@@ -146,17 +157,40 @@ public class DeckDatabase implements AutoCloseable {
         return newId;
     }
 
-    /** Returns all decks ordered by creation (oldest first). */
+    /** Returns all decks in deck-list order ({@link #reorderDecks}). */
     public List<DeckEntry> getDecks() throws SQLException {
         List<DeckEntry> result = new ArrayList<>();
         try (Statement s = conn.createStatement();
-             ResultSet rs = s.executeQuery("SELECT id, name FROM decks ORDER BY id")) {
+             ResultSet rs = s.executeQuery("SELECT id, name FROM decks ORDER BY position, id")) {
             while (rs.next()) result.add(new DeckEntry(rs.getInt("id"), rs.getString("name")));
         }
         return result;
     }
 
-    /** Returns all decks with their total card counts, ordered by creation (oldest first). */
+    /**
+     * Saves the deck list's order: {@code deckIds}, first to last. Every deck is expected; one left
+     * out keeps its old position, which can tie with a moved deck's — ties fall back to creation
+     * order.
+     */
+    public void reorderDecks(List<Integer> deckIds) throws SQLException {
+        conn.setAutoCommit(false);
+        try (PreparedStatement ps = conn.prepareStatement("UPDATE decks SET position = ? WHERE id = ?")) {
+            for (int i = 0; i < deckIds.size(); i++) {
+                ps.setInt(1, i);
+                ps.setInt(2, deckIds.get(i));
+                ps.addBatch();
+            }
+            ps.executeBatch();
+            conn.commit();
+        } catch (SQLException e) {
+            conn.rollback();
+            throw e;
+        } finally {
+            conn.setAutoCommit(true);
+        }
+    }
+
+    /** Returns all decks with their total card counts, in deck-list order ({@link #reorderDecks}). */
     public List<DeckSummary> getDecksSummary() throws SQLException {
         List<DeckSummary> result = new ArrayList<>();
         String sql = """
@@ -166,8 +200,8 @@ public class DeckDatabase implements AutoCloseable {
                 FROM decks d
                 LEFT JOIN deck_cards dc ON d.id = dc.deck_id
                 LEFT JOIN cards c ON dc.serial = c.serial
-                GROUP BY d.id, d.name
-                ORDER BY d.id
+                GROUP BY d.id, d.name, d.position
+                ORDER BY d.position, d.id
                 """;
         try (Statement s = conn.createStatement();
              ResultSet rs = s.executeQuery(sql)) {
