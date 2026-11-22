@@ -33,6 +33,17 @@ record Removal(Kind kind, int amount) {
 
 	private static final Pattern BREAK = Pattern.compile("(?is)^" + CHOICE + "break\\s+it\\s*\\.(?<rest>.*)$");
 
+	/**
+	 * A break the payoff gates on the chosen Forward's cost: "… If its cost is equal to or less than
+	 * the number of Job Class Zero Cadet you control, break it." (25-078H Seven's Sadistic Spikes).
+	 * Read only when the resolver can count the gate ({@link ActionResolverChoose#chosenCostGate}),
+	 * since otherwise the break resolves as unread. Which Forwards it reaches is the gate's to say,
+	 * and {@code ComputerPlayer.choiceReaches} asks it.
+	 */
+	private static final Pattern COST_GATED_BREAK = Pattern.compile("(?is)^" + CHOICE
+			+ "If\\s+its\\s+cost\\s+is\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+the\\s+number\\s+of\\s+[^,.]+?"
+			+ "\\s+you\\s+control,\\s+break\\s+it\\s*\\.(?<rest>.*)$");
+
 	private static final Pattern POWER_LOSS = Pattern.compile("(?is)^" + CHOICE
 			+ "(?:until\\s+the\\s+end\\s+of\\s+the\\s+turn,\\s+it\\s+loses\\s+(?<n1>\\d+)\\s+power"
 			+ "|it\\s+loses\\s+(?<n2>\\d+)\\s+power\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn)\\s*\\.(?<rest>.*)$");
@@ -82,6 +93,9 @@ record Removal(Kind kind, int amount) {
 		if (m.matches() && harmless(m.group("rest"))) return new Removal(Kind.DAMAGE, Integer.parseInt(m.group("n")));
 		m = BREAK.matcher(text);
 		if (m.matches() && harmless(m.group("rest"))) return new Removal(Kind.BREAK, 0);
+		m = COST_GATED_BREAK.matcher(text);
+		if (m.matches() && harmless(m.group("rest")) && ActionResolverChoose.chosenCostGate(text, null) != null)
+			return new Removal(Kind.BREAK, 0);
 		m = POWER_LOSS.matcher(text);
 		if (m.matches() && harmless(m.group("rest")))
 			return new Removal(Kind.POWER_LOSS, Integer.parseInt(m.group("n1") != null ? m.group("n1") : m.group("n2")));

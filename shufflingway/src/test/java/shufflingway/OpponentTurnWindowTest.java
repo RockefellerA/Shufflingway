@@ -755,6 +755,77 @@ class OpponentTurnWindowTest {
 		assertEquals(CardState.DULL, mw.p2BackupStates[0], "paid with the Gunner's 《Dull》");
 	}
 
+	/**
+	 * A Backup whose ability breaks a Forward only within its Job Class Zero Cadet count — 25-078H
+	 * Seven's Sadistic Spikes, paid with 《Dull》 rather than her Special's discard — beside
+	 * {@code otherCadets} more Cadets. She is one herself.
+	 */
+	private static CardData sevenWithCadets(MainWindow mw, int otherCadets) {
+		CardData seven = makeTextCard("Seven", "Water", "Backup", 2, 0, "Class Zero Cadet",
+				"《Dull》: Choose 1 Forward. If its cost is equal to or less than the number of Job Class "
+				+ "Zero Cadet you control, break it.");
+		placeP2Backup(mw, seven);
+		for (int i = 0; i < otherCadets; i++)
+			placeP2Backup(mw, makeJobCard("Cadet " + i, "Water", "Backup", "Class Zero Cadet"));
+		return seven;
+	}
+
+	@Test
+	void aCostGatedBreakTakesAnAttackerItsCountAdmits() throws Exception {
+		MainWindow mw = p1sTurnAt(GameState.GamePhase.ATTACK);
+		mw.attackSubStep = 1;
+		CardData attacker = p1Attacker(mw, 7000);   // cost 3
+		sevenWithCadets(mw, 2);                      // three Cadets
+		mw.opponent = new ScriptedCpu(mw);
+
+		p1AttacksWith(mw);
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(attacker));
+		assertEquals(CardState.DULL, mw.p2BackupStates[0], "paid with Seven's 《Dull》");
+	}
+
+	@Test
+	void aCostGatedBreakIsKeptForAnAttackerOverItsCount() throws Exception {
+		// One Cadet admits cost 1, and the attacker costs 3: the ability would be paid for and break
+		// nothing, so the CPU keeps it and takes the damage.
+		MainWindow mw = p1sTurnAt(GameState.GamePhase.ATTACK);
+		mw.attackSubStep = 1;
+		CardData attacker = p1Attacker(mw, 7000);
+		sevenWithCadets(mw, 0);
+		mw.opponent = new ScriptedCpu(mw);
+
+		p1AttacksWith(mw);
+
+		assertEquals(CardState.ACTIVE, mw.p2BackupStates[0], "Seven's ability was not spent");
+		assertTrue(mw.p1ForwardCards.contains(attacker));
+		assertEquals(1, mw.gameState.getP2DamageZone().size());
+	}
+
+	@Test
+	void asYourTurnEndsACostGatedBreakTakesTheDearestForwardItsCountAdmits() throws Exception {
+		// The dearest Forward, 5, is over the count of 3; the next one down is not.
+		MainWindow mw = p1sTurnAt(GameState.GamePhase.MAIN_2);
+		CardData cheap = makeForward("Cheap", "Water", 2, 5000);
+		CardData mid = makeForward("Mid", "Water", 3, 7000);
+		CardData dear = makeForward("Dear", "Water", 5, 8000);
+		placeP1Forward(mw, cheap);
+		placeP1Forward(mw, mid);
+		placeP1Forward(mw, dear);
+		sevenWithCadets(mw, 2);
+		ScriptedCpu cpu = new ScriptedCpu(mw);
+		mw.opponent = cpu;
+
+		onEdt(mw::onNextPhase);
+		playOut(mw, () -> cpu.turnBegan, "P2's turn to begin");
+		onEdt(() -> mw.gameState.setP1GameOver(true));
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(mid), "the dearest one three Cadets admit");
+		assertTrue(mw.p1ForwardCards.containsAll(List.of(cheap, dear)));
+		// Decided on Mid, not aimed at Dear and redirected by the pick: the pick's own narrowing
+		// would land the same break, but the decision is what has to know.
+		assertTrue(mw.gameLogText().contains("[P2] Removal — Seven's ability breaks Mid before P2's turn"));
+	}
+
 	@Test
 	void asYourTurnEndsTheCpuBreaksTheDearestForwardItCan() throws Exception {
 		MainWindow mw = p1sTurnAt(GameState.GamePhase.MAIN_2);

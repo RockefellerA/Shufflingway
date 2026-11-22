@@ -17,6 +17,7 @@ import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.function.ToIntFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -1586,11 +1587,10 @@ final class ActionResolverChoose {
      *   <li>an "and/or" union across two different Elements — one
      *       {@code countSelfFieldCards} call carries one Element filter, so either half would be
      *       the wrong answer;</li>
-     *   <li>a Job phrase that is really a union — 11-107C Izayoi's "Job Ninja or Card Name Ninja".
-     *       The lazy Job group will happily swallow the whole phrase and hand it over as a Job
-     *       named "Ninja or Card Name Ninja", which matches nobody and would silently gate his
-     *       bounce to never. Counting a union needs inclusion-exclusion over three queries, which
-     *       this branch does not do, so he is left to fall through unread.</li>
+     *   <li>a Job or card name that is still a union once the one union the pattern splits off —
+     *       "Job X or Card Name Y", 11-107C Izayoi's, into {@code job} and {@code jobname} — is
+     *       taken out. "Job X or Job Y" leaves the lazy Job group holding "X or Job Y", a Job that
+     *       matches nobody and would silently gate the payoff to never.</li>
      * </ul>
      */
     static boolean costGateUnreadable(Matcher m) {
@@ -1598,12 +1598,97 @@ final class ActionResolverChoose {
         String element2 = m.group("element2");
         String category = m.group("category");
         String job      = m.group("job");
+        String jobName  = m.group("jobname");
         String type     = m.group("type");
         if (element == null && category == null && job == null && type == null) return true;
         if (m.group("type2") != null && element2 != null
                 && !element2.equalsIgnoreCase(String.valueOf(element))) return true;
         if (job != null && job.matches("(?i).*(\\bor\\b|Card\\s+Name).*")) return true;
+        if (jobName != null && jobName.matches("(?i).*(\\bor\\b|Card\\s+Name|\\bJob\\b).*")) return true;
         return false;
+    }
+
+    /**
+     * What a readable {@link ActionResolverPatterns#FOLLOWUP_COST_LE_FIELD_COUNT_ACTION} match
+     * counts, as the board stands when it is asked. Shared by the gate itself and by
+     * {@link #chosenCostCeiling}, so the AI is steered by the number the payoff will be tested on.
+     */
+    static ToIntFunction<GameContext> costGateCount(Matcher m) {
+        String element  = m.group("element");
+        String category = m.group("category");
+        String job      = m.group("job")     != null ? m.group("job").trim()     : null;
+        String name     = m.group("jobname") != null ? m.group("jobname").trim() : null;
+        String type     = m.group("type");
+        String type2    = m.group("type2");
+        // No type noun means the Job or Category is carrying the filter on its own, and the widest
+        // pool is what those phrases mean — 22-078C Sice counts every Job Class Zero Cadet she
+        // controls, whatever card type each is printed as.
+        String tLc  = type  != null ? type.toLowerCase(Locale.ROOT)  : "character";
+        String t2Lc = type2 != null ? type2.toLowerCase(Locale.ROOT) : "";
+        boolean fwd = tLc.startsWith("forward") || tLc.startsWith("character")
+                || t2Lc.startsWith("forward") || t2Lc.startsWith("character");
+        boolean bkp = tLc.startsWith("backup")  || tLc.startsWith("character")
+                || t2Lc.startsWith("backup")  || t2Lc.startsWith("character");
+        boolean mon = tLc.startsWith("monster") || tLc.startsWith("character")
+                || t2Lc.startsWith("monster") || t2Lc.startsWith("character");
+        return ctx -> {
+            int n = ctx.countSelfFieldCards(fwd, bkp, mon, job, null, category, element);
+            // The field count ANDs Job and name, so the union is job + name - both.
+            if (name != null)
+                n += ctx.countSelfFieldCards(fwd, bkp, mon, null, name, category, element)
+                   - ctx.countSelfFieldCards(fwd, bkp, mon, job,  name, category, element);
+            return n;
+        };
+    }
+
+    /**
+     * The count the payoff of {@code effectText}'s choose gates the chosen card's cost on, or
+     * {@code null} when the choose has no such gate. Read off the first sentence of the followup,
+     * which is where the choose chain reads the gate from, and claimed only where that chain claims
+     * it: a readable count over a readable payoff. Anything else resolves as unread or ungated, so
+     * a caller weighing what the payoff reaches must not read a gate into it.
+     *
+     * <p>Only the field form is read. A choose from a Break Zone picks as it resolves rather than as
+     * it goes on the Stack, and each of those gate branches tells the AI itself
+     * ({@link #selectWithinCostCeiling}).
+     */
+    static ToIntFunction<GameContext> chosenCostGate(String effectText, CardData source) {
+        if (effectText == null) return null;
+        Matcher m = CHOOSE_CHARACTER_PATTERN.matcher(escapePeriodInName(effectText, source));
+        if (!m.find()) return null;
+        String followup = restorePeriodInName(m.group("followup").trim(), source);
+        int dot = sentenceBreakOutsideQuotes(followup);
+        String primary = dot >= 0 ? followup.substring(0, dot).trim() : followup.trim();
+        Matcher gateM = FOLLOWUP_COST_LE_FIELD_COUNT_ACTION.matcher(primary);
+        if (!gateM.matches() || costGateUnreadable(gateM)
+                || parseTargetAction(gateM.group("payoff").trim(), 0) == null) return null;
+        return costGateCount(gateM);
+    }
+
+    /**
+     * {@link #chosenCostGate}, counted on {@code ctx}'s side now, or {@code -1} when there is no
+     * gate — what {@link ActionResolver#preSelectTargets} tells the AI before it picks
+     * ({@link GameContext#setAiCostCeiling}).
+     */
+    static int chosenCostCeiling(String effectText, CardData source, GameContext ctx) {
+        ToIntFunction<GameContext> gate = chosenCostGate(effectText, source);
+        return gate == null ? -1 : gate.applyAsInt(ctx);
+    }
+
+    /**
+     * {@code select}, with the AI told for its length that the payoff is gated on {@code ceiling}
+     * ({@link GameContext#setAiCostCeiling}) — how a gate that chooses as it resolves, which is
+     * every choose from a Break Zone, steers the pick. Cleared after, as the hint is only ever true
+     * of this one selection.
+     */
+    static List<ForwardTarget> selectWithinCostCeiling(GameContext ctx, int ceiling,
+            Supplier<List<ForwardTarget>> select) {
+        ctx.setAiCostCeiling(ceiling);
+        try {
+            return select.get();
+        } finally {
+            ctx.setAiCostCeiling(-1);
+        }
     }
 
     /**
@@ -5043,41 +5128,44 @@ final class ActionResolverChoose {
             String gateCategory = costLeActionM.group("category");
             String gateJob      = costLeActionM.group("job") != null
                     ? costLeActionM.group("job").trim() : null;
+            String gateName     = costLeActionM.group("jobname") != null
+                    ? costLeActionM.group("jobname").trim() : null;
             String gateType     = costLeActionM.group("type");
             String gateType2    = costLeActionM.group("type2");
             String payoffText   = costLeActionM.group("payoff").trim();
             BiConsumer<GameContext, List<ForwardTarget>> payoff = parseTargetAction(payoffText, xValue);
-            // Both halves understood before either is claimed, as the branch above requires: a
-            // readable count over an unreadable payoff leaves the sentence unread rather than
-            // applying the part that parsed. This is what keeps "play it onto your field" (7-087R
-            // Exdeath) falling through to its own branch further down, and what keeps a payoff
-            // nobody has taught this vocabulary from resolving as a silent no-op.
-            if (payoff != null && !costGateUnreadable(costLeActionM)) {
-                // No type noun means the Job or Category is carrying the filter on its own, and
-                // the widest pool is what those phrases mean — 22-078C Sice counts every Job Class
-                // Zero Cadet she controls, whatever card type each is printed as.
-                String tLc  = gateType  != null ? gateType.toLowerCase(Locale.ROOT)  : "character";
-                String t2Lc = gateType2 != null ? gateType2.toLowerCase(Locale.ROOT) : "";
-                boolean gFwd = tLc.startsWith("forward") || tLc.startsWith("character")
-                        || t2Lc.startsWith("forward") || t2Lc.startsWith("character");
-                boolean gBkp = tLc.startsWith("backup")  || tLc.startsWith("character")
-                        || t2Lc.startsWith("backup")  || t2Lc.startsWith("character");
-                boolean gMon = tLc.startsWith("monster") || tLc.startsWith("character")
-                        || t2Lc.startsWith("monster") || t2Lc.startsWith("character");
+            // Both halves understood before either is claimed, as the branch above requires.
+            //
+            // An unreadable payoff falls through: that is what lets "play it onto your field"
+            // (7-087R Exdeath) reach its own branch further down, and what keeps a payoff nobody
+            // has taught this vocabulary from resolving as a silent no-op.
+            //
+            // An unreadable count over a readable payoff must not fall through. Every payoff
+            // branch below scans with find() and would take the verb out of this sentence with
+            // the cost condition dropped — 11-107C Izayoi bounced a Forward of any cost exactly
+            // that way while his union was refused here. It is answered as unread instead.
+            if (payoff != null && costGateUnreadable(costLeActionM)) {
+                Consumer<GameContext> unread = new UnreadFollowup(followup);
+                return secondary == null ? unread : unread.andThen(secondary);
+            }
+            if (payoff != null) {
+                ToIntFunction<GameContext> gateCount = costGateCount(costLeActionM);
                 final String countLabel = (gateElement != null ? gateElement + " " : "")
                         + (gateCategory != null ? "Category " + gateCategory + " " : "")
                         + (gateJob != null ? "Job " + gateJob + " " : "")
+                        + (gateName != null ? "or Card Name " + gateName + " " : "")
                         + (gateType != null ? gateType : "Characters")
                         + (gateType2 != null ? " and/or " + gateType2 : "");
                 return ctx -> {
                     ctx.logChooseHeader(choosePrefix + " — " + payoffText
                             + " if cost ≤ count of " + countLabel + " you control");
-                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                    // Counted ahead of the choice so the AI can be told what the payoff will reach.
+                    // Choosing moves nothing, so it is the number the payoff is tested on below.
+                    int allowed = gateCount.applyAsInt(ctx);
+                    List<ForwardTarget> ts = selectWithinCostCeiling(ctx, allowed, () -> selectTargets(ctx, maxCount, upTo,
                             opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
                             costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
-                            jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                    int allowed = ctx.countSelfFieldCards(gFwd, gBkp, gMon,
-                            gateJob, null, gateCategory, gateElement);
+                            jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard));
                     List<ForwardTarget> within = new ArrayList<>();
                     for (ForwardTarget t : ts) {
                         CardData card = chosenTargetCard(ctx, t);
@@ -6459,11 +6547,11 @@ final class ActionResolverChoose {
             String condJob = costLeJobM.group("job").trim();
             return ctx -> {
                 ctx.logChooseHeader(choosePrefix + " — Play onto Field if cost ≤ count of Job " + condJob + " you control");
-                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                int jobCount = ctx.countSelfFieldCards(true, true, true, condJob, null);
+                List<ForwardTarget> ts = selectWithinCostCeiling(ctx, jobCount, () -> selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
-                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                int jobCount = ctx.countSelfFieldCards(true, true, true, condJob, null);
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard));
                 for (ForwardTarget t : sortedByIdxDesc(ts, true) .collect(java.util.stream.Collectors.toList())) {
                     CardData card = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
                     if (card != null && card.cost() <= jobCount) ctx.playTargetOntoField(t);
@@ -6511,12 +6599,12 @@ final class ActionResolverChoose {
                 // printings reach across the table for the card — 7-087R says "from either
                 // player's Break Zone" and B-026 "among all Break Zones" — while Minwu says "the
                 // field" and only ever reaches his own.
-                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
-                        opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
-                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
-                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 int allowed = ctx.countSelfFieldCards(condFwd, condBkp, condMon,
                         null, null, condCategory, condElement);
+                List<ForwardTarget> ts = selectWithinCostCeiling(ctx, allowed, () -> selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard));
                 for (boolean side : new boolean[] { true, false }) {
                     for (ForwardTarget t : sortedByIdxDesc(ts, side).collect(java.util.stream.Collectors.toList())) {
                         CardData card = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());

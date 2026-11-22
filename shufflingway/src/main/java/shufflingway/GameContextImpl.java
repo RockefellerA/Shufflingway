@@ -102,6 +102,12 @@ final class GameContextImpl implements GameContext {
 	 */
 	private int aiDamageTargetHint = 0;
 	/**
+	 * The printed-cost ceiling the selection about to be made is gated on, or {@code -1} when it is
+	 * not — see {@link GameContext#setAiCostCeiling}. An instance field for the same reason as
+	 * {@link #aiDamageTargetHint}.
+	 */
+	private int aiCostCeiling = -1;
+	/**
 	 * What the selection about to be made does to a pick of the AI's own, and the card whose
 	 * ability is asking — see {@link GameContext#setAiOwnPick}. Instance fields for the same reason
 	 * as {@link #aiDamageTargetHint}.
@@ -1902,6 +1908,24 @@ final class GameContextImpl implements GameContext {
 						return List.of();
 					}
 				}
+				// The payoff only reaches a pick within the cost ceiling (setAiCostCeiling). A harm
+				// to the opponent, or a help to itself, is aimed inside it: 11-107C Izayoi chooses
+				// a Forward his Ninja count can bounce, not the dearest one on the board. A harm
+				// forced onto its own cards is aimed outside it, where the gate skips the payoff.
+				// The pool is one-sided by here, so its first card says whose it is.
+				if (aiCostCeiling >= 0 && !pool.isEmpty()) {
+					boolean landIt = (pool.get(0).isP1() == isP1) == mw.aiPrefersOwnTargets;
+					List<ForwardTarget> narrowed = pool.stream()
+							.filter(t -> cardAtTarget(t) != null
+									&& (cardAtTarget(t).cost() <= aiCostCeiling) == landIt)
+							.toList();
+					if (!narrowed.isEmpty()) pool = narrowed;
+					else if (landIt && upTo) {
+						logEntry("[AI] chose nothing — no card of cost " + aiCostCeiling
+								+ " or less for the effect to reach");
+						return List.of();
+					}
+				}
 				// Every pick left is the AI's own and the effect says what it does to it (AiOwnPick).
 				// Left to the shuffle below, Graff 25-116H removed himself as often as the ally
 				// beside him.
@@ -3269,7 +3293,7 @@ final class GameContextImpl implements GameContext {
 								for (ForwardTarget t : chosen) result.add(eligible.get(t.idx()));
 								return result;
 							},
-							() -> randomPicks(eligible, maxCount));
+							() -> aiBreakZonePicks(eligible, maxCount));
 					if (!isP1) picked.forEach(t -> logEntry("[P2] chose " + combined.get(eligible.indexOf(t)).name()));
 					return picked;
 				}
@@ -3292,7 +3316,7 @@ final class GameContextImpl implements GameContext {
 						isP1, eligible, maxCount, title,
 						"Waiting for your opponent to choose from a Break Zone...",
 						() -> mw.showBreakZoneSelectDialog(eligible, bz, maxCount, upTo, title),
-						() -> randomPicks(eligible, maxCount));
+						() -> aiBreakZonePicks(eligible, maxCount));
 				if (!isP1) picked.forEach(t -> logEntry("[P2] chose " + bz.get(t.idx()).name()));
 				return picked;
 			}
@@ -3342,6 +3366,24 @@ final class GameContextImpl implements GameContext {
 				List<ForwardTarget> copy = new ArrayList<>(eligible);
 				java.util.Collections.shuffle(copy);
 				return List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
+			}
+
+			/**
+			 * The AI's Break Zone picks: {@link #randomPicks}, unless the payoff is gated on a cost
+			 * ceiling ({@link GameContext#setAiCostCeiling}). Every such payoff in the corpus plays
+			 * the card onto the field (24-053H Minwu, 7-087R and B-026 Exdeath), so the picks are
+			 * then the dearest the ceiling admits — the most board the play puts down — and a card
+			 * over it is taken only when nothing is under it.
+			 */
+			private List<ForwardTarget> aiBreakZonePicks(List<ForwardTarget> eligible, int maxCount) {
+				if (aiCostCeiling < 0) return randomPicks(eligible, maxCount);
+				List<ForwardTarget> within = new ArrayList<>(eligible.stream()
+						.filter(t -> cardAtTarget(t) != null && cardAtTarget(t).cost() <= aiCostCeiling)
+						.toList());
+				if (within.isEmpty()) return randomPicks(eligible, maxCount);
+				java.util.Collections.shuffle(within);
+				within.sort(Comparator.comparingInt((ForwardTarget t) -> cardAtTarget(t).cost()).reversed());
+				return List.copyOf(within.subList(0, Math.min(maxCount, within.size())));
 			}
 
 
@@ -8028,6 +8070,7 @@ final class GameContextImpl implements GameContext {
 			@Override public void suppressExBurstsThisAbility() { mw.suppressExBurstsThisAbility = true; }
 			@Override public void setAiPrefersOwnTargets(boolean preferOwn) { mw.aiPrefersOwnTargets = preferOwn; }
 			@Override public void setAiDamageTargetHint(int damage) { aiDamageTargetHint = Math.max(0, damage); }
+			@Override public void setAiCostCeiling(int ceiling) { aiCostCeiling = ceiling; }
 			@Override public void planAiDiscard(String effectText, CardData source) {
 				aiDiscardPick = mw.autoAbilityTriggers.discardPlan(effectText, source, isP1).pick();
 			}

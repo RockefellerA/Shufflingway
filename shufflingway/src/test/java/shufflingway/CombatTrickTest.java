@@ -124,4 +124,18 @@ class CombatTrickTest {
 		assertFalse(wall.weakenedBy(new Removal(Removal.Kind.DAMAGE, 9000)).gone());
 		assertTrue(wall.weakenedBy(new Removal(Removal.Kind.POWER_LOSS, 7000)).gone(), "no power left: into the Break Zone all the same");
 	}
+
+	@Test
+	void aBreakGatedOnTheChosenCardsCostIsARemovalWhenTheGateCanBeCounted() {
+		// 25-078H Seven's Sadistic Spikes. Which Forwards it reaches is ComputerPlayer.choiceReaches's
+		// to say; the reading only has to know it is a break.
+		assertEquals(new Removal(Removal.Kind.BREAK, 0), Removal.of("Choose 1 Forward. If its cost is equal "
+				+ "to or less than the number of Job Class Zero Cadet you control, break it."));
+		// A count the resolver refuses resolves as unread, so it breaks nothing and is no removal.
+		assertNull(Removal.of("Choose 1 Forward. If its cost is equal to or less than the number of "
+				+ "Job Class Zero Cadet or Job Ninja you control, break it."));
+		// 28-080C Gurdy breaks itself too, which the resolver does not read: not a plain break.
+		assertNull(Removal.of("Choose 1 Forward opponent controls. If its cost is equal to or less than "
+				+ "the number of Category MBM Characters you control, break it and Gurdy."));
+	}
 }

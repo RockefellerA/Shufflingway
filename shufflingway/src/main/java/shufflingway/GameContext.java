@@ -2777,6 +2777,16 @@ public interface GameContext {
      */
     void setAiDamageTargetHint(int damage);
 
+    /**
+     * Tells this context the printed-cost ceiling that the payoff of the selection it is about to
+     * make is gated on — "If its cost is equal to or less than the number of Job Ninja or Card Name
+     * Ninja you control, return it to its owner's hand." (11-107C Izayoi) — so an AI controller
+     * aims a payoff it wants at a card the gate lets through, and a harm it is forced to aim at
+     * its own cards at one the gate skips. {@code -1} clears it. Advisory, and scoped to this
+     * context instance: no effect on a human's choice.
+     */
+    void setAiCostCeiling(int ceiling);
+
     /** What a "choose …" effect does to a pick that is its controller's own card — see {@link #setAiOwnPick}. */
     enum AiOwnPick {
         /** Nothing the AI's pick among its own cards is steered by. */

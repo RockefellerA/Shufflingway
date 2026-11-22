@@ -3263,9 +3263,12 @@ final class ActionResolverPatterns {
      * broke a Forward of any cost; 11-107C Izayoi bounced one; 21-102L Gau and 19-118L Yuna decked
      * one. This is read ahead of all of them, which is the whole point of it.
      *
-     * <p>The count phrase admits one optional Element, one optional Category and a required type,
-     * plus the "and/or" union of two types that 12-124L Thancred prints ("Water Forwards and/or
-     * Water Backups"). A union of <em>different</em> Elements is refused rather than guessed: the
+     * <p>The count phrase admits one optional Element, one optional Category, an optional Job and
+     * an optional type, plus two unions. 12-124L Thancred prints an "and/or" of two types ("Water
+     * Forwards and/or Water Backups"); 11-107C Izayoi a Job or a card name ("Job Ninja or Card Name
+     * Ninja"), whose name half is group {@code jobname}. It sits inside the Job group so the lazy
+     * Job stops at "Ninja" rather than swallowing the whole union as one Job that matches nobody.
+     * A union of <em>different</em> Elements is refused rather than guessed: the
      * second element is captured so the parser can compare the two and decline when they differ,
      * because a single {@code countSelfFieldCards} call carries one element filter and answering
      * with either half would be a wrong number rather than a missing one.
@@ -3276,8 +3279,9 @@ final class ActionResolverPatterns {
      * vocabulary cannot read makes the whole gate decline, so the text falls through unread rather
      * than running the half of it that was understood.
      *
-     * <p>Groups: {@code element}/{@code category}/{@code type} and the union's {@code element2}/
-     * {@code type2}; {@code payoff} — the verb phrase.
+     * <p>Groups: {@code element}/{@code category}/{@code job}/{@code type}, the Job union's
+     * {@code jobname} and the type union's {@code element2}/{@code type2}; {@code payoff} — the
+     * verb phrase.
      */
     static final Pattern FOLLOWUP_COST_LE_FIELD_COUNT_ACTION = Pattern.compile(
         // Every optional group owns its own *leading* whitespace rather than a trailing one. With
@@ -3289,7 +3293,7 @@ final class ActionResolverPatterns {
         "(?i)^If\\s+its\\s+cost\\s+is\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+the\\s+number\\s+of" +
         "(?:\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))?" +
         "(?:\\s+Category\\s+(?<category>\\S+))?" +
-        "(?:\\s+Job\\s+(?<job>.+?))?" +
+        "(?:\\s+Job\\s+(?<job>.+?)(?:\\s+or\\s+Card\\s+Name\\s+(?<jobname>.+?))?)?" +
         "(?:\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?))?" +
         "(?:\\s+and/or" +
             "(?:\\s+(?<element2>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))?" +

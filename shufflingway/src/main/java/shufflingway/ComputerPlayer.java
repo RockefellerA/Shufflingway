@@ -14,6 +14,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.IntUnaryOperator;
 import java.util.function.Predicate;
+import java.util.function.ToIntFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -2028,11 +2029,23 @@ class ComputerPlayer implements OpponentController {
 		return choiceReaches(text, source, target, special, false);
 	}
 
-	/** {@link #choiceReaches}, made for {@code chooserIsP1}'s side. */
+	/**
+	 * {@link #choiceReaches}, made for {@code chooserIsP1}'s side. A payoff gated on the chosen card's
+	 * cost — "If its cost is equal to or less than the number of Job Class Zero Cadet you control,
+	 * break it." (25-078H Seven) — reaches only a card the gate admits, counted on the chooser's board
+	 * as it stands: choosing one over it pays for the ability and does nothing.
+	 */
 	private boolean choiceReaches(String text, CardData source, ForwardTarget target, boolean special, boolean chooserIsP1) {
 		TargetSpec spec = ActionResolver.targetSpec(text, source);
 		if (spec == null || spec.zone() != null) return false;
-		return mw.eligibleChoiceTargets(spec, source, chooserIsP1, special).contains(target);
+		if (!mw.eligibleChoiceTargets(spec, source, chooserIsP1, special).contains(target)) return false;
+		ToIntFunction<GameContext> gate = ActionResolverChoose.chosenCostGate(text, source);
+		if (gate == null) return true;
+		// Built bare: buildGameContext resets the resolving ability's flags, and this is asked
+		// mid-resolution too (the follow-up damage weighed inside a "you may").
+		GameContext ctx = new GameContextImpl(mw, chooserIsP1, false);
+		CardData card = ctx.targetCard(target);
+		return card != null && card.cost() <= gate.applyAsInt(ctx);
 	}
 
 	// ── Removal (HANDOFF-cpu-opponents-turn.md decision 6) ───────────────

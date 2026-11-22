@@ -51188,17 +51188,170 @@ public class CardBehaviorTest {
 		verify(ctx, never()).playTargetOntoField(any());
 	}
 
+	private static final String IZAYOI_11_107C_ETB =
+			"choose 1 Forward opponent controls. If its cost is equal to or less than the number "
+			+ "of Job Ninja or Card Name Ninja you control, return it to its owner's hand.";
+
+	/** A gate mock for Izayoi: {@code job}/{@code name}/{@code both} are the three field counts. */
+	private static GameContext izayoiCtx(ForwardTarget t, CardData card, int job, int name, int both) {
+		GameContext ctx = gateCtx(t, card, -1);
+		when(ctx.countSelfFieldCards(eq(true), eq(true), eq(true), eq("Ninja"), isNull(), isNull(), isNull()))
+			.thenReturn(job);
+		when(ctx.countSelfFieldCards(eq(true), eq(true), eq(true), isNull(), eq("Ninja"), isNull(), isNull()))
+			.thenReturn(name);
+		when(ctx.countSelfFieldCards(eq(true), eq(true), eq(true), eq("Ninja"), eq("Ninja"), isNull(), isNull()))
+			.thenReturn(both);
+		return ctx;
+	}
+
 	@Test
-	void aJobOrCardNameUnionIsRefusedRatherThanGuessed() {
-		// 11-107C Izayoi counts "Job Ninja or Card Name Ninja you control". The lazy Job group
-		// would take the whole phrase and hand over a Job named "Ninja or Card Name Ninja", which
-		// matches nobody — gating his bounce to never instead of leaving it ungated. A wrong
-		// number is worse than a missing one, so the gate declines and he stays visibly unread.
-		String name = ActionResolver.matchedFollowupName(
-				"If its cost is equal to or less than the number of Job Ninja or Card Name Ninja "
-				+ "you control, return it to its owner's hand.", null);
-		assertFalse(name != null && name.startsWith("CostLeFieldCount"),
-				"a union this branch cannot count must not be claimed as if it could");
+	void izayoiDoesNotBounceAForwardDearerThanHisNinjaCount() {
+		// Found in playtesting: the CPU's Izayoi, with only Edge 17-135S and himself — two Job
+		// Ninja — on its field, bounced a cost-4 Ardyn 18-140S. The gate refused the union and the
+		// sentence fell through to the plain return-to-hand branch, which ran it ungated.
+		ForwardTarget ardyn = fwd(true, 0);
+		GameContext ctx = izayoiCtx(ardyn, makeForward("Ardyn", "Lightning", 4, 9000), 2, 0, 0);
+
+		ActionResolver.parse(IZAYOI_11_107C_ETB, null).accept(ctx);
+
+		verify(ctx, never()).returnP1ForwardToHand(anyInt());
+	}
+
+	@Test
+	void izayoiBouncesAForwardWithinHisNinjaCount() {
+		ForwardTarget victim = fwd(true, 0);
+		GameContext ctx = izayoiCtx(victim, makeForward("Small", "Fire", 2, 5000), 2, 0, 0);
+
+		ActionResolver.parse(IZAYOI_11_107C_ETB, null).accept(ctx);
+
+		verify(ctx).returnP1ForwardToHand(0);
+	}
+
+	@Test
+	void izayoisJobOrNameUnionCountsTheOverlapOnce() {
+		// Field counts AND Job and name, so the union is job + name - both. Two Job Ninja plus one
+		// Card Name Ninja is three when they are different cards and two when they are the same.
+		ForwardTarget victim = fwd(true, 0);
+		CardData cost3 = makeForward("Mid", "Fire", 3, 7000);
+
+		GameContext apart = izayoiCtx(victim, cost3, 2, 1, 0);
+		ActionResolver.parse(IZAYOI_11_107C_ETB, null).accept(apart);
+		verify(apart).returnP1ForwardToHand(0);
+
+		GameContext overlap = izayoiCtx(victim, cost3, 2, 1, 1);
+		ActionResolver.parse(IZAYOI_11_107C_ETB, null).accept(overlap);
+		verify(overlap, never()).returnP1ForwardToHand(anyInt());
+	}
+
+	@Test
+	void izayoiIsDescribedAsGated() {
+		assertEquals("ChooseCharacter / CostLeFieldCount(ReturnToOwnersHand)",
+				ActionResolver.fullDescription(IZAYOI_11_107C_ETB, null));
+	}
+
+	@Test
+	void aCountTheGateRefusesIsUnreadRatherThanUngated() {
+		// "Job Ninja or Job Samurai" is a union the gate cannot split: the lazy Job group ends up
+		// holding "Ninja or Job Samurai". Refused, it must not fall through to the find()-based
+		// return-to-hand branch, which would run the bounce with the cost condition dropped.
+		String text = "choose 1 Forward opponent controls. If its cost is equal to or less than "
+				+ "the number of Job Ninja or Job Samurai you control, return it to its owner's hand.";
+		ForwardTarget victim = fwd(true, 0);
+		GameContext ctx = gateCtx(victim, makeForward("Small", "Fire", 1, 3000), 5);
+
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx, never()).returnP1ForwardToHand(anyInt());
+		assertNull(ActionResolver.matchedFollowupName("If its cost is equal to or less than the "
+				+ "number of Job Ninja or Job Samurai you control, return it to its owner's hand.", null));
+	}
+
+	// The CPU is told the ceiling before it picks (GameContext.setAiCostCeiling), so it aims the
+	// payoff at a card the gate lets through. Field chooses pick as the ability goes on the Stack,
+	// through preSelectTargets; Break Zone chooses pick at resolution, inside the gate branch.
+
+	/** The CPU's (P2's) field, as playtested: Edge 17-135S and Izayoi, two Job Ninja. */
+	private static MainWindow twoNinjaOnP2() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeJobCard("Edge", "Lightning", "Forward", "Ninja"));
+		placeP2Forward(mw, makeJobCard("Izayoi", "Water", "Forward", "Ninja"));
+		return mw;
+	}
+
+	@Test
+	void theCpusIzayoiChoosesAForwardHisNinjaCountCanBounce() {
+		MainWindow mw = twoNinjaOnP2();
+		CardData ardyn = makeForward("Ardyn", "Lightning", 4, 9000);
+		CardData small = makeForward("Small", "Fire", 2, 5000);
+		placeP1Forward(mw, ardyn);
+		placeP1Forward(mw, small);
+		CardData izayoi = mw.p2ForwardCards.get(1);
+
+		// The pick is otherwise a shuffle between the two, so ask often enough that a blind pick
+		// would have landed on Ardyn.
+		for (int i = 0; i < 20; i++) {
+			List<ForwardTarget> picked = ActionResolver.preSelectTargets(
+					IZAYOI_11_107C_ETB, izayoi, 0, mw.buildGameContext(false));
+			assertEquals(1, picked.size());
+			assertSame(small, mw.p1ForwardCards.get(picked.get(0).idx()),
+					"cost 4 is over two Ninja, so only the cost-2 Forward can be bounced");
+		}
+	}
+
+	@Test
+	void withNothingInsideTheCeilingTheCpuStillMakesAChoiceItMustMake() {
+		// "choose 1" is not "up to 1": the ability still chooses, and the gate then skips it.
+		MainWindow mw = twoNinjaOnP2();
+		CardData ardyn = makeForward("Ardyn", "Lightning", 4, 9000);
+		placeP1Forward(mw, ardyn);
+
+		List<ForwardTarget> picked = ActionResolver.preSelectTargets(
+				IZAYOI_11_107C_ETB, mw.p2ForwardCards.get(1), 0, mw.buildGameContext(false));
+
+		assertEquals(1, picked.size());
+		assertSame(ardyn, mw.p1ForwardCards.get(picked.get(0).idx()));
+	}
+
+	@Test
+	void aBreakTheCpuMustAimAtItsOwnForwardsGoesWhereTheGateSkipsIt() {
+		// 22-078C Sice's "choose 1 Forward", with nothing across the table: the break lands only on
+		// a Forward within her Job Class Zero Cadet count, so the CPU picks one outside it.
+		MainWindow mw = new MainWindow();
+		CardData sice  = makeJobCard("Sice", "Wind", "Forward", "Class Zero Cadet");   // cost 3
+		CardData cheap = makeForward("Cheap", "Fire", 1, 3000);
+		placeP2Forward(mw, sice);
+		placeP2Forward(mw, cheap);
+
+		List<ForwardTarget> picked = ActionResolver.preSelectTargets("choose 1 Forward. If its cost "
+				+ "is equal to or less than the number of Job Class Zero Cadet you control, break it.",
+				sice, 0, mw.buildGameContext(false));
+
+		assertEquals(1, picked.size());
+		assertSame(sice, mw.p2ForwardCards.get(picked.get(0).idx()),
+				"one Cadet admits cost 1; the cheapest own Forward would have been broken");
+	}
+
+	@Test
+	void theCpuPlaysTheDearestBreakZoneForwardItsBackupsAdmit() {
+		Consumer<GameContext> play = ActionResolver.parse("choose 1 Forward in your Break Zone. If "
+				+ "its cost is equal to or less than the number of Backups you control, play it onto "
+				+ "the field.", null);
+		// A blind pick lands on the right card one time in three, so a fresh board each time.
+		for (int i = 0; i < 10; i++) {
+			MainWindow mw = new MainWindow();
+			mw.placeP2CardInFirstBackupSlot(makeJobCard("Scholar", "Earth", "Backup", "Scholar"));
+			mw.placeP2CardInFirstBackupSlot(makeJobCard("Sage", "Earth", "Backup", "Sage"));
+			CardData one = makeForward("One", "Fire", 1, 3000);
+			CardData two = makeForward("Two", "Fire", 2, 5000);
+			CardData six = makeForward("Six", "Fire", 6, 9000);
+			mw.gameState.getP2BreakZone().addAll(List.of(one, six, two));
+
+			play.accept(mw.buildGameContext(false));
+
+			assertEquals(List.of(two), mw.p2ForwardCards,
+					"two Backups admit cost 2, and 2 beats 1");
+			assertTrue(mw.gameState.getP2BreakZone().containsAll(List.of(one, six)));
+		}
 	}
 
 

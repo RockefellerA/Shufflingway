@@ -2876,9 +2876,10 @@ public class ActionResolver {
         // and were naming all eleven printings of this gate as unconditional. Guarded on
         // parseTargetAction as the dispatch is, so a payoff that vocabulary cannot read falls
         // through to its own handler rather than being reported as gated here.
+        // A count the gate refuses over a readable payoff is unread there, so it is unnamed here.
         Matcher costLeActM = FOLLOWUP_COST_LE_FIELD_COUNT_ACTION.matcher(followupText.trim());
-        if (costLeActM.matches() && parseTargetAction(costLeActM.group("payoff").trim(), 0) != null
-                && !ActionResolverChoose.costGateUnreadable(costLeActM)) {
+        if (costLeActM.matches() && parseTargetAction(costLeActM.group("payoff").trim(), 0) != null) {
+            if (ActionResolverChoose.costGateUnreadable(costLeActM)) return null;
             // Named by what the payoff resolves to, not by echoing its printed words. 28-080C
             // Gurdy prints "break it and Gurdy" and the target-action vocabulary reads only the
             // first half of that, so quoting the text would advertise a second break that does not
@@ -8854,6 +8855,9 @@ public class ActionResolver {
         // And what happens to a pick of the AI's own, so the choice among its own cards is made
         // for that rather than at random — Graff 25-116H removing himself beside an ally.
         ctx.setAiOwnPick(aiOwnPickOf(effectText), source);
+        // And whether the payoff reaches only a pick within a cost ceiling: 11-107C Izayoi's bounce
+        // skips a Forward dearer than his Ninja count, so a pick over it wastes the ability.
+        ctx.setAiCostCeiling(ActionResolverChoose.chosenCostCeiling(effectText, source, ctx));
         return ctx.selectCharacters(spec.maxCount(), spec.upTo(), spec.opponentOnly(), spec.selfOnly(),
                 spec.condition(), spec.element(), spec.costVal(), spec.costCmp(), spec.powerVal(),
                 spec.powerCmp(), spec.inclForwards(), spec.inclBackups(), spec.inclMonsters(),
