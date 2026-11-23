@@ -975,7 +975,8 @@ public class GameState {
     /**
      * The card each of {@code entry}'s pre-selected targets held when it went onto the Stack, index
      * for index, or {@code null} when nothing was recorded for it; an element is {@code null} for
-     * a target that named no card on the field (a Break Zone pick).
+     * a target that named no card. A Break Zone pick records the card at that place in the Break
+     * Zone, which shifts like a field row does.
      *
      * <p>A {@link ForwardTarget} is a slot, and slots move while an entry waits: a Forward that
      * leaves shifts every one after it down, so the slot an entry chose can hold a different card

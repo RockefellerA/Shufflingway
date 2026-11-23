@@ -45,15 +45,27 @@ class AutoAbilityStackTargetsTest {
                 "Choose up to 2 Forwards. Dull them.", gilgamesh, mw.buildGameContext(true)));
     }
 
-    // Nothing eligible as the ability went on the Stack: resolution still gets to look again.
+    // Nothing eligible as the ability went on the Stack: it has no legal target, so it is removed
+    // from the Stack (rule 11.8.4). It carries the empty choice, and its resolution is cancelled.
     @Test
-    void nothingEligibleStillChoosesAtResolution() {
+    void nothingEligibleIsAChoiceOfNone() {
         MainWindow mw = new MainWindow();
         CardData gilgamesh = makeForward("Gilgamesh", "Lightning", 5, 9000);
         mw.gameState.getIdentity().put(gilgamesh, true);
         mw.placeCardInForwardZone(gilgamesh);
-        assertNull(AutoAbilityTriggers.targetsForStack(new ArrayList<>(),
+        assertEquals(List.of(), AutoAbilityTriggers.targetsForStack(new ArrayList<>(),
                 "Choose up to 2 Forwards opponent controls. Dull them.", gilgamesh, mw.buildGameContext(true)));
+    }
+
+    // A Summon on the Stack is not on the field, so the field's eligibility says nothing about it:
+    // Seven 9-048C's "choose 1 Summon" still chooses as it resolves.
+    @Test
+    void aChoiceOfASummonStillChoosesAtResolution() {
+        MainWindow mw = new MainWindow();
+        CardData seven = makeForward("Seven", "Fire", 2, 0);
+        mw.gameState.getIdentity().put(seven, false);
+        assertNull(AutoAbilityTriggers.targetsForStack(new ArrayList<>(),
+                "choose 1 Summon. Cancel its effect.", seven, mw.buildGameContext(false)));
     }
 
     // A choice that is not "up to" cannot be declined, so an empty one keeps the old fallback.

@@ -12461,7 +12461,8 @@ public class CardBehaviorTest {
 
         ActionResolver.parse(NINJA_12_083C, null).accept(ctx);
 
-        verify(ctx).markEffectFizzled();
+        // At least once: the empty choice marks it as well (ActionResolver.selectTargets).
+        verify(ctx, atLeastOnce()).markEffectFizzled();
         verify(ctx, never()).playCharacterFromHand(anyBoolean(), anyBoolean(), anyBoolean(),
                 anyInt(), any(), anyInt(), any(), any(), any(), any(), any(), anyBoolean(), any(),
                 anyBoolean(), any());

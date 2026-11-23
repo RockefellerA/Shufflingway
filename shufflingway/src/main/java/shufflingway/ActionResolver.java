@@ -8830,18 +8830,42 @@ public class ActionResolver {
     }
 
     /**
+     * Whether the targets {@link #preSelectTargets} picks from {@code targetText} are every target
+     * that text chooses — one "choose", naming one set of cards.
+     *
+     * <p>Rule 11.11.2 cancels an ability whose targets have all become invalid, and only the whole
+     * set can say that. Where the selection made on the Stack holds part of it, the rest is still to
+     * be chosen as the ability resolves and may well be there: 27-027L Kefka chooses a Forward and a
+     * Backup in the Break Zone, the Stack holds only the Forward, and the FAQ has his Backup enter
+     * after the Forward has gone. Such a text is answered {@code false} and resolves as before.
+     */
+    static boolean stackPickIsWholeChoice(String targetText) {
+        if (targetText == null) return false;
+        Matcher m = CHOOSE_WORD.matcher(targetText);
+        int chooses = 0;
+        while (m.find()) chooses++;
+        return chooses == 1 && !CHOOSE_COMPOUND_SET.matcher(targetText).find();
+    }
+
+    /**
      * Prompts the activating player to choose targets for a "Choose N [targets]…" effect
      * <em>before</em> the ability is placed on the stack, so the selections can be stored in
      * {@link StackEntry#preSelectedTargets()} and later inspected (e.g. to enforce "that is
      * choosing a Forward you control" cancel filters).
      *
+     * <p>A choice from a Break Zone is made now as well (rule 11.8.9: an ability chooses as it goes
+     * on the Stack), and the Stack follows each card it picked, so one that leaves the Break Zone
+     * before the ability resolves is no longer a target ({@code MainWindow.liveTargets}). Only
+     * where the choose chain is what reads the text ({@link #breakZonePickIsMadeOnStack}).
+     *
      * <p>Returns {@code null} when {@code effectText} does not match
-     * {@link #CHOOSE_CHARACTER_PATTERN}, or when only break-zone selections would be needed
-     * (those are deferred to resolution time since the zone state may change).
+     * {@link #CHOOSE_CHARACTER_PATTERN}, or names a Break Zone choice that is still left to
+     * resolution.
      */
     public static List<ForwardTarget> preSelectTargets(String effectText, CardData source, int xValue, GameContext ctx) {
         TargetSpec spec = targetSpec(effectText, source);
-        if (spec == null || spec.zone() != null) return null;
+        if (spec == null) return null;
+        if (spec.zone() != null && !breakZonePickIsMadeOnStack(effectText, source)) return null;
         // Every activation-time selection funnels through here — action abilities, Summons and auto
         // abilities alike — so it is the one place that can tell the context what the cards it is
         // about to pick are in for. Ignored unless the picker is the AI.
@@ -8858,11 +8882,40 @@ public class ActionResolver {
         // And whether the payoff reaches only a pick within a cost ceiling: 11-107C Izayoi's bounce
         // skips a Forward dearer than his Ninja count, so a pick over it wastes the ability.
         ctx.setAiCostCeiling(ActionResolverChoose.chosenCostCeiling(effectText, source, ctx));
+        if (spec.zone() != null) {
+            // "Choose 2 cards in your opponent's Break Zone" with one there is no legal choice
+            // (rule 11.8.9): Yuffie 28-054L gains no crystals. Settled before any dialog opens.
+            if (!spec.upTo() && ctx instanceof GameContextImpl impl
+                    && impl.eligibleCharactersFromBreakZone(spec).size() < spec.maxCount())
+                return new ArrayList<>();
+            return ctx.selectCharactersFromBreakZone(spec.maxCount(), spec.upTo(), spec.opponentZone(),
+                    spec.bothZones(), spec.condition(), spec.element(), spec.costVal(), spec.costCmp(),
+                    spec.powerVal(), spec.powerCmp(), spec.inclForwards(), spec.inclBackups(),
+                    spec.inclMonsters(), spec.jobFilter(), spec.cardNameFilter(), spec.categoryFilter(),
+                    spec.excludeName(), spec.inclSummons(), spec.excludeElement(), spec.withoutMulticard());
+        }
         return ctx.selectCharacters(spec.maxCount(), spec.upTo(), spec.opponentOnly(), spec.selfOnly(),
                 spec.condition(), spec.element(), spec.costVal(), spec.costCmp(), spec.powerVal(),
                 spec.powerCmp(), spec.inclForwards(), spec.inclBackups(), spec.inclMonsters(),
                 spec.jobFilter(), spec.cardNameFilter(), spec.categoryFilter(), spec.excludeName(),
                 spec.inclSummons(), spec.excludeElement(), spec.withoutMulticard());
+    }
+
+    /**
+     * Whether the Break Zone choice {@code effectText} opens with is made as the ability goes on the
+     * Stack ({@link #preSelectTargets}) rather than left to resolution.
+     *
+     * <p>Only where the choose chain claims the text: it reads its targets through
+     * {@link #selectTargets}, which takes a choice already made, so the pick is asked for once. A
+     * parser of its own that chooses from a Break Zone itself — 24-044H Zidane's "choose 1
+     * Character in your opponent's Break Zone … you can cast it" — would ask a second time. A
+     * "with different names" rider (15-140S Rufus) constrains the picks in a way a spec cannot
+     * carry, so it too is left to the chain.
+     */
+    static boolean breakZonePickIsMadeOnStack(String effectText, CardData source) {
+        if (ActionResolverChoose.liftChooseDifferentNames(effectText) != null) return false;
+        String site = matchedPatternName(effectText, source);
+        return site != null && site.startsWith("ChooseCharacter");
     }
 
     /**
@@ -9259,10 +9312,7 @@ public class ActionResolver {
         if (gate != PickGate.ANY && (zone == null || bothZones))
             throw new IllegalArgumentException("a pick gate needs a single Break Zone selection");
         List<ForwardTarget> preloaded = ctx.consumePreloadedTargets();
-        if (preloaded != null) {
-            ctx.recordChosenTargets(preloaded);
-            return applyArmedMarks(ctx, preloaded);
-        }
+        if (preloaded != null) return chose(ctx, preloaded);
         // "of the highest cost" arrives as a sentinel because the ceiling is not printed — it is
         // whatever is dearest on the board as this resolves. Read it now and hand the selection
         // layer an ordinary exact-cost filter, so every caller below stays unaware of it.
@@ -9275,10 +9325,7 @@ public class ActionResolver {
         if (COST_SUPERLATIVE_HIGHEST.equals(costCmp)) {
             costVal = ctx.highestFieldCost(opponentOnly, selfOnly, inclForwards, inclBackups, inclMonsters);
             costCmp = null;
-            if (costVal < 0) {
-                ctx.recordChosenTargets(List.of());
-                return List.of();
-            }
+            if (costVal < 0) return chose(ctx, List.of());
         }
         List<ForwardTarget> result = zone != null && gate != PickGate.ANY
                 ? ctx.selectCharactersFromBreakZone(new TargetSpec(maxCount, upTo, opponentOnly, selfOnly,
@@ -9290,8 +9337,21 @@ public class ActionResolver {
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, excludeElement, withoutMulticard)
                 : ctx.selectCharacters(maxCount, upTo, opponentOnly, selfOnly, condition, element,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, excludeElement, withoutMulticard);
-        ctx.recordChosenTargets(result);
-        return applyArmedMarks(ctx, result);
+        return chose(ctx, result);
+    }
+
+    /**
+     * What every exit from {@link #selectTargets} does with the cards it settled on: records them
+     * for the followups that read them back, and applies any armed mark. A choice that came back
+     * empty also marks the effect fizzled, as a primitive that could not do what it was told does —
+     * "choose 1 Forward … in your Break Zone. You may play it onto the field. If you do so, …"
+     * (28-074C Rikku) chose nothing once the Forward had left, played nothing, and so has not done
+     * it: the "if you do so" stays shut.
+     */
+    private static List<ForwardTarget> chose(GameContext ctx, List<ForwardTarget> targets) {
+        ctx.recordChosenTargets(targets);
+        if (targets.isEmpty()) ctx.markEffectFizzled();
+        return applyArmedMarks(ctx, targets);
     }
 
     /**

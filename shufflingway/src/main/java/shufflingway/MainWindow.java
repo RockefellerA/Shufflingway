@@ -2041,7 +2041,7 @@ public class MainWindow {
 			leftHandAwaitingArrival.add(c);
 			forgetShownInHand(c, p1);
 		});
-		gameState.setStackTargetLookup(this::fieldCardDataOrNull);
+		gameState.setStackTargetLookup(this::stackTargetCardOrNull);
 		initialize();
 	}
 
@@ -2876,6 +2876,18 @@ public class MainWindow {
 	/** How long after the result goes up "Play Again?" is asked: the banners' fade-in, then a beat to read them. */
 	private static final int PLAY_AGAIN_DELAY_MS = 1200;
 
+	private static volatile boolean asksToPlayAgain = true;
+
+	/**
+	 * Stops every finished game from asking "Play Again?", for the rest of this JVM. The test suite
+	 * calls it before any test runs ({@code SuppressPlayAgain}): a test that ends a game — a deck
+	 * run out, a seventh point of damage — would otherwise leave the question on screen a moment
+	 * after it had finished, one window for every such test.
+	 */
+	static void neverAskToPlayAgain() {
+		asksToPlayAgain = false;
+	}
+
 	/**
 	 * Asks "Play Again?" once the end-of-game banners are up. Yes opens the same deck choice as
 	 * File → New Game, on the decks just played: the CPU dialog, or the negotiation with the
@@ -2887,6 +2899,7 @@ public class MainWindow {
 	 */
 	private void schedulePlayAgain(boolean won) {
 		closePlayAgain();
+		if (!asksToPlayAgain) return;
 		playAgainTimer = new Timer(PLAY_AGAIN_DELAY_MS, e -> showPlayAgain(won));
 		playAgainTimer.setRepeats(false);
 		playAgainTimer.start();
@@ -14407,11 +14420,13 @@ public class MainWindow {
 		if (opponent instanceof RemoteOpponent remote) remote.releaseStackWait(entry);
 		resolutionSerial = nextResolutionSerial();
 
-		if (cancelledStackEntries.remove(entry)) {
+		boolean noTargetLeft = !cancelledStackEntries.contains(entry) && hasNoTargetLeft(entry);
+		if (cancelledStackEntries.remove(entry) || noTargetLeft) {
 			declaredSelectActions.remove(entry);
 			whenYouDoSoPayoffs.remove(entry);
 			String pfx = entry.isP1() ? "" : "[P2] ";
-			logEntry(pfx + "\"" + entry.source().name() + "\" — effect cancelled");
+			logEntry(pfx + "\"" + entry.source().name() + "\" — "
+					+ (noTargetLeft ? "none of its targets remain, effect cancelled" : "effect cancelled"));
 			if (entry.isSummon()) {
 				if (entry.isP1()) {
 					addToBreakZone(entry.source());
@@ -16312,11 +16327,38 @@ public class MainWindow {
 	 * and a Summon aimed at the first landed on the second — an Onion Knight 1-181H bounced out of
 	 * the way of a Summon handed the damage to whichever Forward slid into its place.
 	 *
-	 * <p>A target that named no field card (a Break Zone pick), or an entry pushed before anything
-	 * was recorded for it, is read as it stands.
+	 * <p>A Break Zone pick is followed the same way, within the Break Zone it was chosen from: a card
+	 * that has left it — removed from the game in response — is no longer a target, and the rest
+	 * are re-read at the places they hold now, since a Break Zone shifts as well. Cloud 28-007H
+	 * gains no crystal once the Character he chose has gone.
+	 *
+	 * <p>A target that named no card, or an entry pushed before anything was recorded for it, is
+	 * read as it stands.
 	 */
 	List<ForwardTarget> liveTargets(StackEntry entry) {
 		return liveTargets(entry, true);
+	}
+
+	/**
+	 * Whether {@code entry} chose its targets as it went on the Stack and has none left to resolve
+	 * on: every card it chose has left the field or the Break Zone it was chosen from, or it chose
+	 * none at all (an "up to" choice declined, or nothing there to choose). All of its effect is
+	 * then cancelled, not only the clauses that name a target
+	 * (rule 11.11.2) — The Emperor 28-027C makes no discard once the Forward he chose is gone, and
+	 * Halone 26-037H, having chosen no Character, makes none either.
+	 *
+	 * <p>Asked only when the selection made on the Stack is the whole of what the effect chooses
+	 * ({@link ActionResolver#stackPickIsWholeChoice}); one that chooses more as it resolves is left
+	 * to resolve. A select menu is read through the option it declared, which is where its targets
+	 * came from.
+	 */
+	boolean hasNoTargetLeft(StackEntry entry) {
+		List<ForwardTarget> chosen = entry.preSelectedTargets();
+		if (chosen == null) return false;
+		List<String> declared = declaredSelectActions.get(entry);
+		String text = declared != null && !declared.isEmpty() ? String.join(" ", declared) : entry.effectText();
+		if (!ActionResolver.stackPickIsWholeChoice(text)) return false;
+		return chosen.isEmpty() || liveTargets(entry, false).isEmpty();
 	}
 
 	/** As {@link #liveTargets(StackEntry)}, logging a dropped target only when {@code announce} — the resolution does, an eligibility check does not. */
@@ -16330,12 +16372,36 @@ public class MainWindow {
 			ForwardTarget t = chosen.get(i);
 			CardData card = cards.get(i);
 			if (card == null) { live.add(t); continue; }
+			if (t.zone() == ForwardTarget.CardZone.BREAK_ZONE) {
+				int at = indexByIdentity(t.isP1() ? gameState.getP1BreakZone() : gameState.getP2BreakZone(), card);
+				if (at >= 0) live.add(new ForwardTarget(t.isP1(), at, ForwardTarget.CardZone.BREAK_ZONE));
+				else if (announce) logEntry(card.name() + " is no longer in the Break Zone — no longer a target of "
+						+ entry.source().name());
+				continue;
+			}
 			ForwardTarget now = currentFieldTargetOf(card, t.isP1(), t.idx());
 			if (now != null) live.add(now);
 			else if (announce) logEntry(card.name() + " is no longer on the field — no longer a target of "
 					+ entry.source().name());
 		}
 		return live;
+	}
+
+	/** Where {@code card} itself — this instance, not an equal copy — sits in {@code cards}, or -1. */
+	private static int indexByIdentity(List<CardData> cards, CardData card) {
+		for (int i = 0; i < cards.size(); i++) if (cards.get(i) == card) return i;
+		return -1;
+	}
+
+	/**
+	 * The card {@code t} names, for the Stack to record against an entry's pre-selected targets
+	 * ({@link GameState#stackTargetCards}): a field slot's occupant, or the card at that place in
+	 * the Break Zone it names.
+	 */
+	CardData stackTargetCardOrNull(ForwardTarget t) {
+		if (t == null || t.zone() != ForwardTarget.CardZone.BREAK_ZONE) return fieldCardDataOrNull(t);
+		List<CardData> bz = t.isP1() ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+		return t.idx() >= 0 && t.idx() < bz.size() ? bz.get(t.idx()) : null;
 	}
 
 	/** {@code source}'s own slot when {@code entry} could legally choose it, else {@code null}. */

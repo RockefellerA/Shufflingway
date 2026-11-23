@@ -6194,18 +6194,31 @@ final class AutoAbilityTriggers {
 	 * What an auto ability carries onto the Stack from its push-time target selection: the picks,
 	 * or {@code null} to choose again as it resolves.
 	 *
-	 * <p>An empty selection can mean two things. Nothing eligible when the ability went on the
-	 * Stack falls back to choosing at resolution. An "up to" choice the player was offered and
-	 * declined — Gilgamesh 27-079H's "choose up to 2 Forwards" with none picked — is a choice
-	 * made, and asking again at resolution would make them decline it twice.
+	 * <p>An empty selection can mean three things. An "up to" choice the player was offered and
+	 * declined — Gilgamesh 27-079H's "choose up to 2 Forwards" with none picked — is a choice made,
+	 * and asking again at resolution would make them decline it twice. Nothing eligible at all, for
+	 * a text whose whole choice was this one, is an ability with no legal target: it triggers and
+	 * is removed from the Stack (rule 11.8.4), so it carries the empty choice and its resolution is
+	 * cancelled ({@link MainWindow#hasNoTargetLeft}) — Sky Samurai 26-044C, with no Backup to
+	 * choose, gains no power. Only a choice of Characters on the field is read that way: the
+	 * eligibility check looks at the field alone, so a Summon or an ability on the Stack — Seven
+	 * 9-048C's "choose 1 Summon. Cancel its effect." — would always look like nothing to choose.
+	 * A Break Zone choice made just now ({@link ActionResolver#preSelectTargets}) that came back
+	 * empty found nothing to choose, too few for a "choose 2", or was an "up to" declined — a
+	 * choice of none each time. Anything else falls back to choosing at resolution.
 	 */
 	static List<ForwardTarget> targetsForStack(List<ForwardTarget> picked, String effectText,
 			CardData source, GameContext ctx) {
 		if (picked == null || !picked.isEmpty()) return picked;
 		TargetSpec spec = ActionResolver.targetSpec(effectText, source);
-		boolean declined = spec != null && spec.upTo() && spec.zone() == null
-				&& ctx instanceof GameContextImpl impl && !impl.eligibleCharacters(spec).isEmpty();
-		return declined ? picked : null;
+		if (spec == null || !(ctx instanceof GameContextImpl impl)) return null;
+		if (spec.zone() != null) return ActionResolver.stackPickIsWholeChoice(effectText) ? picked : null;
+		boolean noneEligible = impl.eligibleCharacters(spec).isEmpty();
+		if (spec.upTo() && !noneEligible) return picked;
+		boolean choosesFieldCharacters = !spec.inclSummons()
+				&& (spec.inclForwards() || spec.inclBackups() || spec.inclMonsters());
+		if (noneEligible && choosesFieldCharacters && ActionResolver.stackPickIsWholeChoice(effectText)) return picked;
+		return null;
 	}
 
 

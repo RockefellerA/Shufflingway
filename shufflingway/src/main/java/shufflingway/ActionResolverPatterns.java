@@ -206,6 +206,16 @@ final class ActionResolverPatterns {
         "(?<followup>.+)"
     );
 
+    /** The word "choose", counted by {@code ActionResolver.stackPickIsWholeChoice}. */
+    static final Pattern CHOOSE_WORD = Pattern.compile("(?i)\\bchoose\\b");
+
+    /**
+     * A "choose" sentence that names a second set of cards after the first — "choose 1 Forward
+     * opponent controls and up to 1 Backup … in your Break Zone" (27-027L Kefka), "… and 1 Forward
+     * you control". The selection made as an ability goes on the Stack reads only the first set.
+     */
+    static final Pattern CHOOSE_COMPOUND_SET = Pattern.compile("(?i)\\bchoose\\b[^.]*?\\band\\s+(?:up\\s+to\\s+)?\\d");
+
     // =========================================================================================
     // "The former / the latter" pair effects
     // =========================================================================================
