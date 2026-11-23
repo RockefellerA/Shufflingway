@@ -12,6 +12,7 @@ import java.beans.PropertyChangeListener;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * Transparent overlay on the frame's PALETTE_LAYER that draws chosen card slots a few pixels out of
@@ -48,6 +49,8 @@ public class SlotLiftOverlay extends JComponent {
 	}
 
 	private final int                 maxLift;
+	/** Told of each slot as it is drawn somewhere new, so what is drawn beside it can follow — {@link NotReadyGaugeOverlay}. */
+	private Consumer<JLabel>          slotMoved = s -> {};
 	/**
 	 * Read and written only under the AWT tree lock. In play every caller is on the event thread,
 	 * but tests drive the board from their own thread while the timer ticks on the event thread,
@@ -92,6 +95,11 @@ public class SlotLiftOverlay extends JComponent {
 			}
 		});
 		return o;
+	}
+
+	/** Sets who is told, frame by frame, of each slot this draws in a new place as it rises or settles. */
+	public void setSlotMovedListener(Consumer<JLabel> listener) {
+		slotMoved = listener != null ? listener : s -> {};
 	}
 
 	/**
@@ -152,6 +160,7 @@ public class SlotLiftOverlay extends JComponent {
 			if (e.getValue().lastDrawn != null) repaint(e.getValue().lastDrawn);
 			detach(e.getValue());
 			it.remove();
+			slotMoved.accept(slot);
 		}
 	}
 
@@ -204,6 +213,7 @@ public class SlotLiftOverlay extends JComponent {
 				double step = 1.0 / FRAMES;
 				l.progress = l.target ? Math.min(1.0, l.progress + step) : Math.max(0.0, l.progress - step);
 				repaintSlot(l.slot);
+				slotMoved.accept(l.slot);
 				// The label hands its painting over on the way up and takes it back on landing.
 				if (wasResting || l.progress == 0) l.slot.repaint();
 				if (l.progress == 0) {

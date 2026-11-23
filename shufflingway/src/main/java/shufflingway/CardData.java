@@ -75,13 +75,15 @@ public record CardData(
         POWER_CANNOT_BE_DECREASED_BY_OPP,
         // Board statuses rather than printed keywords: no card's trait set ever holds these. They
         // exist so a TraitTab can show them. DamageResolver.protections decides when one of the two
-        // damage statuses applies, and MainWindow.combatStatusDetails when one of the four combat ones does.
+        // damage statuses applies, MainWindow.combatStatusDetails when one of the four combat ones
+        // does, and MainWindow.showsPreparingTab when a Forward that is not ready yet is Preparing.
         DAMAGE_BECOMES_ZERO,
         DAMAGE_REDUCED,
         MUST_ATTACK,
         MUST_BLOCK,
         CANNOT_ATTACK,
-        CANNOT_BLOCK;
+        CANNOT_BLOCK,
+        PREPARING;
 
         /**
          * Human-readable name for the game log — {@code FIRST_STRIKE} becomes {@code "First Strike"}.

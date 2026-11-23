@@ -23,9 +23,11 @@ public class FileMenu extends JMenu {
     /**
      * @param newGame New Game: the main window decides whether that means choosing decks for a
      *                game against the CPU or asking a connected opponent
+     * @param onNotReadyIndicatorChanged redraws the board's Forwards when Preferences changes how a
+     *                Forward that is not ready yet is marked
      */
     public FileMenu(JFrame owner, Runnable newGame, Runnable onLayoutChanged,
-            BiConsumer<Boolean, String> onBoardColorChanged) {
+            BiConsumer<Boolean, String> onBoardColorChanged, Runnable onNotReadyIndicatorChanged) {
         super("File");
 
         JMenuItem newGameItem = new JMenuItem("New Game");
@@ -49,7 +51,8 @@ public class FileMenu extends JMenu {
         JMenuItem preferences = new JMenuItem("Preferences");
         add(preferences);
         preferences.addActionListener((ActionEvent e) -> {
-            PreferencesDialog dialog = new PreferencesDialog(owner, onLayoutChanged, onBoardColorChanged);
+            PreferencesDialog dialog = new PreferencesDialog(owner, onLayoutChanged, onBoardColorChanged,
+                    onNotReadyIndicatorChanged);
             dialog.setVisible(true);
         });
 

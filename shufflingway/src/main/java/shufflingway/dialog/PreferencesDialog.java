@@ -45,6 +45,7 @@ import javax.swing.text.DocumentFilter;
 
 import shufflingway.AppSettings;
 import shufflingway.ElementColor;
+import shufflingway.NotReadyIndicator;
 import shufflingway.Theme;
 import shufflingway.audio.Sound;
 import shufflingway.audio.SoundEffects;
@@ -54,16 +55,19 @@ import shufflingway.graphics.Counter;
 public class PreferencesDialog extends JDialog {
 
 	public PreferencesDialog(Frame owner) {
-		this(owner, null, null);
+		this(owner, null, null, null);
 	}
 
 	/**
 	 * @param onLayoutChanged     invoked after a layout setting changes (e.g. side panel side)
 	 * @param onBoardColorChanged invoked as {@code (isP1, colorName)} when a field color changes;
 	 *                            applies the color to the live board. May be {@code null}.
+	 * @param onNotReadyIndicatorChanged invoked after the not-ready indicator changes, to redraw
+	 *                            the Forwards on the live board. May be {@code null}.
 	 */
 	public PreferencesDialog(Frame owner, Runnable onLayoutChanged,
-			java.util.function.BiConsumer<Boolean, String> onBoardColorChanged) {
+			java.util.function.BiConsumer<Boolean, String> onBoardColorChanged,
+			Runnable onNotReadyIndicatorChanged) {
 		super(owner, "Preferences", true);
 		setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 		setResizable(false);
@@ -117,6 +121,38 @@ public class PreferencesDialog extends JDialog {
 
 		layoutPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		contentPanel.add(layoutPanel);
+		contentPanel.add(javax.swing.Box.createVerticalStrut(8));
+
+		// ── Gameplay ─────────────────────────────────────────────────────────
+		JPanel gameplayPanel = new JPanel();
+		gameplayPanel.setLayout(new BoxLayout(gameplayPanel, BoxLayout.Y_AXIS));
+		gameplayPanel.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createEtchedBorder(), "Gameplay",
+				TitledBorder.LEFT, TitledBorder.TOP));
+
+		JPanel notReadyRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+		notReadyRow.add(new JLabel("Not-ready Indicator:"));
+		JComboBox<NotReadyIndicator> notReadyCombo = new JComboBox<>(NotReadyIndicator.values());
+		notReadyCombo.setSelectedItem(AppSettings.getNotReadyIndicator());
+		notReadyCombo.addActionListener(e -> {
+			NotReadyIndicator chosen = (NotReadyIndicator) notReadyCombo.getSelectedItem();
+			if (chosen == null || chosen == AppSettings.getNotReadyIndicator()) return;
+			AppSettings.setNotReadyIndicator(chosen);
+			AppSettings.save();
+			if (onNotReadyIndicatorChanged != null) onNotReadyIndicatorChanged.run();
+		});
+		notReadyRow.add(notReadyCombo);
+		notReadyRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		gameplayPanel.add(notReadyRow);
+
+		JLabel notReadyHint = new JLabel("<html><font color='gray' size='2'>"
+				+ "How characters that cannot attack or use Dull abilities yet are marked.</font></html>");
+		notReadyHint.setBorder(new EmptyBorder(2, 4, 2, 4));
+		notReadyHint.setAlignmentX(Component.LEFT_ALIGNMENT);
+		gameplayPanel.add(notReadyHint);
+
+		gameplayPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		contentPanel.add(gameplayPanel);
 		contentPanel.add(javax.swing.Box.createVerticalStrut(8));
 
 		// No font picker: typeface is fixed per role in FontLoader — Pixel Emulator for the numeric card

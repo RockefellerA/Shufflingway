@@ -1988,7 +1988,7 @@ class ComputerPlayer implements OpponentController {
 		for (int i = 0; i < mw.p2BackupCards.length; i++)
 			if (mw.p2BackupCards[i] != null)
 				addFieldAbilityTricks(out, aimedAt, beforeBlock, new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP),
-						mw.p2BackupCards[i], mw.p2BackupFrozen[i], mw.p2BackupStates[i], 0);
+						mw.p2BackupCards[i], mw.p2BackupFrozen[i], mw.p2BackupStates[i], mw.p2BackupPlayedOnTurn[i]);
 		for (int i = 0; i < mw.p2MonsterCards.size(); i++)
 			addFieldAbilityTricks(out, aimedAt, beforeBlock, new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER),
 					mw.p2MonsterCards.get(i), mw.p2MonsterFrozen.get(i), mw.p2MonsterStates.get(i), mw.p2MonsterPlayedOnTurn.get(i));
@@ -2125,7 +2125,7 @@ class ComputerPlayer implements OpponentController {
 		for (int i = 0; i < mw.p2BackupCards.length; i++)
 			if (mw.p2BackupCards[i] != null)
 				addFieldRemoval(out, target, worth, new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP), mw.p2BackupCards[i],
-						mw.p2BackupFrozen[i], mw.p2BackupStates[i], 0);
+						mw.p2BackupFrozen[i], mw.p2BackupStates[i], mw.p2BackupPlayedOnTurn[i]);
 		for (int i = 0; i < mw.p2MonsterCards.size(); i++)
 			addFieldRemoval(out, target, worth, new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER), mw.p2MonsterCards.get(i),
 					mw.p2MonsterFrozen.get(i), mw.p2MonsterStates.get(i), mw.p2MonsterPlayedOnTurn.get(i));
@@ -2923,7 +2923,7 @@ class ComputerPlayer implements OpponentController {
 			// Set aside to pay for a held card — the Back Attack Character on P1's turn, the trick in
 			// P2's battles: not dulled for an ability of its own either.
 			if (reservedBackup(i)) continue;
-			if (tryP2UseAbility(card, mw.p2BackupFrozen[i], mw.p2BackupStates[i], 0,
+			if (tryP2UseAbility(card, mw.p2BackupFrozen[i], mw.p2BackupStates[i], mw.p2BackupPlayedOnTurn[i],
 					mw.abilityCostDull(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP)),
 					resume)) return;
 		}

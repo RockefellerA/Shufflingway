@@ -286,6 +286,19 @@ public final class AppSettings {
         props.setProperty("appearance.theme", themeName);
     }
 
+    /**
+     * How the board marks a Forward that cannot attack or use 《Dull》 abilities yet. Defaults to
+     * {@link NotReadyIndicator#NONE}.
+     */
+    public static NotReadyIndicator getNotReadyIndicator() {
+        return NotReadyIndicator.parse(props.getProperty("appearance.not.ready.indicator"));
+    }
+
+    /** Sets the not-ready indicator (call {@link #save()} to persist). */
+    public static void setNotReadyIndicator(NotReadyIndicator indicator) {
+        props.setProperty("appearance.not.ready.indicator", indicator.id());
+    }
+
     /** Whether the Welcome dialog opens at launch. Defaults to {@code true}. */
     public static boolean isShowWelcome() {
         return Boolean.parseBoolean(props.getProperty("startup.show.welcome", "true"));

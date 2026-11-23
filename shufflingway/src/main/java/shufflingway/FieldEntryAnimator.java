@@ -125,6 +125,11 @@ final class FieldEntryAnimator {
 		SwingUtilities.invokeLater(() -> play(card, isP1, style, origin));
 	}
 
+	/** Whether {@code card} is still animating its way onto the field, so its slot is held blank. */
+	boolean isEntering(CardData card) {
+		return card != null && pending.containsKey(card);
+	}
+
 	/**
 	 * Keeps a slot blank while its card is still animating its way onto the field — a transparent
 	 * icon reserves the slot (so it still counts as occupied) without drawing the card.  A Forward
@@ -132,7 +137,7 @@ final class FieldEntryAnimator {
 	 * Returns {@code true} when the caller must skip its normal slot render.
 	 */
 	boolean holdSlotBlank(JLabel slot, CardData card) {
-		if (card == null || !pending.containsKey(card)) return false;
+		if (!isEntering(card)) return false;
 		if (slot != null) {
 			Icon held = heldIcons.get(card);
 			slot.setIcon(held != null ? held : blankIcon());

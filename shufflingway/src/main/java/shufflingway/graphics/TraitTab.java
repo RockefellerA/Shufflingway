@@ -26,8 +26,9 @@ import static shufflingway.graphics.CardAnimation.CARD_W;
 /**
  * Small rectangular tabs that peek out from behind a field card, one per trait the card
  * currently has, each carrying a vector-drawn glyph (Haste, Brave, First Strike, Cannot Be
- * Broken, Priming), plus the statuses the card is under: Must/Cannot Attack/Block, and the two
- * damage protections, "damage becomes 0" and "damage is reduced".
+ * Broken, Priming), plus the statuses the card is under: Must/Cannot Attack/Block, the two
+ * damage protections, "damage becomes 0" and "damage is reduced", and Preparing, for a Forward that
+ * entered too recently to attack or dull itself for a cost.
  *
  * <p>Tabs are composited onto the square {@code CARD_H x CARD_H} field-card canvas built by
  * {@link CardAnimation#renderBackupCard}, the same way the damage, power and counter overlays
@@ -83,6 +84,10 @@ public final class TraitTab {
     private static final Color ATTACK_FILL  = new Color(0xe2, 0x3b, 0x3b);
     private static final Color BLOCK_FILL   = new Color(0x3b, 0x7f, 0xe2);
     private static final Color FACE_INK     = Color.BLACK;
+    private static final Color GOLD_FILL    = new Color(0xf0, 0xbe, 0x48);
+    private static final Color GOLD_EDGE    = new Color(0x5a, 0x3c, 0x00);
+    private static final Color SAND_FILL    = new Color(0xff, 0xd8, 0x5a);
+    private static final Color GLASS_FILL   = new Color(255, 255, 255, 40);
 
     /** Card width the tab geometry below was authored against; everything scales off it. */
     private static final int DESIGN_CARD_W = 140;
@@ -113,7 +118,8 @@ public final class TraitTab {
             || trait == CardData.Trait.MUST_ATTACK
             || trait == CardData.Trait.MUST_BLOCK
             || trait == CardData.Trait.CANNOT_ATTACK
-            || trait == CardData.Trait.CANNOT_BLOCK;
+            || trait == CardData.Trait.CANNOT_BLOCK
+            || trait == CardData.Trait.PREPARING;
     }
 
     /**
@@ -153,6 +159,8 @@ public final class TraitTab {
             case MUST_BLOCK       -> "Must block if it is able to.";
             case CANNOT_ATTACK    -> "Cannot attack.";
             case CANNOT_BLOCK     -> "Cannot block.";
+            case PREPARING        -> "This unit cannot attack or use action abilities that require "
+                                   + "it to dull itself until the player's next turn.";
             default               -> null;
         };
     }
@@ -311,6 +319,7 @@ public final class TraitTab {
             case MUST_BLOCK       -> drawMustBlockIcon(g, x, y, size);
             case CANNOT_ATTACK    -> drawCannotAttackIcon(g, x, y, size);
             case CANNOT_BLOCK     -> drawCannotBlockIcon(g, x, y, size);
+            case PREPARING        -> drawPreparingIcon(g, x, y, size);
             default               -> { }
         }
     }
@@ -694,6 +703,71 @@ public final class TraitTab {
         g.setColor(SLASH_EDGE);
         g.setStroke(new BasicStroke(0.35f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         g.draw(slash);
+
+        g.dispose();
+    }
+
+    /**
+     * Draws the "Preparing" glyph — a golden hourglass, its sand part-way through — into the box
+     * {@code [x, y, x + size, y + size]}. Same 24x24 logical grid as {@link #drawHasteIcon}.
+     *
+     * <p>Haste's glyph is a clock, so the hourglass keeps to the same family of time: Haste skips the
+     * wait, and this is the wait. The frame and the sand are gold; the glass is white line art, like
+     * the outlines of the other glyphs, so the sand reads as sitting inside something.
+     */
+    public static void drawPreparingIcon(Graphics2D g0, float x, float y, float size) {
+        Graphics2D g = (Graphics2D) g0.create();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        float s = size / 24f;
+        g.translate(x, y);
+        g.scale(s, s);
+
+        // Two bulbs meeting at a narrow neck, between the frame's two plates.
+        Path2D.Float glass = new Path2D.Float();
+        glass.moveTo(7.6f, 5f);
+        glass.curveTo(7.6f, 9f, 11f, 10.4f, 11.1f, 12f);
+        glass.curveTo(11f, 13.6f, 7.6f, 15f, 7.6f, 19f);
+        glass.lineTo(16.4f, 19f);
+        glass.curveTo(16.4f, 15f, 13f, 13.6f, 12.9f, 12f);
+        glass.curveTo(13f, 10.4f, 16.4f, 9f, 16.4f, 5f);
+        glass.closePath();
+        g.setColor(GLASS_FILL);
+        g.fill(glass);
+
+        // Sand, clipped to the glass: what is left in the upper bulb, the stream through the neck,
+        // and the heap it has made below.
+        Graphics2D sg = (Graphics2D) g.create();
+        sg.clip(glass);
+        sg.setColor(SAND_FILL);
+        sg.fill(new Rectangle2D.Float(0, 8.4f, 24, 4f));
+        sg.fill(new Rectangle2D.Float(11.55f, 12f, 0.9f, 4f));
+        Path2D.Float heap = new Path2D.Float();
+        heap.moveTo(7f, 19.2f);
+        heap.curveTo(8.4f, 16.6f, 10.6f, 15.5f, 12f, 15.3f);
+        heap.curveTo(13.4f, 15.5f, 15.6f, 16.6f, 17f, 19.2f);
+        heap.closePath();
+        sg.fill(heap);
+        sg.dispose();
+
+        g.setStroke(new BasicStroke(1.1f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.setColor(ICON_LINE);
+        g.draw(glass);
+
+        // The frame: a post up each side and a plate across each end, drawn last so the plates cap
+        // the glass.
+        BasicStroke edge = new BasicStroke(0.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+        for (Shape part : new Shape[]{
+                new RoundRectangle2D.Float(5.1f, 4.4f, 1.5f, 15.2f, 0.8f, 0.8f),
+                new RoundRectangle2D.Float(17.4f, 4.4f, 1.5f, 15.2f, 0.8f, 0.8f),
+                new RoundRectangle2D.Float(4f, 2.4f, 16f, 2.8f, 1.4f, 1.4f),
+                new RoundRectangle2D.Float(4f, 18.8f, 16f, 2.8f, 1.4f, 1.4f) }) {
+            g.setColor(GOLD_FILL);
+            g.fill(part);
+            g.setStroke(edge);
+            g.setColor(GOLD_EDGE);
+            g.draw(part);
+        }
 
         g.dispose();
     }

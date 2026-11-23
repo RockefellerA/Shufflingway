@@ -270,6 +270,8 @@ public class GameState {
         currentPhase  = null;
         turnNumber    = 0;
         currentPlayer = Player.P1;
+        p1LatestTurn  = 0;
+        p2LatestTurn  = 0;
     }
 
     // -------------------------------------------------------------------------
@@ -1091,12 +1093,33 @@ public class GameState {
 
     private GamePhase currentPhase = null;  // null ⇒ game not yet started
     private int       turnNumber   = 0;
+    /** The number of the turn each player most recently began; 0 before their first. */
+    private int       p1LatestTurn = 0;
+    private int       p2LatestTurn = 0;
 
     /** Begins the very first turn: sets phase to Active, turn 1, {@code firstPlayer} to move. */
     public void startFirstTurn(Player firstPlayer) {
         currentPhase  = GamePhase.ACTIVE;
         turnNumber    = 1;
         currentPlayer = firstPlayer;
+        p1LatestTurn  = 0;
+        p2LatestTurn  = 0;
+        turnBegan();
+    }
+
+    /** Records that {@link #currentPlayer} has just begun turn {@link #turnNumber}. */
+    private void turnBegan() {
+        if (currentPlayer == Player.P1) p1LatestTurn = turnNumber;
+        else                            p2LatestTurn = turnNumber;
+    }
+
+    /**
+     * The number of the turn {@code player} most recently began — the current turn when it is
+     * theirs — or 0 if they have not had one yet. What "controlled since the beginning of their
+     * most recent turn" (CR 15.2.2.3) is measured from; an extra turn is a turn like any other.
+     */
+    public int latestTurnOf(Player player) {
+        return player == Player.P1 ? p1LatestTurn : p2LatestTurn;
     }
 
     /**
@@ -1108,13 +1131,12 @@ public class GameState {
      */
     public GamePhase advancePhase() {
         if (currentPhase == null) {
-            currentPhase  = GamePhase.ACTIVE;
-            turnNumber    = 1;
-            currentPlayer = Player.P1;
+            startFirstTurn(Player.P1);
         } else {
             if (currentPhase == GamePhase.END) {
                 turnNumber++;
                 currentPlayer = (currentPlayer == Player.P1) ? Player.P2 : Player.P1;
+                turnBegan();
             }
             currentPhase = currentPhase.next();
         }
@@ -1128,6 +1150,7 @@ public class GameState {
      */
     public GamePhase advancePhaseExtraTurn() {
         turnNumber++;
+        turnBegan();
         currentPhase = currentPhase.next(); // END → ACTIVE
         return currentPhase;
     }

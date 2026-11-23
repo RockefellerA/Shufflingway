@@ -56,6 +56,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.IntSupplier;
+import java.util.function.ObjIntConsumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -149,6 +150,8 @@ import shufflingway.graphics.ResolvingGlow;
 import shufflingway.graphics.FieldCardIcon;
 import shufflingway.graphics.FieldSlotLabel;
 import shufflingway.graphics.GradientPanel;
+import shufflingway.graphics.NotReadyGaugeOverlay;
+import shufflingway.graphics.NotReadyMarker;
 import shufflingway.graphics.PriorityGlow;
 import shufflingway.graphics.GrayscaleLabel;
 import shufflingway.graphics.HandFanOverlapLayout;
@@ -326,6 +329,8 @@ public class MainWindow {
 	 * and P2's blocker lowered out of its row; see {@link #syncCombatLift} and {@link #syncP2BlockerLift}.
 	 */
 	private SlotLiftOverlay   slotLift;
+	/** The ATB gauges beside Forwards that cannot attack or use 《Dull》 abilities yet; see {@link #refreshNotReadyGauge}. */
+	NotReadyGaugeOverlay      notReadyGauges;
 	/** "WINNER" / "GAME OVER" over the two halves of the board once a player loses; cleared by {@link #resetForNewGame}. */
 	private GameOverOverlay   gameOverOverlay;
 	/** How far a selected or attacking/blocking P1 Character rises out of its row, and P2's blocker drops out of its own. */
@@ -681,6 +686,8 @@ public class MainWindow {
 	final String[]     p2BackupUrls          = new String[5];
 	final CardData[]   p2BackupCards         = new CardData[5];
 	final CardState[]  p2BackupStates        = new CardState[5];
+	/** Turn number on which each backup slot was last filled (0 = empty/unknown). */
+	final int[]        p2BackupPlayedOnTurn  = new int[5];
 	private JPanel             p2ForwardPanel;
 	private final List<JLabel>    p2ForwardLabels       = new ArrayList<>();
 	private final List<String>    p2ForwardUrls         = new ArrayList<>();
@@ -2060,7 +2067,7 @@ public class MainWindow {
 		frame.setJMenuBar(menuBar);
 		menuBar.add(new FileMenu(frame, this::newGameFromMenu,
 				() -> applySidePanelSide(AppSettings.getSidePanelSide()),
-				this::applyBoardColor));
+				this::applyBoardColor, this::notReadyIndicatorChanged));
 		multiplayerMenu = new MultiplayerMenu(frame,
 				setup -> {
 					SwingUtilities.invokeLater(() -> {
@@ -2700,6 +2707,7 @@ public class MainWindow {
 		}
 
 		slotLift          = SlotLiftOverlay.install(frame, COMBAT_LIFT);
+		notReadyGauges    = NotReadyGaugeOverlay.install(frame, slotLift);
 		cardSlideAnimator = CardSlideAnimator.install(frame);
 		breakAnimator     = CardBreakAnimator.install(frame);
 		rfpAnimator       = CardRfpAnimator.install(frame);
@@ -4491,6 +4499,9 @@ public class MainWindow {
 		// The phase is the biggest single swing in what may be cast — nothing during Draw, the
 		// whole hand in Main Phase 1 — and this is the one hook every phase change passes through.
 		refreshHandCardStates();
+		// Through here for the same reason: every phase moves a not-ready Forward's gauge on, and a
+		// turn boundary is where one becomes ready.
+		refreshNotReadyIndicators();
 	}
 
 	/** Resets all interactive UI zones to their empty state for a new game. */
@@ -4617,6 +4628,7 @@ public class MainWindow {
 			p2BackupCards[i]   = null;
 			p2BackupStates[i]  = CardState.ACTIVE;
 			p2BackupFrozen[i]  = false;
+			p2BackupPlayedOnTurn[i] = 0;
 		}
 
 		// P2 forward zone
@@ -7488,13 +7500,15 @@ public class MainWindow {
 	 * stable display order. Only traits {@link TraitTab#hasGlyph} can draw are considered, and
 	 * each is resolved through {@code effectiveHasTrait} so granted, temporary and suppressed
 	 * traits all show correctly. The attack/block and damage statuses, and the narrow "cannot be
-	 * broken", are the keys of {@code statusDetails}, from {@link #forwardStatusDetails}.
+	 * broken", are the keys of {@code statusDetails}, from {@link #forwardStatusDetails}; Preparing
+	 * comes from {@link #showsPreparingTab}.
 	 */
-	private List<CardData.Trait> visibleTraitTabs(boolean isP1, int idx,
+	List<CardData.Trait> visibleTraitTabs(boolean isP1, int idx,
 			Map<CardData.Trait, List<String>> statusDetails) {
 		List<CardData.Trait> out = new ArrayList<>();
 		for (CardData.Trait t : CardData.Trait.values())
-			if (TraitTab.hasGlyph(t) && (effectiveHasTrait(isP1, idx, t) || statusDetails.containsKey(t)))
+			if (TraitTab.hasGlyph(t) && (effectiveHasTrait(isP1, idx, t) || statusDetails.containsKey(t)
+					|| t == CardData.Trait.PREPARING && showsPreparingTab(isP1, ForwardTarget.CardZone.FORWARD, idx)))
 				out.add(t);
 		return out;
 	}
@@ -7576,8 +7590,9 @@ public class MainWindow {
 
 	/**
 	 * {@link #visibleTraitTabs} for the Backup at {@code idx}: every drawable trait while it acts as
-	 * a Forward, and otherwise only {@link CardData.Trait#CANNOT_BE_BROKEN}, the one tab that means
-	 * anything for a card that cannot fight.
+	 * a Forward, and otherwise only {@link CardData.Trait#CANNOT_BE_BROKEN}, the one trait that means
+	 * anything for a card that cannot fight — and Preparing, since a Backup has 《Dull》 abilities
+	 * to wait for too.
 	 */
 	List<CardData.Trait> visibleBackupTraitTabs(boolean isP1, int idx,
 			Map<CardData.Trait, List<String>> statusDetails) {
@@ -7586,7 +7601,8 @@ public class MainWindow {
 		for (CardData.Trait t : CardData.Trait.values()) {
 			if (!TraitTab.hasGlyph(t)) continue;
 			boolean shows = statusDetails.containsKey(t)
-					|| ((asForward || t == CardData.Trait.CANNOT_BE_BROKEN) && backupTabHasTrait(isP1, idx, t));
+					|| ((asForward || t == CardData.Trait.CANNOT_BE_BROKEN) && backupTabHasTrait(isP1, idx, t))
+					|| t == CardData.Trait.PREPARING && showsPreparingTab(isP1, ForwardTarget.CardZone.BACKUP, idx);
 			if (shows) out.add(t);
 		}
 		return out;
@@ -7621,13 +7637,14 @@ public class MainWindow {
 
 	/**
 	 * Monster equivalent of {@link #visibleTraitTabs}, resolved through {@code effectiveMonsterHasTrait},
-	 * with its statuses from {@link #monsterStatusDetails}.
+	 * with its statuses from {@link #monsterStatusDetails} and Preparing from {@link #showsPreparingTab}.
 	 */
-	private List<CardData.Trait> visibleMonsterTraitTabs(boolean isP1, int idx,
+	List<CardData.Trait> visibleMonsterTraitTabs(boolean isP1, int idx,
 			Map<CardData.Trait, List<String>> statusDetails) {
 		List<CardData.Trait> out = new ArrayList<>();
 		for (CardData.Trait t : CardData.Trait.values())
-			if (TraitTab.hasGlyph(t) && (effectiveMonsterHasTrait(isP1, idx, t) || statusDetails.containsKey(t)))
+			if (TraitTab.hasGlyph(t) && (effectiveMonsterHasTrait(isP1, idx, t) || statusDetails.containsKey(t)
+					|| t == CardData.Trait.PREPARING && showsPreparingTab(isP1, ForwardTarget.CardZone.MONSTER, idx)))
 				out.add(t);
 		return out;
 	}
@@ -15391,6 +15408,8 @@ public class MainWindow {
 					|| p1DeclaredAttackers.stream().anyMatch(c -> c == occupant)
 					|| isP1Blocker(ForwardTarget.CardZone.BACKUP, idx, occupant));
 		}
+		refreshNotReadyGauge(true, ForwardTarget.CardZone.BACKUP, idx);
+		slot.putClientProperty(SLOT_PREPARING, showsPreparingTab(true, ForwardTarget.CardZone.BACKUP, idx));
 		if (url == null) { slot.setIcon(null); slot.setText(null); slot.setToolTipText(null); return; }
 		if (fieldEntryAnimator.holdSlotBlank(slot, p1BackupCards[idx])) return;
 		CardData card = p1BackupCards[idx];
@@ -16761,7 +16780,7 @@ public class MainWindow {
 			// check used to ignore Haste entirely — a Forward with printed Haste could not use its
 			// own 《Dull》 ability on the turn it arrived. Cherukiki 19-109H and Zangan 26-070H hand
 			// out this half of Haste on its own, and are read by the same query.
-			if (playedTurn > 0 && gameState.getTurnNumber() - playedTurn < 2
+			if (withinEntryRestriction(playedTurn, isP1)
 					&& !canPayDullCostWhileSummoningSick(source, ability, isP1)) return false;
 		}
 		// Wakka 16-138S's Reel Counters buy the whole cost, so the question below is not "can this
@@ -20303,6 +20322,8 @@ public class MainWindow {
 		syncCombatLift(card, slot, isSelectedAttacker(ForwardTarget.CardZone.MONSTER, idx)
 				|| p1DeclaredAttackers.stream().anyMatch(c -> c == card)
 				|| isP1Blocker(ForwardTarget.CardZone.MONSTER, idx, card));
+		refreshNotReadyGauge(true, ForwardTarget.CardZone.MONSTER, idx);
+		slot.putClientProperty(SLOT_PREPARING, showsPreparingTab(true, ForwardTarget.CardZone.MONSTER, idx));
 		if (url == null) return;
 		if (fieldEntryAnimator.holdSlotBlank(slot, card)) return;
 		int power         = effectiveP1MonsterPower(idx);
@@ -20403,6 +20424,8 @@ public class MainWindow {
 		CardState state = p2MonsterStates.get(idx);
 		JLabel slot = p2MonsterLabels.get(idx);
 		syncP2BlockerLift(p2MonsterCards.get(idx), slot);
+		refreshNotReadyGauge(false, ForwardTarget.CardZone.MONSTER, idx);
+		slot.putClientProperty(SLOT_PREPARING, showsPreparingTab(false, ForwardTarget.CardZone.MONSTER, idx));
 		if (url == null) return;
 		if (fieldEntryAnimator.holdSlotBlank(slot, p2MonsterCards.get(idx))) return;
 		CardData card     = p2MonsterCards.get(idx);
@@ -20463,6 +20486,186 @@ public class MainWindow {
 	}
 
 	// -------------------------------------------------------------------------
+	// Not-ready characters
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Whether a Character on {@code isP1}'s field that entered on {@code playedTurn} is still held
+	 * back by its entry, Haste aside: it may not pay a 《Dull》 cost until it has been controlled
+	 * since the beginning of its controller's most recent turn (CR 11.6.2.2, 15.2.2.3). That window
+	 * holds the attack restriction's too — a Forward must have been controlled since the beginning
+	 * of the turn to attack (CR 10.1.2.1.1), and it attacks only on its controller's turn — so it is
+	 * the one the board marks.
+	 *
+	 * <p>Measured from the controller's turn, not counted in turns: one that entered on the
+	 * opponent's turn is free when its controller's next turn begins, and an extra turn begins a
+	 * turn like any other.
+	 *
+	 * @param playedTurn the turn it entered on; 0 when unknown, which never restricts
+	 */
+	boolean withinEntryRestriction(int playedTurn, boolean isP1) {
+		return playedTurn > 0 && playedTurn >= gameState.latestTurnOf(isP1 ? GameState.Player.P1 : GameState.Player.P2);
+	}
+
+	/**
+	 * For the character in {@code isP1}'s {@code zone} slot {@code idx}, if it cannot attack or use
+	 * 《Dull》 abilities yet because it entered too recently, how many of its wait's phases have gone
+	 * by — how full its ATB gauge ({@link NotReadyMarker}) is; {@code null} once it is ready, while
+	 * it has Haste, or for an empty slot. Haste is read live, so one that loses it before it is ready
+	 * is marked again. Marked whether active or dull, so one an effect dulls while it is not ready
+	 * keeps its mark, and loses it on the same turn boundary as any other. A Backup enters dull, but
+	 * an effect can activate it before it is ready, so it is marked all the same.
+	 */
+	Integer notReadyPhases(boolean isP1, ForwardTarget.CardZone zone, int idx) {
+		if (!withinEntryRestriction(entryTurn(isP1, zone, idx), isP1)) return null;
+		boolean haste = switch (zone) {
+			case FORWARD    -> effectiveHasTrait(isP1, idx, CardData.Trait.HASTE);
+			case BACKUP     -> effectiveBackupHasTrait(isP1, idx, CardData.Trait.HASTE);
+			case MONSTER    -> effectiveMonsterHasTrait(isP1, idx, CardData.Trait.HASTE);
+			case BREAK_ZONE -> false;
+		};
+		return haste ? null : Math.min(NotReadyMarker.PHASES, phasesSinceTurnBegan(isP1));
+	}
+
+	/** {@link #notReadyPhases} for the Forward in {@code isP1}'s slot {@code idx}. */
+	Integer forwardNotReadyPhases(boolean isP1, int idx) {
+		return notReadyPhases(isP1, ForwardTarget.CardZone.FORWARD, idx);
+	}
+
+	/** The turn the character in {@code isP1}'s {@code zone} slot {@code idx} entered on; 0 for an empty slot. */
+	private int entryTurn(boolean isP1, ForwardTarget.CardZone zone, int idx) {
+		return switch (zone) {
+			case FORWARD -> {
+				List<Integer> turns = isP1 ? p1ForwardPlayedOnTurn : p2ForwardPlayedOnTurn;
+				yield idx >= 0 && idx < turns.size() ? turns.get(idx) : 0;
+			}
+			case MONSTER -> {
+				List<Integer> turns = isP1 ? p1MonsterPlayedOnTurn : p2MonsterPlayedOnTurn;
+				yield idx >= 0 && idx < turns.size() ? turns.get(idx) : 0;
+			}
+			case BACKUP -> {
+				CardData[] backs = isP1 ? p1BackupCards : p2BackupCards;
+				yield idx >= 0 && idx < backs.length && backs[idx] != null
+						? (isP1 ? p1BackupPlayedOnTurn : p2BackupPlayedOnTurn)[idx] : 0;
+			}
+			case BREAK_ZONE -> 0;
+		};
+	}
+
+	/**
+	 * How many phases have gone by since {@code isP1}'s most recent turn began, as the not-ready
+	 * gauge counts them: one each for Main Phase 1, the Attack Phase, Main Phase 2 and the End
+	 * Phase, so the Active and Draw Phases count with the turn before. Reads 0 through 4 across the
+	 * controller's turn and 4 through 8 across the opponent's that follows, and a not-ready Forward
+	 * is ready when its controller's next turn begins — so the gauge is full in the opponent's End
+	 * Phase whenever in the wait the Forward entered. Before the controller's first turn the
+	 * opponent's turn counts as the second half.
+	 */
+	int phasesSinceTurnBegan(boolean isP1) {
+		GameState.GamePhase phase = gameState.getCurrentPhase();
+		if (phase == null) return 0;
+		int turns = gameState.getTurnNumber() - gameState.latestTurnOf(isP1 ? GameState.Player.P1 : GameState.Player.P2);
+		int inTurn = switch (phase) {
+			case ACTIVE, DRAW -> 0;
+			case MAIN_1       -> 1;
+			case ATTACK       -> 2;
+			case MAIN_2       -> 3;
+			case END          -> 4;
+		};
+		return 4 * turns + inTurn;
+	}
+
+	/**
+	 * Whether the character in {@code isP1}'s {@code zone} slot {@code idx} wears the Preparing trait
+	 * tab: it is not ready yet ({@link #notReadyPhases}) and Preferences marks that with a tab
+	 * ({@link NotReadyIndicator#TAB}).
+	 */
+	boolean showsPreparingTab(boolean isP1, ForwardTarget.CardZone zone, int idx) {
+		return AppSettings.getNotReadyIndicator() == NotReadyIndicator.TAB && notReadyPhases(isP1, zone, idx) != null;
+	}
+
+	/**
+	 * Whether a field slot was last drawn with the Preparing tab: a {@code Boolean}, set as the
+	 * redraw starts, so {@link #refreshPreparingTab} can tell when the card needs drawing again.
+	 */
+	static final String SLOT_PREPARING = "shufflingway.slotPreparing";
+
+	/**
+	 * Shows the character in {@code isP1}'s {@code zone} slot {@code idx} with the ATB gauge it should
+	 * wear now — none while it is still animating onto the field — off the edge of its card that faces
+	 * the centre of the board: off a Backup's card rather than its slot, for the reason the overlay
+	 * gives. The overlay rises, clears or leaves it alone according to what it showed before
+	 * ({@link NotReadyGaugeOverlay#show}), so this is safe to call as often as anything changes.
+	 * Does nothing unless Preferences marks not-ready characters with the gauge.
+	 */
+	void refreshNotReadyGauge(boolean isP1, ForwardTarget.CardZone zone, int idx) {
+		if (notReadyGauges == null || AppSettings.getNotReadyIndicator() != NotReadyIndicator.ATB) return;
+		JLabel   label = fieldSlot(isP1, zone, idx);
+		CardData card  = fieldCardDataOrNull(new ForwardTarget(isP1, idx, zone));
+		if (label == null || card == null) return;
+		Integer phases = fieldEntryAnimator.isEntering(card) ? null : notReadyPhases(isP1, zone, idx);
+		notReadyGauges.show(card, label, phases, !isP1, zone == ForwardTarget.CardZone.BACKUP);
+	}
+
+	/**
+	 * Redraws the character in {@code isP1}'s {@code zone} slot {@code idx} when its Preparing tab
+	 * should come or go and its last render drew the other. The tab is part of the card's art, so
+	 * unlike the gauge it changes only with a redraw — and a turn boundary, where a character becomes
+	 * ready, redraws nothing on its own account.
+	 */
+	private void refreshPreparingTab(boolean isP1, ForwardTarget.CardZone zone, int idx) {
+		JLabel   label = fieldSlot(isP1, zone, idx);
+		CardData card  = fieldCardDataOrNull(new ForwardTarget(isP1, idx, zone));
+		if (label == null || card == null || fieldEntryAnimator.isEntering(card)) return;
+		boolean drawn = Boolean.TRUE.equals(label.getClientProperty(SLOT_PREPARING));
+		if (drawn != showsPreparingTab(isP1, zone, idx)) refreshFieldSlotFor(card, isP1);
+	}
+
+	/**
+	 * Brings every character's not-ready indicator up to date. A phase going by moves the gauges on
+	 * and a turn boundary lifts the restriction, and neither redraws a card on its own account. Haste
+	 * coming and going is caught by the slot redraw the change already makes — trait grants and
+	 * removals, cards entering and leaving, the end-of-turn cleanup all redraw the cards they touch —
+	 * and by this at the next phase for any that does not.
+	 */
+	private void refreshNotReadyIndicators() {
+		for (boolean isP1 : new boolean[] { true, false })
+			forEachFieldSlot(isP1, (zone, i) -> {
+				refreshNotReadyGauge(isP1, zone, i);
+				refreshPreparingTab(isP1, zone, i);
+			});
+	}
+
+	/**
+	 * Preferences has switched how not-ready characters are marked: takes the gauges down without a
+	 * clearing, which would read as every waiting card becoming ready, and redraws every character
+	 * with whichever indicator is now chosen, if any.
+	 */
+	void notReadyIndicatorChanged() {
+		if (notReadyGauges != null) notReadyGauges.clear();
+		for (boolean isP1 : new boolean[] { true, false })
+			forEachFieldSlot(isP1, (zone, i) -> {
+				switch (zone) {
+					case FORWARD -> { if (isP1) refreshP1ForwardSlot(i); else refreshP2ForwardSlot(i); }
+					case MONSTER -> { if (isP1) refreshP1MonsterSlot(i); else refreshP2MonsterSlot(i); }
+					case BACKUP  -> { if (isP1) refreshP1BackupSlot(i);  else refreshP2BackupSlot(i); }
+					default      -> { }
+				}
+			});
+	}
+
+	/** Runs {@code action} for every Forward, Monster and Backup slot on {@code isP1}'s field, empty Backup slots included. */
+	private void forEachFieldSlot(boolean isP1, ObjIntConsumer<ForwardTarget.CardZone> action) {
+		List<JLabel> fwds = isP1 ? p1ForwardLabels : p2ForwardLabels;
+		List<JLabel> mons = isP1 ? p1MonsterLabels : p2MonsterLabels;
+		JLabel[]     bkps = isP1 ? p1BackupLabels  : p2BackupLabels;
+		for (int i = 0; i < fwds.size(); i++) action.accept(ForwardTarget.CardZone.FORWARD, i);
+		for (int i = 0; i < mons.size(); i++) action.accept(ForwardTarget.CardZone.MONSTER, i);
+		if (bkps != null)
+			for (int i = 0; i < bkps.length; i++) action.accept(ForwardTarget.CardZone.BACKUP, i);
+	}
+
+	// -------------------------------------------------------------------------
 	// Forward slot rendering and selectability
 	// -------------------------------------------------------------------------
 
@@ -20471,6 +20674,7 @@ public class MainWindow {
 		refreshPlayerDamageShieldIcon(true);
 		syncCombatLift(p1ForwardCards.get(idx), p1ForwardLabels.get(idx), isForwardAttacking(true, idx)
 				|| isP1Blocker(ForwardTarget.CardZone.FORWARD, idx, p1ForwardCards.get(idx)));
+		refreshNotReadyGauge(true, ForwardTarget.CardZone.FORWARD, idx);
 		if (fieldEntryAnimator.holdSlotBlank(p1ForwardLabels.get(idx), p1ForwardCards.get(idx))) return;
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		final boolean primed = isPrimedForward(true, idx);
@@ -20478,6 +20682,7 @@ public class MainWindow {
 		String    url    = primed ? topCard.imageUrl() : p1ForwardUrls.get(idx);
 		CardState state  = p1ForwardStates.get(idx);
 		JLabel    slot   = p1ForwardLabels.get(idx);
+		slot.putClientProperty(SLOT_PREPARING, showsPreparingTab(true, ForwardTarget.CardZone.FORWARD, idx));
 		if (url == null) return;
 		CardData fwdCard  = p1ForwardCards.get(idx);
 		// Green means a click would take it: once an attacker is chosen, only the Forwards that can
@@ -21814,7 +22019,7 @@ public class MainWindow {
 		}
 		for (int i = 0; i < p2BackupCards.length; i++)
 			if (p2BackupCards[i] != null && autoAbilityTriggers.hasUsableFieldAbility(p2BackupCards[i],
-					p2BackupFrozen[i], p2BackupStates[i], 0, false)) return true;
+					p2BackupFrozen[i], p2BackupStates[i], p2BackupPlayedOnTurn[i], false)) return true;
 		for (int i = 0; i < p2MonsterCards.size(); i++)
 			if (autoAbilityTriggers.hasUsableFieldAbility(p2MonsterCards.get(i), p2MonsterFrozen.get(i),
 					p2MonsterStates.get(i), p2MonsterPlayedOnTurn.get(i), false)) return true;
@@ -24066,12 +24271,11 @@ public class MainWindow {
 							p1MonsterStates.get(idx), p1MonsterPlayedOnTurn.get(idx), true)
 					: autoAbilityTriggers.fieldAbilityChoices(p2MonsterCards.get(idx), p2MonsterFrozen.get(idx),
 							p2MonsterStates.get(idx), p2MonsterPlayedOnTurn.get(idx), false);
-			// P2's Backups keep no entry turn; 0 reads as on the field since before this turn.
 			case BACKUP -> isP1
 					? autoAbilityTriggers.fieldAbilityChoices(p1BackupCards[idx], p1BackupFrozen[idx],
 							p1BackupStates[idx], p1BackupPlayedOnTurn[idx], true)
 					: autoAbilityTriggers.fieldAbilityChoices(p2BackupCards[idx], p2BackupFrozen[idx],
-							p2BackupStates[idx], 0, false);
+							p2BackupStates[idx], p2BackupPlayedOnTurn[idx], false);
 			default -> List.of();
 		};
 	}
@@ -24690,6 +24894,7 @@ public class MainWindow {
 			p2BackupUrls[i]   = card.imageUrl();
 			p2BackupCards[i]  = card;
 			p2BackupStates[i] = CardState.DULL;
+			p2BackupPlayedOnTurn[i] = gameState.getTurnNumber();
 			refreshP2BackupSlot(i);
 			fieldEntryAnimator.fireEntersField(card, false, paidExtraCost);
 			syncBzForwardPlayables(false);
@@ -24710,6 +24915,8 @@ public class MainWindow {
 		} else {
 			syncP2BlockerLift(occupant, slot);
 		}
+		refreshNotReadyGauge(false, ForwardTarget.CardZone.BACKUP, idx);
+		slot.putClientProperty(SLOT_PREPARING, showsPreparingTab(false, ForwardTarget.CardZone.BACKUP, idx));
 		if (url == null) { slot.setIcon(null); slot.setText(null); slot.setToolTipText(null); return; }
 		if (fieldEntryAnimator.holdSlotBlank(slot, p2BackupCards[idx])) return;
 		CardData card = p2BackupCards[idx];
@@ -24750,11 +24957,13 @@ public class MainWindow {
 	void refreshP2ForwardSlot(int idx) {
 		refreshPlayerDamageShieldIcon(false);
 		syncP2BlockerLift(p2ForwardCards.get(idx), p2ForwardLabels.get(idx));
+		refreshNotReadyGauge(false, ForwardTarget.CardZone.FORWARD, idx);
 		if (fieldEntryAnimator.holdSlotBlank(p2ForwardLabels.get(idx), p2ForwardCards.get(idx))) return;
 		CardData topCard = p2ForwardPrimedTop.get(idx);
 		String url      = topCard != null ? topCard.imageUrl() : p2ForwardUrls.get(idx);
 		CardState state = p2ForwardStates.get(idx);
 		JLabel slot     = p2ForwardLabels.get(idx);
+		slot.putClientProperty(SLOT_PREPARING, showsPreparingTab(false, ForwardTarget.CardZone.FORWARD, idx));
 		if (url == null) return;
 		int damage    = p2ForwardDamage.get(idx);
 		int power     = effectiveP2ForwardPower(idx);
