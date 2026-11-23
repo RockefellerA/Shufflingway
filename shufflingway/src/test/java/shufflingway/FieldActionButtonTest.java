@@ -583,6 +583,41 @@ class FieldActionButtonTest {
 		assertTrue(slot.buttons().get(0).usable(), "a second Ice Backup makes the Ice; Time Mage pays the Dull");
 	}
 
+	// Ninja 2-115C: "《Lightning》《Lightning》《Dull》". Each 《Lightning》 is a Lightning CP of its own:
+	// one other Lightning Backup and a Wind card make 3 CP, but only 1 of it Lightning.
+	@Test
+	void eachElementTokenNeedsACpOfThatElement() {
+		MainWindow mw = inP1Main1();
+		mw.p1BackupCards[0]  = backup("Ninja", "Lightning", "《Lightning》《Lightning》《Dull》: Choose 1 Forward. Deal it 2000 damage.");
+		mw.p1BackupCards[1]  = backup("Lightning Mage", "Lightning", "");
+		mw.p1BackupStates[0] = mw.p1BackupStates[1] = CardState.ACTIVE;
+		mw.gameState.getP1Hand().add(card("Wind Card", "Wind", "Summon", ""));
+		mw.placeCardInForwardZone(forward("Target", "", ""));
+		assertFalse(firstButtonUsable(mw, ForwardTarget.CardZone.BACKUP, 0),
+				"1 Lightning CP from the Backup, and the Wind card makes Wind");
+
+		mw.gameState.getP1Hand().add(card("Lightning Card", "Lightning", "Summon", ""));
+		assertTrue(firstButtonUsable(mw, ForwardTarget.CardZone.BACKUP, 0),
+				"discarding a Lightning card makes both Lightning CP");
+	}
+
+	// One source pays one Element: a Fire/Ice discard makes 2 CP of Fire or of Ice, not 1 of each,
+	// so 《Fire》《Ice》 needs a second source though the card makes 2 CP for a 2-CP cost.
+	@Test
+	void aMultiElementDiscardPaysOneElementOfTheCost() {
+		MainWindow mw = inP1Main1();
+		mw.placeCardInForwardZone(card("Caster", "Fire", "Forward",
+				"《Fire》《Ice》: Choose 1 Forward. Deal it 1000 damage."));
+		mw.gameState.getP1Hand().add(card("Dual Card", "Fire/Ice", "Summon", ""));
+		assertFalse(firstButtonUsable(mw, ForwardTarget.CardZone.FORWARD, 0),
+				"the Fire/Ice card pays Fire or Ice, not both");
+
+		mw.p1BackupCards[0]  = backup("Ice Mage", "Ice", "");
+		mw.p1BackupStates[0] = CardState.ACTIVE;
+		assertTrue(firstButtonUsable(mw, ForwardTarget.CardZone.FORWARD, 0),
+				"the Ice Backup makes the Ice, the Fire/Ice card the Fire");
+	}
+
 	private static CardData card(String name, String element, String type, String text) {
 		return new CardData(null, name, element, 2, "Forward".equals(type) ? 5000 : 0, type, false, 0, false, false,
 				Set.of(), 0, List.of(), "", List.of(),

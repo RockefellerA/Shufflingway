@@ -1,6 +1,8 @@
 package shufflingway;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -114,6 +116,59 @@ public class CpPaymentUtils {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Whether {@code sources} can pay the CP still {@code owed} in each Element, when every source
+	 * puts all its CP towards one Element: a Backup's 1 CP, or a discard's 2, go to one of the
+	 * Elements the card carries even when it carries several. {@code sources.get(i)} is the set of
+	 * owed Elements source {@code i} could make and {@code sourceCp.get(i)} how much it makes; an
+	 * Element owed 0 or less is already paid.
+	 *
+	 * <p>Summing each Element's sources on its own counts a Fire/Ice discard towards Fire and Ice
+	 * at once, so 《Fire》《Fire》《Ice》 would look payable with that one card. This searches the
+	 * assignments instead, which stays small: only a source able to make more than one owed
+	 * Element branches.
+	 */
+	public static boolean elementCpCoverable(Map<String, Integer> owed, List<Set<String>> sources,
+			List<Integer> sourceCp) {
+		String[] elems = owed.keySet().toArray(String[]::new);
+		int[] left = new int[elems.length];
+		for (int e = 0; e < elems.length; e++) left[e] = owed.get(elems[e]);
+		// The sources with the fewest Elements to choose between go first, so that what has to be
+		// spent one way is settled before any branching.
+		List<Integer> order = new ArrayList<>();
+		for (int s = 0; s < sources.size(); s++) order.add(s);
+		order.sort(Comparator.comparingInt(s -> sources.get(s).size()));
+		return coverFrom(0, order, elems, left, sources, sourceCp);
+	}
+
+	/** {@link #elementCpCoverable} from the {@code at}-th source of {@code order} on. */
+	private static boolean coverFrom(int at, List<Integer> order, String[] elems, int[] left,
+			List<Set<String>> sources, List<Integer> sourceCp) {
+		boolean paid = true;
+		for (int e = 0; e < elems.length; e++) {
+			if (left[e] <= 0) continue;
+			paid = false;
+			// Prune: the sources not yet spent must still be able to make what this Element is owed.
+			int reachable = 0;
+			for (int i = at; i < order.size(); i++)
+				if (sources.get(order.get(i)).contains(elems[e])) reachable += sourceCp.get(order.get(i));
+			if (reachable < left[e]) return false;
+		}
+		if (paid) return true;
+		int s = order.get(at);
+		boolean spent = false;
+		for (int e = 0; e < elems.length; e++) {
+			if (left[e] <= 0 || !sources.get(s).contains(elems[e])) continue;
+			spent = true;
+			left[e] -= sourceCp.get(s);
+			boolean ok = coverFrom(at + 1, order, elems, left, sources, sourceCp);
+			left[e] += sourceCp.get(s);
+			if (ok) return true;
+		}
+		// Holding a source back never beats spending it on an Element still owed.
+		return !spent && coverFrom(at + 1, order, elems, left, sources, sourceCp);
 	}
 
 	/** Returns true if {@code source} contains any element from {@code playedElems}. */

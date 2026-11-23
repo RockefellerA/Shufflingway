@@ -1021,8 +1021,10 @@ class CostCalculator {
 	/**
 	 * True when {@code isP1} could currently assemble a CP payment described by {@code cost} — one
 	 * token per CP, {@code ""} for generic CP and an element name for element-specific CP. Counts
-	 * active Backups and hand cards that could be discarded for 2 CP, and requires at least one
-	 * source for every element named in the cost.
+	 * CP already produced, active Backups and hand cards that could be discarded for 2 CP. Every
+	 * named token owes 1 CP of its own Element, as {@code AbilityPaymentDialog} counts it: Ninja
+	 * 2-115C's 《Lightning》《Lightning》 wants two Lightning CP, which one Lightning Backup and a
+	 * Wind card in hand do not make however much CP they add up to.
 	 *
 	 * @param total the number of CP actually owed, which cost reductions may drop below {@code cost.size()}
 	 */
@@ -1034,23 +1036,19 @@ class CostCalculator {
 	boolean canAffordCpTokens(List<String> cost, int total, boolean isP1, ReservedCards reserved) {
 		if (cost.isEmpty()) return true;
 
-		boolean hasGeneric = cost.contains("");
-		LinkedHashMap<String, Integer> needed = new LinkedHashMap<>();
-		for (String e : cost) if (!e.isEmpty()) needed.merge(e, 1, Integer::sum);
-		String[] elems = needed.keySet().toArray(String[]::new);
+		LinkedHashMap<String, Integer> owed = new LinkedHashMap<>();
+		for (String e : cost) if (!e.isEmpty()) owed.merge(e, 1, Integer::sum);
+		String[] elems = owed.keySet().toArray(String[]::new);
 
-		boolean[] hasSrc = new boolean[elems.length];
-		int available = 0;
+		// CP already produced is fixed in its Element: it pays that Element outright, and any of it
+		// pays the generic part.
+		int available = mw.playerCpByElem(isP1).values().stream().mapToInt(Integer::intValue).sum();
+		for (String e : elems) owed.merge(e, -mw.playerCpForElem(isP1, e), Integer::sum);
 
-		for (int ei = 0; ei < elems.length; ei++) {
-			int b = mw.playerCpForElem(isP1, elems[ei]);
-			available += b;
-			if (b > 0) hasSrc[ei] = true;
-		}
-		if (hasGeneric) {
-			available += mw.playerCpByElem(isP1).values().stream().mapToInt(Integer::intValue).sum();
-			for (int ei = 0; ei < elems.length; ei++) available -= mw.playerCpForElem(isP1, elems[ei]);
-		}
+		// Everything that could still make CP, each with the owed Elements it could make. Any of
+		// them pays the generic part; only the ones that make an Element can pay that Element.
+		List<Set<String>> sources = new ArrayList<>();
+		List<Integer> sourceCp = new ArrayList<>();
 		CardData[]  bkpCards  = mw.playerBackupCards(isP1);
 		CardState[] bkpStates = mw.playerBackupStates(isP1);
 		for (int i = 0; i < bkpCards.length && !mw.backupCpSuppressed(isP1); i++) {
@@ -1060,29 +1058,21 @@ class CostCalculator {
 			boolean isAnyElem = bkp.backupCpAnyElement()
 					|| (bkp.backupCpAnyElementOfForwards() && !mw.playerForwardCards(isP1).isEmpty())
 					|| mw.isGrantedAnyElementCp(bkp);
-			if (isAnyElem) {
-				available++;
-				for (int ei = 0; ei < elems.length; ei++) hasSrc[ei] = true;
-			} else {
-				List<String> grantedSpecific = mw.getGrantedSpecificElementsCp(bkp);
-				boolean matched = false;
-				for (int ei = 0; ei < elems.length; ei++) {
-					if (mw.effectiveContainsElement(bkp, elems[ei]) || grantedSpecific.contains(elems[ei])) {
-						available++; hasSrc[ei] = true; matched = true; break;
-					}
-				}
-				if (!matched && hasGeneric) available++;
-			}
+			List<String> grantedSpecific = isAnyElem ? List.of() : mw.getGrantedSpecificElementsCp(bkp);
+			sources.add(elementsProducible(elems, e -> isAnyElem
+					|| mw.effectiveContainsElement(bkp, e) || grantedSpecific.contains(e)));
+			sourceCp.add(1);
+			available += 1;
 		}
 		Set<String> ldGrants = mw.lightDarkDiscardGrants(isP1);
 		for (CardData h : mw.playerHand(isP1)) {
 			if (!CpPaymentUtils.canDiscardForCp(h, ldGrants)) continue;
 			if (reserved.holdsHandCard(h)) continue;
+			sources.add(elementsProducible(elems, h::containsElement));
+			sourceCp.add(2);
 			available += 2;
-			for (int ei = 0; ei < elems.length; ei++) if (h.containsElement(elems[ei])) hasSrc[ei] = true;
 		}
-		for (boolean s : hasSrc) if (!s) return false;
-		return available >= total;
+		return available >= total && CpPaymentUtils.elementCpCoverable(owed, sources, sourceCp);
 	}
 
 	/** Returns true if the player can afford the Priming cost of {@code card} (card is on the field, not in hand). */
