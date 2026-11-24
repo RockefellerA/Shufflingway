@@ -8864,8 +8864,13 @@ public class ActionResolver {
      */
     public static List<ForwardTarget> preSelectTargets(String effectText, CardData source, int xValue, GameContext ctx) {
         TargetSpec spec = targetSpec(effectText, source);
-        if (spec == null) return null;
-        if (spec.zone() != null && !breakZonePickIsMadeOnStack(effectText, source)) return null;
+        // "Choose up to as many … as the … you control" has no number for the spec to read; it is
+        // counted now and chosen now, and that choice stands however the count moves before it
+        // resolves (23-094C Y'shtola, 20-031R Celes, 11-094C Zangetsu, 7-035L Serah).
+        ActionResolverChoose.AsManyAsFieldCount asMany =
+                spec == null ? ActionResolverChoose.asManyAsFieldCount(effectText) : null;
+        if (spec == null && asMany == null) return null;
+        if (spec != null && spec.zone() != null && !breakZonePickIsMadeOnStack(effectText, source)) return null;
         // Every activation-time selection funnels through here — action abilities, Summons and auto
         // abilities alike — so it is the one place that can tell the context what the cards it is
         // about to pick are in for. Ignored unless the picker is the AI.
@@ -8882,6 +8887,10 @@ public class ActionResolver {
         // And whether the payoff reaches only a pick within a cost ceiling: 11-107C Izayoi's bounce
         // skips a Forward dearer than his Ninja count, so a pick over it wastes the ability.
         ctx.setAiCostCeiling(ActionResolverChoose.chosenCostCeiling(effectText, source, ctx));
+        if (asMany != null) {
+            int count = asMany.count(ctx);
+            return count > 0 ? asMany.choose(ctx, count) : null;
+        }
         if (spec.zone() != null) {
             // "Choose 2 cards in your opponent's Break Zone" with one there is no legal choice
             // (rule 11.8.9): Yuffie 28-054L gains no crystals. Settled before any dialog opens.
@@ -8925,15 +8934,47 @@ public class ActionResolver {
      * @param declared   the declared options, or {@code null} when the effect is not a select menu
      * @param targets    as {@link #preSelectTargets} answers
      * @param targetText the text the targets were read off — the declared option, or the effect
+     * @param division   the damage each target is dealt, settled with them
+     *                   ({@link #settleDivisionForStack}), or {@code null} when the effect divides none
      */
-    record StackChoices(List<String> declared, List<ForwardTarget> targets, String targetText) {}
+    record StackChoices(List<String> declared, List<ForwardTarget> targets, String targetText,
+            List<Integer> division) {
+
+        StackChoices(List<String> declared, List<ForwardTarget> targets, String targetText) {
+            this(declared, targets, targetText, null);
+        }
+    }
 
     /**
-     * {@link #declareForStack}, then {@link #chooseTargetsAfterDeclaring} — what every route onto
-     * the Stack asks, save a Summon's cast, which sends the two halves over the wire differently.
+     * {@link #declareForStack}, then {@link #chooseTargetsAfterDeclaring}, then the division of
+     * damage among what it chose ({@link #settleDivisionForStack}) — what every route onto the Stack
+     * asks, save a Summon's cast, which sends its choices over the wire differently.
      */
     static StackChoices chooseForStack(String effectText, CardData source, int xValue, GameContext ctx) {
-        return chooseTargetsAfterDeclaring(effectText, declareForStack(effectText, source, ctx), source, xValue, ctx);
+        StackChoices chosen = chooseTargetsAfterDeclaring(effectText, declareForStack(effectText, source, ctx),
+                source, xValue, ctx);
+        List<Integer> division = settleDivisionForStack(chosen.targetText(), source, chosen.targets(), ctx);
+        return division == null ? chosen
+                : new StackChoices(chosen.declared(), chosen.targets(), chosen.targetText(), division);
+    }
+
+    /**
+     * How the damage {@code targetText} divides is split among {@code targets}, settled now, as the
+     * ability goes on the Stack: the amount — "If you control …, divide 10000 … instead" is read now —
+     * and each target's share, which the player decides now. {@code null} when the text divides no
+     * damage, or chose nothing to divide it among.
+     *
+     * <p>Only where the choose chain claims the text, which is what reads the settled division back
+     * as it resolves ({@link GameContext#consumeSettledDivision}).
+     */
+    static List<Integer> settleDivisionForStack(String targetText, CardData source, List<ForwardTarget> targets,
+            GameContext ctx) {
+        if (targets == null || targets.isEmpty() || targetText == null) return null;
+        if (!DIVISION_WORDING.matcher(targetText).find()) return null;
+        String site = matchedPatternName(targetText, source);
+        if (site == null || !site.startsWith("ChooseCharacter")) return null;
+        ActionResolverChoose.DamageDivision division = ActionResolverChoose.damageDivisionOf(targetText, source);
+        return division == null ? null : division.settle(ctx, targets, ctx::targetCard);
     }
 
     /**
@@ -8964,16 +9005,24 @@ public class ActionResolver {
      */
     static StackChoices chooseTargetsAfterDeclaring(String effectText, List<String> declared, CardData source,
             int xValue, GameContext ctx) {
-        if (declared == null) {
-            String own = beforeWhenYouDoSo(effectText);
-            return new StackChoices(null, preSelectTargets(own, source, xValue, ctx), own);
-        }
+        String own = targetTextAfterDeclaring(effectText, declared, source);
+        if (own == null) return new StackChoices(declared, null, effectText);
+        return new StackChoices(declared, preSelectTargets(own, source, xValue, ctx), own);
+    }
+
+    /**
+     * The text {@link #chooseTargetsAfterDeclaring} reads its targets off, without choosing them:
+     * the effect before "When you do so", or the first declared option that chooses anything.
+     * {@code null} when no declared option does. What a client replaying a cast, which receives
+     * the targets rather than choosing them, reads to settle anything else chosen with them.
+     */
+    static String targetTextAfterDeclaring(String effectText, List<String> declared, CardData source) {
+        if (declared == null) return beforeWhenYouDoSo(effectText);
         for (String option : declared) {
             String own = beforeWhenYouDoSo(option);
-            if (targetSpec(own, source) == null) continue;
-            return new StackChoices(declared, preSelectTargets(own, source, xValue, ctx), own);
+            if (targetSpec(own, source) != null) return own;
         }
-        return new StackChoices(declared, null, effectText);
+        return null;
     }
 
     /**

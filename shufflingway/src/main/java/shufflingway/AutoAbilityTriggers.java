@@ -6161,12 +6161,11 @@ final class AutoAbilityTriggers {
 		// declared option's targets are chosen with them (ActionResolver.chooseForStack).
 		// An inline shape chooses nothing yet: its payoff's targets are chosen once the price is paid,
 		// as the entry resolves.
-		List<String> declared = null;
+		ActionResolver.StackChoices choices = null;
 		List<ForwardTarget> preTargets = null;
 		if (!effectText.isBlank() && !shapeOnStack) {
-			ActionResolver.StackChoices choices = mw.withAbilityFocus(source, effectText, () -> mw.whileChoosingForStack(
+			choices = mw.withAbilityFocus(source, effectText, () -> mw.whileChoosingForStack(
 					() -> ActionResolver.chooseForStack(effectText, source, entryX, selectCtx)));
-			declared = choices.declared();
 			preTargets = targetsForStack(choices.targets(), choices.targetText(), source, selectCtx);
 		}
 		// "When X is dealt damage by a Forward …, deal that Forward …": the dealer came down as the
@@ -6180,7 +6179,7 @@ final class AutoAbilityTriggers {
 		StackEntry entry = new StackEntry(source, null, fa, effectIsP1, entryX, false, preTargets, false,
 				paidExtraCost, 0, 0, mw.triggeringBrokenCard, mw.triggeringEnteredCard);
 		mw.gameState.insertStack(depth, entry);
-		if (declared != null) mw.declaredSelectActions.put(entry, declared);
+		mw.recordStackChoices(entry, choices);
 		mw.cancelFirstOppForwardAuto(entry);
 		// "When your opponent's auto-ability is put on the stack" — 10-074C Suzuhisa. Only the ones
 		// that actually go on it: the shapes this layer resolves inline never do. Collected, not
@@ -6500,7 +6499,7 @@ final class AutoAbilityTriggers {
 			paid.restore(mw);
 			try { payoff.accept(ctx); } finally { since.restore(mw); }
 		});
-		if (choices.declared() != null) mw.declaredSelectActions.put(entry, choices.declared());
+		mw.recordStackChoices(entry, choices);
 		mw.cancelFirstOppForwardAuto(entry);
 		withBatch(() -> collectEventTriggers("opponent auto-ability put on stack", !controllerIsP1));
 		mw.showStackWindowIfNeeded();
@@ -9913,7 +9912,7 @@ final class AutoAbilityTriggers {
 				ability.effectText(), source, chosenX, mw.buildGameContext(isP1)));
 		StackEntry pushed = new StackEntry(source, ability, isP1, xValue, choices.targets(), revealedPower);
 		mw.gameState.insertStack(depth, pushed);
-		if (choices.declared() != null) mw.declaredSelectActions.put(pushed, choices.declared());
+		mw.recordStackChoices(pushed, choices);
 		triggerAutoAbilitiesForOpponentUsesActionAbility(pushed, source, isP1);
 		triggerAutoAbilitiesForOwnUsesActionAbility(pushed, source, isP1);
 		mw.showStackWindow();
@@ -10010,7 +10009,7 @@ final class AutoAbilityTriggers {
 						() -> ActionResolver.chooseForStack(text, watcher, 0, mw.buildGameContext(userIsP1))));
 				StackEntry pushed = new StackEntry(watcher, copy, userIsP1, 0, choices.targets(), entry.revealedForwardPower());
 				mw.gameState.insertStack(depth, pushed);
-				if (choices.declared() != null) mw.declaredSelectActions.put(pushed, choices.declared());
+				mw.recordStackChoices(pushed, choices);
 				if (copy.isSpecial()) mw.specialAbilitiesUsedThisTurn.add(new UsedSpecialAbility(watcher, copy));
 				triggerAutoAbilitiesForOpponentUsesActionAbility(pushed, watcher, userIsP1);
 			}

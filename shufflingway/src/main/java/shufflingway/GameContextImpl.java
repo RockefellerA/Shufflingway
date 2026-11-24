@@ -85,6 +85,8 @@ final class GameContextImpl implements GameContext {
 	private final boolean exBurst;
 	private List<ForwardTarget> lastChosenTargets = List.of();
 	private List<ForwardTarget> preloadedTargets  = null;
+	/** The division of damage settled as the ability went on the Stack — see {@link GameContext#preloadSettledDivision}. */
+	private List<Integer> settledDivision = null;
 	/** The options a select ability declared as it went on the Stack — see {@link GameContext#preloadSelectedActions}. */
 	private List<String> preloadedSelectedActions = null;
 	/**
@@ -370,6 +372,10 @@ final class GameContextImpl implements GameContext {
 			@Override public void preloadTargets(java.util.List<ForwardTarget> targets) { preloadedTargets = targets; }
 			@Override public java.util.List<ForwardTarget> consumePreloadedTargets() {
 				java.util.List<ForwardTarget> t = preloadedTargets; preloadedTargets = null; return t;
+			}
+			@Override public void preloadSettledDivision(List<Integer> amounts) { settledDivision = amounts; }
+			@Override public List<Integer> consumeSettledDivision() {
+				List<Integer> d = settledDivision; settledDivision = null; return d;
 			}
 
 			@Override public void resetEffectProgress() { mw.effectProgress = true; }
@@ -762,21 +768,47 @@ final class GameContextImpl implements GameContext {
 				if (isP1) { mw.p1DoublecastFreeSummons = true; mw.p1DoublecastLastSummonCost = -1; }
 				else      { mw.p2DoublecastFreeSummons = true; mw.p2DoublecastLastSummonCost = -1; }
 			}
+			/*
+			 * "Remove it from the game for as long as [X] is on the field." Any Character on the field
+			 * can be the one removed — Kraken (III) 25-091H takes a Backup — and X can stand in any
+			 * zone of the field: Deathgaze (IX) 8-056R and Chocobo Eater 19-027R are Monsters.
+			 *
+			 * An X that has left the field before this resolves removes nothing: the time it names is
+			 * already over (the FAQ for Necron 25-019C, Kraken (III), Chocobo Eater, Deathgaze (IX) and
+			 * Dorgann 7-056H).
+			 */
 			@Override public void removeTargetFromGameWhileNamedCardOnField(ForwardTarget t, String watcherName) {
-				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
-				List<CardData> targetFwds = t.isP1() ? mw.p1ForwardCards : mw.p2ForwardCards;
-				if (t.idx() >= targetFwds.size()) return;
-				CardData exiled = targetFwds.get(t.idx());
-				List<CardData> ownFwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
-				CardData watcher = null;
-				for (CardData c : ownFwds) if (c.name().equalsIgnoreCase(watcherName)) { watcher = c; break; }
-				if (watcher != null) {
-					mw.tempExiledCards.put(exiled, watcher);
-					logEntry(exiled.name() + " — removed from the game while " + watcher.name() + " is on the field");
-				} else {
-					logEntry(watcherName + " is not on the field — " + exiled.name() + " removed permanently");
+				CardData exiled = mw.fieldCardDataOrNull(t);
+				if (exiled == null) return;
+				CardData watcher = watcherOnField(watcherName);
+				if (watcher == null) {
+					logEntry(watcherName + " is no longer on the field — " + exiled.name() + " is not removed");
+					markEffectFizzled();
+					return;
 				}
+				mw.tempExiledCards.put(exiled, watcher);
+				logEntry(exiled.name() + " — removed from the game while " + watcher.name() + " is on the field");
 				removeTargetFromGame(t);
+			}
+
+			/**
+			 * The card a "for as long as [X] is on the field" duration is tied to, if it is on the field
+			 * now. X names the ability's own card, so that instance is the one asked about — a second
+			 * copy that arrived in the meantime is a different card, whose stay lends this one nothing.
+			 * A name that is not the resolving ability's own card is looked for on its controller's side.
+			 */
+			private CardData watcherOnField(String watcherName) {
+				CardData source = mw.currentAbilitySource;
+				if (source != null && source.name().equalsIgnoreCase(watcherName))
+					return mw.currentFieldTargetOf(source, true, -1) != null
+							|| mw.currentFieldTargetOf(source, false, -1) != null ? source : null;
+				for (CardData c : isP1 ? mw.p1ForwardCards : mw.p2ForwardCards)
+					if (c.name().equalsIgnoreCase(watcherName)) return c;
+				for (CardData c : isP1 ? mw.p1BackupCards : mw.p2BackupCards)
+					if (c != null && c.name().equalsIgnoreCase(watcherName)) return c;
+				for (CardData c : isP1 ? mw.p1MonsterCards : mw.p2MonsterCards)
+					if (c.name().equalsIgnoreCase(watcherName)) return c;
+				return null;
 			}
 
 			@Override public void putCardRemovedBySourceIntoBreakZone(CardData source) {
@@ -3609,7 +3641,7 @@ final class GameContextImpl implements GameContext {
 				StackEntry copyEntry = new StackEntry(newSource, null, copied, isP1, 0, false, preTargets,
 						false, false, 0, 0, chosen.triggerCard(), chosen.enteredCard());
 				mw.gameState.insertStack(mw.gameState.stackSize(), copyEntry);
-				if (choices.declared() != null) mw.declaredSelectActions.put(copyEntry, choices.declared());
+				mw.recordStackChoices(copyEntry, choices);
 				logEntry(newSource.name() + " triggers " + chosen.source().name()
 						+ "'s auto-ability: " + copied.effectText());
 				mw.showStackWindowIfNeeded();
@@ -8299,6 +8331,15 @@ final class GameContextImpl implements GameContext {
 				for (int i = 0; i < mw.p2MonsterCards.size(); i++)
 					if (mw.p2MonsterCards.get(i).name().equalsIgnoreCase(cardName))
 						return mw.effectiveP2MonsterPower(i);
+				// The ability's own card has left the field: its power as it last stood there (rule
+				// 11.11.4) — Soldier (FFTS) 29-088C, Onion Knight 10-139S's Meteor.
+				CardData source = mw.currentAbilitySource;
+				Integer last = source != null && source.name().equalsIgnoreCase(cardName)
+						? mw.lastKnownPower.get(source) : null;
+				if (last != null) {
+					logEntry(cardName + " has left the field — its power there was " + last);
+					return last;
+				}
 				logEntry("[ActionResolver] fieldForwardPowerByName: \"" + cardName + "\" not found on field");
 				return -1;
 			}

@@ -5,6 +5,7 @@ import static shufflingway.ActionResolverPatterns.*;
 import static shufflingway.ActionResolver.*;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -4302,94 +4303,37 @@ final class ActionResolverChoose {
         //      comes after the count.
         {
             Matcher totalM = FOLLOWUP_TOTAL_DAMAGE_MULTIPLIED_SPLIT.matcher(primaryFollowup.trim());
-            ToIntFunction<GameContext> perWhat = totalM.matches() ? multipliedDamageCount(totalM.group("what")) : null;
-            if (perWhat != null) {
-                final int per = Integer.parseInt(totalM.group("per"));
+            DamageDivision split = totalM.matches() ? multipliedSplit(primaryFollowup) : null;
+            if (split != null) {
+                final String per = totalM.group("per");
                 final String what = totalM.group("what").trim();
                 final boolean fUnreduced = unreduced;
                 return ctx -> {
-                    int total = per * perWhat.applyAsInt(ctx);
-                    ctx.logChooseHeader(choosePrefix + " — " + per + "×[" + what + "] = " + total + " damage, divided");
+                    ctx.logChooseHeader(choosePrefix + " — " + per + "×[" + what + "] damage, divided");
                     List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                             opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
                             costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
                             jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                    if (!ts.isEmpty() && total > 0) {
-                        List<Integer> allocation;
-                        if (ts.size() == 1) allocation = List.of(total);
-                        else {
-                            List<CardData> cards = new ArrayList<>();
-                            for (ForwardTarget t : ts) cards.add(ctx.targetCard(t));
-                            allocation = ctx.divideDamageAmount(total, "Divide Damage: ", cards);
-                        }
-                        Map<ForwardTarget, Integer> amountByTarget = new HashMap<>();
-                        for (int i = 0; i < ts.size(); i++) amountByTarget.put(ts.get(i), allocation.get(i));
-                        for (boolean side : new boolean[]{true, false})
-                            sortedByIdxDesc(ts, side).forEach(t -> {
-                                int amt = amountByTarget.get(t);
-                                if (amt > 0) damageTargetMaybeUnreduced(ctx, t, amt, fUnreduced);
-                            });
-                    }
+                    dealDivided(ctx, ts, settledOrSettle(ctx, ts, split, ctx::targetCard), fUnreduced);
                     if (secondary != null) secondary.accept(ctx);
                 };
             }
         }
 
         // --- "Divide N damage" ---
-        Matcher divideM = DIVIDE_DAMAGE_PATTERN.matcher(followup);
-        if (divideM.find())
+        DamageDivision division = divideClause(followup, source);
+        if (division != null)
         {
-            int baseDamage = Integer.parseInt(divideM.group("amount"));
-            final boolean equally = divideM.group("mode") != null;
-
-            int dotSpaceIdxCond = followup.indexOf(". ");
-            String followup_cond = dotSpaceIdxCond >= 0 ? followup.substring(dotSpaceIdxCond + 2) : "";
-            Matcher divideCondM = DIVIDE_DAMAGE_INSTEAD_COND.matcher(followup_cond);
-            final DamageInsteadCondition insteadCond;
-            final int altDamage;
-            if (divideCondM.find()) {
-                DamageInsteadCondition parsedCond = bindConditionToSource(parseDamageInsteadCondition(divideCondM.group("cond").trim()), source);
-                // Anchored to "divide N damage" specifically — a bare \d+ search would wrongly
-                // grab a digit embedded in the condition text itself (e.g. "Category FFTA2").
-                Matcher mAmp = DIVIDE_DAMAGE_PATTERN.matcher(followup_cond);
-                insteadCond = parsedCond;
-                altDamage   = (parsedCond != null && mAmp.find()) ? Integer.parseInt(mAmp.group("amount")) : baseDamage;
-            } else {
-                insteadCond = null;
-                altDamage   = baseDamage;
-            }
-
             final boolean fUnreduced = unreduced;
-            final int fBaseDamage = baseDamage;
             return ctx -> {
-                int fDamage = fBaseDamage;
-                if (insteadCond != null && insteadConditionMet(ctx, insteadCond)) fDamage = altDamage;
-
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, null, null, null, false, false,
                         -1, null, -1, null,
                         true, false, false,
                         null, null, null, null, false, null, false);
                 if (ts.isEmpty()) return;
-
-                if (equally) {
-                    int perTarget = roundUpToThousand(fDamage, ts.size());
-                    sortedByIdxDesc(ts, true) .forEach(t -> damageTargetMaybeUnreduced(ctx, t, perTarget, fUnreduced));
-                    sortedByIdxDesc(ts, false).forEach(t -> damageTargetMaybeUnreduced(ctx, t, perTarget, fUnreduced));
-                } else if (ts.size() == 1) {
-                    // Nothing to divide — skip the allocation dialog and deal it all.
-                    damageTargetMaybeUnreduced(ctx, ts.get(0), fDamage, fUnreduced);
-                } else {
-                    List<CardData> cards = new ArrayList<>();
-                    for (ForwardTarget t : ts) {
-                        cards.add(t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx()));
-                    }
-                    List<Integer> allocation = ctx.divideDamageAmount(fDamage, "Divide Damage: ", cards);
-                    Map<ForwardTarget, Integer> amountByTarget = new HashMap<>();
-                    for (int i = 0; i < ts.size(); i++) amountByTarget.put(ts.get(i), allocation.get(i));
-                    sortedByIdxDesc(ts, true) .forEach(t -> { int amt = amountByTarget.get(t); if (amt > 0) damageTargetMaybeUnreduced(ctx, t, amt, fUnreduced); });
-                    sortedByIdxDesc(ts, false).forEach(t -> { int amt = amountByTarget.get(t); if (amt > 0) damageTargetMaybeUnreduced(ctx, t, amt, fUnreduced); });
-                }
+                dealDivided(ctx, ts, settledOrSettle(ctx, ts, division,
+                        t -> t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx())), fUnreduced);
             };
         }
 
@@ -5533,6 +5477,15 @@ final class ActionResolverChoose {
                             && ctx.countSelfFieldCards(false, true, false, null, null) < bkpThresh) {
                         ctx.logChooseHeader(choosePrefix + " — fewer than " + bkpThresh
                                 + " Backups; no damage is dealt");
+                        if (secondary != null) secondary.accept(ctx);
+                        return;
+                    }
+                    // "[X] and the chosen Forward deal damage … to the other" has X deal it, and a card
+                    // that has left the field deals none: the chosen Forward takes no damage (the FAQ
+                    // for Prishe 28-069L, SOLDIER Candidate 23-068C, Ursula 25-052R). X's power as it
+                    // last stood is information an effect may read, not a card on the field to deal.
+                    if (!ctx.isNamedCardOnField(srcName)) {
+                        ctx.logChooseHeader(choosePrefix + " — " + srcName + " is no longer on the field; no damage is exchanged");
                         if (secondary != null) secondary.accept(ctx);
                         return;
                     }
@@ -9243,19 +9196,166 @@ final class ActionResolverChoose {
         };
     }
     /**
-     * Parses "Choose as many [Type] [opponent controls] as [the] [Element] [CountSource] you control.
-     * [Dull/Activate/Freeze/Dull-and-Freeze] them."
-     * The count is computed at resolution time from the acting player's field cards matching the count source.
+     * The two halves of "Choose up to as many [targets] as the [count source] you control": who may
+     * be chosen, and what is counted to say how many. Read once off the text, for the parser and for
+     * the choice made as the ability goes on the Stack ({@code ActionResolver.preSelectTargets}), so
+     * the two cannot disagree on either.
      */
-    static Consumer<GameContext> tryParseChooseAsManyAsFieldCount(String text, CardData source) {
-        Matcher m = CHOOSE_AS_MANY_AS_FIELD_COUNT.matcher(text.trim());
-        if (!m.matches()) return null;
+    record AsManyAsFieldCount(boolean opponentOnly, boolean selfOnly,
+            boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String countJob, String countName, String countCategory, String countElement,
+            boolean countForwards, boolean countBackups, boolean countMonsters) {
 
+        /**
+         * How many may be chosen now: the matching Characters the resolving player controls. "Job X
+         * or Card Name Y" is the union of the two, which the count — ANDing a Job and a name it is
+         * given together — is asked for in three parts.
+         */
+        int count(GameContext ctx) {
+            if (countJob != null && countName != null)
+                return countOf(ctx, countJob, null) + countOf(ctx, null, countName) - countOf(ctx, countJob, countName);
+            return countOf(ctx, countJob, countName);
+        }
+
+        private int countOf(GameContext ctx, String job, String name) {
+            return ctx.countSelfFieldCards(countForwards, countBackups, countMonsters,
+                    job, name, countCategory, countElement);
+        }
+
+        /** The choice itself, of up to {@code count}. */
+        List<ForwardTarget> choose(GameContext ctx, int count) {
+            return ctx.selectCharacters(count, true, opponentOnly, selfOnly, null, null, -1, null, -1, null,
+                    inclForwards, inclBackups, inclMonsters, null, null, null, null, false, null, false);
+        }
+    }
+
+    /**
+     * Damage divided among the chosen, as the text states it: how much there is to divide — read off
+     * the board, since "If you control …, divide 10000 damage among them instead" and "5000
+     * multiplied by each …" both count — and whether it goes equally.
+     *
+     * <p>The division is settled as the ability goes on the Stack, the amount and the split both
+     * ({@code ActionResolver.settleDivisionForStack}): the FAQ for 28-016L Vivi, 27-012H Zell,
+     * 28-015H Barret, 18-050L Yuri and 15-012H Faris. A target that has left before it resolves takes
+     * its share with it; nothing is handed on. The parsers read it here again only for a division
+     * nothing settled.
+     */
+    record DamageDivision(ToIntFunction<GameContext> total, boolean equally) {
+
+        /**
+         * The amount each of {@code targets} is dealt, in their order: all of it to a lone target,
+         * an equal share each when the text says so, otherwise as the player divides it.
+         * {@code null} when there is nothing to divide.
+         */
+        List<Integer> settle(GameContext ctx, List<ForwardTarget> targets, Function<ForwardTarget, CardData> cardOf) {
+            int amount = total.applyAsInt(ctx);
+            if (targets.isEmpty() || amount <= 0) return null;
+            if (equally) return new ArrayList<>(Collections.nCopies(targets.size(),
+                    roundUpToThousand(amount, targets.size())));
+            if (targets.size() == 1) return new ArrayList<>(List.of(amount));
+            List<CardData> cards = new ArrayList<>();
+            for (ForwardTarget t : targets) cards.add(cardOf.apply(t));
+            return ctx.divideDamageAmount(amount, "Divide Damage: ", cards);
+        }
+    }
+
+    /**
+     * The amounts {@code ts} are dealt: the division settled as the ability went on the Stack, handed
+     * over for the targets it still has ({@link GameContext#consumeSettledDivision}), or — when
+     * nothing was settled — {@code division} divided now.
+     */
+    private static List<Integer> settledOrSettle(GameContext ctx, List<ForwardTarget> ts, DamageDivision division,
+            Function<ForwardTarget, CardData> cardOf) {
+        List<Integer> settled = ctx.consumeSettledDivision();
+        if (settled != null && !ts.isEmpty() && settled.size() == ts.size()) {
+            ctx.logEntry("Divided as it went on the Stack: " + settled);
+            return settled;
+        }
+        return division.settle(ctx, ts, cardOf);
+    }
+
+    /** Deals each of {@code ts} its share of {@code amounts}, P1's side first; a share of 0 deals nothing. */
+    private static void dealDivided(GameContext ctx, List<ForwardTarget> ts, List<Integer> amounts, boolean unreduced) {
+        if (amounts == null || amounts.size() != ts.size()) return;
+        Map<ForwardTarget, Integer> amountByTarget = new HashMap<>();
+        for (int i = 0; i < ts.size(); i++) amountByTarget.put(ts.get(i), amounts.get(i));
+        for (boolean side : new boolean[]{true, false})
+            sortedByIdxDesc(ts, side).forEach(t -> {
+                int amt = amountByTarget.get(t);
+                if (amt > 0) damageTargetMaybeUnreduced(ctx, t, amt, unreduced);
+            });
+    }
+
+    /**
+     * "Divide N damage [equally] among them. [If &lt;cond&gt;, divide M damage among them instead.]",
+     * read from wherever the divide sentence stands in {@code text} — a followup that opens with it,
+     * or a whole effect text with the choice ahead of it. {@code null} when there is none.
+     */
+    static DamageDivision divideClause(String text, CardData source) {
+        Matcher divideM = DIVIDE_DAMAGE_PATTERN.matcher(text);
+        if (!divideM.find()) return null;
+        int baseDamage = Integer.parseInt(divideM.group("amount"));
+        boolean equally = divideM.group("mode") != null;
+        int sentenceEnd = text.indexOf(". ", divideM.start());
+        String cond = sentenceEnd >= 0 ? text.substring(sentenceEnd + 2) : "";
+        Matcher condM = DIVIDE_DAMAGE_INSTEAD_COND.matcher(cond);
+        if (condM.find()) {
+            DamageInsteadCondition parsed = bindConditionToSource(parseDamageInsteadCondition(condM.group("cond").trim()), source);
+            // Anchored to "divide N damage" specifically — a bare \d+ search would wrongly grab a
+            // digit embedded in the condition text itself (e.g. "Category FFTA2").
+            Matcher altM = DIVIDE_DAMAGE_PATTERN.matcher(cond);
+            if (parsed != null && altM.find()) {
+                int altDamage = Integer.parseInt(altM.group("amount"));
+                return new DamageDivision(ctx -> insteadConditionMet(ctx, parsed) ? altDamage : baseDamage, equally);
+            }
+        }
+        return new DamageDivision(ctx -> baseDamage, equally);
+    }
+
+    /**
+     * "Deal them a total amount of damage equal to N multiplied by each &lt;what&gt;, split as you wish
+     * among the chosen Forwards." (15-012H Faris, 29-103H Setzer), when {@code sentence} is that
+     * sentence; {@code null} otherwise.
+     */
+    static DamageDivision multipliedSplit(String sentence) {
+        Matcher totalM = FOLLOWUP_TOTAL_DAMAGE_MULTIPLIED_SPLIT.matcher(sentence.trim());
+        if (!totalM.matches()) return null;
+        ToIntFunction<GameContext> perWhat = multipliedDamageCount(totalM.group("what"));
+        if (perWhat == null) return null;
+        int per = Integer.parseInt(totalM.group("per"));
+        return new DamageDivision(ctx -> per * perWhat.applyAsInt(ctx), false);
+    }
+
+    /**
+     * The division a whole effect text makes, if any — its divide sentence, or a sentence of the
+     * multiplied-total wording, tried with and without its closing period as the followup chain
+     * hands it either way.
+     */
+    static DamageDivision damageDivisionOf(String text, CardData source) {
+        if (text == null) return null;
+        DamageDivision divide = divideClause(text, source);
+        if (divide != null) return divide;
+        for (String sentence : text.split("(?<=[.])\\s+")) {
+            String s = sentence.trim();
+            DamageDivision split = multipliedSplit(s);
+            if (split == null && s.endsWith(".")) split = multipliedSplit(s.substring(0, s.length() - 1));
+            if (split != null) return split;
+        }
+        return null;
+    }
+
+    /** {@link AsManyAsFieldCount} for {@code text}, or {@code null} when it is not this wording or its count source is unread. */
+    static AsManyAsFieldCount asManyAsFieldCount(String text) {
+        if (text == null) return null;
+        Matcher m = CHOOSE_AS_MANY_AS_FIELD_COUNT.matcher(text.trim());
+        return m.matches() ? asManyAsFieldCount(m) : null;
+    }
+
+    private static AsManyAsFieldCount asManyAsFieldCount(Matcher m) {
         String targetTypeRaw = m.group("targetType").trim();
         String targetSide    = m.group("targetSide");
         String countElem     = m.group("countElement");
         String countSrc      = m.group("countSrc").trim();
-        String followupText  = m.group("followup").trim();
 
         String tgtLow = targetTypeRaw.toLowerCase();
         boolean inclForwards = tgtLow.startsWith("forward") || tgtLow.startsWith("character");
@@ -9270,8 +9370,9 @@ final class ActionResolverChoose {
         boolean opponentOnly = targetSide != null && targetSide.toLowerCase().contains("opponent");
         boolean selfOnly     = targetSide != null && !opponentOnly;
 
-        String  countJobFilter = null;
-        String  countCatFilter = null;
+        String  countJobFilter  = null;
+        String  countNameFilter = null;
+        String  countCatFilter  = null;
         boolean countFwds = true, countBkps = true, countMons = true;
 
         Matcher jbm = JOB_BRACKET_PATTERN.matcher(countSrc);
@@ -9291,6 +9392,14 @@ final class ActionResolverChoose {
             }
         } else if (countSrc.toLowerCase().startsWith("job ")) {
             String rest = countSrc.substring("job ".length()).trim();
+            // "Job Ninja or Card Name Ninja" (11-094C Zangetsu) is a Job and a name, not one Job of
+            // that whole spelling, which no card carries.
+            Matcher orName = JOB_OR_CARD_NAME_REST.matcher(rest);
+            if (orName.matches()) {
+                rest            = orName.group("job").trim();
+                countNameFilter = orName.group("name")
+                        .replaceAll("(?i)\\s+(Forwards?|Backups?|Monsters?|Characters?)\\s*$", "").trim();
+            }
             countJobFilter = rest.replaceAll("(?i)\\s+(Forwards?|Backups?|Monsters?|Characters?)\\s*$", "").trim();
         } else {
             String csTypeLow = countSrc.toLowerCase().replaceAll("s$", "");
@@ -9303,6 +9412,30 @@ final class ActionResolverChoose {
                 return null;
             }
         }
+        return new AsManyAsFieldCount(opponentOnly, selfOnly, inclForwards, inclBackups, inclMonsters,
+                countJobFilter, countNameFilter, countCatFilter, countElem, countFwds, countBkps, countMons);
+    }
+
+    /**
+     * Parses "Choose as many [Type] [opponent controls] as [the] [Element] [CountSource] you control.
+     * [Dull/Activate/Freeze/Dull-and-Freeze] them."
+     *
+     * <p>The choice is made as the ability goes on the Stack, counted then
+     * ({@code ActionResolver.preSelectTargets}), and stands as it resolves however the count has
+     * moved since: 23-094C Y'shtola still dulls both Forwards she chose once one of her Scions has
+     * left. Only a choice still to be made counts at resolution.
+     */
+    static Consumer<GameContext> tryParseChooseAsManyAsFieldCount(String text, CardData source) {
+        Matcher m = CHOOSE_AS_MANY_AS_FIELD_COUNT.matcher(text.trim());
+        if (!m.matches()) return null;
+        AsManyAsFieldCount spec = asManyAsFieldCount(m);
+        if (spec == null) return null;
+
+        String targetTypeRaw = m.group("targetType").trim();
+        String targetSide    = m.group("targetSide");
+        String countElem     = m.group("countElement");
+        String countSrc      = m.group("countSrc").trim();
+        String followupText  = m.group("followup").trim();
 
         // The followup can carry a second sentence gating one more action on the board — 22-022R
         // Quistis's "Dull them. If you control 3 or more Category VIII Forwards, also Freeze them."
@@ -9344,10 +9477,6 @@ final class ActionResolverChoose {
                                 && FOLLOWUP_FREEZE.matcher(followupText).find();
         if (!doActivate && !doDullFreeze && !doDull && !doFreeze) return null;
 
-        final String  fJob = countJobFilter, fCat = countCatFilter, fElem = countElem;
-        final boolean fCFwds = countFwds, fCBkps = countBkps, fCMons = countMons;
-        final boolean fOppOnly = opponentOnly, fSelfOnly = selfOnly;
-        final boolean fFwds = inclForwards, fBkps = inclBackups, fMons = inclMonsters;
         final boolean fDullFreeze = doDullFreeze;
         final String  action = doActivate ? "Activate" : doDullFreeze ? "Dull and Freeze"
                              : doDull ? "Dull" : "Freeze";
@@ -9356,17 +9485,23 @@ final class ActionResolverChoose {
                 + " as " + (countElem != null ? countElem + " " : "") + countSrc + " you control";
 
         return ctx -> {
-            int count = ctx.countSelfFieldCards(fCFwds, fCBkps, fCMons, fJob, null, fCat, fElem);
-            if (count <= 0) {
+            // A choice made as the ability went on the Stack stands whatever the count is now. Taken
+            // and put straight back, so the selectTargets below is the one that consumes it.
+            List<ForwardTarget> chosenOnStack = ctx.consumePreloadedTargets();
+            if (chosenOnStack != null) ctx.preloadTargets(chosenOnStack);
+            int count = spec.count(ctx);
+            if (chosenOnStack == null && count <= 0) {
                 ctx.logEntry(logPfx + " — count=0, nothing to choose");
                 ctx.markEffectFizzled();
                 return;
             }
-            ctx.logEntry(logPfx + " (count=" + count + ") — " + action);
-            List<ForwardTarget> ts = selectTargets(ctx, count, true,
-                    fOppOnly, fSelfOnly, null, null, null, false, false,
+            ctx.logEntry(logPfx + (chosenOnStack != null ? " (chosen as it went on the Stack)"
+                    : " (count=" + count + ")") + " — " + action);
+            List<ForwardTarget> ts = selectTargets(ctx, Math.max(count, 1), true,
+                    spec.opponentOnly(), spec.selfOnly(), null, null, null, false, false,
                     -1, null, -1, null,
-                    fFwds, fBkps, fMons, null, null, null, null, false, null, false);
+                    spec.inclForwards(), spec.inclBackups(), spec.inclMonsters(),
+                    null, null, null, null, false, null, false);
             if (doActivate) {
                 sortedByIdxDesc(ts, true) .forEach(ctx::activateTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::activateTarget);

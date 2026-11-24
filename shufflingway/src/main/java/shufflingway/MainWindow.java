@@ -1925,6 +1925,37 @@ public class MainWindow {
 	}
 
 	/**
+	 * How each entry that divides damage among its targets settled the division as it went on the
+	 * Stack — one amount per pre-selected target, in their order ({@link ActionResolver#settleDivisionForStack}).
+	 * Handed to its resolution by {@link #preloadSettledDivision}; keyed and moved as
+	 * {@link #declaredSelectActions} is.
+	 */
+	final Map<StackEntry, List<Integer>> stackDivisions = new IdentityHashMap<>();
+
+	/** Keeps what {@code choices} settled for {@code entry} besides its targets: a declared option, a division. */
+	void recordStackChoices(StackEntry entry, ActionResolver.StackChoices choices) {
+		if (choices == null) return;
+		if (choices.declared() != null) declaredSelectActions.put(entry, choices.declared());
+		if (choices.division() != null && entry.preSelectedTargets() == choices.targets())
+			stackDivisions.put(entry, choices.division());
+	}
+
+	/**
+	 * Hands {@code entry}'s settled division, if it has one, to the context resolving it — the shares
+	 * of the targets it still has, in the order {@link #liveTargets} gives them. A target that has
+	 * left takes its share with it: nothing is passed on to the others.
+	 */
+	void preloadSettledDivision(StackEntry entry, GameContext ctx) {
+		List<Integer> settled = stackDivisions.remove(entry);
+		if (settled == null) return;
+		List<ForwardTarget> chosen = entry.preSelectedTargets();
+		if (chosen == null || chosen.size() != settled.size()) return;
+		List<Integer> live = new ArrayList<>();
+		for (LiveTarget t : followTargets(entry, false)) live.add(settled.get(t.chosenIndex()));
+		ctx.preloadSettledDivision(live);
+	}
+
+	/**
 	 * What resolves each "When you do so" payoff waiting on the Stack as its own delayed auto
 	 * ability ({@link AutoAbilityTriggers#triggerWhenYouDoSo}). It was built as the price was paid,
 	 * holding what the payment settled, because a response in between could overwrite the fields
@@ -4596,6 +4627,8 @@ public class MainWindow {
 		spentLbIndices.clear();
 		p2SpentLbIndices.clear();
 		declaredSelectActions.clear();
+		stackDivisions.clear();
+		lastKnownPower.clear();
 		whenYouDoSoPayoffs.clear();
 
 		// Damage zone
@@ -5549,6 +5582,7 @@ public class MainWindow {
 	 * elsewhere first and want a single relayout.
 	 */
 	private void removeP1ForwardSlotState(int idx) {
+		recordLastKnownPower(p1ForwardCards.get(idx), p1ForwardPrimedTop.get(idx), effectiveP1ForwardPower(idx));
 		p1ForwardCards.remove(idx);
 		p1ForwardUrls.remove(idx);
 		p1ForwardStates.remove(idx);
@@ -5569,8 +5603,23 @@ public class MainWindow {
 		refreshCannotLoseTheGame();
 	}
 
+	/**
+	 * Each Forward's power as it last stood on the field, taken as it leaves — what an ability reads
+	 * for "damage equal to [its] power" once its own card has gone: the information on the card at
+	 * the point just before it left (rule 11.11.4). Rubicante 13-016H's farewell deals the power he
+	 * had with his Damage 3 boost. Keyed by instance, the slot's primed top card as well as the card
+	 * under it, since either can be the source that asks.
+	 */
+	final Map<CardData, Integer> lastKnownPower = new IdentityHashMap<>();
+
+	private void recordLastKnownPower(CardData card, CardData primedTop, int power) {
+		if (card != null) lastKnownPower.put(card, power);
+		if (primedTop != null) lastKnownPower.put(primedTop, power);
+	}
+
 	/** P2's counterpart to {@link #removeP1ForwardSlotState(int)}; the same contract applies. */
 	private void removeP2ForwardSlotState(int idx) {
+		recordLastKnownPower(p2ForwardCards.get(idx), p2ForwardPrimedTop.get(idx), effectiveP2ForwardPower(idx));
 		p2ForwardCards.remove(idx);
 		p2ForwardUrls.remove(idx);
 		p2ForwardStates.remove(idx);
@@ -6284,6 +6333,13 @@ public class MainWindow {
 		}
 	}
 
+	/**
+	 * The cards {@code departing} removed "for as long as it is on the field" re-enter their owner's
+	 * field, each in the zone its type belongs to — a Backup Kraken (III) 25-091H took returns as a
+	 * Backup. One whose name a Character its owner now controls already carries stays removed (the
+	 * FAQ for Deathgaze (IX) 8-056R and Dorgann 7-056H): it does not come back to be put into the
+	 * Break Zone by the uniqueness rule.
+	 */
 	void returnTempExiledOnLeave(CardData departing) {
 		if (tempExiledCards.isEmpty()) return;
 		List<CardData> toReturn = new ArrayList<>();
@@ -6291,11 +6347,19 @@ public class MainWindow {
 			if (e.getValue() == departing) toReturn.add(e.getKey());
 		for (CardData c : toReturn) {
 			tempExiledCards.remove(c);
-			if (!gameState.removeFromPermanentRfp(c)) continue;
 			boolean ownerP1 = Boolean.TRUE.equals(gameState.getIdentity().get(c));
+			if (!c.multicard() && hasUniquenessClashOnField(c, ownerP1)) {
+				logEntry(c.name() + " stays removed from the game — a Character of that name is already on "
+						+ "its owner's field");
+				continue;
+			}
+			if (!gameState.removeFromPermanentRfp(c)) continue;
 			logEntry(c.name() + " re-enters the field — " + departing.name() + " left the field");
-			placeFromRfgWithAnim(c, ownerP1,
-					() -> { if (ownerP1) placeCardInForwardZone(c); else placeP2CardInForwardZone(c); });
+			placeFromRfgWithAnim(c, ownerP1, () -> {
+				if (c.isBackup())       { if (ownerP1) placeCardInFirstBackupSlot(c); else placeP2CardInFirstBackupSlot(c); }
+				else if (c.isMonster()) { if (ownerP1) placeCardInMonsterZone(c);     else placeP2CardInMonsterZone(c); }
+				else                    { if (ownerP1) placeCardInForwardZone(c);     else placeP2CardInForwardZone(c); }
+			});
 		}
 	}
 
@@ -14039,6 +14103,28 @@ public class MainWindow {
 		}
 	}
 
+	/**
+	 * How a Summon that divides damage among its targets splits it, settled as it is cast with the
+	 * targets it chose ({@link ActionResolver#settleDivisionForStack}), or {@code null} when it
+	 * divides none.
+	 *
+	 * <p>Asked on both clients, as the declaration is ({@link #declareSummonSelection}): the targets
+	 * ride inside the cast's PLAY_CARD and a replaying client receives them, but the division is one
+	 * more answer, which crosses on its own and is waiting when the replay asks for it.
+	 */
+	private List<Integer> settleSummonDivision(CardData card, boolean isP1, boolean paidExtraCost, int xValue,
+			List<String> declared, List<ForwardTarget> targets) {
+		String text = ActionResolver.targetTextAfterDeclaring(
+				narrowedAsCast(card, resolvedSummonEffectText(card, paidExtraCost, xValue)), declared, card);
+		boolean travels = choiceTravelsWithThePlay;
+		choiceTravelsWithThePlay = false;
+		try {
+			return ActionResolver.settleDivisionForStack(text, card, targets, buildGameContext(isP1));
+		} finally {
+			choiceTravelsWithThePlay = travels;
+		}
+	}
+
 	/** Pushes a Summon onto the stack and opens the stack overlay, choosing its targets first. */
 	void showSummonOnStack(CardData card, boolean isP1) {
 		showSummonOnStack(card, isP1, 0, 0, false, null, false);
@@ -14103,11 +14189,14 @@ public class MainWindow {
 				? (preTargets == null || preTargets.isEmpty() ? null : preTargets)
 				: whileChoosingForStack(() -> chooseSummonTargets(card, isP1, paidExtraCost, xValue, declared));
 		lastSummonPreTargets = targets;
+		List<Integer> division = targets == null ? null
+				: whileChoosingForStack(() -> settleSummonDivision(card, isP1, paidExtraCost, xValue, declared, targets));
 		StackEntry entry = paidExtraCost
 				? new StackEntry(card, null, null, isP1, xValue, false, targets, false, true, extraCostRemovedCardPower, 0)
 				: new StackEntry(card, null, null, isP1, xValue, false, targets, false, false, 0, 0);
 		gameState.insertStack(depth, entry);
 		if (declared != null) declaredSelectActions.put(entry, declared);
+		if (division != null) stackDivisions.put(entry, division);
 		// Every cast path records its payment before pushing; a record for another card means
 		// this one was cast by an effect without paying.
 		summonCastPayments.put(card, lastCastPaymentCard == card
@@ -14423,6 +14512,7 @@ public class MainWindow {
 		boolean noTargetLeft = !cancelledStackEntries.contains(entry) && hasNoTargetLeft(entry);
 		if (cancelledStackEntries.remove(entry) || noTargetLeft) {
 			declaredSelectActions.remove(entry);
+			stackDivisions.remove(entry);
 			whenYouDoSoPayoffs.remove(entry);
 			String pfx = entry.isP1() ? "" : "[P2] ";
 			logEntry(pfx + "\"" + entry.source().name() + "\" — "
@@ -14500,6 +14590,7 @@ public class MainWindow {
 					// Summon's declared option likewise.
 					if (entry.preSelectedTargets() != null) ctx.preloadTargets(liveTargets(entry));
 					preloadDeclaredActions(entry, ctx);
+					preloadSettledDivision(entry, ctx);
 					currentResolutionIsSummon   = true;
 					currentSummonSource     = entry.source();
 					currentSummonSourceIsP1 = entry.isP1();
@@ -14590,6 +14681,7 @@ public class MainWindow {
 						+ entry.autoAbility().effectText());
 				if (entry.preSelectedTargets() != null) ctx.preloadTargets(liveTargets(entry));
 				preloadDeclaredActions(entry, ctx);
+				preloadSettledDivision(entry, ctx);
 				currentAbilitySource     = entry.source();
 				currentAbilitySourceIsP1 = entry.isP1();
 				currentAbilityIsSpecial  = false;
@@ -14627,6 +14719,7 @@ public class MainWindow {
 					// and a select ability's options too.
 					if (entry.preSelectedTargets() != null) ctx.preloadTargets(liveTargets(entry));
 					preloadDeclaredActions(entry, ctx);
+					preloadSettledDivision(entry, ctx);
 					currentAbilitySource     = entry.source();
 					currentAbilitySourceIsP1 = entry.isP1();
 					currentAbilityIsSpecial  = false;
@@ -14635,6 +14728,7 @@ public class MainWindow {
 					} finally { currentAbilitySource = null; }
 				} else if (!conditionHolds) {
 					declaredSelectActions.remove(entry);
+					stackDivisions.remove(entry);
 					logEntry("[AutoAbility] \"" + entry.source().name() + "\" — its condition no longer holds; "
 							+ "the effect is cancelled");
 				} else if (hadExtraCostClause && !entry.paidExtraCost()) {
@@ -14661,6 +14755,7 @@ public class MainWindow {
 					if (entry.preSelectedTargets() != null) ctx.preloadTargets(liveTargets(entry));
 					// And a select menu's option, declared as the ability was used (rule 11.6.6).
 					preloadDeclaredActions(entry, ctx);
+					preloadSettledDivision(entry, ctx);
 					ActionResolver.resolve(entry.ability(), entry.source(), gameState, ctx, entry.xValue());
 				} finally {
 					currentAbilitySource    = null;
@@ -16368,19 +16463,36 @@ public class MainWindow {
 		List<CardData> cards = gameState.stackTargetCards(entry);
 		if (cards == null || cards.size() != chosen.size()) return chosen;
 		List<ForwardTarget> live = new ArrayList<>();
+		for (LiveTarget t : followTargets(entry, announce)) live.add(t.now());
+		return live;
+	}
+
+	/** One of an entry's pre-selected targets that is still there: where it is now, and its place in the choice. */
+	record LiveTarget(int chosenIndex, ForwardTarget now) {}
+
+	/**
+	 * {@link #liveTargets}, with the place each surviving target held in the choice — what lines a
+	 * settled division ({@link #stackDivisions}) up with the targets that are left.
+	 */
+	List<LiveTarget> followTargets(StackEntry entry, boolean announce) {
+		List<ForwardTarget> chosen = entry.preSelectedTargets();
+		List<LiveTarget> live = new ArrayList<>();
+		if (chosen == null) return live;
+		List<CardData> cards = gameState.stackTargetCards(entry);
+		boolean recorded = cards != null && cards.size() == chosen.size();
 		for (int i = 0; i < chosen.size(); i++) {
 			ForwardTarget t = chosen.get(i);
-			CardData card = cards.get(i);
-			if (card == null) { live.add(t); continue; }
+			CardData card = recorded ? cards.get(i) : null;
+			if (card == null) { live.add(new LiveTarget(i, t)); continue; }
 			if (t.zone() == ForwardTarget.CardZone.BREAK_ZONE) {
 				int at = indexByIdentity(t.isP1() ? gameState.getP1BreakZone() : gameState.getP2BreakZone(), card);
-				if (at >= 0) live.add(new ForwardTarget(t.isP1(), at, ForwardTarget.CardZone.BREAK_ZONE));
+				if (at >= 0) live.add(new LiveTarget(i, new ForwardTarget(t.isP1(), at, ForwardTarget.CardZone.BREAK_ZONE)));
 				else if (announce) logEntry(card.name() + " is no longer in the Break Zone — no longer a target of "
 						+ entry.source().name());
 				continue;
 			}
 			ForwardTarget now = currentFieldTargetOf(card, t.isP1(), t.idx());
-			if (now != null) live.add(now);
+			if (now != null) live.add(new LiveTarget(i, now));
 			else if (announce) logEntry(card.name() + " is no longer on the field — no longer a target of "
 					+ entry.source().name());
 		}
@@ -16726,6 +16838,8 @@ public class MainWindow {
 		if (cancelledStackEntries.remove(entry)) cancelledStackEntries.add(updated);
 		List<String> declared = declaredSelectActions.remove(entry);
 		if (declared != null) declaredSelectActions.put(updated, declared);
+		List<Integer> division = stackDivisions.remove(entry);
+		if (division != null) stackDivisions.put(updated, division);
 		Consumer<GameContext> payoff = whenYouDoSoPayoffs.remove(entry);
 		if (payoff != null) whenYouDoSoPayoffs.put(updated, payoff);
 	}

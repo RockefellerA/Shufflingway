@@ -515,6 +515,18 @@ public interface GameContext {
     java.util.List<ForwardTarget> consumePreloadedTargets();
 
     /**
+     * Loads the division of damage an ability settled as it went on the Stack, one amount per target
+     * it still has, in the order {@link #preloadTargets} hands them over ({@code MainWindow.stackDivisions}).
+     */
+    default void preloadSettledDivision(java.util.List<Integer> amounts) {}
+
+    /**
+     * Consumes and returns the division loaded by {@link #preloadSettledDivision}, or {@code null}
+     * when none was — a division nobody settled, divided as it resolves.
+     */
+    default java.util.List<Integer> consumeSettledDivision() { return null; }
+
+    /**
      * Moves a Stack entry's chosen target, for the five abilities whose criteria {@code spec}
      * describes (see {@link TargetRedirect}). Picks an eligible entry — prompting when more than
      * one qualifies — works out the replacement, and rewrites the entry via

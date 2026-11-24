@@ -206,6 +206,18 @@ final class ActionResolverPatterns {
         "(?<followup>.+)"
     );
 
+    /**
+     * The rest of a "Job X or Card Name Y" count source after "Job " — 11-094C Zangetsu's "the Job
+     * Ninja or Card Name Ninja you control". Groups {@code job} and {@code name}.
+     */
+    static final Pattern JOB_OR_CARD_NAME_REST = Pattern.compile("(?i)^(?<job>.+?)\\s+or\\s+Card\\s+Name\\s+(?<name>.+)$");
+
+    /**
+     * A text that divides damage among what it chose — "Divide N damage" or "split as you wish" —
+     * the cheap test {@code ActionResolver.settleDivisionForStack} makes before reading it closely.
+     */
+    static final Pattern DIVISION_WORDING = Pattern.compile("(?i)\\bdivide\\s+\\d+\\s+damage\\b|\\bsplit\\s+as\\s+you\\s+wish\\b");
+
     /** The word "choose", counted by {@code ActionResolver.stackPickIsWholeChoice}. */
     static final Pattern CHOOSE_WORD = Pattern.compile("(?i)\\bchoose\\b");
 

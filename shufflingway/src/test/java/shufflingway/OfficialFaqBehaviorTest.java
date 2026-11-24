@@ -425,6 +425,31 @@ class OfficialFaqBehaviorTest {
 		assertEquals(10000, viviDeals(true), "the allocation was fixed as the ability went on the Stack");
 	}
 
+	@Test
+	void viviSplitsAsSheGoesOnTheStackAndALeavingTargetTakesItsShareWithIt() {
+		MainWindow mw = new MainWindow();
+		CardData a = makeForward("A", "Water", 7, 15000);
+		CardData b = makeForward("B", "Ice", 7, 15000);
+		seatForward(mw, true, a);
+		seatForward(mw, true, b);
+		p2Arrives(mw, vivi_28_016L());
+
+		StackEntry entry = mw.gameState.peekStack();
+		List<ForwardTarget> chosen = entry.preSelectedTargets();
+		List<Integer> split = mw.stackDivisions.get(entry);
+		assertNotNull(split, "divided as it went on the Stack");
+		assertEquals(2, chosen.size(), "both Forwards chosen");
+		assertEquals(7000, split.get(0) + split.get(1), "no Category IX ally: 7000");
+
+		CardData leaving = mw.p1ForwardCards.get(chosen.get(0).idx());
+		CardData staying = mw.p1ForwardCards.get(chosen.get(1).idx());
+		bounce(mw, leaving);
+		resolveStack(mw);
+
+		assertEquals(split.get(1), mw.p1ForwardDamage.get(mw.p1ForwardCards.indexOf(staying)),
+				"its own share and no more: the leaving target's is not handed on");
+	}
+
 	// =========================================================================================
 	// 28-023C Kam'lanaut: "If the chosen Forward becomes invalid during resolution, you do not gain
 	// a crystal."
@@ -1497,6 +1522,20 @@ class OfficialFaqBehaviorTest {
 		bounce(mw, kraken);
 		resolveStack(mw);
 		assertSame(backup, mw.p1BackupCards[0]);
+	}
+
+	@Test
+	void krakensBackupReturnsAsABackupWhenHeLeaves() {
+		MainWindow mw = new MainWindow();
+		CardData backup = makeBackup("Theirs", "Fire", 2);
+		seatBackup(mw, true, backup);
+		CardData kraken = krakenIii_25_091H();
+		p2Arrives(mw, kraken);
+		resolveStack(mw);
+		respond(mw, true, "Choose 1 Forward opponent controls. Break it.", fwd(false, slot(mw, false, kraken)));
+		resolveStack(mw);
+		assertTrue(Arrays.asList(mw.p1BackupCards).contains(backup), "back in the Backup row");
+		assertFalse(mw.p1ForwardCards.contains(backup));
 	}
 
 	@Test

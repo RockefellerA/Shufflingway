@@ -54689,6 +54689,7 @@ public class CardBehaviorTest {
 		when(ctx.castPaymentDistinctElements()).thenReturn(paid);
 		when(ctx.castPaymentDistinctElementsFor(any())).thenReturn(paid);
 		when(ctx.fieldForwardPowerByName(anyString())).thenReturn(7000);
+		when(ctx.isNamedCardOnField(anyString())).thenReturn(true);   // still there to deal its share
 		when(ctx.effectiveTargetPower(any())).thenReturn(5000);
 		Consumer<GameContext> fn = ActionResolver.parse(effect, self);
 		assertNotNull(fn, "must parse: " + effect);
@@ -55815,6 +55816,7 @@ public class CardBehaviorTest {
 		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
 		when(ctx.countSelfFieldCards(false, true, false, null, null)).thenReturn(backups);
 		when(ctx.fieldForwardPowerByName("Dyne")).thenReturn(9000);
+		when(ctx.isNamedCardOnField("Dyne")).thenReturn(true);   // he deals his share, so he is still there
 		when(ctx.effectiveTargetPower(any())).thenReturn(7000);
 		Consumer<GameContext> fn = ActionResolver.parse(DYNE_25_064C, dyne);
 		assertNotNull(fn, "must parse: " + DYNE_25_064C);
@@ -55855,6 +55857,7 @@ public class CardBehaviorTest {
 		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
 		when(ctx.countSelfFieldCards(anyBoolean(), anyBoolean(), anyBoolean(), any(), any())).thenReturn(0);
 		when(ctx.fieldForwardPowerByName("Jecht")).thenReturn(9000);
+		when(ctx.isNamedCardOnField("Jecht")).thenReturn(true);   // still there to deal his share
 		when(ctx.effectiveTargetPower(any())).thenReturn(5000);
 
 		ActionResolver.parse(effect, jecht).accept(ctx);
