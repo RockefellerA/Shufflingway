@@ -317,6 +317,11 @@ final class ActionResolverHand {
         // Attack Phase whether or not he controlled the three Forwards his ability names. The
         // whole text is left to the gate parsers, which read the draw as part of what they gate.
         if (LEADING_CONDITION_SENTENCE.matcher(head).lookingAt()) return null;
+        // The same for a head ending in an "If/When you do so" payoff: the draw is part of that
+        // payoff. 5-071R Leyak's FAQ — if Leyak has left the field before it resolves, it can't be
+        // put into the Break Zone, so it neither activates the Characters nor draws. The whole text
+        // is left to tryParseWhenYouDoSoSequence, whose followup reads the draw with the rest.
+        if (WHEN_YOU_DO_SO_SEQUENCE.matcher(head).find()) return null;
 
         Consumer<GameContext> headEffect = parse(head, source, xValue);
         if (headEffect == null) return null;

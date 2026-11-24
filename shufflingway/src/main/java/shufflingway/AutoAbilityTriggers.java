@@ -2496,6 +2496,13 @@ final class AutoAbilityTriggers {
 			"(?i)^(.+?)\\s+with\\s+《LB》$");
 
 	/**
+	 * "a Forward of an Element other than Water" (28-111H Yuna) — {@code base} is the subject without
+	 * the exclusion, {@code elems} the Element or Elements it excludes.
+	 */
+	private static final Pattern SUBJECT_OF_ELEMENT_OTHER_THAN = Pattern.compile(
+			"(?i)^(?<base>.+?)\\s+of\\s+an\\s+Element\\s+other\\s+than\\s+(?<elems>.+)$");
+
+	/**
 	 * Returns {@code true} if {@code enteringCard} matches the watcher's subject phrase.
 	 * Compound disjunctive subjects ("X or a Y or a Card Name Z") produced by
 	 * {@code CardData#expandMultiSubjectTriggers} are split on " or " and any matching
@@ -2530,11 +2537,11 @@ final class AutoAbilityTriggers {
 		Matcher listExcl = SUBJECT_LIST_OTHER_THAN.matcher(subject.trim());
 		if (listExcl.matches()) {
 			String tail = " other than " + listExcl.group("excl").trim();
-			for (String part : listExcl.group("head").split("(?i)\\s+or\\s+"))
+			for (String part : SUBJECT_LIST_OR.split(listExcl.group("head")))
 				if (matchesSingleSubject(part.trim() + tail, enteringCard, self)) return true;
 			return false;
 		}
-		for (String part : subject.split("(?i)\\s+or\\s+")) {
+		for (String part : SUBJECT_LIST_OR.split(subject)) {
 			if (matchesSingleSubject(part.trim(), enteringCard, self)) return true;
 		}
 		return false;
@@ -2548,7 +2555,15 @@ final class AutoAbilityTriggers {
 	 * last "other than" and an exclusion that itself reads "Light or Dark" is left whole.
 	 */
 	private static final Pattern SUBJECT_LIST_OTHER_THAN = Pattern.compile(
-			"(?i)^(?<head>.+\\s+or\\s+.+)\\s+other\\s+than\\s+(?<excl>.+)$");
+			"(?i)^(?<head>.+\\s+or\\s+(?!(?:less|more)\\b).+)\\s+other\\s+than\\s+(?<excl>.+)$");
+
+	/**
+	 * The "or" between two subjects of a list, and not the one in a bound: "a Forward of your
+	 * opponent of cost 4 or less" (5-106R Black Knight) split there into an exact "of cost 4" and a
+	 * card named "less", so the watcher fired only on cost 4. Grenade 5-008R's "with 8000 power or
+	 * less", Zaghnal 7-070R's "of cost 6 or more" and four more printings read the same way.
+	 */
+	private static final Pattern SUBJECT_LIST_OR = Pattern.compile("(?i)\\s+or\\s+(?!(?:less|more)\\b)");
 
 	/**
 	 * @param self the card that owns the trigger (the "source"); used to resolve "other than
@@ -2566,8 +2581,13 @@ final class AutoAbilityTriggers {
 	 * Element instead says "of an Element other than X".
 	 */
 	private static List<String> excludedElementsOrNull(String phrase) {
+		List<String> names = elementNamesOrNull(phrase);
+		return names != null && names.size() >= 2 ? names : null;
+	}
+
+	/** The Elements "Water" / "Light and Dark" / "Light or Dark" names, or {@code null} when any part is not an Element. */
+	private static List<String> elementNamesOrNull(String phrase) {
 		String[] parts = phrase.split("(?i)\\s+(?:and|or)\\s+");
-		if (parts.length < 2) return null;
 		List<String> out = new ArrayList<>(parts.length);
 		for (String part : parts) {
 			String name = null;
@@ -2608,6 +2628,19 @@ final class AutoAbilityTriggers {
 		Matcher lbM = SUBJECT_WITH_LB.matcher(subject);
 		if (lbM.matches())
 			return enteringCard.isLb() && matchesSingleSubject(lbM.group(1).trim(), enteringCard, self);
+		// "a Forward of an Element other than Water" (28-111H Yuna). A Multi-Element card carrying
+		// an excluded Element does not qualify. Must precede the "other than [Name]" arm, which
+		// read "Water" as a card name and "a Forward of an Element" as a subject nothing matches.
+		Matcher elemExclM = SUBJECT_OF_ELEMENT_OTHER_THAN.matcher(subject);
+		if (elemExclM.matches()) {
+			List<String> excluded = elementNamesOrNull(elemExclM.group("elems").trim());
+			if (excluded != null) {
+				if (!matchesSingleSubject(elemExclM.group("base").trim(), enteringCard, self)) return false;
+				for (String e : excluded)
+					if (mw.effectiveContainsElement(enteringCard, e)) return false;
+				return true;
+			}
+		}
 		// "a [X] other than [Name]" — match base subject but exclude the named card
 		Matcher otherThanM = java.util.regex.Pattern.compile(
 				"(?i)^(.+?)\\s+other\\s+than\\s+(.+)$").matcher(subject);
@@ -3004,6 +3037,17 @@ final class AutoAbilityTriggers {
 				if (c != null)
 					for (AutoAbility fa : mw.effectiveAutoAbilities(c))
 						if (fa.trigger().equals("attack")) executeAutoAbility(fa, c, isP1);
+			// "When a Forward opponent controls attacks" (Babus 4-042C, Leyak 5-071R, Scorpion Sentinel
+			// 25-071R) — a watcher on the defending side. It goes on the Stack as the watcher's own
+			// ability, so "opponent" in its effect is the attacker's side.
+			{
+				List<CardData> defenders = new ArrayList<>(isP1 ? mw.p2ForwardCards : mw.p1ForwardCards);
+				for (CardData c : isP1 ? mw.p2BackupCards : mw.p1BackupCards) if (c != null) defenders.add(c);
+				defenders.addAll(isP1 ? mw.p2MonsterCards : mw.p1MonsterCards);
+				for (CardData watcherCard : defenders)
+					for (AutoAbility fa : mw.effectiveAutoAbilities(watcherCard))
+						if (fa.trigger().equals("opponent forward attacks")) executeAutoAbility(fa, watcherCard, !isP1);
+			}
 			// "When a Forward other than [watcherCard] you control attacks" — watcher on same-side field cards
 			if (card.isForward()) {
 				List<CardData> watchFwds = new ArrayList<>(isP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
@@ -3611,7 +3655,10 @@ final class AutoAbilityTriggers {
 	 */
 	void triggerAutoAbilitiesForChosenByOpponentSummonOrAbility(boolean chosenSideIsP1,
 			List<CardData> chosen) {
-		triggerChosenByOpponentEvent(chosenSideIsP1, chosen, "chosen by opponent's summon or ability");
+		// The second trigger is 11-015L Braska's Final Aeon's compound, whose other half is fired
+		// by triggerAutoAbilitiesForAttack.
+		triggerChosenByOpponentEvent(chosenSideIsP1, chosen,
+				"chosen by opponent's summon or ability", "attacks or chosen by opponent's summon or ability");
 	}
 
 	/**
@@ -6126,12 +6173,12 @@ final class AutoAbilityTriggers {
 		// its lethal damage and broken before the removal that should have made that damage fizzle
 		// ever runs. Resolving here reproduces the rules order in every path the selection can take.
 		//
-		// The compound trigger Ifrit (XVI) 26-003R carries watches two events, and only one of them
-		// is a selection in progress: fired by being blocked it is an ordinary combat trigger and
-		// belongs on the Stack, so the flag — not the trigger name — is what decides.
+		// The compound triggers Ifrit (XVI) 26-003R and Braska's Final Aeon 11-015L carry watch two
+		// events, and only one of them is a selection in progress: fired by being blocked or by
+		// attacking it is an ordinary combat trigger and belongs on the Stack, so the flag — not the
+		// trigger name — is what decides.
 		if (fa.trigger().startsWith("chosen by opponent's")
-				|| (resolvingChosenBySelection
-						&& fa.trigger().equals("is blocked or chosen by opponent's ability"))) {
+				|| (resolvingChosenBySelection && CHOSEN_BY_COMPOUND_TRIGGERS.contains(fa.trigger()))) {
 			Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
 			mw.logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText());
 			// Inline, so the source is established here rather than by the Stack entry.
@@ -6416,8 +6463,17 @@ final class AutoAbilityTriggers {
 	private boolean resolvesInlineAtTrigger(AutoAbility fa) {
 		if ("SelectFollowingActionsDynamicElements".equals(inlineShapeOf(fa.effectText()))) return true;
 		return fa.trigger().startsWith("chosen by opponent's")
-				|| (resolvingChosenBySelection && fa.trigger().equals("is blocked or chosen by opponent's ability"));
+				|| (resolvingChosenBySelection && CHOSEN_BY_COMPOUND_TRIGGERS.contains(fa.trigger()));
 	}
+
+	/**
+	 * The compound triggers that join a combat event to a chosen-by one — Ifrit (XVI) 26-003R's
+	 * "is blocked or chosen" and 11-015L Braska's Final Aeon's "attacks or is chosen". They resolve
+	 * inline only when the selection fired them; fired by combat they go on the Stack.
+	 */
+	private static final Set<String> CHOSEN_BY_COMPOUND_TRIGGERS = Set.of(
+			"is blocked or chosen by opponent's ability",
+			"attacks or chosen by opponent's summon or ability");
 
 	/**
 	 * Resolves a Stack entry whose ability takes one of the {@link #INLINE_SHAPES} through that

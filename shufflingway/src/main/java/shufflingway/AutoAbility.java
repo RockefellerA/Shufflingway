@@ -18,7 +18,8 @@ import java.util.List;
  * <p>The {@code trigger} is normalised to one of:
  * {@code "attacks"}, {@code "blocks"}, {@code "attacks or blocks"},
  * {@code "is blocked"}, {@code "blocks or is blocked"},
- * {@code "other forward attacks"}, {@code "party attacks"}, {@code "enters the field"},
+ * {@code "other forward attacks"}, {@code "opponent forward attacks"}, {@code "party attacks"},
+ * {@code "enters the field"},
  * {@code "put into break zone"}, {@code "damaged card put into break zone"},
  * {@code "enters the field or put into break zone"},
  * {@code "cast summon"}, {@code "damage zone"},

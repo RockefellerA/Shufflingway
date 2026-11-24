@@ -5285,6 +5285,8 @@ class OfficialFaqBehaviorTest {
 	@Test
 	void ramzaCostsNothingWithAKnightAndAnAttackThisTurn() {
 		MainWindow mw = new MainWindow();
+		// P2's turn: only the turn player declares attacks, so this is the one turn the Knight's attack can be.
+		mw.gameState.startFirstTurn(GameState.Player.P2);
 		CardData knight = jobForward("Agrias", "Earth", 3, 7000, "Knight");
 		seatForward(mw, false, knight);
 		mw.recordAttackDeclared(knight);

@@ -124,6 +124,12 @@ public record SelfCostModifier(
         IF_CONTROL_CATEGORY_TYPE_NOT_ELEMENT,
         /** Flat delta (×1) if a Forward the controller controlled formed a party attack this turn; 0 otherwise. */
         IF_OWN_FORWARD_FORMED_PARTY_THIS_TURN,
+        /**
+         * Flat delta (×1) if a Forward the controller controlled declared an attack this turn; 0
+         * otherwise (22-070C Ramza). Read as {@link GameContext#characterYouControlledAttackedThisTurn}
+         * reads it: only the turn player declares attacks, so off-turn the answer is no.
+         */
+        IF_OWN_FORWARD_ATTACKED_THIS_TURN,
         /** Flat delta (×1) if the opponent's hand size is ≤ {@code Integer.parseInt(param1)}; 0 otherwise. */
         IF_OPPONENT_HAND_N_OR_LESS,
         /** Flat delta (×1) if ≥ {@code Integer.parseInt(param1)} Forwards (either side) left the field this turn; 0 otherwise. */

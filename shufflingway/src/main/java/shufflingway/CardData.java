@@ -3693,6 +3693,11 @@ public record CardData(
             // "When a Forward or Monster you control uses …" — 15-028H Gogo. Only after one of the
             // two control phrases, which the classifier tells apart.
             "|(?<=(?:opponent\\scontrols|you\\scontrol)\\s)uses?\\s+an\\s+action\\s+ability" +
+            // "attacks or is chosen by your opponent's Summons or abilities" — 11-015L Braska's Final
+            // Aeon, the attack twin of Ifrit (XVI)'s compound below. Must precede the attack arm:
+            // that one matched "attacks", failed on the comma, and the chosen half was then read
+            // with "Braska's Final Aeon attacks or" as its subject, so neither half ever fired.
+            "|attacks?\\s+or\\s+(?:is|are)\\s+chosen\\s+by\\s+your\\s+opponent's\\s+Summons?\\s+or\\s+abilit(?:y|ies)" +
             "|attacks?(?:\\s+or\\s+blocks?)?" +
             // "is blocked or chosen by your opponent's ability" — 26-003R / 29-001R Ifrit (XVI),
             // the corpus's only printing that joins a combat trigger to a targeting one. Must
@@ -4258,6 +4263,16 @@ public record CardData(
      */
     static final Pattern ANY_OWN_FORWARD_SUBJECT = Pattern.compile(
         "(?i)^a\\s+Forward\\s+you\\s+control$"
+    );
+
+    /**
+     * "a Forward opponent controls" — the watcher attack subject on the defending side (Babus
+     * 4-042C, Leyak 5-071R, Scorpion Sentinel 25-071R). Classified as {@code "opponent forward
+     * attacks"} and fired by {@code AutoAbilityTriggers#triggerAutoAbilitiesForAttack} from the
+     * cards of the side the attacker is not on.
+     */
+    static final Pattern OPPONENT_FORWARD_SUBJECT = Pattern.compile(
+        "(?i)^a\\s+Forward\\s+opponent\\s+controls$"
     );
 
     /**
@@ -5004,6 +5019,8 @@ public record CardData(
             else if (triggerRaw.startsWith("is added to your hand from"))
                 trigger = triggerRaw.contains("break zone") && triggerRaw.contains("search") ? "added to hand from break zone or search"
                         : triggerRaw.contains("break zone") ? "added to hand from break zone" : "added to hand by search";
+            // 11-015L Braska's Final Aeon. Ahead of every attack branch, all of which it satisfies.
+            else if (triggerRaw.contains("attack") && triggerRaw.contains("chosen"))                       trigger = "attacks or chosen by opponent's summon or ability";
             else if (triggerRaw.contains("attack") && triggerRaw.contains("block"))                        trigger = "attacks or blocks";
             else if (triggerRaw.contains("attack") && (cardIsParty || triggerHasParty))                    trigger = "party attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("break zone"))                   trigger = "enters the field or put into break zone";
@@ -5024,6 +5041,8 @@ public record CardData(
                     && OTHER_FORWARD_SUBJECT.matcher(card).matches())                                        trigger = "other forward attacks";
             else if (triggerRaw.contains("attack")
                     && ANY_OWN_FORWARD_SUBJECT.matcher(card).matches())                                      trigger = "other forward attacks";
+            else if (triggerRaw.contains("attack")
+                    && OPPONENT_FORWARD_SUBJECT.matcher(card).matches())                                     trigger = "opponent forward attacks";
             else if (triggerRaw.contains("attack")
                     && card.toLowerCase(Locale.ROOT).matches("\\d+\\s+or\\s+more\\s+forwards?\\s+you\\s+control"))
                                                                                                              trigger = "attack";
@@ -7700,6 +7719,29 @@ public record CardData(
     );
 
     /**
+     * "Haste", "First Strike and Brave", "Haste, Brave and First Strike" — a run of the four keywords
+     * a {@link FieldPowerGrant} carries, for the grant patterns that read a keyword list whole and
+     * so must decline a word outside it rather than drop it.
+     */
+    private static final String GRANT_KEYWORD_LIST =
+        "(?:Haste|Brave|First\\s+Strike|Back\\s+Attack)(?:(?:,\\s*|,?\\s+and\\s+)(?:Haste|Brave|First\\s+Strike|Back\\s+Attack))*";
+
+    /**
+     * The self form of {@link #IF_DIFF_ELEMENTS_FIELD_GRANT}: "If there are 3 or more different
+     * Elements among Forwards you control, Luso gains First Strike and Brave." (9-058L) and "…,
+     * Y'shtola gains +3000 power." (24-069C). Only the four keywords the grant can carry are read,
+     * so a word outside them leaves the sentence unread rather than granting less.
+     * Groups: {@code min}, {@code selfname}, and at least one of {@code power} and {@code traitstext}
+     * ({@code traitsonly} when no power is printed).
+     */
+    private static final Pattern IF_DIFF_ELEMENTS_SELF_GRANT = Pattern.compile(
+        "(?i)^If\\s+there\\s+are\\s+(?<min>\\d+)\\s+or\\s+more\\s+different\\s+Elements?\\s+among\\s+" +
+        "Forwards?\\s+you\\s+control,?\\s+(?<selfname>[A-Za-z][A-Za-z\\s'\\-()]*?)\\s+gains?\\s+" +
+        "(?:\\+(?<power>\\d+)\\s+power(?:,?\\s+and\\s+(?<traitstext>" + GRANT_KEYWORD_LIST + "))?" +
+        "|(?<traitsonly>" + GRANT_KEYWORD_LIST + "))[.!]?\\s*$"
+    );
+
+    /**
      * "The power of Forwards you control cannot be decreased by your opponent's Summons or
      * abilities." — Shelke 16-029R.
      *
@@ -7781,14 +7823,46 @@ public record CardData(
      * make reachable. {@link FieldPowerGrant#appliesToCard} reads two filled filters as
      * alternatives, so one grant covers the union exactly once.
      *
-     * <p>Groups: {@code job}, {@code cardname}, {@code type} (the noun both branches share),
-     * {@code bonus}.
+     * <p>The noun may be printed after both names, after the second only ("The Job Ninja and Card
+     * Name Ninja Forwards other than Edge" — 2-053H Edge, 2-104R Kain), or not at all ("The Job
+     * Dragoon and Card Name Dragoon you control gain Haste." — 7-097R Barbara, which reaches every
+     * Character and so Barbara herself). The grant is power, keywords, or power and keywords
+     * (17-006R Gosetsu's "+1000 power and Brave"); only the four keywords a grant carries are read,
+     * so any other word leaves the sentence to the patterns below. Before the widening, the
+     * generic {@link #FIELD_GRANT_PATTERN} read all four as one Job named "Ninja and Card Name
+     * Ninja", which no card has.
+     *
+     * <p>Groups: {@code job}, {@code cardname}, {@code type} / {@code type2} (the noun, wherever it
+     * is printed; neither means Characters), {@code bonus} with {@code traits}, or {@code traitsonly}.
      */
     private static final Pattern FIELD_GRANT_JOB_AND_CARD_NAME_PATTERN = Pattern.compile(
         "(?i)^The\\s+Job\\s+(?<job>[A-Za-z][A-Za-z\\s''\\-]*?)\\s+" +
-        "(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+and\\s+" +
+        "(?:(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+)?and\\s+" +
         "Card\\s+Name\\s+(?<cardname>[A-Za-z][A-Za-z\\s''\\-]*?)\\s+" +
-        "(?:Forwards?|Backups?|Monsters?|Characters?)\\s+" +
+        "(?:(?<type2>Forwards?|Backups?|Monsters?|Characters?)\\s+)?" +
+        "(?:other\\s+than\\s+(?<except>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+)?" +
+        "you\\s+control\\s+gains?\\s+" +
+        "(?:\\+(?<bonus>\\d+)\\s+power(?:,?\\s+and\\s+(?<traits>" + GRANT_KEYWORD_LIST + "))?" +
+        "|(?<traitsonly>" + GRANT_KEYWORD_LIST + "))[.!]?$"
+    );
+
+    /**
+     * "The Job Warrior of Light Forwards and Wind Forwards other than Arc you control gain +1000
+     * power." — Arc 5-052H, and Luneth 5-024H, Ingus 5-074H and Refia 5-141H with their own
+     * Elements. A Job or an Element, and a Forward that is both gains the bonus once (their FAQ).
+     *
+     * <p>{@link FieldPowerGrant} ANDs a Job filter with an Element filter, so the union is emitted
+     * as two grants that partition it: the Job without the Element, and the Element with any Job.
+     * Before this the generic {@link #FIELD_GRANT_PATTERN} read "Warrior of Light Forwards and Wind"
+     * as one Job, and the grant reached nobody.
+     *
+     * <p>Groups: {@code job}, {@code type}, {@code elem}, {@code type2}, {@code except}, {@code bonus}.
+     */
+    private static final Pattern FIELD_GRANT_JOB_AND_ELEMENT_PATTERN = Pattern.compile(
+        "(?i)^The\\s+Job\\s+(?<job>[A-Za-z][A-Za-z\\s''\\-]*?)\\s+" +
+        "(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+and\\s+" +
+        "(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+" +
+        "(?<type2>Forwards?|Backups?|Monsters?|Characters?)\\s+" +
         "(?:other\\s+than\\s+(?<except>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+)?" +
         "you\\s+control\\s+gains?\\s+\\+(?<bonus>\\d+)\\s+power[.!]?$"
     );
@@ -8066,19 +8140,48 @@ public record CardData(
 
             Matcher jobAndCnM = FIELD_GRANT_JOB_AND_CARD_NAME_PATTERN.matcher(seg);
             if (jobAndCnM.matches()) {
-                String type   = jobAndCnM.group("type").toLowerCase(Locale.ROOT);
+                String typeText = jobAndCnM.group("type") != null ? jobAndCnM.group("type") : jobAndCnM.group("type2");
+                String type   = typeText != null ? typeText.toLowerCase(Locale.ROOT) : "characters";
                 boolean isChar = type.startsWith("character");
                 String except = jobAndCnM.group("except");
+                String bonus  = jobAndCnM.group("bonus");
+                String traitsText = bonus != null ? jobAndCnM.group("traits") : jobAndCnM.group("traitsonly");
+                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+                if (traitsText != null) {
+                    if (ICB_EFFECT_HASTE.matcher(traitsText).find())        traits.add(Trait.HASTE);
+                    if (ICB_EFFECT_BRAVE.matcher(traitsText).find())        traits.add(Trait.BRAVE);
+                    if (ICB_EFFECT_FIRST_STRIKE.matcher(traitsText).find()) traits.add(Trait.FIRST_STRIKE);
+                    if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  traits.add(Trait.BACK_ATTACK);
+                }
                 result.add(new FieldPowerGrant(
                         jobAndCnM.group("job").trim(), null,
                         isChar || type.startsWith("forward"),
                         isChar || type.startsWith("backup"),
                         isChar || type.startsWith("monster"),
                         except != null ? except.trim() : null,
-                        Integer.parseInt(jobAndCnM.group("bonus")),
-                        EnumSet.noneOf(Trait.class), false, -1, null, null,
+                        bonus != null ? Integer.parseInt(bonus) : 0,
+                        traits, false, -1, null, null,
                         jobAndCnM.group("cardname").trim(), 0, 0, null, null, false, false, 0, 0, 1, 0, 0,
                         EnumSet.noneOf(Trait.class), false, 0));
+                continue;
+            }
+
+            Matcher jobAndElemM = FIELD_GRANT_JOB_AND_ELEMENT_PATTERN.matcher(seg);
+            if (jobAndElemM.matches()) {
+                String elem   = jobAndElemM.group("elem");
+                String except = jobAndElemM.group("except") != null ? jobAndElemM.group("except").trim() : null;
+                int    bonus  = Integer.parseInt(jobAndElemM.group("bonus"));
+                int[]  jobIncl  = parseFieldGrantTargetFlags(jobAndElemM.group("type"));
+                int[]  elemIncl = parseFieldGrantTargetFlags(jobAndElemM.group("type2"));
+                // The Job without the Element …
+                result.add(new FieldPowerGrant(jobAndElemM.group("job").trim(), null,
+                        jobIncl[0] != 0, jobIncl[1] != 0, jobIncl[2] != 0, except, bonus,
+                        EnumSet.noneOf(Trait.class), false, -1, null, null, null, 0, 0, null, null, false,
+                        false, 0, 0, 1, 0, 0, EnumSet.noneOf(Trait.class), false, 0, elem, null, false));
+                // … and the Element with any Job, so a Forward that is both is counted once.
+                result.add(new FieldPowerGrant(null, null,
+                        elemIncl[0] != 0, elemIncl[1] != 0, elemIncl[2] != 0, except, bonus,
+                        EnumSet.noneOf(Trait.class), false, -1, null, elem));
                 continue;
             }
 
@@ -8101,6 +8204,28 @@ public record CardData(
                         EnumSet.noneOf(Trait.class), false, -1, null, null, null,
                         0, 0, null, false, false, min));
                 continue;
+            }
+
+            Matcher diffElemSelfM = IF_DIFF_ELEMENTS_SELF_GRANT.matcher(seg);
+            if (diffElemSelfM.matches()) {
+                String selfName   = diffElemSelfM.group("selfname").trim();
+                String powerStr   = diffElemSelfM.group("power");
+                String traitsText = powerStr != null ? diffElemSelfM.group("traitstext") : diffElemSelfM.group("traitsonly");
+                if (cardName == null || selfName.equalsIgnoreCase(cardName)) {
+                    EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+                    if (traitsText != null) {
+                        if (ICB_EFFECT_HASTE.matcher(traitsText).find())        traits.add(Trait.HASTE);
+                        if (ICB_EFFECT_BRAVE.matcher(traitsText).find())        traits.add(Trait.BRAVE);
+                        if (ICB_EFFECT_FIRST_STRIKE.matcher(traitsText).find()) traits.add(Trait.FIRST_STRIKE);
+                        if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  traits.add(Trait.BACK_ATTACK);
+                    }
+                    // Forwards only: the flags name both what is granted to (the carrier, by name)
+                    // and what minDistinctElements counts, which the card says is its Forwards.
+                    result.add(new FieldPowerGrant(null, null, true, false, false,
+                            null, powerStr != null ? Integer.parseInt(powerStr) : 0, traits, false, -1, null, null,
+                            selfName, 0, 0, null, false, false, Integer.parseInt(diffElemSelfM.group("min"))));
+                    continue;
+                }
             }
 
             Matcher bzCnJobM = FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN.matcher(seg);
@@ -11502,6 +11627,10 @@ public record CardData(
     private static final Pattern SELF_COND_OWN_FORWARD_FORMED_PARTY = Pattern.compile(
         "(?i)^a\\s+Forward\\s+you\\s+controlled\\s+formed\\s+a\\s+party\\s+this\\s+turn$"
     );
+    /** 22-070C Ramza's second reduction. */
+    private static final Pattern SELF_COND_OWN_FORWARD_ATTACKED = Pattern.compile(
+        "(?i)^a\\s+Forward\\s+you\\s+controlled\\s+attacked\\s+this\\s+turn$"
+    );
     /** 16-030L Shantotto ("their hand") and 6-029C Doomtrain, printed before the wording changed ("his/her hand"). */
     private static final Pattern SELF_COND_OPPONENT_HAND_N_OR_LESS = Pattern.compile(
         "(?i)^your\\s+opponent\\s+has\\s+(?<n>\\d+)\\s+cards?\\s+or\\s+less\\s+in\\s+(?:their|his/her)\\s+hand$"
@@ -11861,6 +11990,14 @@ public record CardData(
                     if (cm.find()) {
                         mod = new SelfCostModifier(amount, minCost, isIncrease,
                                 SelfCostModifier.ScalingType.IF_OWN_FORWARD_FORMED_PARTY_THIS_TURN,
+                                null, null);
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_OWN_FORWARD_ATTACKED.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_OWN_FORWARD_ATTACKED_THIS_TURN,
                                 null, null);
                     }
                 }

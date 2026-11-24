@@ -243,6 +243,9 @@ class CostCalculator {
 				(mw.turn(isP1).causedOpponentDiscardThisTurn) ? 1 : 0;
 		case IF_OWN_FORWARD_FORMED_PARTY_THIS_TURN ->
 				(mw.turn(isP1).formedPartyThisTurn) ? 1 : 0;
+		case IF_OWN_FORWARD_ATTACKED_THIS_TURN ->
+				isP1 == (mw.gameState.getCurrentPlayer() == GameState.Player.P1)
+						&& !mw.attacksMadeThisTurn.isEmpty() ? 1 : 0;
 		case IF_OPPONENT_HAND_N_OR_LESS -> {
 				int n = Integer.parseInt(mod.param1());
 				yield (isP1 ? mw.gameState.getP2Hand() : mw.gameState.getP1Hand()).size() <= n ? 1 : 0;

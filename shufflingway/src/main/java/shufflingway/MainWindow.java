@@ -27,6 +27,7 @@ import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.HierarchyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
@@ -2464,7 +2465,10 @@ public class MainWindow {
 		nextPhaseButton.setFocusPainted(false);
 		nextPhaseButton.addActionListener(e -> onNextPhase());
 
-		// Pulsing glow border — runs continuously, only paints when enabled
+		// Pulsing glow border. Runs only while the button is on screen and enabled, the one time it
+		// paints, so a window that is never shown — every one the test suite builds — never starts
+		// it. A started Swing Timer is held by the shared TimerQueue until stopped, along with the
+		// whole window its action reaches.
 		glowTimer = new Timer(40, e -> {
 			if (nextPhaseButton == null || !nextPhaseButton.isEnabled()) return;
 			glowAngle[0] += 0.09f;
@@ -2474,7 +2478,15 @@ public class MainWindow {
 			nextPhaseButton.setBorder(BorderFactory.createLineBorder(
 					new Color(Math.min(r, 255), Math.min(g, 255), 20), 3, true));
 		});
-		glowTimer.start();
+		Runnable syncGlow = () -> {
+			boolean wanted = nextPhaseButton.isShowing() && nextPhaseButton.isEnabled();
+			if (wanted && !glowTimer.isRunning()) glowTimer.start();
+			else if (!wanted && glowTimer.isRunning()) glowTimer.stop();
+		};
+		nextPhaseButton.addPropertyChangeListener("enabled", e -> syncGlow.run());
+		nextPhaseButton.addHierarchyListener(e -> {
+			if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) syncGlow.run();
+		});
 
 		// P1's hand, in the room reserved for it at the bottom edge — the mirror of P2's fan at the
 		// top, but face up and clickable, so it is a different component. See PlayerHandFanPanel.
