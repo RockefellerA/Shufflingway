@@ -11224,6 +11224,27 @@ public record CardData(
     }
 
     /**
+     * "You can only play [Name] if …" — Red XIII 20-021R, Sephiroth 11-130L, Nox Suzaku 15-130H.
+     * Group {@code name} is checked against the card. Distinct from the "cast" wordings: a play
+     * restriction binds an effect that puts the card onto the field as well as a cast, and their
+     * FAQs say so (Red XIII's "cannot deploy him to the Field through summons or abilities either").
+     */
+    private static final Pattern ONLY_PLAY_IF_RESTRICTION = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+play\\s+(?<name>[^.!]+?)\\s+if\\b"
+    );
+
+    /**
+     * Whether this card prints a "You can only play [itself] if …" restriction, whose condition
+     * {@link #castRestriction()} carries — see {@link #ONLY_PLAY_IF_RESTRICTION}.
+     */
+    public boolean hasOnlyPlayIfRestriction() {
+        Matcher m = ONLY_PLAY_IF_RESTRICTION.matcher(textEn);
+        while (m.find())
+            if (m.group("name").trim().equalsIgnoreCase(name)) return true;
+        return false;
+    }
+
+    /**
      * Returns {@code true} if this card has a "is also a Monster in all situations" ability,
      * making it eligible for Monster-targeting effects regardless of zone.
      */

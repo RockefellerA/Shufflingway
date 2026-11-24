@@ -995,6 +995,36 @@ final class ActionResolverGate {
             }
         };
     }
+    /**
+     * Whether the condition a conditional auto-ability opens on ("(trigger), if (condition),
+     * (effect)") holds right now — rule 11.8.13: it is checked as the ability triggers, and if it
+     * fails the ability does not trigger at all. 17-022H Umaro's FAQ: with 5 or more Category VI
+     * Characters his discard "does not go onto the stack". The effect's own gate checks it again at
+     * resolution, which is the rule's second check.
+     *
+     * <p>Read for the two gate shapes that can be decided off the board alone — "if you control N
+     * or less …" and "if you control [condition]" — and {@code null} for anything else, which
+     * triggers as it always has and is decided when it resolves.
+     */
+    static Boolean triggerConditionHolds(String effectText, GameContext ctx) {
+        String t = effectText.trim();
+        Matcher atMost = IF_CONTROL_AT_MOST.matcher(t);
+        if (atMost.matches()) {
+            int max = Integer.parseInt(atMost.group("max"));
+            String category = atMost.group("category");
+            String type = atMost.group("type").trim();
+            int count = category != null ? ctx.ownFieldCountByCategory(category, type) : ctx.ownFieldCount(type);
+            return count <= max;
+        }
+        Matcher gate = CONTROL_CONDITION_GATE.matcher(t);
+        if (gate.matches()) {
+            ControlCondition cc = CardData.parseControlCondition(splitControlGate(t)[0]);
+            if (cc == null) return null;
+            return ctx.controlConditionMet(cc) != (gate.group("neg") != null);
+        }
+        return null;
+    }
+
     static Consumer<GameContext> tryParseIfControlAtMost(String text, CardData source, int xValue) {
         Matcher m = IF_CONTROL_AT_MOST.matcher(text.trim());
         if (!m.matches()) return null;

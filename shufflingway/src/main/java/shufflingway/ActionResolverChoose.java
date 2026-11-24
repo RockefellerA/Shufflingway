@@ -6414,6 +6414,35 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "Remove them from the game. If there are N or more different Elements among them, …" ---
+        // 30-021H Gestahlian Empire Cid. Read whole, like the same-type sibling above: the generic
+        // removal took the first sentence and ran the discard whatever the Elements were.
+        Matcher rfpDiffElemM = FOLLOWUP_RFP_IF_N_DIFFERENT_ELEMENTS.matcher(followup.trim());
+        if (rfpDiffElemM.matches()) {
+            int minElements = Integer.parseInt(rfpDiffElemM.group("min"));
+            String effText = rfpDiffElemM.group("effect").trim();
+            Consumer<GameContext> payoff = parse(Character.toUpperCase(effText.charAt(0)) + effText.substring(1), source, xValue);
+            if (payoff != null) {
+                return ctx -> {
+                    ctx.logChooseHeader(choosePrefix + " — Remove From Game (if " + minElements + "+ Elements, " + effText + ")");
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                            jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    // Read before the removal moves them. Each Element of a Multi-Element card counts.
+                    java.util.Set<String> elements = new java.util.HashSet<>();
+                    for (ForwardTarget t : ts) {
+                        CardData card = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
+                        if (card != null) for (String e : card.element().split("/")) elements.add(e.trim());
+                    }
+                    sortedByIdxDesc(ts, true) .forEach(ctx::removeTargetFromGame);
+                    sortedByIdxDesc(ts, false).forEach(ctx::removeTargetFromGame);
+                    if (!ts.isEmpty() && elements.size() >= minElements) payoff.accept(ctx);
+                    else ctx.logEntry("Effect: " + elements.size() + " different Element(s) among them — no " + effText);
+                };
+            }
+        }
+
         // --- Remove from game + named card followup (e.g. "Remove it and Shuyin from the game") ---
         Matcher rfgNamedM = FOLLOWUP_REMOVE_FROM_GAME_AND_NAMED.matcher(primaryFollowup);
         if (rfgNamedM.find()) {

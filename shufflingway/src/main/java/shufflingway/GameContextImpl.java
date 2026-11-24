@@ -147,6 +147,8 @@ final class GameContextImpl implements GameContext {
 	 * names the card it was recorded for.
 	 */
 	private List<ForwardTarget> excludedTargets = List.of();
+	/** The one card a Break Zone choice leaves out, by identity — see {@link #excludeFromBreakZoneChoices}. */
+	private CardData excludedBzCard = null;
 	/**
 	 * Whether the pool about to be gathered is for a <em>select</em> rather than a <em>choose</em>,
 	 * in which case the "cannot be chosen" immunities do not narrow it.
@@ -1828,6 +1830,13 @@ final class GameContextImpl implements GameContext {
 						costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
 						jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons,
 						excludeElement, withoutMulticard);
+				// "Choose 2" with one to choose from is no legal choice, on the field as in the Break
+				// Zone — see MainWindow.requiredChoiceCount. "Up to N" takes what there is.
+				if (!upTo && maxCount > 1 && maxCount != Integer.MAX_VALUE
+						&& !eligible.isEmpty() && eligible.size() < maxCount) {
+					logEntry("Only " + eligible.size() + " to choose from, " + maxCount + " required — no legal choice");
+					return new ArrayList<>();
+				}
 				String costLabel  = formatCostFilterLabel(costVal, costCmp);
 				String powerLabel = powerVal >= 0 ? " of power " + powerVal + (powerCmp != null ? " or " + powerCmp : "") : "";
 				String targetNoun = inclForwards && !inclBackups && !inclMonsters ? "Forward"
@@ -2052,6 +2061,10 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void clearSelectionExclusions() {
 				excludedTargets = List.of();
+			}
+
+			@Override public void excludeFromBreakZoneChoices(CardData card) {
+				excludedBzCard = card;
 			}
 
 			@Override public List<ForwardTarget> selectCharactersEitherSpec(
@@ -2926,11 +2939,11 @@ final class GameContextImpl implements GameContext {
 					int costVal, String costCmp, String cardNameFilter, String jobFilter,
 					String categoryFilter, String elementFilter, String excludeName, String excludeElem,
 					String destination, int count, boolean entersDull, CardData.Trait requireTrait,
-					PickGate gate, boolean suppressAutoAbilities, int maxTotalCost) {
+					PickGate gate, boolean suppressAutoAbilities, int maxTotalCost, boolean exactCount) {
 				return mw.searchDeckForCardWithRiders(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
 						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName,
 						excludeElem, destination, count, entersDull, requireTrait, gate, suppressAutoAbilities,
-						maxTotalCost);
+						maxTotalCost, exactCount);
 			}
 			@Override public boolean searchDeckForNamedCardWithJob(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, boolean inclSummons,
@@ -3217,10 +3230,17 @@ final class GameContextImpl implements GameContext {
 					boolean inclForwards, boolean inclBackups, boolean inclMonsters, boolean inclSummons,
 					String jobFilter, String cardNameFilter, String categoryFilter, String excludeName,
 					String excludeElement, boolean withoutMulticard) {
-				if (card.isForward() && !inclForwards) return false;
-				if (card.isBackup()  && !inclBackups)  return false;
-				if (card.isMonster() && !inclMonsters) return false;
-				if (card.isSummon()  && !inclSummons)  return false;
+				// The card must be one of the named types, and "is also a Monster in all situations"
+				// (7-004C Fritt) is a Monster here as well: rejecting a Forward for not being asked
+				// for left Fritt out of "Choose 1 Monster in your Break Zone". No type named is any.
+				boolean anyType = !inclForwards && !inclBackups && !inclMonsters && !inclSummons;
+				if (!anyType) {
+					boolean typeOk = (inclForwards && card.isForward())
+							|| (inclBackups  && card.isBackup())
+							|| (inclMonsters && (card.isMonster() || card.alsoCountsAsMonster()))
+							|| (inclSummons  && card.isSummon());
+					if (!typeOk) return false;
+				}
 				if (element != null && !card.containsElement(element)) return false;
 				if (!meetsElementExclusion(card, excludeElement)) return false;
 				if (!meetsCostConstraint(card.cost(), costVal, costCmp)) return false;
@@ -3262,6 +3282,7 @@ final class GameContextImpl implements GameContext {
 					boolean fromFieldThisTurnOnly =
 							CardFilters.isPutToBzFromFieldThisTurnCondition(condition);
 					for (int i = 0; i < bz.size(); i++) {
+						if (bz.get(i) == excludedBzCard) continue;
 						if (!breakZoneCardMatches(bz.get(i), element, costVal, costCmp, powerVal, powerCmp,
 								inclForwards, inclBackups, inclMonsters, inclSummons,
 								jobFilter, cardNameFilter, categoryFilter, excludeName, excludeElement,
@@ -4416,6 +4437,18 @@ final class GameContextImpl implements GameContext {
 					anyMatched = true;
 					logEntry(p + "Condition matched for " + card.name());
 					if (clause.cardOp() != null && returnedToDeck) continue;
+					// A card that may not enter the field stays where it is — on top of the deck. A
+					// revealed Arc beside the Arc already there "cannot be played" (27-017R Luneth's
+					// FAQ); played anyway, the uniqueness rule took both.
+					if (clause.cardOp() != null && clause.cardOp().startsWith("playOntoField")
+							|| "mayPlayOntoField".equals(clause.cardOp())) {
+						if (!mw.effectMayPlayOntoField(card, isP1, false)) {
+							logEntry(p + card.name() + " cannot be played onto the field — it stays on top of the deck");
+							deck.addFirst(card);
+							refreshDeck.run();
+							return;
+						}
+					}
 					if (clause.cardOp() != null) {
 						switch (clause.cardOp()) {
 							case "playOntoField", "mayPlayOntoField" -> {
@@ -4856,7 +4889,7 @@ final class GameContextImpl implements GameContext {
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				List<Integer> eligible = new ArrayList<>();
 				for (int i = 0; i < hand.size(); i++)
-					if (playableFromHand(hand.get(i), inclForwards, inclBackups, inclMonsters, costVal, costCmp,
+					if (playableFromHand(isP1, hand.get(i), inclForwards, inclBackups, inclMonsters, costVal, costCmp,
 							costVal2, jobFilter, cardNameFilter, categoryFilter, elementFilter, excludeName,
 							excludeElement, withTrait)) eligible.add(i);
 				return eligible.isEmpty() ? null : hand.get(dearestOf(hand, eligible));
@@ -4874,8 +4907,12 @@ final class GameContextImpl implements GameContext {
 				return best;
 			}
 
-			/** Whether a play-from-hand under these filters may take {@code card} — see {@link #playCharacterFromHandFor}. */
-			private boolean playableFromHand(CardData card, boolean inclForwards, boolean inclBackups,
+			/**
+			 * Whether a play-from-hand under these filters may take {@code card} out of
+			 * {@code playerIsP1}'s hand — see {@link #playCharacterFromHandFor}. The player is named
+			 * because it need not be the resolving one ("your opponent may play …").
+			 */
+			private boolean playableFromHand(boolean playerIsP1, CardData card, boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, int costVal, String costCmp, int costVal2, String jobFilter,
 					String cardNameFilter, String categoryFilter, String elementFilter, String excludeName,
 					String excludeElement, String withTrait) {
@@ -4894,8 +4931,9 @@ final class GameContextImpl implements GameContext {
 				if (!meetsElementExclusion(card, excludeElement)) return false;
 				if (mw.excludedByOtherThanClause(card, excludeName)) return false;
 				if ("Warp".equalsIgnoreCase(withTrait) && !card.hasWarp()) return false;
-				// "You cannot play X from your hand due to Summons or abilities."
-				return !card.playByEffectProhibited(true);
+				// "You cannot play X from your hand due to Summons or abilities.", and the restrictions
+				// printed with "play" (Rursan Arbiter 21-040R, Red XIII 20-021R).
+				return mw.effectMayPlay(card, playerIsP1, true);
 			}
 
 			@Override public void eachPlayerMayPlayCharacterFromHand(boolean inclForwards,
@@ -4961,7 +4999,7 @@ final class GameContextImpl implements GameContext {
 				List<CardData> hand = forP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				List<Integer> eligible = new ArrayList<>();
 				for (int i = 0; i < hand.size(); i++)
-					if (playableFromHand(hand.get(i), inclForwards, inclBackups, inclMonsters, costVal, costCmp,
+					if (playableFromHand(forP1, hand.get(i), inclForwards, inclBackups, inclMonsters, costVal, costCmp,
 							costVal2, jobFilter, cardNameFilter, categoryFilter, elementFilter, excludeName,
 							excludeElement, withTrait)) eligible.add(i);
 				if (eligible.isEmpty()) {
@@ -5012,7 +5050,7 @@ final class GameContextImpl implements GameContext {
 				int handIdx = -1;
 				for (int i = 0; i < hand.size(); i++) if (hand.get(i) == source) { handIdx = i; break; }
 				if (handIdx < 0) handIdx = hand.indexOf(source);
-				if (handIdx < 0 || source.playByEffectProhibited(true)) {
+				if (handIdx < 0 || !mw.effectMayPlay(source, isP1, true)) {
 					logEntry(source.name() + " is not in hand — nothing to play");
 					markEffectFizzled();
 					return;
@@ -5080,7 +5118,7 @@ final class GameContextImpl implements GameContext {
 						if (!mw.meetsJobOrCardNameFilter(c, jobFilter, cardNameFilter, null)) continue;
 						if (!meetsCategoryFilter(c, categoryFilter)) continue;
 						if (!meetsElementFilter(c, elementFilter)) continue;
-						if (c.playByEffectProhibited(true)) continue;
+						if (!mw.effectMayPlay(c, isP1, true)) continue;
 						eligible.add(i);
 					}
 					if (eligible.isEmpty()) return;
@@ -7073,9 +7111,10 @@ final class GameContextImpl implements GameContext {
 					boolean ontoOwnField) {
 				List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				if (t.idx() >= bz.size()) return null;
-				// "You cannot play X due to Summons or abilities." — checked before the card leaves
-				// the Break Zone, so a blocked play is a no-op rather than a card in limbo.
-				if (bz.get(t.idx()).playByEffectProhibited(false)) {
+				// "You cannot play X due to Summons or abilities." and the "play" restrictions —
+				// checked before the card leaves the Break Zone, so a blocked play is a no-op rather than
+				// a card in limbo. Read for the side it would land on.
+				if (!mw.effectMayPlay(bz.get(t.idx()), ontoOwnField ? isP1 : t.isP1(), false)) {
 					logEntry(bz.get(t.idx()).name() + " cannot be played onto the field by an ability");
 					markEffectFizzled();
 					return null;
@@ -7211,7 +7250,7 @@ final class GameContextImpl implements GameContext {
 					return false;
 				}
 				CardData card = lbDeck.get(idx);
-				if (card.playByEffectProhibited(false)) {
+				if (!mw.effectMayPlay(card, isP1, false)) {
 					logEntry(card.name() + " cannot be played onto the field by an ability");
 					markEffectFizzled();
 					return false;
@@ -11618,20 +11657,20 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void chooseSummonsFromBzMakeCastable(int count, boolean eitherBz,
 					boolean expiresThisTurn, boolean rfgAfterUse, boolean freeCast) {
+				// "Choose 2 Summons" with one there is no legal choice (rule 11.8.9): 23-067R
+				// Shantotto's FAQ — "Two Summons must be selected. If only one Summon is present in
+				// the Break Zone, it is not possible to select it." One from each zone makes two.
+				int available = summonsChoosableFromBz(eitherBz).size();
+				if (available < count) {
+					logEntry("Only " + available + " Summon(s) to choose from, " + count + " required — effect fizzles");
+					markEffectFizzled();
+					return;
+				}
+				List<CardData> ownBz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<CardData> oppBz = isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
 				for (int picks = 0; picks < count; picks++) {
-					List<CardData> candidates = new ArrayList<>();
-					List<CardData> ownBz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
-					List<CardData> oppBz = isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
-					for (CardData c : ownBz) if (c.isSummon() && !mw.bzPlayableP1.containsKey(c) && !mw.bzPlayableP2.containsKey(c)) candidates.add(c);
-					// Two shields on the same half of this choice: one against removal from the
-					// game specifically, one against being chosen at all (Kalmia 18-090R).
-					if (eitherBz && !mw.bzSummonsProtectedFromOppRfg(!isP1)
-							&& !mw.bzCardsProtectedFromOppChoice(!isP1))
-						for (CardData c : oppBz) if (c.isSummon() && !mw.bzPlayableP1.containsKey(c) && !mw.bzPlayableP2.containsKey(c)) candidates.add(c);
-					if (candidates.isEmpty()) {
-						if (picks == 0) logEntry("No eligible Summon in Break Zone — effect fizzles");
-						return;
-					}
+					List<CardData> candidates = summonsChoosableFromBz(eitherBz);
+					if (candidates.isEmpty()) return;
 					// The controller's Break Zone first, then their opponent's — the same order on
 					// both clients, since it is the same player's.
 					CardData picked = pickCard(candidates, "a Summon from a Break Zone",
@@ -11651,6 +11690,24 @@ final class GameContextImpl implements GameContext {
 							+ (expiresThisTurn ? " this turn" : " during this game")
 							+ (freeCast ? " without paying its cost" : ""));
 				}
+			}
+
+			/**
+			 * The Summons {@link #chooseSummonsFromBzMakeCastable} may choose: the controller's Break
+			 * Zone first, then (when {@code eitherBz}) the opponent's — skipping any already borrowed,
+			 * and the opponent's whole zone when it is shielded from removal or from being chosen.
+			 */
+			private List<CardData> summonsChoosableFromBz(boolean eitherBz) {
+				List<CardData> candidates = new ArrayList<>();
+				List<CardData> ownBz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<CardData> oppBz = isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
+				for (CardData c : ownBz) if (c.isSummon() && !mw.bzPlayableP1.containsKey(c) && !mw.bzPlayableP2.containsKey(c)) candidates.add(c);
+				// Two shields on the same half of this choice: one against removal from the
+				// game specifically, one against being chosen at all (Kalmia 18-090R).
+				if (eitherBz && !mw.bzSummonsProtectedFromOppRfg(!isP1)
+						&& !mw.bzCardsProtectedFromOppChoice(!isP1))
+					for (CardData c : oppBz) if (c.isSummon() && !mw.bzPlayableP1.containsKey(c) && !mw.bzPlayableP2.containsKey(c)) candidates.add(c);
+				return candidates;
 			}
 
 			@Override public void armNextOwnSummonRecast(int maxCost) {
@@ -12991,7 +13048,53 @@ final class GameContextImpl implements GameContext {
 					logEntry(card.name() + " — Element becomes " + element
 							+ " and it gains Job [" + job + "] (does not end at end of turn)");
 					mw.refreshAllForwardSlots();
+					// A Forward made Dark beside a Light or Dark Character breaks the one-of rule, and
+					// both go — 27-006R Chaos Advent's FAQ. It arrived as its own Element, so the
+					// check its arrival made could not see this.
+					enforceLightDarkRule(isP1);
 				});
+			}
+
+			/**
+			 * The Light/Dark rule process (rule 7.7.5): with two or more Light or Dark Characters on
+			 * {@code sideIsP1}'s field — read by their Elements now, not as printed — all of them are
+			 * put into the Break Zone. Unless a "You can play 2 or more [Light|Dark] Characters" grant
+			 * on that side covers them all, as it would have covered their play. A put rather than a
+			 * break, as the uniqueness rule's is, so "cannot be broken" does not stop it.
+			 */
+			private void enforceLightDarkRule(boolean sideIsP1) {
+				List<ForwardTarget> lightDark = new ArrayList<>();
+				Set<String> elementsSeen = new java.util.HashSet<>();
+				List<CardData> fwds = sideIsP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				for (int i = 0; i < fwds.size(); i++) {
+					CardData c = sideIsP1 ? mw.effectiveP1Forward(i) : mw.effectiveP2Forward(i);
+					if (noteLightDark(c, elementsSeen)) lightDark.add(new ForwardTarget(sideIsP1, i, ForwardTarget.CardZone.FORWARD));
+				}
+				CardData[] bkps = sideIsP1 ? mw.p1BackupCards : mw.p2BackupCards;
+				for (int i = 0; i < bkps.length; i++)
+					if (bkps[i] != null && noteLightDark(bkps[i], elementsSeen))
+						lightDark.add(new ForwardTarget(sideIsP1, i, ForwardTarget.CardZone.BACKUP));
+				List<CardData> mons = sideIsP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+				for (int i = 0; i < mons.size(); i++)
+					if (noteLightDark(mons.get(i), elementsSeen))
+						lightDark.add(new ForwardTarget(sideIsP1, i, ForwardTarget.CardZone.MONSTER));
+				if (lightDark.size() < 2) return;
+				if (elementsSeen.size() == 1) {
+					String only = elementsSeen.iterator().next();
+					for (CardData c : mw.fieldCards(sideIsP1))
+						if (only.equalsIgnoreCase(c.grantsMultiLightDarkPlay())) return;
+				}
+				logEntry("[Light/Dark] " + lightDark.size() + " Light or Dark Characters on one field — all to the Break Zone");
+				// Highest index first within each zone, so a removal does not shift a later target.
+				ActionResolver.sortedByIdxDesc(lightDark, sideIsP1).forEach(this::forceTargetToBreakZone);
+			}
+
+			/** Whether {@code c} is Light or Dark now, adding which to {@code seen}. */
+			private boolean noteLightDark(CardData c, Set<String> seen) {
+				boolean any = false;
+				for (String e : new String[]{"Light", "Dark"})
+					if (mw.effectiveContainsElement(c, e)) { seen.add(e); any = true; }
+				return any;
 			}
 
 			@Override public void revealTopNRemoveWarpCardPlaceCountersRestShuffledBottom(

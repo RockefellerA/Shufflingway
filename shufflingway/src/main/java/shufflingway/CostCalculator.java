@@ -564,7 +564,45 @@ class CostCalculator {
 		// from the board (19-101R Leviathan bounced a copy and barred the name), so a card with no
 		// restriction of its own is just as subject to it.
 		if (mw.castNameBanned(card.name(), isP1)) return false;
+		// A cast is a play, so a play restriction binds it too.
+		if (aliasPlayBlocked(card, isP1)) return false;
+		return castRestrictionConditionsMet(card, isP1);
+	}
 
+	/**
+	 * Whether a Summon or ability may put {@code card} onto {@code isP1}'s field as far as the
+	 * restrictions printed with <em>play</em> go — the half of {@link #castRestrictionMet} that an
+	 * effect is held to as well. Their FAQs: Rursan Arbiter 21-040R, Lyse 17-081H and Hooded Man
+	 * 11-054R stay where they are while their pair is controlled, and Red XIII 20-021R "cannot be
+	 * deployed through summons or abilities" without a Category VII Forward. A "cast" restriction
+	 * ("You can only cast X during your turn") binds the cast alone and is not read here.
+	 */
+	boolean playRestrictionMet(CardData card, boolean isP1) {
+		if (aliasPlayBlocked(card, isP1)) return false;
+		return !card.hasOnlyPlayIfRestriction() || castRestrictionConditionsMet(card, isP1);
+	}
+
+	/**
+	 * "You cannot play [Self] or Card Name X while already in control of either Character." — true
+	 * while {@code isP1} controls a Character with either name, read off the card acting in each
+	 * slot (a primed top card included).
+	 */
+	private boolean aliasPlayBlocked(CardData card, boolean isP1) {
+		String alias = card.aliasPlayRestrictionName();
+		if (alias == null) return false;
+		List<CardData> chars = new ArrayList<>();
+		int nFwd = (isP1 ? mw.p1ForwardCards : mw.p2ForwardCards).size();
+		for (int i = 0; i < nFwd; i++) chars.add(isP1 ? mw.effectiveP1Forward(i) : mw.effectiveP2Forward(i));
+		for (CardData b : isP1 ? mw.p1BackupCards : mw.p2BackupCards) if (b != null) chars.add(b);
+		chars.addAll(isP1 ? mw.p1MonsterCards : mw.p2MonsterCards);
+		for (CardData c : chars)
+			if (CardFilters.meetsCardNameFilter(c, card.name()) || CardFilters.meetsCardNameFilter(c, alias))
+				return true;
+		return false;
+	}
+
+	/** The conditions {@code card}'s {@link CastRestriction} states, read against {@code isP1}'s board. */
+	private boolean castRestrictionConditionsMet(CardData card, boolean isP1) {
 		CastRestriction cr = card.castRestriction();
 		if (cr == null) return true;
 

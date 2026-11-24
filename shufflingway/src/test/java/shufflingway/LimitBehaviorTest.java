@@ -3107,8 +3107,12 @@ class LimitBehaviorTest {
 		placeP2Backup(mw, makePlainCard("Aerith", "Earth", "Backup", 2, 0, null, "VII"));
 		putPlainCardsOnTop(mw, false, 1);
 
-		enterAsP2(mw, makeYuffie());
+		int before = mw.gameState.getStack().size();
+		placeP2Forward(mw, makeYuffie());
 
+		// Rule 11.8.13: "if you control 2 or more Category VII Forwards" is checked as she enters,
+		// and it fails, so the ability does not trigger at all rather than resolving to nothing.
+		assertEquals(before, mw.gameState.getStack().size(), "nothing goes on the Stack");
 		assertTrue(mw.gameState.getP2Hand().isEmpty(), "Forwards: a Backup does not make the second");
 	}
 

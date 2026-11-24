@@ -5768,6 +5768,14 @@ final class AutoAbilityTriggers {
 		// at all, so it must not appear in the stack-ordering dialog beside the triggers that did
 		// (17-140S Golbez's discount drawback on a full-price cast).
 		if (arrivalGateFails(fa)) return;
+		// A conditional auto-ability whose condition fails as it triggers does not trigger (rule
+		// 11.8.13): 17-022H Umaro's discard with 5 or more Category VI Characters. A plain context,
+		// not buildGameContext, which resets per-ability flags a resolution in progress may hold.
+		if (Boolean.FALSE.equals(ActionResolverGate.triggerConditionHolds(
+				fa.effectText(), new GameContextImpl(mw, isP1, false)))) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — its condition is not met, so it does not trigger");
+			return;
+		}
 		if (pendingBatch != null) {
 			pendingBatch.add(new StackOrderingDialog.Item(fa, source, isP1, paidExtraCost, triggerCard,
 					mw.triggeringEnteredCard));
@@ -6259,11 +6267,13 @@ final class AutoAbilityTriggers {
 		TargetSpec spec = ActionResolver.targetSpec(effectText, source);
 		if (spec == null || !(ctx instanceof GameContextImpl impl)) return null;
 		if (spec.zone() != null) return ActionResolver.stackPickIsWholeChoice(effectText) ? picked : null;
-		boolean noneEligible = impl.eligibleCharacters(spec).isEmpty();
-		if (spec.upTo() && !noneEligible) return picked;
+		// Too few for the count is as much "nothing to choose" as none at all: "choose 2" with one
+		// there is no legal choice (MainWindow.requiredChoiceCount).
+		boolean noLegalChoice = impl.eligibleCharacters(spec).size() < MainWindow.requiredChoiceCount(spec);
+		if (spec.upTo() && !noLegalChoice) return picked;
 		boolean choosesFieldCharacters = !spec.inclSummons()
 				&& (spec.inclForwards() || spec.inclBackups() || spec.inclMonsters());
-		if (noneEligible && choosesFieldCharacters && ActionResolver.stackPickIsWholeChoice(effectText)) return picked;
+		if (noLegalChoice && choosesFieldCharacters && ActionResolver.stackPickIsWholeChoice(effectText)) return picked;
 		return null;
 	}
 
@@ -9964,8 +9974,12 @@ final class AutoAbilityTriggers {
 		// A select menu declares its option as it is used (rule 11.6.6), and the targets are that
 		// option's (ActionResolver.chooseForStack).
 		final int chosenX = xValue;
+		// A card its own cost put into the Break Zone is not there to be chosen (6-087R Edea) —
+		// see ActionResolver.costPutsSourceIntoBreakZone.
+		GameContext chooseCtx = mw.buildGameContext(isP1);
+		if (ActionResolver.costPutsSourceIntoBreakZone(ability, source)) chooseCtx.excludeFromBreakZoneChoices(source);
 		ActionResolver.StackChoices choices = mw.whileChoosingForStack(() -> ActionResolver.chooseForStack(
-				ability.effectText(), source, chosenX, mw.buildGameContext(isP1)));
+				ability.effectText(), source, chosenX, chooseCtx));
 		StackEntry pushed = new StackEntry(source, ability, isP1, xValue, choices.targets(), revealedPower);
 		mw.gameState.insertStack(depth, pushed);
 		mw.recordStackChoices(pushed, choices);

@@ -2059,6 +2059,10 @@ final class ActionResolverSearch {
         final CardData.Trait fTrait = requireTrait;
         final boolean fBoth = identityConjunctive;
         final PickGate fGate = gate;
+        // "Search for 2 … with different names / each of a different Element" finds that many or
+        // none — Lucio 24-111H's FAQ, Snow 12-033R's printed "(Snow cannot search for 1 card)".
+        // "Up to N" takes what it can, as 1-135L Golbez and 22-067L Nacht do.
+        final boolean fExact = gate != PickGate.ANY && m.group("upto") == null;
         final boolean fSilent = suppressAutoAbilities;
         final int fTotalCost = maxTotalCost;
         final int fCost = costVal;
@@ -2075,7 +2079,7 @@ final class ActionResolverSearch {
             if (fGate != PickGate.ANY || fSilent || fTotalCost >= 0) {
                 ctx.searchDeckForCardWithRiders(fwd, bk, mn, sm, fCost, fCostCmp, fName, fJob,
                         fCat, fElem, fExclude, fExclElem, destination, fCount, fDull, fTrait,
-                        fGate, fSilent, fTotalCost);
+                        fGate, fSilent, fTotalCost, fExact);
             } else if (fPower >= 0) {
                 ctx.searchDeckForCardWithPower(fwd, bk, mn, sm, fCost, fCostCmp, fPower, fPowerCmp,
                         fName, fJob, fCat, fElem, fExclude, fExclElem, destination, fCount, fDull, fTrait);

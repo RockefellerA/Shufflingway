@@ -3811,6 +3811,10 @@ public class ActionResolver {
                 return "ChooseCharacter / RevealTopNDamagePerCpAddAllToHand";
             if (FOLLOWUP_RFP_IF_SAME_TYPE_DRAW.matcher(followup.trim()).matches())
                 return "ChooseCharacter / RfpIfSameTypeDraw";
+            Matcher rfpDiffElemM = FOLLOWUP_RFP_IF_N_DIFFERENT_ELEMENTS.matcher(followup.trim());
+            if (rfpDiffElemM.matches())
+                return "ChooseCharacter / RfpIfNDifferentElements(" + rfpDiffElemM.group("min") + "+: "
+                        + describeOrName(cap(rfpDiffElemM.group("effect").trim()), source) + ")";
             // Mirrors the choose chain's cost-gated branches: split, 29-037C MAI read as a break and
             // a return, both unconditional.
             if (ActionResolverChoose.costGatedBranches(followup, 0) != null) {
@@ -4460,10 +4464,30 @@ public class ActionResolver {
 
         Consumer<GameContext> effect = parse(ability.effectText(), source, xValue);
         if (effect != null) {
-            effect.accept(ctx);
+            boolean exclude = costPutsSourceIntoBreakZone(ability, source);
+            if (exclude) ctx.excludeFromBreakZoneChoices(source);
+            try {
+                effect.accept(ctx);
+            } finally {
+                if (exclude) ctx.excludeFromBreakZoneChoices(null);
+            }
         } else {
             ctx.logEntry("[ActionResolver] Effect not yet implemented: " + ability.effectText());
         }
+    }
+
+    /**
+     * Whether {@code ability}'s cost puts {@code source} itself into the Break Zone ("《Dull》, put
+     * Edea into the Break Zone: …"). Such a card cannot be chosen from the Break Zone by that same
+     * ability — 6-087R Edea's FAQ: an action ability chooses as it is used, before its cost is paid,
+     * so the card the cost moves is not there yet to be chosen. The engine chooses after paying,
+     * so the source is left out of the Break Zone choices instead.
+     */
+    static boolean costPutsSourceIntoBreakZone(ActionAbility ability, CardData source) {
+        if (ability == null || source == null) return false;
+        for (BreakZoneCost c : ability.breakZoneCosts())
+            if (c.name() != null && c.name().trim().equalsIgnoreCase(source.name())) return true;
+        return false;
     }
 
     // -------------------------------------------------------------------------
@@ -6523,6 +6547,19 @@ public class ActionResolver {
         // A counted Break Zone removal here is the payoff's price, which is all N or nothing — read
         // in that form rather than as the removal parse() would give, which takes what there is.
         Consumer<GameContext> price    = tryParseBzRemovalPrice(m.group("primary"));
+        // "Remove 1 Card Name [Self] in your Break Zone" takes another copy than this one: 9-056H
+        // The Magus Sisters, put there by the trigger she pays it from, may not remove herself.
+        if (price != null && source != null && namesOwnCardName(m.group("primary"), source)) {
+            Consumer<GameContext> anyCopy = price;
+            price = ctx -> {
+                ctx.excludeFromBreakZoneChoices(source);
+                try {
+                    anyCopy.accept(ctx);
+                } finally {
+                    ctx.excludeFromBreakZoneChoices(null);
+                }
+            };
+        }
         Consumer<GameContext> primary  = price != null ? price : parse(m.group("primary").trim(), source, xValue);
         String followupText = m.group("followup").trim();
         Consumer<GameContext> followup = parse(followupText, source, xValue);
@@ -6545,6 +6582,12 @@ public class ActionResolver {
             if (delayed) ctx.triggerWhenYouDoSo(source, followupText, xValue, followup);
             else followup.accept(ctx);
         };
+    }
+
+    /** Whether {@code text} names "Card Name [the source's own name]". */
+    private static boolean namesOwnCardName(String text, CardData source) {
+        return Pattern.compile("(?i)\\bCard\\s+Name\\s+" + Pattern.quote(source.name()) + "(?![A-Za-z])")
+                .matcher(text).find();
     }
 
     /**

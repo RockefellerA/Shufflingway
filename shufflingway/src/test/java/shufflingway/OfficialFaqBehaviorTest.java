@@ -924,9 +924,12 @@ class OfficialFaqBehaviorTest {
 		p2Arrives(mw, luneth_27_017R());
 		resolveStack(mw);
 
-		assertTrue(mw.p2ForwardCards.contains(arc), "the Arc already there stays");
-		assertFalse(mw.p2ForwardCards.contains(secondArc));
-		assertFalse(mw.gameState.getP2BreakZone().contains(secondArc), "never played, so never put into the Break Zone");
+		// By identity: the two Arcs are equal records, so contains() cannot tell them apart.
+		assertTrue(mw.p2ForwardCards.stream().anyMatch(c -> c == arc), "the Arc already there stays");
+		assertFalse(mw.p2ForwardCards.stream().anyMatch(c -> c == secondArc));
+		assertFalse(mw.gameState.getP2BreakZone().stream().anyMatch(c -> c == secondArc),
+				"never played, so never put into the Break Zone");
+		assertSame(secondArc, mw.gameState.getP2MainDeck().peekFirst(), "it stays on top of the deck");
 	}
 
 	// =========================================================================================

@@ -2952,6 +2952,17 @@ final class ActionResolverPatterns {
         "(?:also\\s+)?draw\\s+(?<count>\\d+)\\s+cards?[.!]?"
     );
     /**
+     * "Remove them from the game. If there are N or more different Elements among them, [effect]."
+     * — 30-021H Gestahlian Empire Cid; every Element of a Multi-Element card counts (his FAQ).
+     * The sibling of {@link #FOLLOWUP_RFP_IF_SAME_TYPE_DRAW}, read whole. Groups {@code min},
+     * {@code effect}.
+     */
+    static final Pattern FOLLOWUP_RFP_IF_N_DIFFERENT_ELEMENTS = Pattern.compile(
+        "(?i)^Remove\\s+them\\s+from\\s+(?:the\\s+)?game[.!]?\\s+" +
+        "If\\s+there\\s+are\\s+(?<min>\\d+)\\s+or\\s+more\\s+different\\s+Elements\\s+among\\s+them,\\s*" +
+        "(?<effect>[^.!]+[.!]?)$"
+    );
+    /**
      * Matches the compound followup "Reveal the top N cards of your deck.
      * For each Job [Job] revealed this way, deal it M damage.
      * Then, place the revealed cards at the bottom of your deck in any order."
@@ -7872,10 +7883,12 @@ final class ActionResolverPatterns {
      * <p>Lifted off before {@link #SEARCH_DECK_PATTERN} reads the text, for exactly the reason
      * {@link #SEARCH_WITH_DIFFERENT_NAMES} is: the phrase sits between the cost clause and the
      * destination, where that pattern expects "and play them onto the field", so Golbez did not
-     * parse at all. The leading comma is part of the printed phrase and comes off with it.
+     * parse at all. The leading comma is part of the printed phrase and comes off with it, and so
+     * does a closing one: 24-111H Lucio's "Job Warrior of the Crystal, each of a different Element,
+     * and add them" otherwise left "Warrior of the Crystal," as the Job, and the search found nothing.
      */
     static final Pattern SEARCH_EACH_OF_A_DIFFERENT_ELEMENT = Pattern.compile(
-        "(?i),?\\s+each\\s+of\\s+a\\s+different\\s+Element\\b"
+        "(?i),?\\s+each\\s+of\\s+a\\s+different\\s+Element\\b,?"
     );
     /**
      * The "each of a different Element and cost" constraint — 11-061L Yuna, the one printing that
@@ -7924,7 +7937,7 @@ final class ActionResolverPatterns {
         // search text says "search for". The leading \b is what makes dropping it safe — "Research"
         // ends in "search", and the Chadley cards ("place 2 Research Counters") would otherwise be
         // one word away from matching.
-        "(?i)\\bSearch\\s+(?:for\\s+)?(?:up\\s+to\\s+)?(?<count>\\d+)\\s+" +
+        "(?i)\\bSearch\\s+(?:for\\s+)?(?<upto>up\\s+to\\s+)?(?<count>\\d+)\\s+" +
         // Element(s) that precede the job/name filter (e.g. "Fire Job Knight")
         "(?:(?<preelems>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +

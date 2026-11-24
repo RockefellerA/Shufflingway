@@ -6657,10 +6657,11 @@ public class MainWindow {
 		int costVal, String costCmp, String cardNameFilter, String jobFilter,
 		String categoryFilter, String elementFilter, String excludeName, String excludeElem,
 		String destination, int count, boolean entersDull, CardData.Trait requireTrait,
-		PickGate gate, boolean suppressAutoAbilities, int maxTotalCost) {
+		PickGate gate, boolean suppressAutoAbilities, int maxTotalCost, boolean exactCount) {
 		searchPickGate = gate == null ? PickGate.ANY : gate;
 		searchSuppressAutoAbilities = suppressAutoAbilities;
 		searchTotalCostBudget = maxTotalCost;
+		searchExactCount = exactCount;
 		try {
 			return searchDeckForCard(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
 				costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter,
@@ -6669,7 +6670,38 @@ public class MainWindow {
 			searchPickGate = PickGate.ANY;
 			searchSuppressAutoAbilities = false;
 			searchTotalCostBudget = -1;
+			searchExactCount = false;
 		}
+	}
+
+	/**
+	 * A search for exactly {@code count} under {@link #searchPickGate}, which finds that many or
+	 * nothing (24-111H Lucio, 12-033R Snow). Set and cleared by {@link #searchDeckForCardWithRiders}.
+	 */
+	private boolean searchExactCount = false;
+
+	/**
+	 * {@code count} cards from {@code matches} that {@code gate} allows together, or {@code null}
+	 * when no such set exists. Tried in the order given, so a shuffled list gives a random set.
+	 * A depth-first search rather than a greedy pass: a Multi-Element card taken first can block
+	 * two single-Element cards that would together have made the count.
+	 */
+	private static List<CardData> findPickOfN(List<CardData> matches, int count, PickGate gate) {
+		List<CardData> chosen = new ArrayList<>();
+		return extendPick(matches, 0, count, gate, chosen) ? chosen : null;
+	}
+
+	private static boolean extendPick(List<CardData> matches, int from, int count, PickGate gate,
+			List<CardData> chosen) {
+		if (chosen.size() == count) return true;
+		for (int i = from; i < matches.size(); i++) {
+			CardData c = matches.get(i);
+			if (!gate.allows(chosen, c)) continue;
+			chosen.add(c);
+			if (extendPick(matches, i + 1, count, gate, chosen)) return true;
+			chosen.remove(chosen.size() - 1);
+		}
+		return false;
 	}
 
 	/**
@@ -6931,6 +6963,14 @@ public class MainWindow {
 		return chosen;
 	}
 
+	/** The AI's picks for an exact-count search: a random set of {@code count} the gate allows. */
+	private static List<CardData> cpuExactPick(List<CardData> matches, int count, PickGate gate) {
+		List<CardData> shuffled = new ArrayList<>(matches);
+		Collections.shuffle(shuffled);
+		List<CardData> set = findPickOfN(shuffled, count, gate);
+		return set != null ? set : List.of();
+	}
+
 	/** @return whether a card was found, chosen, and moved to {@code destination}. */
 	private boolean searchDeckForCardImpl(boolean isP1,
 			boolean inclForwards, boolean inclBackups,
@@ -6994,12 +7034,21 @@ public class MainWindow {
 		// are computed out of order with it (the CPU's here, a remote player's on their client).
 		final PickGate gate   = searchPickGate;
 		final int      budget = searchTotalCostBudget;
+		final boolean  exact  = searchExactCount && count > 1;
+		// "Search for 2 … with different names" with no two that differ finds nothing — checked
+		// before anyone is asked, so nobody picks a hand the search cannot take.
+		if (exact && findPickOfN(matches, count, gate) == null) {
+			shuffleDeck(isP1);
+			logEntry("Search: fewer than " + count + " matching cards that can be taken together — nothing found");
+			return false;
+		}
 		List<CardData> chosen = new ArrayList<>(chooseFromDeckSearch(isP1, matches, count,
 				() -> count > 1
 						? cardPickerDialog.pickMultiFromDeckSearch(matches, count, gate, budget)
 						: java.util.Optional.ofNullable(cardPickerDialog.pickFromDeckSearch(matches))
 								.map(List::of).orElse(List.of()),
-				() -> cpuDeckSearchPicks(matches, count, gate, budget),
+				// A random set that makes the count, rather than random picks that can strand short.
+				() -> exact ? cpuExactPick(matches, count, gate) : cpuDeckSearchPicks(matches, count, gate, budget),
 				picks -> {
 					List<CardData> sofar = new ArrayList<>();
 					int total = 0;
@@ -7010,6 +7059,11 @@ public class MainWindow {
 					}
 					return budget < 0 || total <= budget;
 				}));
+		if (exact && chosen.size() < count) {
+			if (!chosen.isEmpty())
+				logEntry("Search: " + count + " required, " + chosen.size() + " picked — nothing taken");
+			chosen.clear();
+		}
 		for (CardData pick : chosen) {
 			if (!isP1) logEntry("[P2] chose " + pick.name());
 			removeByIdentity(deck, pick);
@@ -7213,11 +7267,23 @@ public class MainWindow {
 			logEntry("Search: no " + element + " Summons found");
 			return;
 		}
+		// "Search for 2 … each with a different cost" finds two or nothing: 21-032R Terra's FAQ
+		// says she cannot search for only one. So the deck must hold that many different costs,
+		// and a pick of fewer is no pick.
+		if (pool.stream().map(CardData::cost).distinct().count() < count) {
+			logEntry("Search: fewer than " + count + " " + element + " Summons of different costs — nothing found");
+			return;
+		}
 		// The dialog takes up to two; "count" is what the printing asks for, and bounds the answer.
 		List<CardData> chosen = chooseFromDeckSearch(isP1, pool, Math.max(1, count),
 				() -> cardPickerDialog.pickTwoFromDeckSearchDifferentCost(pool),
 				() -> aiDifferentCostPair(pool, count),
 				MainWindow::allCostsDiffer);
+		if (chosen.size() < count) {
+			if (!chosen.isEmpty())
+				logEntry("Search: " + count + " required, " + chosen.size() + " picked — nothing found");
+			return;
+		}
 		for (CardData card : chosen) {
 			removeByIdentity(deck, card);
 			playerHand(isP1).add(card);
@@ -11030,14 +11096,26 @@ public class MainWindow {
 		currentSummonSourceIsP1   = isP1;
 		try {
 			GameContextImpl ctx = new GameContextImpl(this, isP1, false);
-			return !(spec.zone() != null
+			return (spec.zone() != null
 					? ctx.eligibleCharactersFromBreakZone(spec)
-					: ctx.eligibleCharacters(spec)).isEmpty();
+					: ctx.eligibleCharacters(spec)).size() >= requiredChoiceCount(spec);
 		} finally {
 			currentResolutionIsSummon = savedIsSummon;
 			currentSummonSource       = savedSource;
 			currentSummonSourceIsP1   = savedSourceP1;
 		}
+	}
+
+	/**
+	 * How many cards a choice must find to be a legal choice at all: {@code N} for "choose N", one
+	 * for "up to N". Rules 11.3.3, 11.6.5 and 11.8.9 — a choice needs a legal target "or the player
+	 * cannot use it" — read as Yuffie 28-054L's and Shantotto 23-067R's FAQs read them: "choose 2"
+	 * with one there is no legal choice, on the field as in the Break Zone (decided with the user,
+	 * 2026-11-24).
+	 */
+	static int requiredChoiceCount(TargetSpec spec) {
+		if (spec.upTo() || spec.maxCount() == Integer.MAX_VALUE) return 1;
+		return Math.max(1, spec.maxCount());
 	}
 
 	/**
@@ -11098,7 +11176,8 @@ public class MainWindow {
 	 */
 	boolean abilityHasActivationTarget(ActionAbility ability, CardData source, boolean isP1) {
 		TargetSpec spec = ActionResolver.mandatoryChoiceTargetSpec(ability.effectText(), source);
-		return spec == null || !eligibleAbilityChoiceTargets(spec, ability, source, isP1).isEmpty();
+		return spec == null
+				|| eligibleAbilityChoiceTargets(spec, ability, source, isP1).size() >= requiredChoiceCount(spec);
 	}
 
 	/**
@@ -11573,6 +11652,38 @@ public class MainWindow {
 
 	/** @see CostCalculator#castRestrictionMet */
 	boolean castRestrictionMet(CardData card, boolean isP1) { return costs.castRestrictionMet(card, isP1); }
+
+	/**
+	 * Whether a Summon or ability may put {@code card} onto {@code isP1}'s field out of
+	 * {@code fromHand}'s zone: neither its "cannot be played due to Summons or abilities" nor a
+	 * restriction printed with "play" ({@link CostCalculator#playRestrictionMet}) stands in the
+	 * way. A card that may not be played stays where it is.
+	 */
+	boolean effectMayPlay(CardData card, boolean isP1, boolean fromHand) {
+		return !card.playByEffectProhibited(fromHand) && costs.playRestrictionMet(card, isP1);
+	}
+
+	/**
+	 * Whether an effect may put the Character {@code card} onto {@code isP1}'s field at all: no
+	 * same-name Character there (unless it is a multicard or a "2 or more" grant allows it), no
+	 * Light/Dark clash, a free slot for a Backup, and {@link #effectMayPlay} — the checks a cast
+	 * makes, held to an effect's play as well. A card that may not enter stays where it was:
+	 * 27-017R Luneth's FAQ, a revealed Arc beside the Arc already there "cannot be played".
+	 */
+	boolean effectMayPlayOntoField(CardData card, boolean isP1, boolean fromHand) {
+		boolean isCharacter = card.isForward() || card.isBackup() || card.isMonster();
+		if (isCharacter) {
+			if (!card.multicard() && hasUniquenessClashOnField(card, isP1)
+					&& !isMultiNameExceptionActive(card.name(), isP1)) return false;
+			if (isP1 ? isLightDarkConflict(card) : isP2LightDarkConflict(card)) return false;
+			if (card.isBackup()) {
+				boolean free = false;
+				for (CardData b : isP1 ? p1BackupCards : p2BackupCards) if (b == null) { free = true; break; }
+				if (!free) return false;
+			}
+		}
+		return effectMayPlay(card, isP1, fromHand);
+	}
 
 	/** Returns true if any on-field card grants {@code backup} any-element CP. */
 	boolean isGrantedAnyElementCp(CardData backup) {

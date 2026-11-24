@@ -1367,6 +1367,13 @@ public interface GameContext {
     /** Lifts whatever {@link #setSelectionExclusions} last set. */
     void clearSelectionExclusions();
 
+    /**
+     * Leaves {@code card} — by identity — out of every Break Zone choice this context makes until
+     * lifted with {@code null}. 9-056H The Magus Sisters' "remove 1 Card Name The Magus Sisters in
+     * your Break Zone" must take another copy than the one just put there (her FAQ).
+     */
+    void excludeFromBreakZoneChoices(CardData card);
+
 
     /**
      * Like {@link #playTargetOntoField} but the card enters the field in a dulled state — "Choose
@@ -4775,13 +4782,17 @@ public interface GameContext {
      * <p>{@code maxTotalCost} is "with a total cost of N or less" (29-057L Luso), an allowance
      * spent across the picks together rather than a filter on any one of them; {@code -1} for the
      * searches that name no such cap. Distinct from {@code costVal}, which narrows the pool.
+     *
+     * <p>{@code exactCount} is a search for exactly {@code count} under its gate ("search for 2 …
+     * with different names"), which finds that many or nothing: 24-111H Lucio's FAQ, and 12-033R
+     * Snow's printed "(Snow cannot search for 1 card)". An "up to" search takes what it can.
      */
     boolean searchDeckForCardWithRiders(boolean inclForwards, boolean inclBackups,
             boolean inclMonsters, boolean inclSummons,
             int costVal, String costCmp, String cardNameFilter, String jobFilter,
             String categoryFilter, String elementFilter, String excludeName, String excludeElem,
             String destination, int count, boolean entersDull, CardData.Trait requireTrait,
-            PickGate gate, boolean suppressAutoAbilities, int maxTotalCost);
+            PickGate gate, boolean suppressAutoAbilities, int maxTotalCost, boolean exactCount);
 
     /**
      * As {@link #searchDeckForCard}, but requiring the name <em>and</em> the job together —

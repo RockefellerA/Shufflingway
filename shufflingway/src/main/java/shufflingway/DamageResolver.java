@@ -81,6 +81,33 @@ class DamageResolver {
 		return mw.currentResolutionIsSummon ? mw.currentSummonSource : mw.currentAbilitySource;
 	}
 
+	/**
+	 * The Forward dealing {@code subject} its battle damage: the Forward blocking it when it is the
+	 * attacker, the attacker otherwise.
+	 */
+	private CardData battleDealerOf(CardData subject) {
+		if (mw.p1BlockedByAttacker == subject && mw.p1BlockingIdx >= 0 && mw.p1BlockingIdx < mw.p1ForwardCards.size())
+			return mw.p1ForwardCards.get(mw.p1BlockingIdx);
+		if (mw.p2BlockedByAttacker == subject && mw.p2BlockingIdx >= 0 && mw.p2BlockingIdx < mw.p2ForwardCards.size())
+			return mw.p2ForwardCards.get(mw.p2BlockingIdx);
+		return mw.currentBattleAttacker;
+	}
+
+	/**
+	 * Whether {@code dealer} is a Forward (or acts as one) with any of the keywords in
+	 * {@code traitsText} — "Haste or First Strike" — read as it stands on the field now. One that
+	 * has left the field has no keywords to read.
+	 */
+	private boolean dealerHasAnyTrait(CardData dealer, String traitsText) {
+		Boolean side = mw.fieldSideOf(dealer);
+		if (side == null || !(dealer.isForward() || mw.sourceIsActingForward(dealer))) return false;
+		for (String t : traitsText.split("(?i)\\s+or\\s+")) {
+			CardData.Trait trait = mw.traitFromName(t.trim());
+			if (trait != null && mw.effectiveCardHasTrait(dealer, side, trait)) return true;
+		}
+		return false;
+	}
+
 	private boolean abilityDamageUnreducibleByField(boolean targetIsP1, boolean fromAbility) {
 		if (!fromAbility || mw.currentResolutionIsSummon) return false;
 		if (mw.currentAbilitySource == null || mw.currentAbilitySourceIsP1 == targetIsP1) return false;
@@ -238,21 +265,22 @@ class DamageResolver {
 
 		}
 
-		// Passive field ability: nullify battle damage from a Forward with specific traits (e.g. Haste, First Strike).
-		// The traits are read off the opposing Forward's slot, so one already gone from the field has none to read.
-		if (!fromAbility && mw.currentBattleAttacker != null && mw.currentBattleAttackerIdx >= 0) {
+		// Passive field ability: "If [card] is dealt damage by a Forward with Haste or First Strike,
+		// the damage becomes 0 instead." (5-042C Trickster). Every route, not only battle: his FAQ —
+		// "This doesn't apply just for attack or block" — counts that Forward's ability damage too.
+		// The dealer is the Forward in battle with the card (its blocker, when the card attacked) or
+		// the ability's source, its keywords read as they stand now. A Summon is not a Forward.
+		CardData traitDealer = fromAbility
+				? (mw.currentResolutionIsSummon ? null : mw.currentAbilitySource)
+				: battleDealerOf(card);
+		if (traitDealer != null) {
 			for (FieldAbility fa : card.fieldAbilities()) {
 				Matcher fam = AutoAbilityTriggers.FA_NULLIFY_TRAIT_FORWARD_DAMAGE.matcher(fa.effectText());
 				if (!fam.find() || !fam.group("card").trim().equalsIgnoreCase(card.name())) continue;
-				String t1 = fam.group("trait1").trim();
-				String t2raw = fam.group("trait2");
-				String t2 = t2raw != null ? t2raw.trim() : null;
-				CardData.Trait trait1 = mw.traitFromName(t1);
-				CardData.Trait trait2 = t2 != null ? mw.traitFromName(t2) : null;
-				boolean t1Match = trait1 != null && mw.fieldForwardTrait(mw.currentBattleAttackerIsP1, mw.currentBattleAttackerZone, mw.currentBattleAttackerIdx, trait1);
-				boolean t2Match = trait2 != null && mw.fieldForwardTrait(mw.currentBattleAttackerIsP1, mw.currentBattleAttackerZone, mw.currentBattleAttackerIdx, trait2);
-				if (t1Match || t2Match) {
-					mw.logEntry(card.name() + " — battle damage nullified (attacker has " + (t1Match ? t1 : t2) + ")");
+				String traits = fam.group("trait1").trim()
+						+ (fam.group("trait2") != null ? " or " + fam.group("trait2").trim() : "");
+				if (dealerHasAnyTrait(traitDealer, traits)) {
+					mw.logEntry(card.name() + " — damage nullified (" + traitDealer.name() + " has " + traits + ")");
 					return 0;
 				}
 			}

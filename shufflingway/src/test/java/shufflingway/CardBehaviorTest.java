@@ -3231,6 +3231,62 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // "Choose N" with fewer than N to choose from is no legal choice — on the field as in the
+    // Break Zone (rules 11.3.3 / 11.6.5 / 11.8.9, read as Yuffie 28-054L's and Shantotto 23-067R's
+    // FAQs read them; decided with the user 2026-11-24). "Up to N" takes what there is.
+    // =========================================================================================
+
+    private static final String CHOOSE_TWO_DAMAGE =
+            "Choose 2 Forwards opponent controls. Deal them 5000 damage.";
+
+    @Test
+    void aChooseTwoWithOneForwardThereChoosesNothing() {
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, makeForward("Only", "Fire", 3, 9000));
+
+        ActionResolver.parse(CHOOSE_TWO_DAMAGE, makeForward("Caster", "Ice", 3, 7000))
+                .accept(mw.buildGameContext(false));
+
+        assertEquals(0, mw.p1ForwardDamage.get(0), "one Forward is not two — nothing is dealt");
+    }
+
+    @Test
+    void aChooseTwoWithTwoForwardsThereDealsBoth() {
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, makeForward("First", "Fire", 3, 9000));
+        placeP1Forward(mw, makeForward("Second", "Fire", 3, 9000));
+
+        ActionResolver.parse(CHOOSE_TWO_DAMAGE, makeForward("Caster", "Ice", 3, 7000))
+                .accept(mw.buildGameContext(false));
+
+        assertEquals(5000, mw.p1ForwardDamage.get(0));
+        assertEquals(5000, mw.p1ForwardDamage.get(1));
+    }
+
+    @Test
+    void anUpToTwoWithOneForwardThereStillTakesIt() {
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, makeForward("Only", "Fire", 3, 9000));
+
+        ActionResolver.parse("Choose up to 2 Forwards opponent controls. Deal them 5000 damage.",
+                makeForward("Caster", "Ice", 3, 7000)).accept(mw.buildGameContext(false));
+
+        assertEquals(5000, mw.p1ForwardDamage.get(0));
+    }
+
+    @Test
+    void aChooseTwoSummonCannotBeCastWithOneForwardThere() {
+        MainWindow mw = new MainWindow();
+        CardData bolt = makeSummon("Twin Bolt", "Lightning", 3, CHOOSE_TWO_DAMAGE);
+        mw.gameState.getIdentity().put(bolt, false);
+        placeP1Forward(mw, makeForward("Only", "Fire", 3, 9000));
+        assertFalse(mw.summonHasCastTarget(bolt, false), "rule 11.3.3: no legal choice, so it cannot be cast");
+
+        placeP1Forward(mw, makeForward("Second", "Fire", 3, 9000));
+        assertTrue(mw.summonHasCastTarget(bolt, false));
+    }
+
+    // =========================================================================================
     // Sahagin Chief: "When a Water Character other than Sahagin Chief enters your field, place 1
     // Monster Counter on Sahagin Chief." — "other than Sahagin Chief" excludes only the source
     // instance (a card naming itself means that specific card), so another copy of Sahagin Chief
@@ -12877,7 +12933,7 @@ public class CardBehaviorTest {
 
         verify(ctx).searchDeckForCardWithRiders(true, false, false, false, -1, null,
                 null, null, "IX", null, "Zidane", null, "hand", 2, false, null,
-                PickGate.DISTINCT_NAMES, false, -1);
+                PickGate.DISTINCT_NAMES, false, -1, true);
     }
 
     // The phrase used to be swallowed by the job filter, so Glauca hunted a job called
@@ -12891,7 +12947,7 @@ public class CardBehaviorTest {
 
         verify(ctx).searchDeckForCardWithRiders(true, true, true, true, -1, null,
                 null, "Captain", null, null, null, null, "hand", 2, false, null,
-                PickGate.DISTINCT_NAMES, false, -1);
+                PickGate.DISTINCT_NAMES, false, -1, true);
     }
 
     // Without the phrase the search is unconstrained and still goes to the ordinary primitive.
@@ -12904,7 +12960,7 @@ public class CardBehaviorTest {
                 null, "Captain", null, null, null, null, "hand", 2, false, null);
         verify(ctx, never()).searchDeckForCardWithRiders(anyBoolean(), anyBoolean(), anyBoolean(),
                 anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
-                anyInt(), anyBoolean(), any(), any(), anyBoolean(), anyInt());
+                anyInt(), anyBoolean(), any(), any(), anyBoolean(), anyInt(), anyBoolean());
     }
 
     // The picker's half of "different names": a name already taken cannot be taken twice.
@@ -48095,7 +48151,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCardWithRiders(true, false, false, false, 2, null,
 				null, null, null, null, null, null, "field", 4, false, null,
-				PickGate.DISTINCT_ELEMENTS, true, -1);
+				PickGate.DISTINCT_ELEMENTS, true, -1, false);
 	}
 
 	@Test
@@ -48111,7 +48167,7 @@ public class CardBehaviorTest {
 				null, null, null, null, null, null, "field", 4, false, null);
 		verify(ctx, never()).searchDeckForCardWithRiders(anyBoolean(), anyBoolean(), anyBoolean(),
 				anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
-				anyInt(), anyBoolean(), any(), any(), anyBoolean(), anyInt());
+				anyInt(), anyBoolean(), any(), any(), anyBoolean(), anyInt(), anyBoolean());
 	}
 
 	// =========================================================================================
@@ -48146,7 +48202,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCardWithRiders(false, false, false, true, -1, null,
 				null, null, null, null, null, null, "hand", 6, false, null,
-				PickGate.DISTINCT_ELEMENTS_AND_COSTS, false, -1);
+				PickGate.DISTINCT_ELEMENTS_AND_COSTS, false, -1, false);
 	}
 
 	@Test
@@ -48160,7 +48216,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCardWithRiders(false, false, false, true, -1, null,
 				null, null, null, null, null, null, "hand", 6, false, null,
-				PickGate.DISTINCT_ELEMENTS, false, -1);
+				PickGate.DISTINCT_ELEMENTS, false, -1, false);
 	}
 
 	@Test
@@ -48180,7 +48236,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCardWithRiders(true, false, false, false, 2, null,
 				null, null, null, null, null, null, "field", 2, false, null,
-				PickGate.ANY, true, -1);
+				PickGate.ANY, true, -1, false);
 	}
 
 	@Test
@@ -55502,7 +55558,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCardWithRiders(true, false, false, false, -1, null,
 				null, null, "FFTA2", null, null, null, "field", 3, false, null,
-				PickGate.ANY, false, 6);
+				PickGate.ANY, false, 6, false);
 	}
 
 	@Test
@@ -55518,7 +55574,7 @@ public class CardBehaviorTest {
 				null, null, "FFTA2", null, null, null, "field", 3, false, null);
 		verify(ctx, never()).searchDeckForCardWithRiders(anyBoolean(), anyBoolean(), anyBoolean(),
 				anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
-				anyInt(), anyBoolean(), any(), any(), anyBoolean(), anyInt());
+				anyInt(), anyBoolean(), any(), any(), anyBoolean(), anyInt(), anyBoolean());
 	}
 
 	@Test
@@ -74059,13 +74115,32 @@ public class CardBehaviorTest {
 			mw.gameState.getIdentity().put(s, false);
 			mw.gameState.getP2MainDeck().addLast(s);
 		}
-		// The AI takes the first pair of different costs; they took the cost-3 Summon alone.
+		// The AI takes the first pair of different costs (1 and 2); they took 1 and 3. A pair either
+		// way: "search for 2 … each with a different cost" finds two or none (21-032R Terra's FAQ).
+		remote.onActionReceived(RemoteOpponent.choiceAction(ChoiceKind.DECK_SEARCH, List.of(0, 2)));
+
+		mw.searchDeckNElementSummonsDifferentCost(false, 2, "Fire");
+
+		assertEquals(List.of("Summon 1", "Summon 3"), forwardNames(mw.gameState.getP2Hand()));
+		assertEquals(1, mw.gameState.getP2MainDeck().size());
+	}
+
+	@Test
+	void anOpponentsDifferentCostSearchOfOneTakesNothing() {
+		// The answer the test above used to send: one card where the search asks for two.
+		MainWindow mw = new MainWindow();
+		RemoteOpponent remote = seatAgainstRemote(mw);
+		for (int cost = 1; cost <= 3; cost++) {
+			CardData s = makeSummon("Summon " + cost, "Fire", cost, "Draw 1 card.");
+			mw.gameState.getIdentity().put(s, false);
+			mw.gameState.getP2MainDeck().addLast(s);
+		}
 		remote.onActionReceived(RemoteOpponent.choiceAction(ChoiceKind.DECK_SEARCH, List.of(2)));
 
 		mw.searchDeckNElementSummonsDifferentCost(false, 2, "Fire");
 
-		assertEquals(List.of("Summon 3"), forwardNames(mw.gameState.getP2Hand()));
-		assertEquals(2, mw.gameState.getP2MainDeck().size());
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+		assertEquals(3, mw.gameState.getP2MainDeck().size());
 	}
 
 	// =========================================================================================
