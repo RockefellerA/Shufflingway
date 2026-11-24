@@ -1426,6 +1426,11 @@ final class GameContextImpl implements GameContext {
 					// only protected from the second effect pointed at it.
 					sumOpp.addAll(mw.permanentCannotBeChosenBySummons);
 					ablOpp.addAll(mw.permanentCannotBeChosenByAbilities);
+					// Adel (VIII) 27-074H's cost-capped form, which only an ability of a cheap enough
+					// Character is barred by — so it is read against this resolution's source.
+					if (!mw.currentResolutionIsSummon)
+						for (Map.Entry<CardData, Integer> e : mw.permanentCannotBeChosenByCheapCharacterAbilities.entrySet())
+							if (mw.isCharacterAbilityOfCostAtMost(resCard, e.getValue())) ablOpp.add(e.getKey());
 					// Rubicante-style: "cannot be chosen by [element] Summons/abilities this turn"
 					for (java.util.Map.Entry<CardData, String> e : mw.cannotBeChosenByElement.entrySet()) {
 						if (resElems.contains(e.getValue())) { sumTmp.add(e.getKey()); ablTmp.add(e.getKey()); }
@@ -7160,23 +7165,34 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void playTriggeringBrokenCardOntoFieldDull() {
+				ForwardTarget t = triggeringBrokenCardInBreakZone();
+				if (t != null) playTargetOntoFieldDull(t);
+			}
+
+			@Override public void playTriggeringBrokenCardOntoField() {
+				ForwardTarget t = triggeringBrokenCardInBreakZone();
+				if (t != null) playTargetOntoField(t);
+			}
+
+			/**
+			 * Where the card whose departure fired the resolving trigger stands in the resolving
+			 * player's Break Zone, or {@code null} (logged, and the effect fizzled) when there is no
+			 * such card or it has left. Found by identity: the zone routinely holds several copies of
+			 * a name, and it is this instance's return that was earned.
+			 */
+			private ForwardTarget triggeringBrokenCardInBreakZone() {
 				CardData broken = mw.triggeringBrokenCard;
 				if (broken == null) {
 					logEntry("No card was placed in the Break Zone by this trigger");
 					markEffectFizzled();
-					return;
+					return null;
 				}
-				// Found by identity in the resolving player's own Break Zone: the zone routinely
-				// holds several copies of a name, and it is this instance's return that was earned.
 				List<CardData> bz = isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
-				int idx = -1;
-				for (int i = 0; i < bz.size(); i++) if (bz.get(i) == broken) { idx = i; break; }
-				if (idx < 0) {
-					logEntry(broken.name() + " is no longer in the Break Zone");
-					markEffectFizzled();
-					return;
-				}
-				playTargetOntoFieldDull(new ForwardTarget(isP1(), idx, ForwardTarget.CardZone.FORWARD));
+				for (int i = 0; i < bz.size(); i++)
+					if (bz.get(i) == broken) return new ForwardTarget(isP1(), i, ForwardTarget.CardZone.FORWARD);
+				logEntry(broken.name() + " is no longer in the Break Zone");
+				markEffectFizzled();
+				return null;
 			}
 
 			@Override public boolean playFaceDownLbCardOntoFieldDull(String cardName) {
@@ -7617,6 +7633,13 @@ final class GameContextImpl implements GameContext {
 						+ (bySummons && byAbilities ? "Summons or abilities"
 								: bySummons ? "Summons" : "abilities")
 						+ " (does not end at end of turn)");
+			}
+
+			@Override public void shieldSelfCannotBeChosenByCheapCharacterAbilitiesPermanently(CardData source,
+					int maxCost) {
+				mw.permanentCannotBeChosenByCheapCharacterAbilities.merge(source, maxCost, Math::max);
+				logEntry(source.name() + " cannot be chosen by your opponent's abilities of Characters of cost "
+						+ maxCost + " or less (does not end at end of turn)");
 			}
 
 			@Override public void grantSelfMustAttackOncePerTurnPermanently(CardData source) {
@@ -10937,6 +10960,16 @@ final class GameContextImpl implements GameContext {
 						mw.refreshP2ForwardSlot(i);
 					}
 				}
+			}
+
+			@Override public List<ForwardTarget> currentPartyForwardTargets() {
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				List<ForwardTarget> out = new ArrayList<>();
+				for (CardData member : mw.turn(isP1).currentPartyAttackers) {
+					int i = fwds.indexOf(member);
+					if (i >= 0) out.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
+				}
+				return out;
 			}
 
 			@Override public int lastCastSummonCost() {

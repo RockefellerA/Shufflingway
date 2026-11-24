@@ -971,6 +971,12 @@ public class ActionResolver {
         result = tryParseBreakThenOpponentMayPlayIfBroken(effectText, source, xValue);
         if (result != null) return claim("BreakThenOpponentMayPlayIfBroken", result);
 
+        // Must precede ChooseCharacter, which find()s 16-051L Cecil's "choose up to 2 Backups.
+        // Activate them." out of the trigger behind his play and runs it with no play and no
+        // Category IV check. Must precede PlayFromHand too, whose find() drops that trigger.
+        result = tryParsePlayFromHandThenWhenItEntersIf(effectText, source, xValue);
+        if (result != null) return claim("PlayFromHandThenWhenItEntersIf", result);
+
         result = tryParseChooseCharacter(effectText, source, xValue);
         if (result != null) return claim("ChooseCharacter", withAiTargetPreference(effectText, source, result));
 
@@ -1231,6 +1237,9 @@ public class ActionResolver {
 
         result = tryParsePartyForwardsPowerBoost(effectText);
         if (result != null) return claim("PartyForwardsPowerBoost", result);
+
+        result = tryParsePartyForwardsGainCannotBeBroken(effectText);
+        if (result != null) return claim("PartyForwardsGainCannotBeBroken", result);
 
         // Must precede tryParseAllFieldPowerBoost only for tidiness -- that pattern needs a power
         // figure and cannot claim a trait-only strip -- but the two describe the same board, so
@@ -2090,6 +2099,11 @@ public class ActionResolver {
 
         result = tryParseAddBrokenCardToHand(effectText);
         if (result != null) return claim("AddBrokenCardToHand", result);
+
+        // Must precede tryParsePlaySourceOntoField, which reads "play it onto the field" as the
+        // source playing itself back: 15-055H Bartz played Bartz instead of the Warrior of Light.
+        result = tryParsePlayWatchedBrokenCardOntoField(effectText, source);
+        if (result != null) return claim("PlayWatchedBrokenCardOntoField", result);
 
         // Must precede tryParsePlaySourceOntoField, which matches with find(): it took the
         // "Play it onto the field" out of the middle of this sentence, resolved the "it" to the
@@ -2982,6 +2996,9 @@ public class ActionResolver {
         if (FOLLOWUP_SEARCH_MATCHING_CHOSEN.matcher(followupText).matches())          return "SearchMatchingChosen";
         // Mirrors the choose chain: ahead of PlayOntoField, which this wording does not satisfy.
         if (FOLLOWUP_PLAY_ONTO_OWN_FIELD.matcher(followupText.trim()).matches())      return "PlayOntoOwnField";
+        // Mirrors the choose chain, which reads Faris's total-power gate ahead of the plain play.
+        Matcher totalPowerM = FOLLOWUP_IF_TOTAL_POWER_PLAY_ONTO_FIELD.matcher(followupText.trim());
+        if (totalPowerM.matches()) return "PlayOntoFieldIfTotalPower(" + totalPowerM.group("total") + ")";
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(followupText).find())                    return "PlayOntoField";
         // Mirrors the choose chain, where this is read off the whole followup: the removal
         // half alone is a standalone effect and the damage half has no count to scale by.
@@ -3092,6 +3109,10 @@ public class ActionResolver {
         // would report a branch that never ran.
         Matcher pruferM = FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH.matcher(followupText);
         if (pruferM.find() && !reduceForEachSelfState(pruferM))                       return "PowerReduceUntilForEach";
+        // Mirrors the choose chain, which reads this ahead of the plain reduction.
+        Matcher reduceAndGainM = FOLLOWUP_POWER_REDUCE_UNTIL_AND_SELF_GAINS.matcher(followupText.trim());
+        if (reduceAndGainM.matches() && source != null
+                && reduceAndGainM.group("self").trim().equalsIgnoreCase(source.name()))     return "PowerReduceUntilAndSelfGains";
         if (FOLLOWUP_POWER_REDUCE_UNTIL.matcher(followupText).find())                 return "PowerReduceUntil";
         if (OPPONENT_DISCARD.matcher(followupText).find())                            return "OpponentDiscard";
         // Mirrors the choose chain, which reads this off the primary followup: the offer whose
@@ -3545,11 +3566,20 @@ public class ActionResolver {
                 return descOrUnread(discM.group("head"), source) + " + IfDiscardedCategory("
                         + discM.group("cat").trim() + ": " + descOrUnread(discM.group("eff"), source) + ")";
         }
+        if (site.equals("PlayFromHandThenWhenItEntersIf")) {
+            Matcher pw = PLAY_FROM_HAND_THEN_WHEN_IT_ENTERS_IF.matcher(effectText.trim());
+            if (pw.matches())
+                return descOrUnread(pw.group("play"), source) + " + WhenItEntersIf(" + pw.group("cond").trim()
+                        + ": " + descOrUnread(pw.group("inner"), source) + ")";
+        }
         if (site.equals("DiscardThenIfDiscardedType")) {
             Matcher discM = DISCARD_THEN_IF_DISCARDED_TYPE.matcher(effectText.trim());
-            if (discM.matches())
-                return descOrUnread(discM.group("head"), source) + " + IfDiscardedType("
-                        + discM.group("type") + ": " + descOrUnread(discM.group("eff"), source) + ")";
+            if (discM.matches()) {
+                boolean when = discM.group("when") != null;
+                return descOrUnread(discM.group("head"), source) + (when ? " + WhenDiscardedType(" : " + IfDiscardedType(")
+                        + (when ? discM.group("type2") : discM.group("type")) + ": "
+                        + descOrUnread(discM.group("eff"), source) + ")";
+            }
         }
         if (site.equals("DiscardThenIfAnyDiscardedCategory")) {
             Matcher discM = DISCARD_THEN_IF_ANY_DISCARDED_CATEGORY.matcher(effectText.trim());
@@ -6307,6 +6337,12 @@ public class ActionResolver {
             boolean bySummons   = scope.contains("summon");
             boolean byAbilities = scope.contains("abilit");
             return ctx -> ctx.shieldSelfCannotBeChosenPermanently(source, bySummons, byAbilities);
+        }
+        // Its cost-capped form (Adel (VIII) 27-074H), on the same footing.
+        Matcher cheap = NAMED_CANNOT_BE_CHOSEN_BY_CHEAP_CHARACTER_ABILITIES.matcher(quoted);
+        if (cheap.matches() && cheap.group("name").trim().equalsIgnoreCase(source.name())) {
+            int maxCost = Integer.parseInt(cheap.group("cost"));
+            return ctx -> ctx.shieldSelfCannotBeChosenByCheapCharacterAbilitiesPermanently(source, maxCost);
         }
         // "[Self] must attack once per turn if possible." (Roche 29-076H) — likewise a rules
         // compulsion rather than a readable field ability.

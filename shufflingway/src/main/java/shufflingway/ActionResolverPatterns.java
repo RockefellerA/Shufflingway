@@ -1406,6 +1406,10 @@ final class ActionResolverPatterns {
             "|Job\\s+(?<jobxname>.+?)\\s+other\\s+than\\s+(?<jobxexcl>.+?)\\s+you\\s+control" +
             "|Job\\s+(?<jobrname>.+?)\\s+in\\s+your\\s+Break\\s+Zone\\s+and/or\\s+Job\\s+\\k<jobrname>\\s+you\\s+own\\s+removed\\s+from\\s+the\\s+game" +
             "|Job\\s+(?<jobwname>.+?)(?:\\s+(?<jobwtype>Forwards?|Backups?|Monsters?))?\\s+you\\s+control" +
+            // "different Element among Characters you control" — 21-094C Shantotto, 27-070C
+            // Malboro. Every Element of a Multi-Element card counts (Shantotto's FAQ). Unread, the
+            // whole followup fell to the flat-damage branch and dealt 3000 however many there were.
+            "|different\\s+Element\\s+among\\s+(?<diffelemtype>Forwards?|Characters?|Backups?|Monsters?)\\s+you\\s+control" +
             "|(?:Category\\s+(?<category>\\S+)\\s+)?(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?(?<chartype>Forwards?|Characters?|Backups?|Monsters?)(?:\\s+of\\s+cost\\s+(?<costfilter>\\d+))?\\s+you\\s+control" +
             "|Card\\s+Name\\s+(?<bzname>\\S+(?:\\s+\\([^)]+\\))?)\\s+in\\s+your\\s+Break\\s+Zone" +
             // Must follow the Card Name branch: a bare type noun would not match "Card Name X",
@@ -1417,6 +1421,8 @@ final class ActionResolverPatterns {
             "|(?<crystal>《C》)\\s+you\\s+have" +
             "|(?<cpDiffElem>CP\\s+of\\s+a\\s+different\\s+Element\\s+you\\s+paid\\s+to\\s+cast\\s+\\S+)" +
         ")" +
+        // "(up to 3 Forwards)" — 7-132S Firion's cap on the count. Dropped, four Forwards dealt 8000.
+        "(?:\\s*\\(up\\s+to\\s+(?<cap>\\d+)\\s+[^)]+\\))?" +
         "[.!]?"
     );
 
@@ -3040,6 +3046,15 @@ final class ActionResolverPatterns {
         "(?i)Play\\s+(?:it|them)\\s+onto\\s+(?:the\\s+)?field"
     );
     /**
+     * "If the total of their power is N, play them onto the field." — 15-012H Faris, behind a choice
+     * of up to 2 Forwards in the Break Zone. Anchored: {@link #FOLLOWUP_PLAY_ONTO_FIELD}'s find()
+     * read the play alone and dropped the condition. Groups {@code total}, {@code dull}.
+     */
+    static final Pattern FOLLOWUP_IF_TOTAL_POWER_PLAY_ONTO_FIELD = Pattern.compile(
+        "(?i)^If\\s+the\\s+total\\s+of\\s+their\\s+power\\s+is\\s+(?<total>\\d+),\\s*" +
+        "play\\s+them\\s+onto\\s+(?:the\\s+)?field(?<dull>\\s+dull)?[.!]?$"
+    );
+    /**
      * {@link #FOLLOWUP_PLAY_ONTO_FIELD} as the whole followup, with nothing qualifying it — the one
      * followup a "with different names" choose is read behind (15-140S Rufus).
      */
@@ -3162,6 +3177,15 @@ final class ActionResolverPatterns {
     static final Pattern PLAY_BROKEN_CARD_ONTO_FIELD_DULL = Pattern.compile(
         "(?i)^Play\\s+the\\s+(?:Forward|Backup|Monster|Character|card)\\s+placed\\s+in\\s+the\\s+" +
         "Break\\s+Zone\\s+onto\\s+(?:the\\s+)?field\\s+dull[.!]?$"
+    );
+    /**
+     * "Play it onto the field[ dull]." as the payoff of a watcher of <em>another</em> card going to
+     * the Break Zone — Bartz 15-055H, where "it" is the Job Warrior of Light that went. Anchored;
+     * only {@code ActionResolverPlay#tryParsePlayWatchedBrokenCardOntoField} reads it, and only for
+     * a source that prints such a watcher. Group {@code dull}.
+     */
+    static final Pattern PLAY_IT_ONTO_FIELD = Pattern.compile(
+        "(?i)^Play\\s+it\\s+onto\\s+(?:the|your)\\s+field(?<dull>\\s+dull)?[.!]?$"
     );
     /**
      * "Play 1 face down Card Name &lt;name&gt; from your LB deck onto the field dull. If you do so,
@@ -6354,6 +6378,16 @@ final class ActionResolverPatterns {
         "(?i)(?<name>[A-Z][A-Za-z''\\-\\s()]+?)\\s+cannot\\s+be\\s+chosen\\s+by\\s+(?:your\\s+)?opponent's\\s+" +
         "(?<scope>Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
     );
+    /**
+     * "[Self] cannot be chosen by your opponent's abilities of Characters of cost N or less." — the
+     * quoted grant Adel (VIII) 27-074H hands herself. Read with {@code matches()}, so the uncapped
+     * {@link #STANDALONE_NAMED_CANNOT_BE_CHOSEN} cannot be what claims it. Groups {@code name},
+     * {@code cost}.
+     */
+    static final Pattern NAMED_CANNOT_BE_CHOSEN_BY_CHEAP_CHARACTER_ABILITIES = Pattern.compile(
+        "(?i)(?<name>[A-Z][A-Za-z''\\-\\s()]+?)\\s+cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+" +
+        "abilities\\s+of\\s+Characters\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less\\s*\\.?"
+    );
 
 
     // =========================================================================================
@@ -7580,6 +7614,16 @@ final class ActionResolverPatterns {
     static final Pattern PLAY_FROM_HAND_THEN_IF_ITS_COST = Pattern.compile(
         "(?i)^(?<play>play\\s+[^.!]+?\\s+from\\s+your\\s+hand\\s+onto\\s+the\\s+field(?:\\s+dull)?[.!])\\s*" +
         "If\\s+its\\s+cost\\s+is\\s+(?<cost>\\d+)\\s+or\\s+(?<cmp>more|less),\\s*(?<rest>[^.!]+[.!]?)$"
+    );
+    /**
+     * "Play 1 … from your hand onto the field. When it enters the field, if it is [cond], [inner]."
+     * — 16-051L Cecil. The hand-play twin of {@link #FOLLOWUP_PLAY_ONTO_FIELD_WHEN_ENTERS_CONDITIONAL},
+     * whose Break Zone form 16-009C Samurai prints. Anchored. Groups {@code play}, {@code cond}
+     * (read by {@code parseRevealCondition}), {@code inner}.
+     */
+    static final Pattern PLAY_FROM_HAND_THEN_WHEN_IT_ENTERS_IF = Pattern.compile(
+        "(?is)^(?<play>play\\s+[^.!]+?\\s+from\\s+your\\s+hand\\s+onto\\s+the\\s+field(?:\\s+dull)?[.!])\\s*" +
+        "When\\s+it\\s+enters\\s+(?:the\\s+)?field,?\\s+if\\s+it\\s+is\\s+(?<cond>[^,]+?),\\s*(?<inner>.+?)[.!]?\\s*$"
     );
     /**
      * 3-071H Chaos, Walker of the Wheel: "Choose 1 Forward opponent controls. Break it. If that
@@ -9278,6 +9322,16 @@ final class ActionResolverPatterns {
         "(?:(\\d+)\\s+[Pp]ower)?" +
         "((?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)"
     );
+    /**
+     * "Until the end of the turn, it loses N power and [Self] gains +M power." — the payoff of
+     * 20-112C Frimelda, which takes from the chosen Forward and gives to herself. Anchored: read by
+     * {@link #FOLLOWUP_POWER_REDUCE_UNTIL} under {@code find()}, the gain was dropped. Groups
+     * {@code loss}, {@code self}, {@code gain}.
+     */
+    static final Pattern FOLLOWUP_POWER_REDUCE_UNTIL_AND_SELF_GAINS = Pattern.compile(
+        "(?i)^Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+it\\s+loses\\s+(?<loss>\\d+)\\s+power\\s+" +
+        "and\\s+(?<self>.+?)\\s+gains\\s+\\+(?<gain>\\d+)\\s+power[.!]?\\s*$"
+    );
     /** Matches "Until [of] the end of [the] turn, it/they loses N power for each card in your hand." */
     /**
      * The same reduction with a draw in front of it: "Draw N card(s). Then, until the end of the
@@ -9754,6 +9808,14 @@ final class ActionResolverPatterns {
      * no longer matches; the trigger has already established whose party attacked.
      * Groups: {@code verb}, {@code amount}.
      */
+    /**
+     * "all Forwards in that party gain "This Forward cannot be broken." until the end of the turn."
+     * — the party-attack followup 15-134S Biggs prints after his draw. Anchored.
+     */
+    static final Pattern PARTY_FORWARDS_GAIN_CANNOT_BE_BROKEN = Pattern.compile(
+        "(?i)^all\\s+(?:the\\s+)?Forwards?\\s+in\\s+that\\s+party\\s+gain\\s+[\"']This\\s+Forward\\s+cannot\\s+be\\s+" +
+        "broken\\.?[\"']\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
+    );
     static final Pattern PARTY_FORWARDS_POWER_BOOST_PATTERN = Pattern.compile(
         "(?i)(?:all\\s+Forwards?\\s+in\\s+that\\s+party" +
         "|[A-Za-z][^.,]*?\\s+and\\s+all\\s+the\\s+Forwards?\\s+forming\\s+a\\s+party\\s+with\\s+it)\\s+" +
@@ -11292,28 +11354,32 @@ final class ActionResolverPatterns {
      * something is a different effect, and read as a flat draw it ran as "Draw 1 card" whatever
      * the count came to (8-135H Ark). Refuses a ", then …" it does not read for the same reason:
      * 10-125H Leviathan's "then put 1 card from your hand on the top or bottom of your deck" was
-     * dropped, and it kept both cards. Refuses an " and …" for the same reason again: that is
-     * {@link #LEADING_DRAW_AND}'s, which reads the rest as well.
+     * dropped, and it kept both cards. Refuses an " and …", and a ", …" that is not ", then …",
+     * for the same reason again: those are {@link #LEADING_DRAW_AND}'s, which reads the rest as
+     * well (15-013L Firion's "draw 1 card, Firion gains +1000 power, …" lost everything after the
+     * draw).
      *
      * <p>{@code cards?+} is possessive so the refusals hold for the plural: backing off to "card"
      * would leave the lookaheads looking at "s for each" and "s and", which none of them refuse.
      */
     static final Pattern DRAW_CARDS = Pattern.compile(
         "(?i)^Draw\\s+(\\d+)\\s+cards?+(?!\\s+for\\s+each\\b)(?![,.]?\\s*then\\s+(?!discard\\b))(?!\\s+and\\b)" +
+        "(?!,\\s*(?!then\\b)\\S)" +
         "(?:\\s*[,.]?\\s*then\\s+discard\\s+(\\d+)\\s+cards?)?[.!]?"
     );
 
     /**
      * Matches "Draw N card(s) and [effect]." — 13-119L Sophie's "draw 1 card and Sophie deals your
-     * opponent 1 point of damage", 21-133S's "draw 1 card and gain 《C》". Anchored end to end; the
-     * rest has to parse whole.
+     * opponent 1 point of damage", 21-133S's "draw 1 card and gain 《C》" — and its comma form,
+     * 15-013L Firion's "draw 1 card, Firion gains +1000 power, Haste and First Strike. (…)". Never
+     * ", then …", which {@link #DRAW_CARDS} reads. Anchored end to end; the rest has to parse whole.
      * <ul>
      *   <li>Group {@code count} — cards drawn</li>
      *   <li>Group {@code rest}  — the effect joined after the draw</li>
      * </ul>
      */
     static final Pattern LEADING_DRAW_AND = Pattern.compile(
-        "(?i)^Draw\\s+(?<count>\\d+)\\s+cards?\\s+and\\s+(?<rest>\\S.*?)\\s*$"
+        "(?i)^Draw\\s+(?<count>\\d+)\\s+cards?(?:\\s+and|,(?!\\s*then\\b))\\s+(?<rest>\\S.*?)\\s*$"
     );
 
     /**
@@ -13424,13 +13490,16 @@ final class ActionResolverPatterns {
      * "&lt;effect that discards 1 card&gt;. If the discarded card is a Summon, &lt;effect&gt;." —
      * 28-113R Leonora, whose payoff runs two sentences ("your opponent selects 1 Forward they
      * control. Put it into the Break Zone."). The card-type sibling of
-     * {@link #DISCARD_THEN_IF_DISCARDED_CATEGORY}; anchored end to end. Groups: {@code head},
-     * {@code type}, {@code eff}.
+     * {@link #DISCARD_THEN_IF_DISCARDED_CATEGORY}; anchored end to end. Also its delayed form,
+     * "When you discard a Forward by this effect, &lt;effect&gt;." (20-112C Frimelda), whose payoff
+     * goes on the Stack as its own ability once the discard has happened. Groups: {@code head},
+     * {@code type} (the "If" form) or {@code when} with {@code type2}, {@code eff}.
      */
     static final Pattern DISCARD_THEN_IF_DISCARDED_TYPE = Pattern.compile(
         "(?is)^(?<head>[^.]*\\bdiscard\\s+1\\s+card\\b[^.]*[.!])\\s+" +
-        "If\\s+the\\s+discarded\\s+card\\s+is\\s+an?\\s+(?<type>Forward|Backup|Summon|Monster)\\s*,\\s*" +
-        "(?<eff>.+?)[.!]?\\s*$");
+        "(?:If\\s+the\\s+discarded\\s+card\\s+is\\s+an?\\s+(?<type>Forward|Backup|Summon|Monster)" +
+        "|(?<when>When)\\s+you\\s+discard\\s+an?\\s+(?<type2>Forward|Backup|Summon|Monster)\\s+by\\s+this\\s+effect)" +
+        "\\s*,\\s*(?<eff>.+?)[.!]?\\s*$");
     /**
      * "&lt;effect that discards N cards&gt;. If 1 or more discarded cards were Category X,
      * &lt;effect&gt;" — 13-088H Elle. The plural sibling of

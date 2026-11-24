@@ -1393,9 +1393,18 @@ final class ActionResolverChoose {
         TargetDesc td2 = parseTargetDesc(desc2);
         if (td1 == null || td2 == null) return null;
 
-        BiConsumer<GameContext, List<ForwardTarget>> action =
-                parseTargetAction(m.group("effects").trim(), 0);
+        // The joint action is the first sentence; any after it must parse too. parseTargetAction
+        // reads a prefix, so handed the whole of 30-116H Yiazmat's "Break them. Yiazmat deals your
+        // opponent 1 point of damage." it broke them and dropped the damage.
+        String[] effects = m.group("effects").trim().split("(?<=[.!])\\s+(?=[A-Z])", 2);
+        BiConsumer<GameContext, List<ForwardTarget>> action = parseTargetAction(effects[0].trim(), 0);
         if (action == null) return null;
+        Consumer<GameContext> rest = null;
+        if (effects.length > 1) {
+            rest = parse(effects[1].trim(), source, 0);
+            if (rest == null) return null;
+        }
+        Consumer<GameContext> then = rest;
 
         String label = "Choose " + (upTo1 ? "up to " : "") + count1 + " " + desc1
                      + " and " + (upTo2 ? "up to " : "") + count2 + " " + desc2;
@@ -1403,7 +1412,14 @@ final class ActionResolverChoose {
             ctx.logChooseHeader(label);
             List<ForwardTarget> all = new ArrayList<>(selectByTargetDesc(ctx, td1, count1, upTo1));
             all.addAll(selectByTargetDesc(ctx, td2, count2, upTo2));
+            // Rule 11.11.2: an "up to" choice that took nothing cancels the whole effect, the
+            // sentences after the action included — Yiazmat deals no damage having chosen neither.
+            if (all.isEmpty()) {
+                ctx.logEntry("Nothing chosen — the effect does nothing");
+                return;
+            }
             action.accept(ctx, all);
+            if (then != null) then.accept(ctx);
         };
     }
     /** Runs one {@link TargetDesc} through {@link #selectTargets}, rebuilding its zone string. */
@@ -4864,6 +4880,11 @@ final class ActionResolverChoose {
             boolean srcOppHand    = forEachM.group("opphand")   != null;
             boolean srcCrystal    = forEachM.group("crystal")   != null;
             boolean srcCpDiffElem = forEachM.group("cpDiffElem") != null;
+            String  srcDiffElemType = forEachM.group("diffelemtype");
+            boolean diffFwd = srcDiffElemType != null && srcDiffElemType.matches("(?i)Forwards?|Characters?");
+            boolean diffBkp = srcDiffElemType != null && srcDiffElemType.matches("(?i)Backups?|Characters?");
+            boolean diffMon = srcDiffElemType != null && srcDiffElemType.matches("(?i)Monsters?|Characters?");
+            int     countCap  = forEachM.group("cap") != null ? Integer.parseInt(forEachM.group("cap")) : Integer.MAX_VALUE;
             // if none of the above → xpaid
             boolean charFwd = srcCharType != null && (srcCharType.equalsIgnoreCase("forward")   || srcCharType.equalsIgnoreCase("forwards")   || srcCharType.equalsIgnoreCase("character") || srcCharType.equalsIgnoreCase("characters"));
             boolean charBkp = srcCharType != null && (srcCharType.equalsIgnoreCase("backup")    || srcCharType.equalsIgnoreCase("backups")    || srcCharType.equalsIgnoreCase("character") || srcCharType.equalsIgnoreCase("characters"));
@@ -4898,7 +4919,9 @@ final class ActionResolverChoose {
             else if (srcOppHand)           sourceLabel = "opponent hand";
             else if (srcCrystal)           sourceLabel = "《C》 you have";
             else if (srcCpDiffElem)        sourceLabel = "CP of a different Element paid to cast";
+            else if (srcDiffElemType != null) sourceLabel = "different Element among " + srcDiffElemType + " you control";
             else                            sourceLabel = "X CP paid";
+            if (countCap != Integer.MAX_VALUE) sourceLabel += ", up to " + countCap;
             String op = subtract ? " - " : " + ";
             String unitLabel = groupSize > 1 ? "every " + groupSize + " " + sourceLabel : sourceLabel;
             String logLabel = perDmg > 0
@@ -4953,7 +4976,9 @@ final class ActionResolverChoose {
                 else if (srcOppHand)           n = ctx.opponentHandSize();
                 else if (srcCrystal)           n = ctx.crystalCount();
                 else if (srcCpDiffElem)        n = ctx.castPaymentDistinctElements();
+                else if (srcDiffElemType != null) n = ctx.selfDistinctElementCount(diffFwd, diffBkp, diffMon);
                 else                            n = xValue;
+                n = Math.min(n, countCap);
                 int units = n / groupSize;
                 int damage = perDmg > 0
                         ? (subtract ? Math.max(0, baseDmg - perDmg * units) : baseDmg + perDmg * units)
@@ -6657,6 +6682,36 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "If the total of their power is N, play them onto the field." (15-012H Faris) ---
+        // Ahead of the plain play below, whose find() takes the play and drops the condition. The
+        // total is of the cards still chosen as it resolves: one removed in response is no longer
+        // a target, so a 1000 + 2000 pair that loses its 1000 totals 2000 and plays nothing (her FAQ).
+        Matcher totalPowerM = FOLLOWUP_IF_TOTAL_POWER_PLAY_ONTO_FIELD.matcher(primaryFollowup.trim());
+        if (totalPowerM.matches() && zone != null) {
+            int total = Integer.parseInt(totalPowerM.group("total"));
+            boolean dull = totalPowerM.group("dull") != null;
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — play them if their power totals " + total);
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                int sum = 0;
+                for (ForwardTarget t : ts) {
+                    CardData c = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
+                    if (c != null) sum += c.power();
+                }
+                if (ts.isEmpty() || sum != total) {
+                    ctx.logEntry("Effect: their power totals " + sum + ", not " + total + " — nothing is played");
+                    return;
+                }
+                List<CardData> landed = new ArrayList<>();
+                sortedByIdxDesc(ts, true) .forEach(t -> playOneFromBreakZone(ctx, t, zone, false, dull, false, landed));
+                sortedByIdxDesc(ts, false).forEach(t -> playOneFromBreakZone(ctx, t, zone, false, dull, false, landed));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(primaryFollowup).find()) {
             // "Its auto-ability will not trigger." qualifies the play rather than following it, so
             // it is read here and not run as a secondary — see the guard that nulls it out above.
@@ -7903,6 +7958,29 @@ final class ActionResolverChoose {
                 EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.reduceTarget(t, reduction, noTraits));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.reduceTarget(t, reduction, noTraits));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Reduce, and the source gains: "Until…, it loses N power and [Self] gains +M power" ---
+        // Ahead of the plain reduction below, which find()s the loss and drops the gain.
+        Matcher reduceAndGainM = FOLLOWUP_POWER_REDUCE_UNTIL_AND_SELF_GAINS.matcher(primaryFollowup.trim());
+        if (reduceAndGainM.matches() && source != null
+                && reduceAndGainM.group("self").trim().equalsIgnoreCase(source.name())) {
+            int loss = Integer.parseInt(reduceAndGainM.group("loss"));
+            int gain = Integer.parseInt(reduceAndGainM.group("gain"));
+            EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — loses " + loss + " power, " + source.name()
+                        + " gains +" + gain + " until EOT");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // Rule 11.11.2: with nothing chosen the whole effect is cancelled, the gain included.
+                if (ts.isEmpty()) return;
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.reduceTarget(t, loss, noTraits));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.reduceTarget(t, loss, noTraits));
+                ctx.boostSourceForward(source, gain, noTraits);
                 if (secondary != null) secondary.accept(ctx);
             };
         }

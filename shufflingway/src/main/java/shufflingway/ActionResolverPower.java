@@ -702,6 +702,18 @@ final class ActionResolverPower {
         };
     }
     /**
+     * Parses "all Forwards in that party gain "This Forward cannot be broken." until the end of the
+     * turn." — 15-134S Biggs. The party is the one whose attack fired the trigger; a member that has
+     * left the field is skipped.
+     */
+    static Consumer<GameContext> tryParsePartyForwardsGainCannotBeBroken(String text) {
+        if (!PARTY_FORWARDS_GAIN_CANNOT_BE_BROKEN.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: All Forwards in that party cannot be broken until end of turn");
+            for (ForwardTarget t : ctx.currentPartyForwardTargets()) ctx.shieldCannotBeBroken(t);
+        };
+    }
+    /**
      * {@link ActionResolverPatterns#ALL_FORWARDS_LOSE_POWER_DRAW_PER_ZEROED} — 8-135H Ark. Every
      * Forward on both fields loses the power, then the caster draws one card for each Forward
      * left at 0 power or less, counted before those Forwards are put into the Break Zone.

@@ -1390,6 +1390,14 @@ public interface GameContext {
     void playTriggeringBrokenCardOntoFieldDull();
 
     /**
+     * The active twin of {@link #playTriggeringBrokenCardOntoFieldDull} — Bartz 15-055H's "When a
+     * Job Warrior of Light you control is put from the field into the Break Zone, you may pay
+     * 《C》《C》《C》. When you do so, play it onto the field." Found the same way, by identity in
+     * the resolving player's Break Zone, and does nothing when it has left.
+     */
+    void playTriggeringBrokenCardOntoField();
+
+    /**
      * "Play 1 face down Card Name &lt;name&gt; from your LB deck onto the field dull" — 23-118H
      * Ardyn, the corpus's one ability that reaches into its own LB deck for a card rather than
      * casting one. Returns whether a card was played.
@@ -1551,6 +1559,14 @@ public interface GameContext {
      * {@link #shieldNamedCardCannotBeChosen} (Young Excenmille 23-100L).
      */
     void shieldSelfCannotBeChosenPermanently(CardData source, boolean bySummons, boolean byAbilities);
+
+    /**
+     * The cost-capped form of {@link #shieldSelfCannotBeChosenPermanently}: "[Self] cannot be chosen
+     * by your opponent's abilities of Characters of cost {@code maxCost} or less", for as long as
+     * {@code source} stays on the field — Adel (VIII) 27-074H. A Summon, or a dearer Character's
+     * ability, can still choose it.
+     */
+    void shieldSelfCannotBeChosenByCheapCharacterAbilitiesPermanently(CardData source, int maxCost);
 
     /**
      * Puts {@code source} under a standing "must attack once per turn if possible" compulsion
@@ -5326,6 +5342,14 @@ public interface GameContext {
      * suppression the same way {@link #applyMassFieldPowerBoost} does.
      */
     void applyCurrentPartyForwardsPowerBoost(int amount);
+
+    /**
+     * Where the Forwards of the party that most recently formed and attacked on the ability user's
+     * side stand now, skipping any that have left the field — the "all Forwards in that party" of a
+     * party-attack followup that is not a power boost (15-134S Biggs's "gain "This Forward cannot be
+     * broken."").
+     */
+    List<ForwardTarget> currentPartyForwardTargets();
 
     /**
      * How many Forwards of the party that most recently formed and attacked on the ability user's

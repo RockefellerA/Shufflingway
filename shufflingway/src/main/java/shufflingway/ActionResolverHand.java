@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 
 /**
@@ -599,6 +600,10 @@ final class ActionResolverHand {
      * Parses "&lt;effect that discards 1 card&gt;. If the discarded card is a Summon, &lt;effect&gt;."
      * — 28-113R Leonora. Both halves must parse; the payoff runs only when a card was discarded
      * and it is of the named type.
+     *
+     * <p>"When you discard a Forward by this effect, &lt;effect&gt;" (20-112C Frimelda) is the same
+     * test with the payoff as a delayed ability: it goes on the Stack once the discard has been
+     * made, rather than resolving inside this one (her FAQ).
      */
     static Consumer<GameContext> tryParseDiscardThenIfDiscardedType(String text, CardData source) {
         Matcher m = DISCARD_THEN_IF_DISCARDED_TYPE.matcher(text.trim());
@@ -608,14 +613,16 @@ final class ActionResolverHand {
         effText = Character.toUpperCase(effText.charAt(0)) + effText.substring(1) + ".";
         Consumer<GameContext> payoff = parse(effText, source);
         if (head == null || payoff == null) return null;
-        String type = m.group("type");
+        boolean when = m.group("when") != null;
+        String type = when ? m.group("type2") : m.group("type");
+        Consumer<GameContext> payoffRun = afterPaying(when, source, effText, 0, payoff);
         return ctx -> {
             ctx.resetEffectProgress();
             head.accept(ctx);
             CardData discarded = ctx.lastDiscardedCard();
             if (ctx.effectMadeProgress() && discarded != null && type.equalsIgnoreCase(discarded.type())) {
                 ctx.logEntry("Discard conditional: discarded a " + type);
-                payoff.accept(ctx);
+                payoffRun.accept(ctx);
             } else {
                 ctx.logEntry("Discard conditional: discarded card is not a " + type);
             }
@@ -1212,6 +1219,36 @@ final class ActionResolverHand {
             ctx.logEntry("Effect: " + played.name() + " costs " + played.cost()
                     + (met ? "" : " — not") + " " + threshold + " or " + (orMore ? "more" : "less"));
             if (met) payoff.accept(ctx);
+        });
+    }
+
+    /**
+     * Parses "[play 1 … from your hand onto the field.] When it enters the field, if it is [cond],
+     * [inner]." — 16-051L Cecil, whose Backups activate only behind a Category IV Character.
+     *
+     * <p>"When it enters the field" is a delayed auto ability of the source, triggered by the card
+     * just played, so the payoff goes on the Stack as its own entry once that card is on the field
+     * and meets the condition (Cecil's FAQ). Nothing played, or a card that fails it, triggers
+     * nothing. All three parts must read or none is claimed.
+     */
+    static Consumer<GameContext> tryParsePlayFromHandThenWhenItEntersIf(String text, CardData source, int xValue) {
+        Matcher m = PLAY_FROM_HAND_THEN_WHEN_IT_ENTERS_IF.matcher(text.trim());
+        if (!m.matches()) return null;
+        String play = m.group("play").trim();
+        if (EACH_PLAYER_MAY_PLAY_FROM_HAND.matcher(play).find()) return null;
+        Predicate<CardData> cond = ActionResolver.parseRevealCondition(m.group("cond").trim());
+        if (cond == null) return null;
+        String inner = m.group("inner").trim();
+        String innerText = Character.toUpperCase(inner.charAt(0)) + inner.substring(1) + ".";
+        Consumer<GameContext> payoff = ActionResolver.parse(innerText, source, xValue);
+        if (payoff == null) return null;
+        return parsePlayFromHand(play, source, xValue, false, (ctx, played) -> {
+            if (played == null) return;
+            if (!cond.test(played)) {
+                ctx.logEntry("Effect: " + played.name() + " is not " + m.group("cond").trim() + " — no trigger");
+                return;
+            }
+            ctx.triggerWhenYouDoSo(source, innerText, xValue, payoff);
         });
     }
 

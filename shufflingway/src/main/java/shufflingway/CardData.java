@@ -3922,8 +3922,17 @@ public record CardData(
         // has subject "it"/"they" and is a consequence attached to a card the sentence just chose,
         // and no card uses it as a standing trigger — a standing one names a subject ("a Forward
         // you control"), which this lookahead does not match.
+        //
+        // "When you discard a Forward by this effect, …" (20-112C Frimelda) is the same kind of
+        // consequence, of the discard the effect has just made; read as a header, it matched no
+        // trigger and the payoff was lost.
         "(?=\\s*\\[\\[br\\]\\]" +
         "|\\s*When\\s+(?!(?:it|they)\\s+(?:is|are)\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone\\s+this\\s+turn\\b)" +
+            "(?!you\\s+discard\\b[^,]*?\\bby\\s+this\\s+effect\\b)" +
+            // And "When it enters the field, if it is …" (16-051L Cecil) — the card the effect has
+            // just played. Read as a header it became a second trigger on Cecil's own arrival,
+            // which activated the Backups whatever was played. No ability opens with it.
+            "(?!it\\s+enters?\\s+(?:the\\s+)?field\\b)" +
             "[^,]+?\\s+(?:forms?\\s+a\\s+party\\s+and\\s+attacks?|attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked|dealt)|(?:is|are)\\s+(?:added|priming)|deals?|uses?|becomes?|searches?|discards?|gains?)" +
         "|\\s*(?<!\")(?:《[^》]+》)+\\s*:|\\s*$)",
         Pattern.DOTALL

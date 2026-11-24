@@ -376,6 +376,33 @@ final class ActionResolverPlay {
         return GameContext::playTriggeringBrokenCardOntoFieldDull;
     }
     /**
+     * Parses "Play it onto the field[ dull]" where "it" is the card whose trip to the Break Zone
+     * fired the trigger — Bartz 15-055H's payoff, which brings back the Job Warrior of Light that
+     * went, not Bartz.
+     *
+     * <p>Claimed only when {@code source} prints the sentence inside a "put into the Break Zone"
+     * watcher whose subject is not the source itself. Everywhere else "it" is the source (a card
+     * playing itself back) or a card an earlier clause searched for or chose, which is
+     * {@link #tryParsePlaySourceOntoField}'s reading.
+     */
+    static Consumer<GameContext> tryParsePlayWatchedBrokenCardOntoField(String text, CardData source) {
+        if (source == null) return null;
+        String t = text.trim();
+        Matcher m = PLAY_IT_ONTO_FIELD.matcher(t);
+        if (!m.matches()) return null;
+        boolean watchesAnother = source.autoAbilities().stream().anyMatch(aa ->
+                aa.trigger().contains("break zone")
+                        && !CardFilters.meetsCardNameFilter(source, aa.triggerCard().trim())
+                        && aa.effectText().toLowerCase(Locale.ROOT).contains(t.toLowerCase(Locale.ROOT)));
+        if (!watchesAnother) return null;
+        boolean dull = m.group("dull") != null;
+        return ctx -> {
+            ctx.logEntry("Effect: Play the card put into the Break Zone onto the field" + (dull ? " dull" : ""));
+            if (dull) ctx.playTriggeringBrokenCardOntoFieldDull();
+            else ctx.playTriggeringBrokenCardOntoField();
+        };
+    }
+    /**
      * Parses "Add it to your hand" — Gogo 24-022H. The salvage twin of the parser above, and the
      * card is resolved the same way: "it" is the one whose arrival in the Break Zone fired the
      * trigger this effect hangs off, so nothing is named and nothing is chosen.

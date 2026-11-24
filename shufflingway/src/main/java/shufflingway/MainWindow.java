@@ -539,6 +539,12 @@ public class MainWindow {
 	final Set<CardData> permanentCannotBeChosenBySummons   = Collections.newSetFromMap(new IdentityHashMap<>());
 	final Set<CardData> permanentCannotBeChosenByAbilities = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
+	 * The cost-capped member of the same family: "cannot be chosen by your opponent's abilities of
+	 * Characters of cost N or less", mapped to N — Adel (VIII) 27-074H's payoff. Opponent-scoped, like
+	 * its two siblings; read through {@link #isCharacterAbilityOfCostAtMost}.
+	 */
+	final Map<CardData, Integer> permanentCannotBeChosenByCheapCharacterAbilities = new IdentityHashMap<>();
+	/**
 	 * Cards under a permanent "[Self] must attack once per turn if possible" compulsion
 	 * (Roche 29-076H). Unlike {@link #p1MustAttack}, which is a one-turn instruction cleared at the
 	 * turn boundary, this re-arms every turn and so is never cleared there —
@@ -16717,7 +16723,20 @@ public class MainWindow {
 		if ((bySummon ? cannotBeChosenBySummonsUntilNextTurn
 		              : cannotBeChosenByAbilitiesUntilNextTurn).contains(c)) return true;
 		if ((bySummon ? permanentCannotBeChosenBySummons : permanentCannotBeChosenByAbilities).contains(c)) return true;
+		Integer cheapCap = permanentCannotBeChosenByCheapCharacterAbilities.get(c);
+		if (cheapCap != null && !bySummon && isCharacterAbilityOfCostAtMost(chooserSource, cheapCap)) return true;
 		return icbGrantsImmunity(c.name(), sideIsP1, bySummon, true, chooserSource);
+	}
+
+	/**
+	 * Whether {@code chooser}'s ability is "an ability of a Character of cost {@code cap} or less" —
+	 * Adel (VIII) 27-074H's shield. A Forward, Backup or Monster by printed cost; anything else (a
+	 * Summon, or an EX Burst resolving off a Summon card) is not a Character's ability, and an
+	 * unknown chooser is not either.
+	 */
+	boolean isCharacterAbilityOfCostAtMost(CardData chooser, int cap) {
+		return chooser != null && (chooser.isForward() || chooser.isBackup() || chooser.isMonster())
+				&& chooser.cost() <= cap;
 	}
 
 	/**
@@ -19083,6 +19102,7 @@ public class MainWindow {
 		permanentFieldAbilities.remove(card);
 		permanentCannotBeChosenBySummons.remove(card);
 		permanentCannotBeChosenByAbilities.remove(card);
+		permanentCannotBeChosenByCheapCharacterAbilities.remove(card);
 		permanentMustAttackOncePerTurn.remove(card);
 		// A permanent "power becomes N" lives in the same map as the end-of-turn kind, which has
 		// its own removal hook; dropping the key here is what bounds the permanent one.
