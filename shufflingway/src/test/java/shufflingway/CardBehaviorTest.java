@@ -78078,4 +78078,196 @@ public class CardBehaviorTest {
 		assertEquals(1, mw.gameState.getP1Hand().size());
 	}
 
+	// =========================================================================================
+	// Monsters whose "During your turn, X also becomes a Forward with 7000 power, …" hands that
+	// Forward more than a body — 26-019C Behemoth's Haste, 26-028C Cripshay's First Strike, 26-056C
+	// Gorger's block restriction, and the quoted triggers of 26-080C Mandragora, 26-090C Xiphos,
+	// 26-116C Malboro and 25-086R Abzu. (Board behaviour.) The rider is part of the promotion and
+	// lasts exactly as long: its controller's turn. The "When X deals damage to your opponent, put
+	// X into the Break Zone. When you do so, …" the six Opus 26 cards share is checked against the
+	// FAQ in OfficialFaqBehaviorTest.
+	// =========================================================================================
+
+	private static final String BEHEMOTH_26_019C = "During your turn, Behemoth also becomes a Forward with "
+			+ "7000 power, Haste and \"When Behemoth deals damage to your opponent, put Behemoth into the Break "
+			+ "Zone. When you do so, choose 1 Forward opponent controls. Deal it 8000 damage.\"";
+	private static final String CRIPSHAY_26_028C = "During your turn, Cripshay also becomes a Forward with "
+			+ "7000 power, First Strike and \"When Cripshay deals damage to your opponent, put Cripshay into the "
+			+ "Break Zone. When you do so, your opponent discards 2 cards.\"";
+	private static final String GORGER_26_056C = "During your turn, Gorger also becomes a Forward with 7000 "
+			+ "power, \"Gorger cannot be blocked by a Forward of cost 3 or more.\" and \"When Gorger deals damage "
+			+ "to your opponent, put Gorger into the Break Zone. When you do so, choose up to 3 Backups. Activate "
+			+ "them. Draw 1 card.\"";
+	private static final String MANDRAGORA_26_080C = "During your turn, Mandragora also becomes a Forward with "
+			+ "7000 power, \"When Mandragora deals damage to a Forward, break it.\" and \"When Mandragora deals "
+			+ "damage to your opponent, put Mandragora into the Break Zone. When you do so, choose 1 card in your "
+			+ "Break Zone. Add it to your hand.\"";
+	private static final String XIPHOS_26_090C = "During your turn, Xiphos also becomes a Forward with 7000 "
+			+ "power, \"When Xiphos is blocked, all the Forwards opponent controls lose 3000 power until the end "
+			+ "of the turn.\" and \"When Xiphos deals damage to your opponent, put Xiphos into the Break Zone. When "
+			+ "you do so, choose 1 Forward of cost 4 or less opponent controls. Break it.\"";
+	private static final String MALBORO_26_116C = "During your turn, Malboro also becomes a Forward with 7000 "
+			+ "power, \"When Malboro attacks, choose 1 Forward opponent controls. It loses 2000 power until the "
+			+ "end of the turn.\" and \"When Malboro deals damage to your opponent, put Malboro into the Break "
+			+ "Zone. When you do so, all the Forwards opponent controls lose 4000 power until the end of the turn.\"";
+	/** 25-086R Abzu's promotion alone; its other field ability is not what these tests are about. */
+	private static final String ABZU_25_086R = "During your turn, Abzu also becomes a Forward with 7000 power "
+			+ "and \"When Abzu attacks, choose 1 Forward. It loses 5000 power until the end of the turn.\"";
+
+	private static CardData riderMonster(String name, String element, String text) {
+		return dealt(name, element, "Monster", 2, 7000, name, "VII", text);
+	}
+
+	/** A fresh board on {@code turn}'s turn, with {@code monster} on {@code isP1}'s Monster row. */
+	private static MainWindow monsterOnTurnOf(CardData monster, boolean isP1, GameState.Player turn) {
+		MainWindow mw = new MainWindow();
+		mw.gameState.startFirstTurn(turn);
+		mw.suppressAutoAbilityForNextCards = 1;
+		if (isP1) TestCards.placeP1Monster(mw, monster);
+		else {
+			mw.gameState.getIdentity().put(monster, false);
+			mw.placeP2CardInMonsterZone(monster);
+		}
+		mw.suppressAutoAbilityForNextCards = 0;
+		return mw;
+	}
+
+	@Test
+	void behemothHasHasteAndCripshayFirstStrikeOnlyOnTheirControllersTurn() {
+		CardData behemoth = riderMonster("Behemoth", "Fire", BEHEMOTH_26_019C);
+		MainWindow mine = monsterOnTurnOf(behemoth, false, GameState.Player.P2);
+		assertTrue(mine.effectiveMonsterHasTrait(false, 0, CardData.Trait.HASTE));
+		assertTrue(mine.p2MonsterCanAttackAsForward(0), "Haste: it attacks the turn it arrives");
+		assertFalse(monsterOnTurnOf(behemoth, false, GameState.Player.P1)
+				.effectiveMonsterHasTrait(false, 0, CardData.Trait.HASTE), "no Forward, so no Haste");
+
+		CardData plain = riderMonster("Red Cap", "Fire", "During your turn, Red Cap also becomes a Forward with 7000 power.");
+		assertFalse(monsterOnTurnOf(plain, false, GameState.Player.P2).p2MonsterCanAttackAsForward(0),
+				"a bare promotion hands no Haste");
+
+		CardData cripshay = riderMonster("Cripshay", "Ice", CRIPSHAY_26_028C);
+		assertTrue(monsterOnTurnOf(cripshay, true, GameState.Player.P1)
+				.effectiveMonsterHasTrait(true, 0, CardData.Trait.FIRST_STRIKE));
+		assertFalse(monsterOnTurnOf(cripshay, true, GameState.Player.P2)
+				.effectiveMonsterHasTrait(true, 0, CardData.Trait.FIRST_STRIKE));
+	}
+
+	@Test
+	void gorgerCannotBeBlockedByCostThreeOrMoreWhileItIsAForward() {
+		CardData gorger = riderMonster("Gorger", "Wind", GORGER_26_056C);
+		MainWindow mw = monsterOnTurnOf(gorger, true, GameState.Player.P1);
+		assertTrue(mw.p1AttackerCostFiltersExclude(gorger, 3));
+		assertFalse(mw.p1AttackerCostFiltersExclude(gorger, 2));
+		assertFalse(monsterOnTurnOf(gorger, true, GameState.Player.P2).p1AttackerCostFiltersExclude(gorger, 3));
+	}
+
+	@Test
+	void mandragoraBreaksAForwardItDealsDamageToOnItsControllersTurn() {
+		CardData mandragora = riderMonster("Mandragora", "Earth", MANDRAGORA_26_080C);
+		MainWindow mw = monsterOnTurnOf(mandragora, true, GameState.Player.P1);
+		placeP2Forward(mw, makeForward("Victim", "Fire", 2, 9000));
+		assertTrue(mw.damageResolver.fireBreaktouchForDamage(mandragora, true, false, 0, 2000));
+
+		MainWindow off = monsterOnTurnOf(mandragora, true, GameState.Player.P2);
+		placeP2Forward(off, makeForward("Victim", "Fire", 2, 9000));
+		assertFalse(off.damageResolver.fireBreaktouchForDamage(mandragora, true, false, 0, 2000));
+	}
+
+	@Test
+	void xiphosShrinksEveryOpposingForwardWhenItIsBlocked() {
+		CardData xiphos = riderMonster("Xiphos", "Lightning", XIPHOS_26_090C);
+		MainWindow mw = monsterOnTurnOf(xiphos, false, GameState.Player.P2);
+		placeP1Forward(mw, makeForward("A", "Fire", 3, 7000));
+		placeP1Forward(mw, makeForward("B", "Fire", 3, 5000));
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(xiphos, false);
+		resolveStack(mw);
+
+		assertEquals(4000, mw.effectiveP1ForwardPower(0));
+		assertEquals(2000, mw.effectiveP1ForwardPower(1));
+	}
+
+	@Test
+	void malboroAndAbzuShrinkAForwardWhenTheyAttack() {
+		CardData malboro = riderMonster("Malboro", "Water", MALBORO_26_116C);
+		MainWindow mw = monsterOnTurnOf(malboro, false, GameState.Player.P2);
+		placeP1Forward(mw, makeForward("A", "Fire", 3, 7000));
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(malboro, false);
+		resolveStack(mw);
+		assertEquals(5000, mw.effectiveP1ForwardPower(0));
+
+		CardData abzu = riderMonster("Abzu", "Water", ABZU_25_086R);
+		MainWindow mw2 = monsterOnTurnOf(abzu, false, GameState.Player.P2);
+		placeP1Forward(mw2, makeForward("A", "Fire", 3, 9000));
+		mw2.autoAbilityTriggers.triggerAutoAbilitiesForAttack(abzu, false);
+		resolveStack(mw2);
+		assertEquals(4000, mw2.effectiveP1ForwardPower(0));
+	}
+
+	@Test
+	void theRiderGoesWithThePromotionAndWithTheMonstersAbilities() {
+		CardData behemoth = riderMonster("Behemoth", "Fire", BEHEMOTH_26_019C);
+		assertTrue(behemoth.autoAbilities().isEmpty(), "the quoted trigger is not one Behemoth prints outright");
+
+		MainWindow on = monsterOnTurnOf(behemoth, false, GameState.Player.P2);
+		assertEquals(1, on.effectiveAutoAbilities(behemoth).size());
+		assertTrue(monsterOnTurnOf(behemoth, false, GameState.Player.P1).effectiveAutoAbilities(behemoth).isEmpty(),
+				"on the opponent's turn it is no Forward, and the trigger is gone with the body");
+
+		on.lostAbilitiesCards.add(behemoth);
+		assertTrue(on.effectiveAutoAbilities(behemoth).isEmpty());
+		assertFalse(on.effectiveMonsterHasTrait(false, 0, CardData.Trait.HASTE));
+	}
+
+	// =========================================================================================
+	// A promotion behind a damage gate is standing only when the sentence opens on the card. One
+	// that opens on a cost is an action ability — 16-010H Djinn, 16-038H Byblos, 16-043H Atomos,
+	// 16-079H Hades, 16-098H Spectral Keeper and 16-117H Tros all print "Damage 3 -- 《0》: Until the
+	// end of the turn, X also becomes a Forward …" — and read as standing, each was a Forward on
+	// both turns, unpaid, for as long as its controller held 3 damage. (Board behaviour.)
+	// =========================================================================================
+
+	private static final String BYBLOS_16_038H = "Damage 3 -- 《0》: Until the end of the turn, Byblos also "
+			+ "becomes a Forward with 7000 power and \"When Byblos attacks, your opponent discards 1 card from "
+			+ "their hand.\" You can only use this ability once per turn.";
+
+	/** {@code monster} on P1's Monster row on P1's turn, with P1 holding {@code damage} points. */
+	private static MainWindow p1MonsterAtDamage(CardData monster, int damage) {
+		MainWindow mw = monsterOnTurnOf(monster, true, GameState.Player.P1);
+		for (int i = 0; i < damage; i++) mw.gameState.getP1DamageZone().add(makeForward("D" + i, "Fire", 1, 1000));
+		return mw;
+	}
+
+	@Test
+	void aDamageGatedActionAbilityIsNoStandingPromotion() {
+		CardData byblos = riderMonster("Byblos", "Wind", BYBLOS_16_038H);
+		assertNull(byblos.becomeForwardAbility());
+		assertFalse(p1MonsterAtDamage(byblos, 3).isP1MonsterTemporarilyForward(0),
+				"at Damage 3 it can pay for the promotion; it does not have it for free");
+	}
+
+	@Test
+	void aDamageGatedStandingPromotionStillHolds() {
+		CardData ironGiant = riderMonster("Iron Giant", "Fire",
+				"Damage 3 -- Iron Giant also becomes a Forward with 7000 power.");
+		CardData.BecomeForwardAbility bfa = ironGiant.becomeForwardAbility();
+		assertNotNull(bfa);
+		assertEquals(3, bfa.damageThreshold());
+		assertFalse(p1MonsterAtDamage(ironGiant, 2).isP1MonsterTemporarilyForward(0));
+		assertTrue(p1MonsterAtDamage(ironGiant, 3).isP1MonsterTemporarilyForward(0));
+	}
+
+	@Test
+	void byblosBecomesAForwardWhenItsAbilityIsPaidFor() {
+		CardData byblos = riderMonster("Byblos", "Wind", BYBLOS_16_038H);
+		MainWindow mw = p1MonsterAtDamage(byblos, 3);
+		Consumer<GameContext> effect = ActionResolver.parse(
+				"Until the end of the turn, Byblos also becomes a Forward with 7000 power and \"When Byblos "
+				+ "attacks, your opponent discards 1 card from their hand.\"", byblos);
+		assertNotNull(effect);
+		effect.accept(mw.buildGameContext(true));
+		assertTrue(mw.isP1MonsterTemporarilyForward(0));
+		assertEquals(7000, mw.p1MonsterForwardPower(0));
+	}
+
 }

@@ -7734,6 +7734,7 @@ public class MainWindow {
 		if (card.hasTrait(trait)) return true;
 		EnumSet<CardData.Trait> granted = (isP1 ? p1MonsterTempTraits : p2MonsterTempTraits).get(card);
 		if (granted != null && granted.contains(trait)) return true;
+		if (becomeForwardRiderHasTrait(card, trait)) return true;
 		// The field grants a Forward's lookup reads, the card's own included — 30-081R Don
 		// Tonberry's "Damage 5 -- Don Tonberry cannot be broken", which a Monster acting as a
 		// Forward needs exactly as a Forward would.
@@ -8062,6 +8063,8 @@ public class MainWindow {
 		if (dyn != null && blockerCostExcluded(blockerCost, dyn)) return true;
 		int[] intr = attCard.fieldCannotBeBlockedByCost();
 		if (intr != null && blockerCostExcluded(blockerCost, intr)) return true;
+		int[] rider = becomeForwardRiderBlockCost(attCard);
+		if (rider != null && blockerCostExcluded(blockerCost, rider)) return true;
 		boolean attActsFwd = actsAsForward(attCard, true);
 		for (CardData src : p1ForwardCards)
 			for (IfControlBoost icb : src.ifControlBoosts())
@@ -18855,15 +18858,87 @@ public class MainWindow {
 		List<AutoAbility> selfGrant = damageThresholdGrantedAutoAbilities(card);
 		List<AutoAbility> fieldWide = filteredGrantedAutoAbilities(card);
 		List<AutoAbility> icbGrant  = conditionalSelfGrantedAutoAbilities(card);
+		List<AutoAbility> bodyGrant = becomeForwardRiderAutoAbilities(card);
 		boolean hasGranted = granted != null && !granted.isEmpty();
-		if (!hasGranted && selfGrant.isEmpty() && fieldWide.isEmpty() && icbGrant.isEmpty())
+		if (!hasGranted && selfGrant.isEmpty() && fieldWide.isEmpty() && icbGrant.isEmpty() && bodyGrant.isEmpty())
 			return card.autoAbilities();
 		List<AutoAbility> all = new ArrayList<>(card.autoAbilities());
 		if (hasGranted) all.addAll(granted);
 		all.addAll(selfGrant);
 		all.addAll(fieldWide);
 		all.addAll(icbGrant);
+		all.addAll(bodyGrant);
 		return all;
+	}
+
+	/**
+	 * A card's own "also becomes a Forward" promotion, while it is making the card a Forward and
+	 * hands that Forward something more than its body — or {@code null}. 26-019C Behemoth: "During
+	 * your turn, Behemoth also becomes a Forward with 7000 power, Haste and \"When Behemoth deals
+	 * damage to your opponent, …\"".
+	 *
+	 * <p>Read live, for the reason {@link #damageThresholdGrantedAutoAbilities} is: the promotion is
+	 * a property of the card's own text whose condition comes and goes with the turn. On the field
+	 * only — none of these riders is a leaves-the-field trigger, so there is nothing to look back
+	 * for once the card has gone.
+	 *
+	 * <p>All or nothing, as {@link ActionResolver#becomeForwardRiderGrant} is for the activated
+	 * printings: a rider holding a clause no reader here covers is not applied at all, keyword
+	 * included, rather than applied in part.
+	 */
+	private CardData.BecomeForwardAbility liveBecomeForwardRider(CardData card) {
+		if (card == null || !(card.isMonster() || card.isBackup())) return null;
+		CardData.BecomeForwardAbility bfa = card.becomeForwardAbility();
+		if (bfa == null || !bfa.hasRider() || lostAbilitiesCards.contains(card)) return null;
+		Boolean side = fieldSideOf(card);
+		if (side == null || !printedPromotionHolds(side, bfa)) return null;
+		for (String clause : bfa.grantedClauses())
+			if (CardData.parseAutoAbilities(clause).isEmpty()
+					&& CardData.parseFieldCannotBeBlockedByCost(clause, card.name()) == null) return null;
+		return bfa;
+	}
+
+	/** Whether a printed promotion's condition holds for a card on {@code isP1}'s field. */
+	private boolean printedPromotionHolds(boolean isP1, CardData.BecomeForwardAbility bfa) {
+		if (bfa.minControlledMonsters() > 0)
+			return (isP1 ? p1MonsterCards : p2MonsterCards).size() >= bfa.minControlledMonsters();
+		if (bfa.damageThreshold() > 0)
+			return (isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone()).size() >= bfa.damageThreshold();
+		return gameState.getCurrentPlayer() == (isP1 ? GameState.Player.P1 : GameState.Player.P2);
+	}
+
+	/**
+	 * The quoted auto abilities a live {@link #liveBecomeForwardRider} hands its card — every
+	 * trigger the six Opus 26 Monsters carry, and 25-086R Abzu's attack trigger. Attack triggers
+	 * included: unlike an IfControlBoost's special text, nothing else reads these.
+	 */
+	private List<AutoAbility> becomeForwardRiderAutoAbilities(CardData card) {
+		CardData.BecomeForwardAbility bfa = liveBecomeForwardRider(card);
+		if (bfa == null || bfa.grantedClauses().isEmpty()) return List.of();
+		List<AutoAbility> out = new ArrayList<>();
+		for (String clause : bfa.grantedClauses()) out.addAll(CardData.parseAutoAbilities(clause));
+		return out;
+	}
+
+	/** Whether a live {@link #liveBecomeForwardRider} hands {@code card} {@code trait}. */
+	private boolean becomeForwardRiderHasTrait(CardData card, CardData.Trait trait) {
+		CardData.BecomeForwardAbility bfa = liveBecomeForwardRider(card);
+		return bfa != null && bfa.traits().contains(trait);
+	}
+
+	/**
+	 * The "[Self] cannot be blocked by a Forward of cost N or more" a live
+	 * {@link #liveBecomeForwardRider} hands {@code card} — 26-056C Gorger — in
+	 * {@link CardData#parseFieldCannotBeBlockedByCost}'s shape, or {@code null}.
+	 */
+	private int[] becomeForwardRiderBlockCost(CardData card) {
+		CardData.BecomeForwardAbility bfa = liveBecomeForwardRider(card);
+		if (bfa == null) return null;
+		for (String clause : bfa.grantedClauses()) {
+			int[] cost = CardData.parseFieldCannotBeBlockedByCost(clause, card.name());
+			if (cost != null) return cost;
+		}
+		return null;
 	}
 
 	/**
@@ -21850,6 +21925,8 @@ public class MainWindow {
 			if (dyn != null && blockerCostExcluded(blockerCost, dyn)) return true;
 			int[] intr = attacker.fieldCannotBeBlockedByCost();
 			if (intr != null && blockerCostExcluded(blockerCost, intr)) return true;
+			int[] rider = becomeForwardRiderBlockCost(attacker);
+			if (rider != null && blockerCostExcluded(blockerCost, rider)) return true;
 			for (CardData src : p2FieldCards())
 				for (IfControlBoost icb : src.ifControlBoosts())
 					if (icb.cannotBeBlockedByCost() != null
@@ -23271,6 +23348,7 @@ public class MainWindow {
 		if (c.hasTrait(trait)) return true;
 		EnumSet<CardData.Trait> granted = (isP1 ? p1BackupTempTraits : p2BackupTempTraits).get(c);
 		if (granted != null && granted.contains(trait)) return true;
+		if (becomeForwardRiderHasTrait(c, trait)) return true;
 		// The field grants, the card's own included, read as effectiveMonsterHasTrait reads them —
 		// which is what a Backup acting as a Forward needs to be a Forward for every purpose.
 		return !lostAbilitiesCards.contains(c)

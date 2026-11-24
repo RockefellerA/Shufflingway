@@ -10007,6 +10007,20 @@ public record CardData(
     );
 
     /**
+     * The standing promotion behind a damage gate, once "Damage N -- " is stripped: "Iron Giant
+     * also becomes a Forward with 7000 power." (13-011C). Group {@code power}.
+     *
+     * <p>The subject may hold no cost. An action ability behind the same gate opens on one instead —
+     * 16-010H Djinn's "Damage 3 -- 《0》: Until the end of the turn, Djinn also becomes a Forward with
+     * 7000 power …" — and its promotion lasts the turn it is paid for, not as long as the damage
+     * does. {@link #BECOME_FORWARD_UNCONDITIONAL_PATTERN} admits that text, and only the field-ability
+     * filter can afford to: it has dropped action abilities before it asks.
+     */
+    private static final Pattern BECOME_FORWARD_DAMAGE_GATED_PATTERN = Pattern.compile(
+        "(?i)^[^:《]+?\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power"
+    );
+
+    /**
      * Matches "[CardName] has all the Elements [except X[, Y, ...]]." as a field ability.
      * Group {@code exceptions} captures the comma- or "and"-separated exclusion list, if any.
      */
@@ -11176,8 +11190,63 @@ public record CardData(
      * @param power                  Forward power value
      * @param damageThreshold        0 = "During your turn"; >0 = active when owner's damage ≥ threshold
      * @param minControlledMonsters  >0 = active only while owner controls at least this many Monsters
+     * @param traits                 keywords the same sentence hands the Forward it makes — 26-019C
+     *                               Behemoth's Haste, 26-028C Cripshay's First Strike
+     * @param grantedClauses         the quoted abilities it hands that Forward, verbatim and in
+     *                               printed order — 26-056C Gorger's block restriction and its
+     *                               "When Gorger deals damage to your opponent, …"
      */
-    public record BecomeForwardAbility(int power, int damageThreshold, int minControlledMonsters) {}
+    public record BecomeForwardAbility(int power, int damageThreshold, int minControlledMonsters,
+            Set<Trait> traits, List<String> grantedClauses) {
+        BecomeForwardAbility(int power, int damageThreshold, int minControlledMonsters) {
+            this(power, damageThreshold, minControlledMonsters, Set.of(), List.of());
+        }
+
+        /** Whether the sentence hands its Forward anything beyond the body. */
+        public boolean hasRider() { return !traits.isEmpty() || !grantedClauses.isEmpty(); }
+    }
+
+    /**
+     * One item of the run after "also becomes a Forward with N power": a keyword or a quoted
+     * ability, each introduced by a comma or "and" — "…7000 power, Haste and "When …"",
+     * "…7000 power, "…" and "…"".
+     */
+    private static final Pattern BECOME_FORWARD_RIDER_ITEM = Pattern.compile(
+        "(?i)^(?:\\s*,|\\s+and)\\s+(?:\"(?<clause>[^\"]+)\"|(?<trait>Haste|First\\s+Strike|Brave)\\b)"
+    );
+
+    /** What a fully read rider run leaves of its sentence: at most the full stop. */
+    private static final Pattern BECOME_FORWARD_RIDER_END = Pattern.compile("^\\s*\\.?\\s*$");
+
+    /**
+     * The promotion with whatever {@code tail} — the text after "with N power" — hands it.
+     *
+     * <p>The run has to be read to the end of the sentence or none of it is kept. Anything left
+     * over is a clause this reader does not know, and keeping the half it does know would hand the
+     * Forward a rider the card never printed alone.
+     */
+    private static BecomeForwardAbility withRider(int power, int damageThreshold, int minControlledMonsters,
+            String tail) {
+        EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+        List<String> clauses = new ArrayList<>();
+        String rest = tail;
+        Matcher item;
+        while ((item = BECOME_FORWARD_RIDER_ITEM.matcher(rest)).find()) {
+            if (item.group("clause") != null) clauses.add(item.group("clause").trim());
+            else traits.add(riderTrait(item.group("trait")));
+            rest = rest.substring(item.end());
+        }
+        if (!BECOME_FORWARD_RIDER_END.matcher(rest).matches())
+            return new BecomeForwardAbility(power, damageThreshold, minControlledMonsters);
+        return new BecomeForwardAbility(power, damageThreshold, minControlledMonsters,
+                Collections.unmodifiableSet(traits), List.copyOf(clauses));
+    }
+
+    private static Trait riderTrait(String keyword) {
+        String k = keyword.toLowerCase(Locale.ROOT);
+        if (k.startsWith("first")) return Trait.FIRST_STRIKE;
+        return k.equals("haste") ? Trait.HASTE : Trait.BRAVE;
+    }
 
     /**
      * Returns the {@link BecomeForwardAbility} for this card, or {@code null} if it has none.
@@ -11192,11 +11261,11 @@ public record CardData(
     public BecomeForwardAbility becomeForwardAbility() {
         for (String seg : rawFieldSegments()) {
             Matcher mc = BECOME_FORWARD_IF_CONTROL_N_MONSTERS_PATTERN.matcher(seg);
-            if (mc.find()) return new BecomeForwardAbility(
-                    Integer.parseInt(mc.group("power")), 0, Integer.parseInt(mc.group("n")));
+            if (mc.find()) return withRider(Integer.parseInt(mc.group("power")), 0,
+                    Integer.parseInt(mc.group("n")), seg.substring(mc.end()));
 
             Matcher m = BECOME_FORWARD_DURING_TURN_PATTERN.matcher(seg);
-            if (m.find()) return new BecomeForwardAbility(Integer.parseInt(m.group("power")), 0, 0);
+            if (m.find()) return withRider(Integer.parseInt(m.group("power")), 0, 0, seg.substring(m.end()));
 
             int threshold = 0;
             String check = seg;
@@ -11206,8 +11275,9 @@ public record CardData(
                 check = seg.substring(dtM.end()).trim();
             }
             if (threshold > 0) {
-                Matcher m2 = BECOME_FORWARD_UNCONDITIONAL_PATTERN.matcher(check);
-                if (m2.find()) return new BecomeForwardAbility(Integer.parseInt(m2.group("power")), threshold, 0);
+                Matcher m2 = BECOME_FORWARD_DAMAGE_GATED_PATTERN.matcher(check);
+                if (m2.find()) return withRider(Integer.parseInt(m2.group("power")), threshold, 0,
+                        check.substring(m2.end()));
             }
         }
         return null;

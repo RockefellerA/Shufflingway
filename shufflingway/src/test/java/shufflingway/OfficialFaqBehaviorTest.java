@@ -1042,12 +1042,21 @@ class OfficialFaqBehaviorTest {
 		assertMonsterHitPaysThenStacks(mw, cripshay, () -> hand(mw, true) == 0);
 	}
 
+	/**
+	 * A dull Backup is seated for the payoff to choose. With none, its "choose up to 3 Backups"
+	 * would choose nothing, and 26-037H Halone's ruling ("If not a single character has been
+	 * selected then the opponent does not discard") says the draw then goes with it.
+	 */
 	@Test
 	void gorgerGoesToTheBreakZoneThenStacksItsDraw() {
 		CardData gorger = gorger_26_056C();
 		MainWindow mw = p2TurnWithMonster(gorger);
 		fillDeck(mw, false, 3);
-		assertMonsterHitPaysThenStacks(mw, gorger, () -> hand(mw, false) == 1);
+		CardData backup = makeBackup("Wind Backup", "Wind", 2);
+		seatBackup(mw, false, backup);
+		mw.p2BackupStates[0] = CardState.DULL;
+		assertMonsterHitPaysThenStacks(mw, gorger,
+				() -> hand(mw, false) == 1 && mw.p2BackupStates[0] == CardState.ACTIVE);
 	}
 
 	@Test
