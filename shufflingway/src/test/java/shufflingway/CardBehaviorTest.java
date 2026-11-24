@@ -3189,6 +3189,47 @@ public class CardBehaviorTest {
         assertTrue(mw.gameState.getP2BreakZone().contains(existingLeon));
     }
 
+    @Test
+    void aPrimedForwardChangesSidesWithItsTopCard() {
+        // Joshua primed into Phoenix is one Forward: the opponent taking Phoenix controls a primed
+        // Phoenix, not a bare Joshua with the top card lost.
+        MainWindow mw = new MainWindow();
+        CardData joshua  = makeForward("Joshua", "Fire", 3, 7000);
+        CardData phoenix = makeForward("Phoenix", "Fire", 5, 9000);
+        placeP1Forward(mw, joshua);
+        mw.gameState.getIdentity().put(phoenix, true);   // came out of P1's deck
+        mw.p1ForwardPrimedTop.set(0, phoenix);
+
+        mw.giveControlToOpponent(phoenix);   // named by its top card
+
+        assertTrue(mw.p1ForwardCards.isEmpty());
+        int i = mw.p2ForwardCards.indexOf(joshua);
+        assertTrue(i >= 0, "the slot crossed over");
+        assertSame(phoenix, mw.p2ForwardPrimedTop.get(i), "still primed into Phoenix");
+        assertSame(phoenix, mw.effectiveP2Forward(i));
+        assertEquals(9000, mw.effectiveP2ForwardPower(i), "it acts as Phoenix on the new side");
+    }
+
+    @Test
+    void aPrimedForwardMeetsAnotherCopyOfItsTopCardUnderTheUniquenessRule() {
+        // The uniqueness rule reads the card acting in the slot: a primed Phoenix crossing over to
+        // a player who already controls a Phoenix sends both to the Break Zone.
+        MainWindow mw = new MainWindow();
+        CardData joshua  = makeForward("Joshua", "Fire", 3, 7000);
+        CardData phoenix = makeForward("Phoenix", "Fire", 5, 9000);
+        placeP1Forward(mw, joshua);
+        mw.gameState.getIdentity().put(phoenix, true);   // came out of P1's deck
+        mw.p1ForwardPrimedTop.set(0, phoenix);
+        CardData theirPhoenix = makeForward("Phoenix", "Fire", 5, 9000);
+        placeP2Forward(mw, theirPhoenix);
+
+        mw.giveControlToOpponent(joshua);
+
+        assertTrue(mw.p1ForwardCards.isEmpty());
+        assertFalse(mw.p2ForwardCards.contains(theirPhoenix));
+        assertFalse(mw.p2ForwardCards.contains(joshua));
+    }
+
     // =========================================================================================
     // Sahagin Chief: "When a Water Character other than Sahagin Chief enters your field, place 1
     // Monster Counter on Sahagin Chief." — "other than Sahagin Chief" excludes only the source
@@ -35220,8 +35261,9 @@ public class CardBehaviorTest {
 	}
 
 	@Test
-	void meltigeminiLeavesFieldAbilityPowerGrantsAlone() {
-		// "Summons or abilities" is what it names; a standing field grant is neither.
+	void meltigeminiStopsFieldAbilityPowerGrantsToo() {
+		// "Summons or abilities" includes field abilities: the official FAQ says so for 25-086R Abzu,
+		// which prints the same phrase scoped to the opponent's Forwards.
 		MainWindow mw = new MainWindow();
 		CardData granter = makeBackupWithPowerGrant("Grantor", "Fire",
 				"The Forwards you control gain +1000 power.");
@@ -35233,7 +35275,11 @@ public class CardBehaviorTest {
 		CardData melti = makeFieldAbilityCard("Meltigemini", "Water", "Monster", MELTIGEMINI_TEXT);
 		mw.gameState.getIdentity().put(melti, false);
 		mw.placeP2CardInMonsterZone(melti);
-		assertEquals(8000, mw.effectiveP1ForwardPower(0), "and still applies with Meltigemini out");
+		assertEquals(7000, mw.effectiveP1ForwardPower(0), "and does not land with Meltigemini out");
+
+		// With Meltigemini gone the grant applies again.
+		mw.p2MonsterCards.clear();
+		assertEquals(8000, mw.effectiveP1ForwardPower(0));
 	}
 
 	// =========================================================================================

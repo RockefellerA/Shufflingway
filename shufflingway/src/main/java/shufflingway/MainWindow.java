@@ -5923,23 +5923,30 @@ public class MainWindow {
 	 * @return {@code true} if the card changed sides
 	 */
 	private boolean transferForwardControl(CardData card, CardState forceState) {
-		int  idx    = identityIndexOf(p1ForwardCards, card);
+		// A primed slot is one Forward, named by its top card or by the card beneath it: either
+		// finds the slot, and the whole stack changes sides.
+		int  idx    = forwardSlotOf(true, card);
 		boolean fromP1 = idx >= 0;
 		if (!fromP1) {
-			idx = identityIndexOf(p2ForwardCards, card);
+			idx = forwardSlotOf(false, card);
 			if (idx < 0) {
 				logEntry(card.name() + " — not currently a Forward on the field, cannot transfer control");
 				return false;
 			}
 		}
+		CardData base     = (fromP1 ? p1ForwardCards     : p2ForwardCards).get(idx);
+		CardData savedTop = (fromP1 ? p1ForwardPrimedTop : p2ForwardPrimedTop).get(idx);
+		CardData acting   = savedTop != null ? savedTop : base;
 
-		// Uniqueness rule: a non-multicard cannot coexist with another copy of itself.
-		List<CardData> destCards = fromP1 ? p2ForwardCards : p1ForwardCards;
-		if (!card.multicard()) {
-			for (int i = 0; i < destCards.size(); i++) {
-				if (gameFormat == DeckFormat.TITLE ? CardFilters.sameCardNumber(destCards.get(i), card)
-						: destCards.get(i).name().equalsIgnoreCase(card.name())) {
-					logEntry(card.name() + " — uniqueness rule: both copies sent to their owner's Break Zone");
+		// Uniqueness rule: a non-multicard cannot coexist with another copy of itself. Read off the
+		// card acting in each slot — a primed Joshua is Phoenix on the field.
+		int destSize = (fromP1 ? p2ForwardCards : p1ForwardCards).size();
+		if (!acting.multicard()) {
+			for (int i = 0; i < destSize; i++) {
+				CardData there = fromP1 ? effectiveP2Forward(i) : effectiveP1Forward(i);
+				if (gameFormat == DeckFormat.TITLE ? CardFilters.sameCardNumber(there, acting)
+						: there.name().equalsIgnoreCase(acting.name())) {
+					logEntry(acting.name() + " — uniqueness rule: both copies sent to their owner's Break Zone");
 					// Break the arriving copy first so the resident copy's index stays valid.
 					if (fromP1) { breakP1Forward(idx); breakP2Forward(i); }
 					else        { breakP2Forward(idx); breakP1Forward(i); }
@@ -5950,11 +5957,50 @@ public class MainWindow {
 
 		int       savedDmg   = (fromP1 ? p1ForwardDamage : p2ForwardDamage).get(idx);
 		CardState savedState = (fromP1 ? p1ForwardStates : p2ForwardStates).get(idx);
+		// The card keeps its status across the table (Owzer 11-106H's and Kain 6-090H's FAQ): an
+		// until-the-end-of-the-turn boost or loss, the traits gained or lost, a Job gained, Frozen.
+		// These sit in per-side slot lists, so they are carried to the new slot rather than left
+		// behind with the old one.
+		int       savedBoost     = (fromP1 ? p1ForwardPowerBoost     : p2ForwardPowerBoost).get(idx);
+		int       savedReduction = (fromP1 ? p1ForwardPowerReduction : p2ForwardPowerReduction).get(idx);
+		EnumSet<CardData.Trait> savedTraits  = EnumSet.copyOf((fromP1 ? p1ForwardTempTraits    : p2ForwardTempTraits).get(idx));
+		EnumSet<CardData.Trait> savedRemoved = EnumSet.copyOf((fromP1 ? p1ForwardRemovedTraits : p2ForwardRemovedTraits).get(idx));
+		String    savedJobs      = (fromP1 ? p1ForwardTempJobs : p2ForwardTempJobs).get(idx);
+		boolean   savedFrozen    = Boolean.TRUE.equals((fromP1 ? p1ForwardFrozen : p2ForwardFrozen).get(idx));
 		removeForwardSlotForTransfer(fromP1, idx);
 		CardState arrivalState = forceState != null ? forceState : savedState;
-		if (fromP1) addStolenForwardToP2Field(card, savedDmg, arrivalState);
-		else        addStolenForwardToP1Field(card, savedDmg, arrivalState);
+		if (fromP1) addStolenForwardToP2Field(base, savedDmg, arrivalState);
+		else        addStolenForwardToP1Field(base, savedDmg, arrivalState);
+		boolean toP1 = !fromP1;
+		int to = identityIndexOf(toP1 ? p1ForwardCards : p2ForwardCards, base);
+		if (to >= 0) {
+			(toP1 ? p1ForwardPrimedTop : p2ForwardPrimedTop).set(to, savedTop);
+			(toP1 ? p1ForwardPowerBoost     : p2ForwardPowerBoost).set(to, savedBoost);
+			(toP1 ? p1ForwardPowerReduction : p2ForwardPowerReduction).set(to, savedReduction);
+			(toP1 ? p1ForwardTempTraits     : p2ForwardTempTraits).set(to, savedTraits);
+			(toP1 ? p1ForwardRemovedTraits  : p2ForwardRemovedTraits).set(to, savedRemoved);
+			(toP1 ? p1ForwardTempJobs       : p2ForwardTempJobs).set(to, savedJobs);
+			(toP1 ? p1ForwardFrozen         : p2ForwardFrozen).set(to, savedFrozen);
+			if (toP1) refreshP1ForwardSlot(to); else refreshP2ForwardSlot(to);
+			// The arrival refresh read the card beneath; a top card's own grants now act on this side.
+			if (savedTop != null && !savedTop.fieldPowerGrants().isEmpty()) {
+				refreshFieldGrantDependents(toP1);
+				refreshFieldGrantDependents(!toP1);
+			}
+		}
 		return true;
+	}
+
+	/**
+	 * The Forward slot on {@code isP1}'s side that {@code card} stands in, by identity — as the card
+	 * in the slot or as the primed top card on it — or {@code -1}.
+	 */
+	int forwardSlotOf(boolean isP1, CardData card) {
+		List<CardData> bases = isP1 ? p1ForwardCards : p2ForwardCards;
+		List<CardData> tops  = isP1 ? p1ForwardPrimedTop : p2ForwardPrimedTop;
+		for (int i = 0; i < bases.size(); i++)
+			if (bases.get(i) == card || tops.get(i) == card) return i;
+		return -1;
 	}
 
 	/**
@@ -5966,13 +6012,14 @@ public class MainWindow {
 		List<CardData> victimCards = thiefIsP1 ? p2ForwardCards : p1ForwardCards;
 		if (victimIdx < 0 || victimIdx >= victimCards.size()) return;
 		CardData card = victimCards.get(victimIdx);
+		CardData acting = thiefIsP1 ? effectiveP2Forward(victimIdx) : effectiveP1Forward(victimIdx);
 
 		if (!transferForwardControl(card, activate ? CardState.ACTIVE : null)) return;
 
 		String condLabel = condition.equals("permanent") ? " (permanent)"
 				: condition.equals("endOfTurn") ? " (until EOT)"
 				: " (while " + condition.substring("whileCardOnField:".length()) + " on field)";
-		logEntry(card.name() + " — control stolen by " + (thiefIsP1 ? "P1" : "P2") + condLabel);
+		logEntry(acting.name() + " — control stolen by " + (thiefIsP1 ? "P1" : "P2") + condLabel);
 
 		if (!condition.equals("permanent")) {
 			stolenForwards.put(card, condition);
@@ -6100,7 +6147,7 @@ public class MainWindow {
 	 * No-op (with a log entry) if {@code source} is not currently a Forward on either field.
 	 */
 	void giveForwardControlToOpponent(CardData source) {
-		boolean wasP1 = identityIndexOf(p1ForwardCards, source) >= 0;
+		boolean wasP1 = forwardSlotOf(true, source) >= 0;
 		if (transferForwardControl(source, null))
 			logEntry(source.name() + " — control given to opponent (" + (wasP1 ? "P2" : "P1") + ")");
 	}
@@ -6112,7 +6159,7 @@ public class MainWindow {
 	 * is settled here rather than by trying one and falling through to the other.
 	 */
 	void giveControlToOpponent(CardData source) {
-		if (identityIndexOf(p1ForwardCards, source) >= 0 || identityIndexOf(p2ForwardCards, source) >= 0)
+		if (forwardSlotOf(true, source) >= 0 || forwardSlotOf(false, source) >= 0)
 			giveForwardControlToOpponent(source);
 		else
 			giveBackupControlToOpponent(source);
@@ -7490,8 +7537,10 @@ public class MainWindow {
 	}
 
 	int effectiveP2ForwardPower(int idx) {
+		CardData top  = p2ForwardPrimedTop.get(idx);
 		CardData card = p2ForwardCards.get(idx);
-		return basePowerOverrides.getOrDefault(card, fieldGrantBasePower(card, false, card.power()))
+		int printed = top != null ? top.power() : card.power();
+		return basePowerOverrides.getOrDefault(card, fieldGrantBasePower(card, false, printed))
 				+ p2ForwardPowerBoost.get(idx) - p2ForwardPowerReduction.get(idx)
 				+ permanentPowerBoost.getOrDefault(card, 0)
 				+ computeConditionalBoostForTarget(card, false);
@@ -18051,9 +18100,16 @@ public class MainWindow {
 		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
 		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
 		boolean actsFwd = actsAsForward(target, isP1);
-		for (CardData src : fwds) boost += fieldBoostContribution(src, target, isP1, actsFwd);
-		for (CardData bkp : bkps) if (bkp != null) boost += fieldBoostContribution(bkp, target, isP1, actsFwd);
-		for (CardData src : mons) boost += fieldBoostContribution(src, target, isP1, actsFwd);
+		// "The power of Forwards opponent controls cannot be increased by Summons or abilities"
+		// (Abzu 25-086R; Haveh 21-075R's "by your opponent's …"; Meltigemini 8-128R) covers field
+		// abilities too, their FAQ says, so while one stands a field grant's "+" does not land. Only
+		// the "+": a source's loss still applies, and boosts that resolved earlier sit in the slot
+		// lists and are not read here.
+		boolean noRaise = (target.isForward() || actsFwd)
+				&& (oppForwardPowerBoostSuppressedFor(isP1) || oppForwardSelfBoostSuppressedFor(isP1));
+		for (CardData src : fwds) boost += capRaise(fieldBoostContribution(src, target, isP1, actsFwd), noRaise);
+		for (CardData bkp : bkps) if (bkp != null) boost += capRaise(fieldBoostContribution(bkp, target, isP1, actsFwd), noRaise);
+		for (CardData src : mons) boost += capRaise(fieldBoostContribution(src, target, isP1, actsFwd), noRaise);
 
 		// Opposing-side debuffs ("The Forwards opponent controls lose N power") apply
 		// to this target when the source sits across the field.
@@ -18064,6 +18120,11 @@ public class MainWindow {
 		for (CardData bkp : oppBkps) if (bkp != null) boost += opposingFieldDebuffContribution(bkp, target, !isP1, actsFwd);
 		for (CardData src : oppMons) boost += opposingFieldDebuffContribution(src, target, !isP1, actsFwd);
 		return boost;
+	}
+
+	/** {@code contribution}, with any increase dropped when {@code noRaise}. */
+	private static int capRaise(int contribution, boolean noRaise) {
+		return noRaise ? Math.min(contribution, 0) : contribution;
 	}
 
 	/** Returns {@code true} if all conditions on {@code fpg} are met for the given player. */
