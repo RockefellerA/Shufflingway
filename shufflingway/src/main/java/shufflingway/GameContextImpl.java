@@ -4171,8 +4171,12 @@ final class GameContextImpl implements GameContext {
 				return millTop(!isP1, millCount);
 			}
 
+			// Every card there is goes, and a deck shorter than the count has not done it: "put the top 3
+			// cards of your deck into the Break Zone. When you do so, …" mills the 2 that are left and
+			// triggers nothing after (the FAQ for 22-005R Ignacio, 22-079L Seifer, 18-009H Tidus) — the
+			// convention selfDiscard keeps for a discard that falls short.
 			@Override public void millCards(int count) {
-				millTop(isP1, count);
+				if (millTop(isP1, count).size() < count) markEffectFizzled();
 			}
 
 			/**
