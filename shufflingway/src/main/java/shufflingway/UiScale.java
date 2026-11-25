@@ -24,6 +24,14 @@ public final class UiScale {
     private static final int DESIGN_H = 1080;
 
     /**
+     * The window's own chrome at 1080p — title bar, menu bar and frame border — which Swing draws
+     * at a fixed size whatever the factor. The board was laid out in the 1018px of a 1080px window
+     * left below it, so a window smaller than the design has to fit the board in what the chrome
+     * leaves, not in its whole height.
+     */
+    private static final int CHROME_H = 62;
+
+    /**
      * The outer window size in device pixels, after fitting the chosen resolution to the usable
      * screen area. Populated by {@link #compute()}; declared before {@link #factor} so their
      * defaults are in place before {@code compute()} overwrites them.
@@ -60,8 +68,11 @@ public final class UiScale {
             } catch (NumberFormatException ignored) {}
         }
 
-        // Uniform fit of the 1920x1080 design into the chosen resolution (preserves proportions).
-        double resFactor = Math.min(targetW / (double) DESIGN_W, targetH / (double) DESIGN_H);
+        // Uniform fit of the 1920x1080 design into the chosen resolution (preserves proportions),
+        // the height fitted below the unscaled chrome. At 720p the chrome is a larger share of the
+        // window than the design gave it, and a plain fit would overlap the two players' rows.
+        double resFactor = Math.min(targetW / (double) DESIGN_W,
+                (targetH - CHROME_H) / (double) (DESIGN_H - CHROME_H));
 
         // Then shrink further if the chosen window would not fit the usable screen area. Using the
         // OS-reported usable bounds (which exclude the taskbar/dock on whichever edge it is docked,
@@ -122,9 +133,15 @@ public final class UiScale {
     /**
      * Total vertical letterbox margin: the window height beyond the scaled board (0 when they
      * match). Split evenly above and below the board to centre the play area.
+     *
+     * <p>Measured both with the chrome scaled and with it at its fixed size, and the smaller
+     * taken. Below 1080p the window is taller than the scaled design by the chrome's extra share,
+     * which is not the board's to spare. Above it the chrome is a smaller share than the design
+     * gave it, and the height that frees goes to the board's middle, as it always has.
      */
     public static int letterboxVertical() {
-        return Math.max(0, windowH - scale(DESIGN_H));
+        return Math.max(0, Math.min(windowH - scale(DESIGN_H),
+                windowH - CHROME_H - scale(DESIGN_H - CHROME_H)));
     }
 
     /**

@@ -21169,9 +21169,9 @@ public class MainWindow {
 					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				}
 				if (power > basePower) {
-					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
+					CardAnimation.renderPowerOverlayRight(canvas, power, basePower, new Color(80, 220, 80), state);
 				} else if (power < basePower) {
-					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(230, 200, 60), state);
+					CardAnimation.renderPowerOverlayRight(canvas, power, basePower, new Color(230, 200, 60), state);
 				}
 				if (!counterOrbs.isEmpty())
 					CardAnimation.renderCounterOverlay(canvas, counterOrbs, state);
@@ -25449,9 +25449,9 @@ public class MainWindow {
 					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				}
 				if (power > basePower) {
-					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
+					CardAnimation.renderPowerOverlayRight(canvas, power, basePower, new Color(80, 220, 80), state);
 				} else if (power < basePower) {
-					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(230, 200, 60), state);
+					CardAnimation.renderPowerOverlayRight(canvas, power, basePower, new Color(230, 200, 60), state);
 				}
 				if (!counterOrbs.isEmpty())
 					CardAnimation.renderCounterOverlay(canvas, counterOrbs, state);

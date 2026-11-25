@@ -12,10 +12,13 @@ import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.RenderingHints;
+import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.RescaleOp;
 import java.util.List;
+
+import javax.swing.ImageIcon;
 
 /** Static utilities for rendering and transforming card images. */
 public class CardAnimation {
@@ -193,7 +196,45 @@ public class CardAnimation {
 
 	/** Draws {@code value} in a dark pill at the bottom-right edge of the card (rotated with the card when dull). */
 	public static void renderPowerOverlayRight(BufferedImage canvas, int value, Color textColor, CardState state) {
-		renderPill(canvas, value, textColor, true, state);
+		renderPowerOverlayRight(canvas, value, 0, textColor, state);
+	}
+
+	/**
+	 * {@link #renderPowerOverlayRight(BufferedImage, int, Color, CardState)} over the power the card
+	 * prints, {@code printed}, or 0 for none. The pill is at least as wide as that number, so a
+	 * printed digit the overlay has no counterpart for stays covered. Otherwise a 10000 brought
+	 * down to 9000 would leave the printed 1 beside the pill, reading as 19000. Below the printed
+	 * power the pill is darker as well: the printed number shows faintly through a pill, and a
+	 * leftover 1 seen through it would still read as part of the number.
+	 */
+	public static void renderPowerOverlayRight(BufferedImage canvas, int value, int printed, Color textColor,
+			CardState state) {
+		renderPill(canvas, value, printed, value < printed ? REDUCED_PILL_ALPHA : PILL_ALPHA, textColor, true, state);
+	}
+
+	/**
+	 * Where a pill's digits go, as fractions of the card: the power pill's right edge, and the
+	 * middle of the digits' height, which is the printed digits' middle. Every card prints its
+	 * power right-aligned in the same spot, so the power pill covers the printed number at any
+	 * card size, and the printed number shows evenly above and below its shorter digits. The damage
+	 * pill mirrors it across the card.
+	 */
+	private static final double PILL_DIGITS_RIGHT  = 0.955;
+	private static final double PILL_DIGITS_MIDDLE = 0.932;
+	/** The pill's margin around its digits, as a fraction of the digits' height. */
+	private static final double PILL_PAD = 0.45;
+	/** The pill's opacity, out of 255: the printed number shows faintly through it. */
+	private static final int PILL_ALPHA = 180;
+	/** The pill's opacity over a power below the printed one; see {@link #renderPowerOverlayRight(BufferedImage, int, int, Color, CardState)}. */
+	private static final int REDUCED_PILL_ALPHA = 225;
+
+	/**
+	 * The pills' point size: 14 at 1080p, about a point more at 1440p and a point less at 720p.
+	 * Tuned by eye against the printed power. At a fixed fraction of the card the pill reads
+	 * small on a large card and heavy on a small one.
+	 */
+	private static float pillPointSize() {
+		return (float) (14 + 3.5 * (UiScale.factor - 1));
 	}
 
 	/**
@@ -201,8 +242,16 @@ public class CardAnimation {
 	 * in the card's natural (unrotated) coordinate frame. When {@code state == DULL} the pill is drawn through
 	 * a CW 90° transform so it stays anchored to the card's bottom edge — which lives on the LEFT side of the
 	 * dull canvas — and the text reads correctly once the viewer rotates their view to read the dull card.
+	 *
+	 * <p>The digits are placed by their ink rather than their advance, so the trailing gap in the
+	 * pixel font's advance does not push them off the printed number.
+	 *
+	 * @param cover a number the pill is widened to cover as if it held it, digits still aligned
+	 *              as before; 0 for none
+	 * @param alpha the pill's opacity, out of 255
 	 */
-	private static void renderPill(BufferedImage canvas, int value, Color textColor, boolean alignRight, CardState state) {
+	private static void renderPill(BufferedImage canvas, int value, int cover, int alpha, Color textColor,
+			boolean alignRight, CardState state) {
 		Graphics2D g = canvas.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 		if (state == CardState.DULL) {
@@ -215,22 +264,30 @@ public class CardAnimation {
 			g.translate(LEFT_GUTTER, 0);   // active art starts past the tab gutter
 		}
 		String text = String.valueOf(value);
-		Font font = FontLoader.loadOverlayFont(14);
+		Font font = FontLoader.loadOverlayFont(pillPointSize());
 		g.setFont(font);
-		FontMetrics fm = g.getFontMetrics();
-		int tw = fm.stringWidth(text);
-		int tx = alignRight ? CARD_W - tw - 8 : 4;
-		int ty = CARD_H - 8;
-		g.setColor(new Color(0, 0, 0, 180));
-		g.fillRoundRect(tx - 4, ty - fm.getAscent() - 1, tw + 8, fm.getAscent() + fm.getDescent() + 2, 5, 5);
+		Rectangle2D ink = font.createGlyphVector(g.getFontRenderContext(), text).getVisualBounds();
+		double boxW = ink.getWidth();
+		if (cover > 0)
+			boxW = Math.max(boxW, font.createGlyphVector(g.getFontRenderContext(), String.valueOf(cover))
+					.getVisualBounds().getWidth());
+		double inkLeft = alignRight ? CARD_W * PILL_DIGITS_RIGHT - ink.getWidth()
+		                            : CARD_W * (1 - PILL_DIGITS_RIGHT);
+		double boxLeft = alignRight ? CARD_W * PILL_DIGITS_RIGHT - boxW : inkLeft;
+		double inkTop  = CARD_H * PILL_DIGITS_MIDDLE - ink.getHeight() / 2;
+		double pad     = ink.getHeight() * PILL_PAD;
+		g.setColor(new Color(0, 0, 0, alpha));
+		int arc = Math.max(3, UiScale.scale(5));
+		g.fillRoundRect((int) Math.round(boxLeft - pad), (int) Math.round(inkTop - pad),
+				(int) Math.round(boxW + 2 * pad), (int) Math.round(ink.getHeight() + 2 * pad), arc, arc);
 		g.setColor(textColor);
-		g.drawString(text, tx, ty);
+		g.drawString(text, (int) Math.round(inkLeft - ink.getX()), (int) Math.round(inkTop - ink.getY()));
 		g.dispose();
 	}
 
 	/** Draws accumulated damage in a red pill at the card's bottom-left (rotated with the card when dull). */
 	public static void renderDamageOverlay(BufferedImage canvas, int damage, CardState state) {
-		renderPill(canvas, damage, new Color(255, 50, 50), false, state);
+		renderPill(canvas, damage, 0, PILL_ALPHA, new Color(255, 50, 50), false, state);
 	}
 
 	/**
@@ -288,7 +345,6 @@ public class CardAnimation {
 		return canvas;
 	}
 
-	/** Converts any {@link Image} to a scaled {@link BufferedImage} (ARGB). */
 	/**
 	 * Corner-rounding radius applied to every scaled card image, as a fraction of the card's
 	 * shorter side. The source card images are opaque JPEGs whose rounded corners are baked
@@ -298,7 +354,18 @@ public class CardAnimation {
 	 */
 	public static final double CORNER_RADIUS_FRACTION = 0.05;
 
+	/**
+	 * The reduction from which {@link #toARGB} area-averages instead of taking one bilinear step.
+	 * A bilinear step reads only a 2x2 neighbourhood. At 2-3x (1080p, 1440p) the hard edges it
+	 * leaves read crisper than an averaged image. At 4x and beyond (720p) it skips most of the
+	 * source, and a card's name and text break up.
+	 */
+	private static final double AREA_AVERAGE_FROM = 4.0;
+
+	/** Converts any {@link Image} to a scaled {@link BufferedImage} (ARGB). */
 	public static BufferedImage toARGB(Image src, int w, int h) {
+		if (src.getWidth(null) >= w * AREA_AVERAGE_FROM)
+			src = new ImageIcon(src.getScaledInstance(w, h, Image.SCALE_SMOOTH)).getImage();   // waits for the load
 		BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = buf.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
