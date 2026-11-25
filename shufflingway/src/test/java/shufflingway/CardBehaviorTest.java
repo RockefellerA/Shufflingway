@@ -13465,6 +13465,23 @@ public class CardBehaviorTest {
 		verify(ctx, times(3)).dealDamageToOpponent(1);
 	}
 
+	// 6-018R Neo Bahamut: "Discard all your hand." is the same effect as "Discard your hand." Unread,
+	// the summon dealt its 8000 damage for free.
+	@Test
+	void neoBahamutDealsEightThousandThenDiscardsTheHand() {
+		ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = ctxChoosing(List.of(theirs));
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"Choose 1 Forward. Deal it 8000 damage. Discard all your hand.",
+				makeSummon("Neo Bahamut", "Fire", 2, ""));
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).damageTarget(theirs, 8000);
+		order.verify(ctx).selfDiscardEntireHand();
+	}
+
 	// 26-067H Eiko: the tail after the stacking. SHUFFLE_DECK find()s "shuffle your deck" out of it,
 	// and read that way the reveal and the free cast were dropped.
 	@Test

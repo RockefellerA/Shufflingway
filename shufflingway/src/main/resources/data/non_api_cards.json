@@ -37,6 +37,25 @@
 
   "cards": [
     {
+      "_note": "Opus VI; absent from the NA API sweep as of 2026-11.",
+      "serial": "6-018R",
+      "name": "Neo Bahamut",
+      "type": "Summon",
+      "element": "Fire",
+      "cost": 2,
+      "rarity": "R",
+      "category1": "MOBIUS",
+      "category2": "VII",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "You can only cast Neo Bahamut during your Main Phase.",
+        "[[br]]",
+        "Choose 1 Forward. Deal it 8000 damage. Discard all your hand."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/06/6-018.jpg"
+    },
+    {
       "_note": "Opus XVII starter-deck exclusive; absent from the NA API as of 2026-09.",
       "serial": "17-131S",
       "name": "Kain",

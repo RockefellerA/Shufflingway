@@ -7080,9 +7080,12 @@ final class ActionResolverPatterns {
     static final Pattern DISCARD_HAND_THEN_DRAW = Pattern.compile(
         "(?i)Discard\\s+your\\s+hand[.,]?\\s+[Tt]hen[,]?\\s+draw\\s+(\\d+)\\s+cards?[.!]?\\s*$"
     );
-    /** Matches "Discard your hand." as a standalone effect. */
+    /**
+     * Matches "Discard your hand." as a standalone effect, and 6-018R Neo Bahamut's "Discard all
+     * your hand."
+     */
     static final Pattern DISCARD_HAND = Pattern.compile(
-        "(?i)Discard\\s+your\\s+hand[.!]?\\s*$"
+        "(?i)Discard\\s+(?:all\\s+)?your\\s+hand[.!]?\\s*$"
     );
     /**
      * Matches "discard 1 &lt;Type&gt;." — player discards one card of the named type from hand.

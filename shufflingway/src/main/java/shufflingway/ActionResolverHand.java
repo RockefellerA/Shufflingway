@@ -414,7 +414,7 @@ final class ActionResolverHand {
             ctx.drawCards(drawCount);
         };
     }
-    /** Parses "Discard your hand." as a standalone effect. */
+    /** Parses "Discard your hand." (or "Discard all your hand.") as a standalone effect. */
     static Consumer<GameContext> tryParseDiscardHand(String text) {
         if (!DISCARD_HAND.matcher(text).find()) return null;
         return ctx -> {
