@@ -41,6 +41,10 @@ jobs:
   release-windows:
     needs: create-release
     runs-on: windows-latest
+    env:
+      # The Java the MSI bundles. The updater's jar asset is named after it; an installed copy with
+      # an older runtime updates through the MSI instead of swapping the jar.
+      JAVA_FEATURE: '25'
     permissions:
       contents: write
     defaults:
@@ -54,7 +58,7 @@ jobs:
       - name: Set up Java 25
         uses: actions/setup-java@v4
         with:
-          java-version: '25'
+          java-version: ${{ env.JAVA_FEATURE }}
           distribution: 'temurin'
           cache: 'maven'
 
@@ -101,16 +105,26 @@ jobs:
             --java-options     "--enable-native-access=ALL-UNNAMED" `
             --icon             Shufflingway.ico `
             --win-dir-chooser `
+            --win-per-user-install `
             --win-shortcut `
             --win-upgrade-uuid a3f8c4d2-7b9e-4f01-8c6a-2d5e9b03f7a1 `
             --type             msi `
             --dest             target/dist
 
-      - name: Upload MSI to release
+      # What Help > Check for Updates downloads on Windows: the jar alone, which it swaps into the
+      # user's install. The name must match UpdateChecker.JAR_ASSET.
+      - name: Stage jar for the in-place updater
+        shell: pwsh
+        run: |
+          Copy-Item target\shufflingway.jar "target\dist\shufflingway-${{ needs.create-release.outputs.version }}-java${{ env.JAVA_FEATURE }}.jar"
+
+      - name: Upload MSI and jar to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.create-release.outputs.version }}
-          files: shufflingway/target/dist/*.msi
+          files: |
+            shufflingway/target/dist/*.msi
+            shufflingway/target/dist/*.jar
 
   # ── macOS DMG ─────────────────────────────────────────────────────────────
   release-macos:

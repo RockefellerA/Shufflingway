@@ -5,6 +5,7 @@ import java.awt.Desktop;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.event.ActionEvent;
+import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -13,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 import javax.swing.JButton;
 import javax.swing.JDialog;
@@ -198,22 +200,39 @@ public class HelpMenu extends JMenu {
             return;
         }
 
+        UpdateChecker.InPlaceStatus inPlace = UpdateChecker.inPlaceStatus(info);
+        boolean inPlaceReady = inPlace == UpdateChecker.InPlaceStatus.READY;
         String msg = String.format(
-                "An update is available!\n\nCurrent version:  %s\nNew version:      %s\n\nDownload and install now?",
-                info.currentVersion(), info.latestVersion());
+                "An update is available!\n\nCurrent version:  %s\nNew version:      %s\n\n%s",
+                info.currentVersion(), info.latestVersion(),
+                inPlaceReady ? "Download it and restart Shufflingway now?" : "Download and install now?");
+        if (inPlace == UpdateChecker.InPlaceStatus.READ_ONLY) {
+            msg += "\n\nThis copy is installed in a folder only an administrator can change, so it"
+                    + "\nupdates through the installer. Newer installers put Shufflingway in your user"
+                    + "\nfolder, where it updates itself. To switch, uninstall this copy from"
+                    + "\nSettings > Apps before installing the new version.";
+        }
         int choice = JOptionPane.showConfirmDialog(owner, msg, "Update Available",
                 JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE);
         if (choice != JOptionPane.YES_OPTION) return;
 
+        if (inPlaceReady) {
+            downloadUpdate(info, true);
+            return;
+        }
         if (info.installerUrl() == null || info.installerKind() == null) {
             openInBrowser("https://github.com/RockefellerA/shufflingway/releases/latest");
             return;
         }
 
-        downloadUpdate(info.installerUrl(), info.installerKind());
+        downloadUpdate(info, false);
     }
 
-    private void downloadUpdate(String installerUrl, UpdateChecker.InstallerKind kind) {
+    /**
+     * Downloads the update with a progress dialog. In place, the new jar replaces this copy's on the
+     * next start, so this restarts the app; otherwise the installer launches and the app exits.
+     */
+    private void downloadUpdate(UpdateChecker.ReleaseInfo info, boolean inPlace) {
         JDialog progress = new JDialog(owner, "Downloading Update...", true);
         JProgressBar bar = new JProgressBar(0, 100);
         bar.setIndeterminate(true);
@@ -227,7 +246,11 @@ public class HelpMenu extends JMenu {
         SwingWorker<Void, Integer> worker = new SwingWorker<>() {
             @Override
             protected Void doInBackground() throws Exception {
-                UpdateChecker.downloadAndInstall(installerUrl, kind, pct -> publish(pct));
+                if (inPlace)
+                    UpdateChecker.downloadInPlace(info, pct -> publish(pct));
+                else
+                    UpdateChecker.downloadAndInstall(info.installerUrl(), info.installerKind(),
+                            pct -> publish(pct));
                 return null;
             }
 
@@ -245,15 +268,36 @@ public class HelpMenu extends JMenu {
                 try {
                     get();
                 } catch (Exception ex) {
+                    Throwable cause = ex instanceof ExecutionException && ex.getCause() != null
+                            ? ex.getCause() : ex;
                     JOptionPane.showMessageDialog(owner,
-                            "Download failed:\n" + ex.getMessage(),
+                            "Download failed:\n" + cause.getMessage(),
                             "Update Error", JOptionPane.ERROR_MESSAGE);
+                    return;
                 }
+                if (inPlace) restartAfterUpdate(info.latestVersion());
             }
         };
 
         worker.execute();
         progress.setVisible(true); // blocks (modal) until dispose() or System.exit()
+    }
+
+    /**
+     * Starts the updated copy, then closes this window the way its close box does, so settings are
+     * saved before the app exits. The new copy waits for this one to exit.
+     */
+    private void restartAfterUpdate(String version) {
+        try {
+            UpdateChecker.relaunch();
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(owner,
+                    "Version " + version + " is installed, but Shufflingway couldn't restart itself:\n"
+                            + ex.getMessage() + "\n\nClose Shufflingway and start it again to use it.",
+                    "Update Installed", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        owner.dispatchEvent(new WindowEvent(owner, WindowEvent.WINDOW_CLOSING));
     }
 
     private void addGuideItem(JMenu parent, String label, String prompt, int guideIndex) {

@@ -2043,6 +2043,8 @@ public class MainWindow {
 	boolean p1ExtraTurnThenLose = false;
 
 	public static void main(String[] args) {
+		// Before the log opens: a copy restarted by an update waits here for the old one to exit.
+		UpdateChecker.finishPendingUpdate(args);
 		AppLogger.init();
 		UiScale.init();
 		Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
