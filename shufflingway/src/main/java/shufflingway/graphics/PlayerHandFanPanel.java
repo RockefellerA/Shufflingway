@@ -447,14 +447,16 @@ public class PlayerHandFanPanel extends JComponent {
 		gc.transform(tx);
 		int delta = state.baseCost() - state.effectiveCost();
 		if (delta != 0) drawCostPill(gc, state.effectiveCost(), delta);
-		if (state.shown()) drawShownBadge(gc);
 		if (state.playable())
 			CardAnimation.drawRoundedGlow(gc, PLAYABLE_GLOW, 0, 0,
 					CardAnimation.CARD_W, CardAnimation.CARD_H);
-		gc.dispose();
 
 		g.setColor(EDGE);
 		g.draw(tx.createTransformedShape(outline));
+
+		// Last: the eye straddles the top edge, so the glow and the edge line both run through it.
+		if (state.shown()) drawShownBadge(gc);
+		gc.dispose();
 	}
 
 	/** The adjusted cost, over the printed one — green when an effect made it cheaper, orange dearer. */
