@@ -86,29 +86,44 @@ public final class AppSettings {
     }
 
     /**
-     * The window resolutions the user may choose from in Preferences, as {@code "WxH"} strings.
-     * All are 16:9, matching the 1920x1080 design grid, and scale uniformly with no letterboxing.
+     * The window resolutions the user may choose from, smallest first: {@code "WxH"} strings, all
+     * 16:9 like the 1920x1080 design grid. Preferences offers those that fit the screen, and the
+     * largest that fits opens maximized (see {@link UiScale#opensMaximized}).
      */
     public static final String[] RESOLUTIONS = {
         "1280x720", "1920x1080", "2560x1440"
     };
 
-    /** The default window resolution used when none has been chosen. */
+    /** The window resolution used when none has been chosen and there is no screen to measure. */
     public static final String DEFAULT_RESOLUTION = "1920x1080";
 
     /**
-     * Returns the chosen window resolution as a {@code "WxH"} string, validated against
-     * {@link #RESOLUTIONS}. Falls back to {@link #DEFAULT_RESOLUTION} for unset or unknown values.
+     * Returns the resolution chosen in Preferences, validated against {@link #RESOLUTIONS}, or null
+     * when none has been chosen (or the saved one is no longer offered). {@link UiScale} then picks
+     * the largest the screen fits.
      */
     public static String getResolution() {
-        String v = props.getProperty("window.resolution", DEFAULT_RESOLUTION);
+        String v = props.getProperty("window.resolution");
         for (String r : RESOLUTIONS) if (r.equals(v)) return v;
-        return DEFAULT_RESOLUTION;
+        return null;
     }
 
     /** Saves the chosen window resolution (call {@link #save()} to persist). Applies on next launch. */
     public static void setResolution(String res) {
         props.setProperty("window.resolution", res);
+    }
+
+    /**
+     * The ID of the monitor the window was on when it last closed ({@code GraphicsDevice.getIDstring()}),
+     * or {@code null}. A maximized window opens there again.
+     */
+    public static String getWindowScreen() {
+        return props.getProperty("window.screen");
+    }
+
+    /** Saves the monitor the window is on (call {@link #save()} to persist). */
+    public static void setWindowScreen(String id) {
+        props.setProperty("window.screen", id);
     }
 
     /**

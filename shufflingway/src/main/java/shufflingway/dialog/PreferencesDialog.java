@@ -10,11 +10,14 @@ import java.awt.Frame;
 import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.GraphicsConfiguration;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -47,6 +50,7 @@ import shufflingway.AppSettings;
 import shufflingway.ElementColor;
 import shufflingway.NotReadyIndicator;
 import shufflingway.Theme;
+import shufflingway.UiScale;
 import shufflingway.audio.Sound;
 import shufflingway.audio.SoundEffects;
 import shufflingway.graphics.Counter;
@@ -385,7 +389,7 @@ public class PreferencesDialog extends JDialog {
 		// shorter ones keep their content pinned to the top.
 		JTabbedPane tabs = new JTabbedPane();
 		tabs.addTab("General", contentPanel);
-		tabs.addTab("Graphics", buildGraphicsTab());
+		tabs.addTab("Graphics", buildGraphicsTab(owner));
 		tabs.addTab("Audio", buildAudioTab());
 
 		getContentPane().setLayout(new BorderLayout());
@@ -404,10 +408,12 @@ public class PreferencesDialog extends JDialog {
 
 	/**
 	 * Builds the Graphics tab: the window resolution, which the whole 16:9 board scales uniformly
-	 * to fit. The window is sized from it once, at startup, so a change says it applies after a
-	 * restart rather than resizing the window behind the dialog.
+	 * to fit. Only the sizes that fit {@code owner}'s screen are offered, and the tab says whether
+	 * the selected one fills that screen maximized or opens as a window. The window is sized from
+	 * it once, at startup, so a change says it applies after a restart rather than resizing the
+	 * window behind the dialog.
 	 */
-	private static JComponent buildGraphicsTab() {
+	private static JComponent buildGraphicsTab(Frame owner) {
 		JPanel graphicsPanel = new JPanel();
 		graphicsPanel.setLayout(new BoxLayout(graphicsPanel, BoxLayout.Y_AXIS));
 		graphicsPanel.setBorder(new EmptyBorder(12, 16, 8, 16));
@@ -424,13 +430,33 @@ public class PreferencesDialog extends JDialog {
 		resHint.setAlignmentX(Component.LEFT_ALIGNMENT);
 		resHint.setVisible(false);
 
+		GraphicsConfiguration screen = owner == null ? null : owner.getGraphicsConfiguration();
+		List<String> offered = UiScale.resolutionsFor(screen);
+		JLabel modeHint = new JLabel();
+		modeHint.setBorder(new EmptyBorder(2, 4, 0, 4));
+		modeHint.setAlignmentX(Component.LEFT_ALIGNMENT);
+		modeHint.setVisible(screen != null);
+
 		JPanel resolutionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
 		resolutionRow.add(new JLabel("Resolution:"));
-		JComboBox<String> resolutionCombo = new JComboBox<>(AppSettings.RESOLUTIONS);
-		resolutionCombo.setSelectedItem(AppSettings.getResolution());
+		JComboBox<String> resolutionCombo = new JComboBox<>(offered.toArray(new String[0]));
+		String inEffect = AppSettings.getResolution() != null ? AppSettings.getResolution() : UiScale.resolution();
+		resolutionCombo.setSelectedItem(offered.contains(inEffect) ? inEffect : offered.get(offered.size() - 1));
+		Runnable describeMode = () -> {
+			String selected = (String) resolutionCombo.getSelectedItem();
+			if (screen == null || selected == null) return;
+			Rectangle b = screen.getBounds();
+			modeHint.setText("<html><font color='gray' size='2'>"
+					+ (UiScale.opensMaximized(selected, b.width, b.height)
+							? "Fills this screen (maximized)." : "Opens as a window.")
+					+ "</font></html>");
+		};
+		describeMode.run();
 		resolutionCombo.addActionListener(e -> {
+			describeMode.run();
 			String chosen = (String) resolutionCombo.getSelectedItem();
-			if (chosen == null || chosen.equals(AppSettings.getResolution())) return;
+			String current = AppSettings.getResolution() != null ? AppSettings.getResolution() : UiScale.resolution();
+			if (chosen == null || chosen.equals(current)) return;
 			AppSettings.setResolution(chosen);
 			AppSettings.save();
 			resHint.setVisible(true);
@@ -438,6 +464,7 @@ public class PreferencesDialog extends JDialog {
 		resolutionRow.add(resolutionCombo);
 		resolutionRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 		displayPanel.add(resolutionRow);
+		displayPanel.add(modeHint);
 		displayPanel.add(resHint);
 
 		displayPanel.setAlignmentX(Component.LEFT_ALIGNMENT);

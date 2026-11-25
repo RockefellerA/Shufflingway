@@ -12,6 +12,7 @@ import java.awt.EventQueue;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.FontMetrics;
+import java.awt.Frame;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
@@ -246,14 +247,15 @@ public class MainWindow {
 	private int maxSidePanelW = NATIVE_CARD_W + SIDE_MARGIN;
 
 	/**
-	 * The resolution this session is running at, read once at construction.
+	 * The resolution this session is running at, read once at construction: the one chosen in
+	 * Preferences, else the largest the screen fits.
 	 *
 	 * <p>Not re-read later: Preferences applies a resolution change on the next launch, so from the
-	 * moment the player picks a new one {@code AppSettings.getResolution()} names a resolution this
-	 * window is not showing. Saving the panel width under that on the way out would file this
-	 * session's width against the wrong screen size.
+	 * moment the player picks a new one the saved choice names a resolution this window is not
+	 * showing. Saving the panel width under that on the way out would file this session's width
+	 * against the wrong screen size.
 	 */
-	private final String sessionResolution = AppSettings.getResolution();
+	private final String sessionResolution = UiScale.resolution();
 
 	/** The panel width to open at when this resolution has no saved preference. */
 	private static int defaultSidePanelW() {
@@ -2089,13 +2091,24 @@ public class MainWindow {
 		frame = new JFrame("Shufflingway");
 		cardPickerDialog = new CardPickerDialog(frame, this::showZoomAt, this::hideZoom);
 		frame.getContentPane().setBackground(Color.LIGHT_GRAY);
-		frame.setBounds(0, 0, UiScale.windowWidth(), UiScale.windowHeight());
-		frame.setLocationRelativeTo(null);
-		frame.setResizable(false);
+		Rectangle bounds = UiScale.windowBounds();
+		if (UiScale.isMaximized()) {
+			holdMaximized(bounds);
+		} else {
+			if (bounds != null) {
+				frame.setBounds(bounds);   // centred on the screen it last closed on
+			} else {
+				frame.setSize(UiScale.windowWidth(), UiScale.windowHeight());
+				frame.setLocationRelativeTo(null);
+			}
+			frame.setResizable(false);   // the board is laid out once, for this size
+		}
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		frame.addWindowListener(new java.awt.event.WindowAdapter() {
 			@Override public void windowClosing(java.awt.event.WindowEvent e) {
 				AppSettings.setSidePanelWidth(sessionResolution, sidePanelW);
+				if (frame.getGraphicsConfiguration() != null)
+					AppSettings.setWindowScreen(frame.getGraphicsConfiguration().getDevice().getIDstring());
 				AppSettings.save();
 			}
 		});
@@ -2768,6 +2781,24 @@ public class MainWindow {
 		gameOverOverlay   = GameOverOverlay.install(frame, mainArea, fieldDivider);
 		// Over the board's cards, under the game-over banner; it tracks its card's bounds itself.
 		frame.getRootPane().getLayeredPane().add(abilitySourceGlow, JLayeredPane.PALETTE_LAYER);
+	}
+
+	/**
+	 * Opens the frame maximized over {@code work}, the work area the board was scaled to, and keeps
+	 * it there, since the board is laid out once for that size. The frame stays resizable: Windows
+	 * maximizes a fixed-size window over the taskbar once it has been minimized and restored.
+	 * Instead the title bar drops its maximize button, and anything that un-maximizes the window
+	 * (the Classic title bar's button, dragging the title bar, Win+Down) is undone.
+	 */
+	private void holdMaximized(Rectangle work) {
+		frame.setBounds(work);
+		frame.setExtendedState(Frame.MAXIMIZED_BOTH);
+		frame.getRootPane().putClientProperty(FlatClientProperties.TITLE_BAR_SHOW_MAXIMIZE, false);
+		frame.addWindowStateListener(e -> {
+			int state = e.getNewState();
+			if ((state & Frame.ICONIFIED) == 0 && (state & Frame.MAXIMIZED_BOTH) != Frame.MAXIMIZED_BOTH)
+				SwingUtilities.invokeLater(() -> frame.setExtendedState(Frame.MAXIMIZED_BOTH));
+		});
 	}
 
 	// -------------------------------------------------------------------------
