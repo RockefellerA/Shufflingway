@@ -7,67 +7,64 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 
-import shufflingway.ElementColor;
+import javax.swing.DefaultButtonModel;
+
 import shufflingway.FontLoader;
 
 /**
- * A compact custom component that renders an elongated upright hexagon
- * (point-top, flat left/right sides) in crystal-blue and draws ": N"
- * centered inside it, where N is the current Crystal count.
+ * A player's Crystal count: an elongated upright hexagon (point-top, flat left/right sides) in the
+ * player's colour, the count centred inside it, on a raised face like the bar's buttons beside it.
+ * It is not a button to click: it never lights up, sinks or fires.
  */
-public class CrystalDisplay extends javax.swing.JComponent {
-	public static final int CRYSTAL_H = 36;  // component height
+public class CrystalDisplay extends BezelButton {
+	public static final int CRYSTAL_H = 36;  // default height
 
-	private int     count;
-	/** Once true (count has been > 0 this game), the display stays visible. */
-	private boolean hasBeenNonZero = false;
-	/** Index into ElementColor.values(); starts at ICE to match the original blue. */
-	private int     colorIndex     = ElementColor.ICE.ordinal();
+	private int count;
+	/** The hexagon's colour. Fixed, so the white count always reads against it. */
+	private final Color color;
 
-	public CrystalDisplay(int initial) {
+	public CrystalDisplay(int initial, Color color) {
+		super("", Round.NONE);
 		this.count = initial;
+		this.color = color;
+		// Left enabled, so it is drawn raised rather than dimmed, but with a model the mouse and
+		// keyboard cannot arm, press or roll over.
+		setModel(new DefaultButtonModel() {
+			@Override public void setArmed(boolean b)    {}
+			@Override public void setPressed(boolean b)  {}
+			@Override public void setRollover(boolean b) {}
+		});
+		setFocusable(false);
 		setPreferredSize(new Dimension(CardAnimation.CARD_W, CRYSTAL_H));
 		setMinimumSize(new Dimension(CardAnimation.CARD_W, CRYSTAL_H));
 		setMaximumSize(new Dimension(CardAnimation.CARD_W, CRYSTAL_H));
-		setOpaque(false);
-		setToolTipText("Crystals — click to change element color");
-		addMouseListener(new MouseAdapter() {
-			@Override public void mousePressed(MouseEvent e) {
-				colorIndex = (colorIndex + 1) % ElementColor.values().length;
-				repaint();
-			}
-		});
+		setToolTipText("Crystals");
 	}
 
-	/** Updates count, latches persistence when count first exceeds zero, then repaints. */
 	public void setCount(int n) {
 		this.count = n;
-		if (n > 0) hasBeenNonZero = true;
 		repaint();
 	}
 
-	/** Fully resets for a new game: count and persistence flag. */
+	/** Resets the count for a new game. */
 	public void hardReset() {
-		count          = 0;
-		hasBeenNonZero = false;
-		repaint();
+		setCount(0);
 	}
 
 	@Override
 	protected void paintComponent(Graphics g0) {
 		super.paintComponent(g0);
-		if (!hasBeenNonZero) return;
 		Graphics2D g = (Graphics2D) g0.create();
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
 		int cw = getWidth(), ch = getHeight();
 
-		// Elongated upright hexagon: 22 px wide, 32 px tall, centered
-		int hxW = 22, hxH = 32;
+		// Elongated upright hexagon, 11 wide to 16 tall, filling the height less 2px top and bottom,
+		// centered: 22 x 32 in a 36px row.
+		int hxH = Math.max(8, ch - 4);
+		int hxW = Math.round(hxH * 11 / 16f);
 		int hxX = (cw - hxW) / 2;
 		int hxY = (ch - hxH) / 2;
 
@@ -75,15 +72,14 @@ public class CrystalDisplay extends javax.swing.JComponent {
 		int[] xp = { hxX + hxW/2, hxX + hxW, hxX + hxW, hxX + hxW/2, hxX,                   hxX           };
 		int[] yp = { hxY,          hxY + shoulder, hxY + hxH - shoulder, hxY + hxH, hxY + hxH - shoulder, hxY + shoulder };
 
-		Color base = ElementColor.values()[colorIndex].color;
-		g.setColor(new Color(base.getRed(), base.getGreen(), base.getBlue(), 210));
+		g.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), 210));
 		g.fillPolygon(xp, yp, 6);
-		g.setColor(base.darker());
+		g.setColor(color.darker());
 		g.setStroke(new BasicStroke(1.5f));
 		g.drawPolygon(xp, yp, 6);
 
 		// Count number centered inside the hexagon (no colon)
-		g.setFont(FontLoader.loadPixelFont(10));
+		g.setFont(FontLoader.loadOverlayFont(10));
 		g.setColor(Color.WHITE);
 		String text = String.valueOf(count);
 		FontMetrics fm = g.getFontMetrics();

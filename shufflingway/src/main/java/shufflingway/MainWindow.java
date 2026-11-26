@@ -95,8 +95,6 @@ import javax.swing.Timer;
 import javax.swing.ToolTipManager;
 import javax.swing.UIManager;
 import javax.swing.WindowConstants;
-import javax.swing.border.BevelBorder;
-import javax.swing.border.SoftBevelBorder;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.text.StyledDocument;
@@ -135,12 +133,14 @@ import shufflingway.dialog.WarpPaymentDialog;
 import shufflingway.dialog.WelcomeDialog;
 import shufflingway.graphics.AbilityToolTip;
 import shufflingway.graphics.ActionButton;
+import shufflingway.graphics.BezelButton;
 import shufflingway.graphics.BoardEdgeFadePanel;
 import shufflingway.graphics.CardAnimation;
 import static shufflingway.graphics.CardAnimation.CARD_H;
 import static shufflingway.graphics.CardAnimation.CARD_W;
 import shufflingway.graphics.CardBreakAnimator;
 import shufflingway.graphics.CardLimitBreakAnimator;
+import shufflingway.graphics.CardPile;
 import shufflingway.graphics.CardPrimingAnimator;
 import shufflingway.graphics.CardRfpAnimator;
 import shufflingway.graphics.CardSlideAnimator;
@@ -2164,42 +2164,31 @@ public class MainWindow {
 			menuBar.add(debugMenu);
 		}
 
-		Dimension cardSize = new Dimension(CARD_W, CARD_H);
+		// The deck and Break Zone slots hold piles of field-sized cards; the corner column is their width.
+		Dimension slotSize = pileSlotSize();
 
 		// --- P2 Zones (top of screen) ---
 		p2RemoveLabel = new GrayscaleLabel("");
 
+		// The bar is LIMIT, RFP and the crystal badge, the badge at the end nearest the screen edge.
 		int CORNER_BAR_H = UiScale.scale(28);
-		int LIMIT_W      = (CARD_W * 2) / 3;   // 2/3 of deck width
-		int REMOVE_W     = CARD_W - LIMIT_W;    // 1/3 of deck width (RFP button)
-		int CRYSTAL_W    = CARD_W - (CARD_W * 3) / 4; // 1/4 of deck width
+		int CRYSTAL_W    = CORNER_BAR_H;                           // a square cell
+		int LIMIT_W      = ((slotSize.width - CRYSTAL_W) * 2) / 3;  // 2/3 of the rest
+		int REMOVE_W     = slotSize.width - CRYSTAL_W - LIMIT_W;    // 1/3 of the rest (RFP button)
 
-		p2LimitButton = new JButton("LIMIT");
+		// Rounded at the bar's outer end, mirroring P1's
+		p2LimitButton = new BezelButton("LIMIT", BezelButton.Round.RIGHT);
 		p2LimitButton.setToolTipText("Player 2 LB Deck");
 		p2LimitButton.setFont(FontLoader.loadPixelFont(10));
 		p2LimitButton.setMargin(new Insets(0, 0, 0, 0));
 		p2LimitButton.setBackground(new Color(212, 175, 55));
 		p2LimitButton.setForeground(Color.BLACK);
-		p2LimitButton.setOpaque(true);
-		p2LimitButton.setBorderPainted(false);
-		p2LimitButton.setFocusPainted(false);
-		// FlatLaf rounds a button's corners; these tile the deck's edge, so keep them square
-		p2LimitButton.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_SQUARE);
 		p2LimitButton.setPreferredSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p2LimitButton.setMinimumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p2LimitButton.setMaximumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p2LimitButton.addActionListener(e -> showP2LbViewerDialog());
 
-		p2BreakLabel = new JLabel("BREAK");
-		p2BreakLabel.setToolTipText("Player 2 Break Zone");
-		p2BreakLabel.setHorizontalAlignment(SwingConstants.CENTER);
-		p2BreakLabel.setFont(FontLoader.loadPixelFont(18));
-		p2BreakLabel.setBorder(new SoftBevelBorder(BevelBorder.LOWERED, null, null, null, null));
-		p2BreakLabel.setBackground(Color.DARK_GRAY);
-		p2BreakLabel.setForeground(Color.WHITE);
-		p2BreakLabel.setOpaque(true);
-		p2BreakLabel.setPreferredSize(cardSize);
-		p2BreakLabel.setMinimumSize(cardSize);
+		p2BreakLabel = pileSlotLabel("BREAK", "Player 2 Break Zone");
 		p2BreakLabel.addMouseListener(new MouseAdapter() {
 			@Override public void mouseEntered(MouseEvent e) {
 				List<CardData> zone = gameState.getP2BreakZone();
@@ -2211,65 +2200,42 @@ public class MainWindow {
 			}
 		});
 
-		p2DeckLabel = new JLabel("DECK");
-		p2DeckLabel.setFont(FontLoader.loadPixelFont(18));
-		p2DeckLabel.setToolTipText("Player 2 Deck");
-		p2DeckLabel.setHorizontalAlignment(SwingConstants.CENTER);
-		p2DeckLabel.setBorder(new SoftBevelBorder(BevelBorder.LOWERED, null, null, null, null));
-		p2DeckLabel.setBackground(Color.DARK_GRAY);
-		p2DeckLabel.setForeground(Color.WHITE);
-		p2DeckLabel.setOpaque(true);
+		p2DeckLabel = pileSlotLabel("DECK", "Player 2 Deck");
 
-		p2RemoveButton = new JButton("RFP");
+		p2RemoveButton = new BezelButton("RFP", BezelButton.Round.NONE);
 		p2RemoveButton.setToolTipText("Player 2 Removed From Play");
 		p2RemoveButton.setFont(FontLoader.loadPixelFont(10));
 		p2RemoveButton.setMargin(new Insets(0, 0, 0, 0));
 		p2RemoveButton.setBackground(new Color(30, 30, 30));
 		p2RemoveButton.setForeground(Color.LIGHT_GRAY);
-		p2RemoveButton.setOpaque(true);
-		p2RemoveButton.setBorderPainted(false);
-		p2RemoveButton.setFocusPainted(false);
-		p2RemoveButton.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_SQUARE);
 		p2RemoveButton.setEnabled(false);
 		p2RemoveButton.setPreferredSize(new Dimension(REMOVE_W, CORNER_BAR_H));
 		p2RemoveButton.setMinimumSize(new Dimension(REMOVE_W, CORNER_BAR_H));
 		p2RemoveButton.setMaximumSize(new Dimension(REMOVE_W, CORNER_BAR_H));
 		p2RemoveButton.addActionListener(e -> showRemovedFromPlayDialog("P2"));
 
+		p2CrystalDisplay = crystalButton(new Dimension(CRYSTAL_W, CORNER_BAR_H), ElementColor.FIRE.color);
+
+		// Transparent so the board shows past LIMIT's rounded corners, and through the whole bar while
+		// its buttons are hidden before a game (see setCornerButtonsShown).
 		JPanel p2BottomBar = new JPanel(new GridBagLayout());
-		p2BottomBar.setPreferredSize(new Dimension(CARD_W, CORNER_BAR_H));
-		p2BottomBar.setMinimumSize(new Dimension(CARD_W, CORNER_BAR_H));
+		p2BottomBar.setOpaque(false);
+		p2BottomBar.setPreferredSize(new Dimension(slotSize.width, CORNER_BAR_H));
+		p2BottomBar.setMinimumSize(new Dimension(slotSize.width, CORNER_BAR_H));
 		{
 			GridBagConstraints bbc = new GridBagConstraints();
 			bbc.fill = GridBagConstraints.BOTH; bbc.weighty = 1.0; bbc.gridy = 0;
-			bbc.gridx = 0; bbc.weightx = 1.0 / 3.0; p2BottomBar.add(p2RemoveButton, bbc);
-			bbc.gridx = 1; bbc.weightx = 2.0 / 3.0; p2BottomBar.add(p2LimitButton, bbc);
+			bbc.gridx = 0; bbc.weightx = 0;         p2BottomBar.add(p2CrystalDisplay, bbc);
+			bbc.gridx = 1; bbc.weightx = 1.0 / 3.0; p2BottomBar.add(p2RemoveButton, bbc);
+			bbc.gridx = 2; bbc.weightx = 2.0 / 3.0; p2BottomBar.add(p2LimitButton, bbc);
 		}
 
-		p2DeckLabel.setPreferredSize(cardSize);
-		p2DeckLabel.setMinimumSize(cardSize);
-
-		p2CrystalDisplay = new CrystalDisplay(0);
-		p2CrystalDisplay.setPreferredSize(new Dimension(CRYSTAL_W, CrystalDisplay.CRYSTAL_H));
-		p2CrystalDisplay.setMinimumSize(new Dimension(CRYSTAL_W, CrystalDisplay.CRYSTAL_H));
-		p2CrystalDisplay.setMaximumSize(new Dimension(CRYSTAL_W, CrystalDisplay.CRYSTAL_H));
-
+		// Transparent, like the slots in it, so the zone's own background and fade show around the piles.
 		JPanel p2CornerPanel = new JPanel(new BorderLayout(0, 0));
+		p2CornerPanel.setOpaque(false);
 		p2CornerPanel.add(p2BreakLabel, BorderLayout.NORTH);
 		p2CornerPanel.add(p2DeckLabel,  BorderLayout.CENTER);
 		p2CornerPanel.add(p2BottomBar,  BorderLayout.SOUTH);
-
-		// The crystal badge is pinned WEST rather than dropped straight into the wrapper's SOUTH:
-		// CrystalDisplay centres a fixed-size hexagon within getWidth(), so stretching it across the
-		// full column would slide the hexagon to the column's centre. P1 mirrors this with EAST.
-		JPanel p2CrystalRow = new JPanel(new BorderLayout(0, 0));
-		p2CrystalRow.setOpaque(false);
-		p2CrystalRow.add(p2CrystalDisplay, BorderLayout.WEST);
-
-		JPanel p2CornerWrapper = new JPanel(new BorderLayout(0, 2));
-		p2CornerWrapper.setOpaque(false);
-		p2CornerWrapper.add(p2CornerPanel,  BorderLayout.CENTER);
-		p2CornerWrapper.add(p2CrystalRow,   BorderLayout.SOUTH);
 
 		JPanel p2DamagePanel = buildDamageZonePanel("P2");
 
@@ -2309,15 +2275,15 @@ public class MainWindow {
 		p2MainArea.add(p2ForwardZone, BorderLayout.SOUTH);
 
 		// The board gradient starts inside P2's own zone rather than in the thin strip below it.
-		// BOARD_FADE_H is bounded by where the side columns turn transparent — the crystal row for
-		// the corner, the bottom of the damage stack — or their solid backgrounds would step across
-		// the fade. It comfortably clears the Forward row's scrollbar, which is the point.
+		// BOARD_FADE_H is bounded by the bottom of the damage stack, whose solid background would step
+		// across the fade; the corner's button bar sits inside it, reading as buttons on the fade. It
+		// comfortably clears the Forward row's scrollbar, which is the point.
 		p2ZonesPanel = new BoardEdgeFadePanel(true, BOARD_FADE_H);
 		p2ZonesPanel.setLayout(new GridBagLayout());
 		{
 			GridBagConstraints z = new GridBagConstraints();
 			z.gridy = 0; z.fill = GridBagConstraints.NONE; z.anchor = GridBagConstraints.NORTH; z.weightx = 0;
-			z.gridx = 0; p2ZonesPanel.add(p2CornerWrapper, z);
+			z.gridx = 0; p2ZonesPanel.add(p2CornerPanel, z);
 			z.gridx = 2; p2ZonesPanel.add(p2DamagePanel, z);
 			z.gridx = 1; z.fill = GridBagConstraints.BOTH; z.weightx = 1.0; z.weighty = 1.0;
 			p2ZonesPanel.add(p2MainArea, z);
@@ -2327,14 +2293,7 @@ public class MainWindow {
 		JPanel p1DamagePanel = buildDamageZonePanel("P1");
 
 		// P1 deck label — interactive
-		p1DeckLabel = new JLabel("DECK");
-		p1DeckLabel.setFont(FontLoader.loadPixelFont(18));
-		p1DeckLabel.setToolTipText("Player 1 Deck");
-		p1DeckLabel.setHorizontalAlignment(SwingConstants.CENTER);
-		p1DeckLabel.setBorder(new SoftBevelBorder(BevelBorder.LOWERED, null, null, null, null));
-		p1DeckLabel.setBackground(Color.DARK_GRAY);
-		p1DeckLabel.setForeground(Color.WHITE);
-		p1DeckLabel.setOpaque(true);
+		p1DeckLabel = pileSlotLabel("DECK", "Player 1 Deck");
 		p1DeckLabel.addMouseListener(new MouseAdapter() {
 			@Override
 			public void mousePressed(MouseEvent e) {
@@ -2342,16 +2301,7 @@ public class MainWindow {
 			}
 		});
 
-		p1BreakLabel = new JLabel("BREAK");
-		p1BreakLabel.setToolTipText("Player 1 Break Zone");
-		p1BreakLabel.setHorizontalAlignment(SwingConstants.CENTER);
-		p1BreakLabel.setFont(FontLoader.loadPixelFont(18));
-		p1BreakLabel.setBorder(new SoftBevelBorder(BevelBorder.LOWERED, null, null, null, null));
-		p1BreakLabel.setBackground(Color.DARK_GRAY);
-		p1BreakLabel.setForeground(Color.WHITE);
-		p1BreakLabel.setOpaque(true);
-		p1BreakLabel.setPreferredSize(cardSize);
-		p1BreakLabel.setMinimumSize(cardSize);
+		p1BreakLabel = pileSlotLabel("BREAK", "Player 1 Break Zone");
 		p1BreakLabel.addMouseListener(new MouseAdapter() {
 			@Override public void mouseEntered(MouseEvent e) {
 				List<CardData> zone = gameState.getP1BreakZone();
@@ -2363,17 +2313,13 @@ public class MainWindow {
 			}
 		});
 
-		// P1 limit button — gold, 2/3 of card width
-		p1LimitButton = new JButton("LIMIT");
+		// P1 limit button — gold, 2/3 of the bar beside the crystal badge, rounded at the bar's outer end
+		p1LimitButton = new BezelButton("LIMIT", BezelButton.Round.LEFT);
 		p1LimitButton.setToolTipText("Player 1 LB Deck");
 		p1LimitButton.setFont(FontLoader.loadPixelFont(10));
 		p1LimitButton.setMargin(new Insets(0, 0, 0, 0));
 		p1LimitButton.setBackground(new Color(212, 175, 55));
 		p1LimitButton.setForeground(Color.BLACK);
-		p1LimitButton.setOpaque(true);
-		p1LimitButton.setBorderPainted(false);
-		p1LimitButton.setFocusPainted(false);
-		p1LimitButton.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_SQUARE);
 		p1LimitButton.setPreferredSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p1LimitButton.setMinimumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p1LimitButton.setMaximumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
@@ -2385,64 +2331,43 @@ public class MainWindow {
 
 		p1RemoveLabel = new GrayscaleLabel("");
 
-		p1RemoveButton = new JButton("RFP");
+		p1RemoveButton = new BezelButton("RFP", BezelButton.Round.NONE);
 		p1RemoveButton.setToolTipText("Player 1 Removed From Play");
 		p1RemoveButton.setFont(FontLoader.loadPixelFont(10));
 		p1RemoveButton.setMargin(new Insets(0, 0, 0, 0));
 		p1RemoveButton.setBackground(new Color(30, 30, 30));
 		p1RemoveButton.setForeground(Color.LIGHT_GRAY);
-		p1RemoveButton.setOpaque(true);
-		p1RemoveButton.setBorderPainted(false);
-		p1RemoveButton.setFocusPainted(false);
-		p1RemoveButton.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_SQUARE);
 		p1RemoveButton.setEnabled(false);
 		p1RemoveButton.setPreferredSize(new Dimension(REMOVE_W, CORNER_BAR_H));
 		p1RemoveButton.setMinimumSize(new Dimension(REMOVE_W, CORNER_BAR_H));
 		p1RemoveButton.setMaximumSize(new Dimension(REMOVE_W, CORNER_BAR_H));
 		p1RemoveButton.addActionListener(e -> showRemovedFromPlayDialog("P1"));
 
-		p1CrystalDisplay = new CrystalDisplay(0);
-		p1CrystalDisplay.setPreferredSize(new Dimension(CRYSTAL_W, CrystalDisplay.CRYSTAL_H));
-		p1CrystalDisplay.setMinimumSize(new Dimension(CRYSTAL_W, CrystalDisplay.CRYSTAL_H));
-		p1CrystalDisplay.setMaximumSize(new Dimension(CRYSTAL_W, CrystalDisplay.CRYSTAL_H));
-
-		// Crystal sits above the full bar, pinned to the right to align with the RFP button
-		JPanel p1CrystalRow = new JPanel(new BorderLayout(0, 0));
-		p1CrystalRow.setOpaque(false);
-		p1CrystalRow.add(p1CrystalDisplay, BorderLayout.EAST);
+		p1CrystalDisplay = crystalButton(new Dimension(CRYSTAL_W, CORNER_BAR_H), ElementColor.ICE.color);
 
 		// Restore the limit button's original height constraint
 		p1LimitButton.setMaximumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 
-		// Restore the original two-button top bar
+		// The mirror of P2's bar, the crystal badge at the right-hand end.
 		JPanel p1TopBar = new JPanel(new GridBagLayout());
-		p1TopBar.setPreferredSize(new Dimension(CARD_W, CORNER_BAR_H));
-		p1TopBar.setMinimumSize(new Dimension(CARD_W, CORNER_BAR_H));
+		p1TopBar.setOpaque(false);
+		p1TopBar.setPreferredSize(new Dimension(slotSize.width, CORNER_BAR_H));
+		p1TopBar.setMinimumSize(new Dimension(slotSize.width, CORNER_BAR_H));
 		{
 			GridBagConstraints tbc = new GridBagConstraints();
 			tbc.fill = GridBagConstraints.BOTH; tbc.weighty = 1.0; tbc.gridy = 0;
 			tbc.gridx = 0; tbc.weightx = 2.0 / 3.0; p1TopBar.add(p1LimitButton, tbc);
 			tbc.gridx = 1; tbc.weightx = 1.0 / 3.0; p1TopBar.add(p1RemoveButton, tbc);
+			tbc.gridx = 2; tbc.weightx = 0;         p1TopBar.add(p1CrystalDisplay, tbc);
 		}
+		setCornerButtonsShown(false);
 
-		// Wrapper: crystal row above, top bar below
-		JPanel p1NorthWrapper = new JPanel(new BorderLayout(0, 0));
-		p1NorthWrapper.setOpaque(false);
-		p1NorthWrapper.add(p1CrystalRow, BorderLayout.NORTH);
-		p1NorthWrapper.add(p1TopBar,     BorderLayout.SOUTH);
-
-		p1DeckLabel.setPreferredSize(cardSize);
-		p1DeckLabel.setMinimumSize(cardSize);
-
+		// Transparent, like the slots in it, so the zone's own background and fade show around the piles.
 		JPanel p1CornerPanel = new JPanel(new BorderLayout(0, 0));
-		// Transparent so the board fade reaches behind the crystal row. P2's crystal row sits
-		// outside its corner panel and is already clear of it; P1's is nested inside this one, so
-		// without this the corner would cut a step across the fade. The deck and Break Zone labels
-		// below are opaque and cover the rest, so nothing else changes.
 		p1CornerPanel.setOpaque(false);
-		p1CornerPanel.add(p1NorthWrapper, BorderLayout.NORTH);
-		p1CornerPanel.add(p1DeckLabel,    BorderLayout.CENTER);
-		p1CornerPanel.add(p1BreakLabel,   BorderLayout.SOUTH);
+		p1CornerPanel.add(p1TopBar,     BorderLayout.NORTH);
+		p1CornerPanel.add(p1DeckLabel,  BorderLayout.CENTER);
+		p1CornerPanel.add(p1BreakLabel, BorderLayout.SOUTH);
 
 		JPanel p1BackupSlots = buildBackupZonePanel(p1BackupLabels);
 		for (int i = 0; i < p1BackupLabels.length; i++) {
@@ -4214,25 +4139,13 @@ public class MainWindow {
 
 	void refreshP1DeckLabel() {
 		int count = gameState.getP1MainDeck().size();
-		if (count == 0) {
-			p1DeckLabel.setIcon(null);
-			p1DeckLabel.setText("DECK");
-		} else {
-			p1DeckLabel.setIcon(scaledCardbackWithCount(new Dimension(CARD_W, CARD_H), count));
-			p1DeckLabel.setText(null);
-		}
+		p1DeckLabel.setIcon(count == 0 ? emptySlotIcon("DECK") : deckPileIcon(true, count));
 	}
 
 	void refreshP2DeckLabel() {
 		if (p2DeckLabel == null) return;
 		int count = gameState.getP2MainDeck().size();
-		if (count == 0) {
-			p2DeckLabel.setIcon(null);
-			p2DeckLabel.setText("DECK");
-		} else {
-			p2DeckLabel.setIcon(scaledCardbackWithCount(new Dimension(CARD_W, CARD_H), count));
-			p2DeckLabel.setText(null);
-		}
+		p2DeckLabel.setIcon(count == 0 ? emptySlotIcon("DECK") : deckPileIcon(false, count));
 	}
 
 	/**
@@ -4589,6 +4502,8 @@ public class MainWindow {
 		phaseTracker.setHasPriority(isP1Turn);
 		// Told even when priority has not moved: a game just begun is when the glow first shows.
 		priorityGlow.setYouHavePriority(phaseTracker.hasPriority());
+		// Likewise the corners' button bars.
+		setCornerButtonsShown(true);
 		if (gameState.getCurrentPhase() == GameState.GamePhase.ATTACK && attackSubStep >= 0)
 			phaseTracker.setAttackStep(attackSubStep);
 		// The phase is the biggest single swing in what may be cast — nothing during Draw, the
@@ -4711,9 +4626,10 @@ public class MainWindow {
 		p2RemoveLabel.setUrl(null);
 		refreshRemoveButtons();
 
-		// Crystal badges — hard-reset so the display is hidden until crystals are earned
+		// Crystal badges back to 0, and the corners' button bars hidden until the new game's first turn
 		if (p1CrystalDisplay != null) p1CrystalDisplay.hardReset();
 		if (p2CrystalDisplay != null) p2CrystalDisplay.hardReset();
+		setCornerButtonsShown(false);
 
 		// P2 backup slots
 		for (int i = 0; i < p2BackupCards.length; i++) {
@@ -10575,9 +10491,7 @@ public class MainWindow {
 		List<CardData> zone = gameState.getP1BreakZone();
 		int topIdx = zone.size() - 1 - p1BreakAnimHide;
 		if (topIdx < 0) {
-			p1BreakLabel.setIcon(null);
-			p1BreakLabel.setFont(FontLoader.loadPixelFont(18));
-			p1BreakLabel.setText("BREAK");
+			p1BreakLabel.setIcon(emptySlotIcon("BREAK"));
 			return;
 		}
 		String url = zone.get(topIdx).imageUrl();
@@ -10585,18 +10499,17 @@ public class MainWindow {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image img = ImageCache.load(url);
 				return img == null ? null
-						: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+						: new ImageIcon(CardPile.render(img, topIdx + 1, CARD_W, CARD_H, pileLean(true)));
 			}
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
 					if (icon == null) return;
-					// Discard stale result if the zone no longer has this card on top
+					// Discard a stale result: another card on top, or a pile of another size
 					List<CardData> current = gameState.getP1BreakZone();
 					int curTop = current.size() - 1 - p1BreakAnimHide;
-					if (curTop >= 0 && url.equals(current.get(curTop).imageUrl())) {
+					if (curTop == topIdx && url.equals(current.get(curTop).imageUrl())) {
 						p1BreakLabel.setIcon(icon);
-						p1BreakLabel.setText(null);
 					}
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
@@ -10607,9 +10520,7 @@ public class MainWindow {
 		List<CardData> zone = gameState.getP2BreakZone();
 		int topIdx = zone.size() - 1 - p2BreakAnimHide;
 		if (topIdx < 0) {
-			p2BreakLabel.setIcon(null);
-			p2BreakLabel.setFont(FontLoader.loadPixelFont(18));
-			p2BreakLabel.setText("BREAK");
+			p2BreakLabel.setIcon(emptySlotIcon("BREAK"));
 			return;
 		}
 		String url = zone.get(topIdx).imageUrl();
@@ -10617,18 +10528,17 @@ public class MainWindow {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image img = ImageCache.load(url);
 				return img == null ? null
-						: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+						: new ImageIcon(CardPile.render(img, topIdx + 1, CARD_W, CARD_H, pileLean(false)));
 			}
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
 					if (icon == null) return;
-					// Discard stale result if the zone no longer has this card on top
+					// Discard a stale result: another card on top, or a pile of another size
 					List<CardData> current = gameState.getP2BreakZone();
 					int curTop = current.size() - 1 - p2BreakAnimHide;
-					if (curTop >= 0 && url.equals(current.get(curTop).imageUrl())) {
+					if (curTop == topIdx && url.equals(current.get(curTop).imageUrl())) {
 						p2BreakLabel.setIcon(icon);
-						p2BreakLabel.setText(null);
 					}
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
@@ -20487,9 +20397,9 @@ public class MainWindow {
 	private static final int FORWARD_ZONE_H = CARD_H * 5 / 4;
 
 	/**
-	 * How far the board gradient reaches up into a player's zone. Bounded above by the band where
-	 * that zone's side columns have already ended — past the corner column's crystal row and the
-	 * bottom of the damage stack — since those are opaque and would step across the fade.
+	 * How far the board gradient reaches up into a player's zone. Bounded above by the end of the
+	 * damage stack, which is opaque and would step across the fade. The corner column's button bar
+	 * sits inside the band, but reads as buttons on the fade rather than a step across it.
 	 */
 	private static final int BOARD_FADE_H = CARD_H / 4;
 
@@ -25224,25 +25134,107 @@ public class MainWindow {
 		return lookDialogsInstance;
 	}
 
-	private ImageIcon scaledCardbackWithCount(Dimension size, int count) {
-		Image base = loadCardbackImage();
-		BufferedImage buf = new BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB);
+	/** A Main Deck as a pile of {@code count} cardbacks, the count in the top card's corner. */
+	private ImageIcon deckPileIcon(boolean isP1, int count) {
+		CardPile.Lean lean = pileLean(isP1);
+		BufferedImage buf = CardPile.render(loadCardbackImage(), count, CARD_W, CARD_H, lean);
+		Rectangle top = CardPile.topCard(count, CARD_W, CARD_H, lean);
 		Graphics2D g = buf.createGraphics();
-		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-		g.drawImage(base, 0, 0, size.width, size.height, null);
 		String text = String.valueOf(count);
 		g.setFont(FontLoader.loadOverlayFont(12));
 		int textW = g.getFontMetrics().stringWidth(text);
 		int textH = g.getFontMetrics().getAscent();
-		int x = size.width - textW - 4;
-		int y = textH + 4;
+		int x = top.x + top.width - textW - 4;
+		int y = top.y + textH + 4;
 		g.setColor(Color.BLACK);
 		g.drawString(text, x + 1, y + 1);
 		g.setColor(Color.WHITE);
 		g.drawString(text, x, y);
 		g.dispose();
 		return new ImageIcon(buf);
+	}
+
+	/** The clear margin around a deck or Break Zone pile, so the piles in a corner don't run together. */
+	private static final int PILE_SLOT_MARGIN = UiScale.scale(3);
+
+	/** A deck or Break Zone slot: room for a full pile of field-sized cards, and its margin. */
+	private static Dimension pileSlotSize() {
+		Dimension pile = CardPile.size(CARD_W, CARD_H);
+		return new Dimension(pile.width + 2 * PILE_SLOT_MARGIN, pile.height + 2 * PILE_SLOT_MARGIN);
+	}
+
+	/**
+	 * A deck or Break Zone slot, with no background of its own: empty, it shows {@code name} where
+	 * the pile goes, and the zone's refresh puts the pile there once it holds cards.
+	 */
+	private static JLabel pileSlotLabel(String name, String tooltip) {
+		JLabel slot = new JLabel(emptySlotIcon(name));
+		slot.setToolTipText(tooltip);
+		slot.setHorizontalAlignment(SwingConstants.CENTER);
+		slot.setBorder(BorderFactory.createEmptyBorder(
+				PILE_SLOT_MARGIN, PILE_SLOT_MARGIN, PILE_SLOT_MARGIN, PILE_SLOT_MARGIN));
+		Dimension size = pileSlotSize();
+		slot.setPreferredSize(size);
+		slot.setMinimumSize(size);
+		return slot;
+	}
+
+	/**
+	 * An empty slot's {@code name}, centred where its pile goes, pressed into the board: shadowed
+	 * along the letters' upper-left edges, lit along their lower-right, and their floor a shade
+	 * darker than the board. Drawn only in translucent black and white, so it takes on whatever
+	 * colour the board is.
+	 */
+	private static ImageIcon emptySlotIcon(String name) {
+		Dimension size = CardPile.size(CARD_W, CARD_H);
+		BufferedImage buf = new BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D g = buf.createGraphics();
+		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+		g.setFont(FontLoader.loadPixelFont(18));
+		FontMetrics fm = g.getFontMetrics();
+		int x = (size.width - fm.stringWidth(name)) / 2;
+		int y = (size.height - fm.getHeight()) / 2 + fm.getAscent();
+		g.setColor(new Color(0, 0, 0, 150));
+		g.drawString(name, x - 1, y - 1);
+		g.setColor(new Color(255, 255, 255, 120));
+		g.drawString(name, x + 1, y + 1);
+		g.setColor(new Color(0, 0, 0, 70));
+		g.drawString(name, x, y);
+		g.dispose();
+		return new ImageIcon(buf);
+	}
+
+	/**
+	 * A crystal badge for a corner's button bar, styled like the RFP button beside it, its hexagon
+	 * in {@code color}: blue for P1 and red for P2.
+	 */
+	private static CrystalDisplay crystalButton(Dimension size, Color color) {
+		CrystalDisplay b = new CrystalDisplay(0, color);
+		b.setMargin(new Insets(0, 0, 0, 0));
+		b.setBackground(new Color(30, 30, 30));
+		b.setPreferredSize(size);
+		b.setMinimumSize(size);
+		b.setMaximumSize(size);
+		return b;
+	}
+
+	/**
+	 * Shows or hides both corners' button bars — LIMIT, RFP and the crystal badge — which mean
+	 * nothing before a game has begun. Each bar keeps its size while hidden, so nothing moves.
+	 */
+	private void setCornerButtonsShown(boolean shown) {
+		for (JComponent c : new JComponent[] {
+				p1LimitButton, p1RemoveButton, p1CrystalDisplay, p2LimitButton, p2RemoveButton, p2CrystalDisplay })
+			if (c != null) c.setVisible(shown);
+	}
+
+	/**
+	 * Which way a player's deck and Break Zone piles lean: toward the screen edge their corner is
+	 * on, so the two players' piles mirror each other across the board.
+	 */
+	private static CardPile.Lean pileLean(boolean isP1) {
+		return isP1 ? CardPile.Lean.RIGHT : CardPile.Lean.LEFT;
 	}
 
 	/**
