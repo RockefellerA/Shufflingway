@@ -36,6 +36,18 @@ jobs:
         with:
           tag_name: v${{ steps.ver.outputs.version }}
           generate_release_notes: true
+          # Placed above the generated notes, so new users pick an installer, not the update jar.
+          # The names in bold are the asset labels the platform jobs upload with.
+          body: |
+            ## Download
+
+            | Platform | Download |
+            | --- | --- |
+            | Windows | **Windows Installer** |
+            | macOS 13+ | **Mac Installer** |
+            | Linux (Debian/Ubuntu) | **Linux Installer** |
+
+            **Windows in-app update** is the file **Help > Check for Updates** applies to an installed copy on Windows. It is not an installer; new users should download the installer for their platform instead.
 
   # ── Windows installer (MSI) ────────────────────────────────────────────────
   release-windows:
@@ -118,15 +130,19 @@ jobs:
         run: |
           Copy-Item target\shufflingway.jar "target\dist\shufflingway-${{ needs.create-release.outputs.version }}-java${{ env.JAVA_FEATURE }}.jar"
 
+      # Uploaded with labels, which the release page shows in place of the file names. The updater
+      # matches assets by file name, which a label doesn't change.
       - name: Upload MSI and jar to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.create-release.outputs.version }}
-          files: |
-            shufflingway/target/dist/*.msi
-            shufflingway/target/dist/*.jar
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ needs.create-release.outputs.version }}"
+          gh release upload "v$V" --repo "${{ github.repository }}" --clobber \
+            "$(echo target/dist/*.msi)#Windows Installer" \
+            "target/dist/shufflingway-$V-java${{ env.JAVA_FEATURE }}.jar#Windows in-app update (not an installer)"
 
-  # ── macOS DMG ─────────────────────────────────────────────────────────────
+  # ── macOS installer (PKG) ──────────────────────────────────────────────────
   release-macos:
     needs: create-release
     runs-on: macos-latest
@@ -180,7 +196,7 @@ jobs:
           sips -z 512  512  src/main/resources/images/shufflingway.png --out Shufflingway.iconset/icon_512x512.png
           iconutil -c icns Shufflingway.iconset
 
-      - name: Run jpackage (DMG)
+      - name: Run jpackage (PKG)
         run: |
           jpackage \
             --input            jpackage-input \
@@ -191,14 +207,15 @@ jobs:
             --main-class       shufflingway.MainWindow \
             --java-options     "--enable-native-access=ALL-UNNAMED" \
             --icon             Shufflingway.icns \
-            --type             dmg \
+            --type             pkg \
             --dest             target/dist
 
-      - name: Upload DMG to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.create-release.outputs.version }}
-          files: shufflingway/target/dist/*.dmg
+      - name: Upload PKG to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "v${{ needs.create-release.outputs.version }}" --repo "${{ github.repository }}" --clobber \
+            "$(echo target/dist/*.pkg)#Mac Installer"
 
   # ── Linux DEB ─────────────────────────────────────────────────────────────
   release-linux:
@@ -248,7 +265,8 @@ jobs:
             --dest             target/dist
 
       - name: Upload DEB to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.create-release.outputs.version }}
-          files: shufflingway/target/dist/*.deb
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "v${{ needs.create-release.outputs.version }}" --repo "${{ github.repository }}" --clobber \
+            "$(echo target/dist/*.deb)#Linux Installer"

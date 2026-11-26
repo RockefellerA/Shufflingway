@@ -66,7 +66,7 @@ public final class UpdateChecker {
     /** Installer kind picked from a release's assets, matched to the current OS. */
     public enum InstallerKind {
         MSI(".msi"),  // Windows
-        DMG(".dmg"),  // macOS
+        PKG(".pkg"),  // macOS
         DEB(".deb");  // Linux (Debian/Ubuntu)
 
         final String extension;
@@ -116,7 +116,7 @@ public final class UpdateChecker {
     static InstallerKind installerKindForCurrentPlatform() {
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         if (os.contains("win"))                                  return InstallerKind.MSI;
-        if (os.contains("mac") || os.contains("darwin"))         return InstallerKind.DMG;
+        if (os.contains("mac") || os.contains("darwin"))         return InstallerKind.PKG;
         if (os.contains("nix") || os.contains("nux") || os.contains("aix")) return InstallerKind.DEB;
         return null;
     }
@@ -171,8 +171,8 @@ public final class UpdateChecker {
     // ---------------------------------------------------------------------------------------------
 
     /**
-     * Downloads the installer for {@code kind} to a temp file, launches the platform-appropriate
-     * installer or DMG mount, then exits the app. Blocking — must be called from a background thread.
+     * Downloads the installer for {@code kind} to a temp file, launches the platform's installer
+     * for it, then exits the app. Blocking — must be called from a background thread.
      */
     public static void downloadAndInstall(String installerUrl, InstallerKind kind,
                                           ProgressCallback progress) throws IOException {
@@ -200,9 +200,9 @@ public final class UpdateChecker {
         ProcessBuilder pb = switch (kind) {
             // Windows: launch the MSI installer.
             case MSI -> new ProcessBuilder("msiexec", "/i", path);
-            // macOS: `open` mounts the DMG; user drags the new .app to /Applications.
-            //   The running app must quit so the user can replace the bundle.
-            case DMG -> new ProcessBuilder("open", path);
+            // macOS: `open` hands the PKG to Installer, which replaces the app in /Applications.
+            //   The running app quits so Installer can replace the bundle.
+            case PKG -> new ProcessBuilder("open", path);
             // Linux: hand the .deb to the user's default GUI installer (e.g. gnome-software).
             //   Avoids requiring sudo from this process.
             case DEB -> new ProcessBuilder("xdg-open", path);

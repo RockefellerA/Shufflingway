@@ -68,6 +68,18 @@ class UpdateCheckerTest {
     }
 
     @Test
+    void onMacTheInstallerIsThePkg() {
+        String body = """
+                {"tag_name":"v0.2.348","assets":[
+                  {"name":"Shufflingway-0.2.348.msi","browser_download_url":"https://x/a.msi"},
+                  {"name":"Shufflingway-1.2.348.pkg","browser_download_url":"https://x/a.pkg"},
+                  {"name":"shufflingway_0.2.348_amd64.deb","browser_download_url":"https://x/a.deb"}]}
+                """;
+        assertEquals("https://x/a.pkg",
+                UpdateChecker.parseRelease(body, "0.2.347", InstallerKind.PKG).installerUrl());
+    }
+
+    @Test
     void aJarWithoutAChecksumIsNotOffered() {
         String body = """
                 {"tag_name":"v0.2.348","assets":[
