@@ -462,7 +462,7 @@ class Priming {
 	 */
 	private void finishLocalPriming(CardData card, int slotIdx, CardData chosen, LocalPriming sent) {
 		if (chosen != null) mw.gameState.removeFromP1MainDeck(chosen);
-		mw.shuffleP1MainDeck();
+		mw.shuffleDeck(true);
 		mw.sendToOpponent(RemoteOpponent.primeAction(card, slotIdx, sent.discards(), sent.backups(),
 				sent.deckBefore(), new ArrayList<>(mw.gameState.getP1MainDeck())));
 		if (chosen != null) applyPrimedCard(chosen, card, slotIdx, true);

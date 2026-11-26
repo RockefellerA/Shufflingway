@@ -381,6 +381,23 @@ public class CardAnimation {
 		return buf;
 	}
 
+	/**
+	 * {@code src} scaled to {@code w × h} the way {@link #toARGB} scales it, square corners and all,
+	 * so {@code toARGB} of the result is {@code toARGB} of {@code src} without the scaling. For
+	 * something that renders the same card many times, such as a {@link CardPile} that keeps
+	 * changing size.
+	 */
+	public static BufferedImage scaledCard(Image src, int w, int h) {
+		if (src.getWidth(null) >= w * AREA_AVERAGE_FROM)
+			src = new ImageIcon(src.getScaledInstance(w, h, Image.SCALE_SMOOTH)).getImage();   // waits for the load
+		BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D g = buf.createGraphics();
+		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+		g.drawImage(src, 0, 0, w, h, null);
+		g.dispose();
+		return buf;
+	}
+
 	/** Rotates a {@link BufferedImage} 90° clockwise. Result dimensions are {@code h × w}. */
 	static BufferedImage rotateCW90(BufferedImage src) {
 		int w = src.getWidth(), h = src.getHeight();

@@ -7075,12 +7075,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void shuffleDeck() {
-				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
-				List<CardData> list = new java.util.ArrayList<>(deck);
-				java.util.Collections.shuffle(list, mw.deckRandom(isP1));
-				deck.clear();
-				deck.addAll(list);
-				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
+				mw.shuffleDeck(isP1);
 				logEntry("Shuffled deck");
 			}
 

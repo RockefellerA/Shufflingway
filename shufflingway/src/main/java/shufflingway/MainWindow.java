@@ -148,6 +148,7 @@ import shufflingway.graphics.CounterOrb;
 import shufflingway.graphics.CrystalDisplay;
 import shufflingway.graphics.DamageNegateFlash;
 import shufflingway.graphics.DamageNumberOverlay;
+import shufflingway.graphics.DeckShuffleAnimator;
 import shufflingway.graphics.ResolvingGlow;
 import shufflingway.graphics.FieldCardIcon;
 import shufflingway.graphics.FieldSlotLabel;
@@ -325,6 +326,10 @@ public class MainWindow {
 	CardLimitBreakAnimator    limitBreakAnimator;
 	/** A primed Forward burning away into its top card; see {@link FieldEntryAnimator#primeWithAnim}. */
 	CardPrimingAnimator       primingAnimator;
+	/** A Main Deck riffled in its slot; see {@link #animateDeckShuffle}. */
+	private DeckShuffleAnimator deckShuffleAnimator;
+	/** Whether {@link #deckShuffleAnimator} is drawing each player's deck pile, which the slot then leaves blank. */
+	private boolean p1DeckShuffling, p2DeckShuffling;
 	/** Damage floating up off the Characters it was dealt to; see {@link #floatDamage}. */
 	private DamageNumberOverlay damageNumbers;
 	/**
@@ -2702,6 +2707,7 @@ public class MainWindow {
 		rfpAnimator       = CardRfpAnimator.install(frame);
 		limitBreakAnimator = CardLimitBreakAnimator.install(frame);
 		primingAnimator   = CardPrimingAnimator.install(frame);
+		deckShuffleAnimator = DeckShuffleAnimator.install(frame);
 		damageNumbers     = DamageNumberOverlay.install(frame);
 		gameOverOverlay   = GameOverOverlay.install(frame, mainArea, fieldDivider);
 		// Over the board's cards, under the game-over banner; it tracks its card's bounds itself.
@@ -4139,13 +4145,15 @@ public class MainWindow {
 
 	void refreshP1DeckLabel() {
 		int count = gameState.getP1MainDeck().size();
-		p1DeckLabel.setIcon(count == 0 ? emptySlotIcon("DECK") : deckPileIcon(true, count));
+		p1DeckLabel.setIcon(p1DeckShuffling ? blankPileIcon()
+				: count == 0 ? emptySlotIcon("DECK") : deckPileIcon(true, count));
 	}
 
 	void refreshP2DeckLabel() {
 		if (p2DeckLabel == null) return;
 		int count = gameState.getP2MainDeck().size();
-		p2DeckLabel.setIcon(count == 0 ? emptySlotIcon("DECK") : deckPileIcon(false, count));
+		p2DeckLabel.setIcon(p2DeckShuffling ? blankPileIcon()
+				: count == 0 ? emptySlotIcon("DECK") : deckPileIcon(false, count));
 	}
 
 	/**
@@ -7095,6 +7103,7 @@ public class MainWindow {
 		return true;
 	}
 
+	/** Shuffles {@code isP1}'s Main Deck from its shared stream (see {@link #p1DeckRandom}), with the shuffle animation and sound. */
 	void shuffleDeck(boolean isP1) {
 		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
 		List<CardData> list = new ArrayList<>(deck);
@@ -7102,6 +7111,7 @@ public class MainWindow {
 		deck.clear();
 		deck.addAll(list);
 		if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
+		animateDeckShuffle(isP1);
 	}
 
 	void searchDeckJobAndTypeDontShareElements(boolean isP1, String jobFilter, String typeName) {
@@ -10580,6 +10590,37 @@ public class MainWindow {
 		BufferedImage img = CardAnimation.toARGB(
 				loadCardbackImage(), CardAnimation.CARD_W, CardAnimation.CARD_H);
 		cardSlideAnimator.startSlide(img, start, end, 0);
+	}
+
+	/**
+	 * Riffles {@code isP1}'s deck in its slot and plays the shuffle sound. The animator draws the
+	 * pile while the shuffle plays, so the slot shows nothing until it hands back. A deck that is
+	 * not on screen, or holds fewer than two cards, shuffles without either.
+	 */
+	private void animateDeckShuffle(boolean isP1) {
+		JLabel deck  = isP1 ? p1DeckLabel : p2DeckLabel;
+		int    count = (isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck()).size();
+		if (deckShuffleAnimator == null || deck == null || !deck.isShowing() || count < 2) return;
+		JLayeredPane lp   = frame.getRootPane().getLayeredPane();
+		Dimension    pile = CardPile.size(CARD_W, CARD_H);
+		// Where the label centres its icon inside its border, by the arithmetic Swing's own
+		// layoutCompoundLabel uses, which halves each width before taking one from the other.
+		Insets in = deck.getInsets();
+		int x = in.left + (deck.getWidth()  - in.left - in.right)  / 2 - pile.width  / 2;
+		int y = in.top  + (deck.getHeight() - in.top  - in.bottom) / 2 - pile.height / 2;
+		Point origin = SwingUtilities.convertPoint(deck, x, y, lp);
+		// The cut goes toward the middle of the window, so it never runs off the window's edge.
+		boolean cutLeft = origin.x + pile.width / 2 > lp.getWidth() / 2;
+		setDeckShuffling(isP1, true);
+		deckShuffleAnimator.start(deck, origin, loadCardbackImage(), count, CARD_W, CARD_H,
+				pileLean(isP1), cutLeft, () -> setDeckShuffling(isP1, false));
+		SoundEffects.play(Sound.SHUFFLE);
+	}
+
+	/** Leaves {@code isP1}'s deck slot blank while the shuffle animation draws its pile, or shows the pile again. */
+	private void setDeckShuffling(boolean isP1, boolean shuffling) {
+		if (isP1) { p1DeckShuffling = shuffling; refreshP1DeckLabel(); }
+		else      { p2DeckShuffling = shuffling; refreshP2DeckLabel(); }
 	}
 
 	/**
@@ -24783,16 +24824,6 @@ public class MainWindow {
 		return new ArrayList<>(byPrinting.values());
 	}
 
-	/** Shuffles P1's main deck in-place and refreshes the deck label. */
-	void shuffleP1MainDeck() {
-		List<CardData> list = new ArrayList<>(gameState.getP1MainDeck());
-		Collections.shuffle(list, deckRandom(true));
-		gameState.getP1MainDeck().clear();
-		gameState.getP1MainDeck().addAll(list);
-		refreshP1DeckLabel();
-	}
-
-
 	private JPanel buildBackupZonePanel(JLabel[] labelStorage) {
 		JPanel slotsPanel = new JPanel(new GridLayout(1, 5, 2, 0));
 		slotsPanel.setOpaque(false);
@@ -25203,6 +25234,19 @@ public class MainWindow {
 		g.drawString(name, x, y);
 		g.dispose();
 		return new ImageIcon(buf);
+	}
+
+	/**
+	 * Nothing, the size of a pile: what a deck slot shows while {@link #deckShuffleAnimator} draws
+	 * its pile, so the slot keeps its size and its own pile does not show beneath the shuffle.
+	 */
+	private static Icon blankPileIcon() {
+		Dimension size = CardPile.size(CARD_W, CARD_H);
+		return new Icon() {
+			@Override public void paintIcon(Component c, Graphics g, int x, int y) {}
+			@Override public int getIconWidth()  { return size.width; }
+			@Override public int getIconHeight() { return size.height; }
+		};
 	}
 
 	/**
