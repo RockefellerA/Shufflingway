@@ -8,22 +8,37 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ProcessBuilder.Redirect;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Scanner;
 import java.util.concurrent.TimeUnit;
+import java.util.jar.Attributes;
+import java.util.jar.JarFile;
+import java.util.jar.Manifest;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+
+import scraper.AppPaths;
 
 public final class UpdateChecker {
 
@@ -37,11 +52,18 @@ public final class UpdateChecker {
     private static final long REPLACED_COPY_WAIT_SECONDS = 30;
 
     /**
-     * A release's jar asset, e.g. {@code shufflingway-0.2.348-java25.jar}. The {@code javaNN} suffix is
-     * the Java feature version of the runtime that release's installer bundles.
+     * A release's jar asset, e.g. {@code shufflingway-0.2.348-java25.jar}: its version, then the Java
+     * feature version of the runtime that release's installers bundle. The same jar runs on every
+     * platform; it carries the native libraries for all of them.
      */
     private static final Pattern JAR_ASSET =
-            Pattern.compile("shufflingway-[0-9A-Za-z.]+-java(\\d+)\\.jar", Pattern.CASE_INSENSITIVE);
+            Pattern.compile("shufflingway-([0-9A-Za-z.]+)-java(\\d+)\\.jar", Pattern.CASE_INSENSITIVE);
+
+    /** The class loader a staged update runs in, by name, so the staged copy can tell it is one. */
+    static final String STAGED_LOADER_NAME = "shufflingway-staged-update";
+
+    /** An interrupted staged download older than this is left over from a run that ended. */
+    private static final Duration STALE_PART_AGE = Duration.ofHours(1);
 
     /** The launcher config's single classpath entry: {@code app.classpath=$APPDIR\<jar>}. */
     private static final Pattern CLASSPATH_LINE =
@@ -84,13 +106,16 @@ public final class UpdateChecker {
     /** An installed copy: its launcher, its app folder, the launcher's config and the jar it runs. */
     record Installation(Path exe, Path appDir, Path cfg, String jarName) {}
 
-    /** Whether an update can replace the installed jar itself, or why it goes through the installer. */
+    /** Whether an update can be applied without the installer, or why it goes through the installer. */
     public enum InPlaceStatus {
-        /** The jar can be swapped in place. */
+        /** The jar can be swapped in place (Windows) or staged in the user's data folder (macOS, Linux). */
         READY,
-        /** Not Windows, a dev run, or an install layout this updater doesn't recognise. */
+        /** A dev run, or an install layout this updater doesn't recognise. */
         NOT_INSTALLED,
-        /** Installed in a folder this user can't write, such as Program Files. */
+        /**
+         * The update can't be written: on Windows, installed in a folder this user can't write, such
+         * as Program Files; elsewhere, the user's data folder isn't writable.
+         */
         READ_ONLY,
         /** The release has no jar with a checksum to verify it against. */
         NO_JAR,
@@ -158,7 +183,7 @@ public final class UpdateChecker {
             String digest = asset.optString("digest", "");
             if (jar == null && m.matches() && digest.startsWith("sha256:")) {
                 jar = new JarAsset(name, url, digest.substring("sha256:".length()),
-                        Integer.parseInt(m.group(1)));
+                        Integer.parseInt(m.group(2)));
             }
         }
 
@@ -167,7 +192,7 @@ public final class UpdateChecker {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Installer download (every platform; the fallback on Windows)
+    // Installer download (every platform; the fallback when an update can't be applied in place)
     // ---------------------------------------------------------------------------------------------
 
     /**
@@ -222,8 +247,9 @@ public final class UpdateChecker {
 
     /** Whether {@code info}'s update can be applied in place by this run. */
     public static InPlaceStatus inPlaceStatus(ReleaseInfo info) {
-        Installation inst = isWindows() ? currentInstallation() : null;
-        return inPlaceStatus(info.jar(), inst, Runtime.version().feature());
+        int runtime = Runtime.version().feature();
+        if (isWindows()) return inPlaceStatus(info.jar(), currentInstallation(), runtime);
+        return stagedStatus(info.jar(), installedLauncher(), updatesDir(), runtime);
     }
 
     static InPlaceStatus inPlaceStatus(JarAsset jar, Installation inst, int runtimeFeature) {
@@ -302,17 +328,26 @@ public final class UpdateChecker {
      * fails or doesn't match the release's SHA-256. Blocking — call from a background thread.
      */
     public static void downloadInPlace(ReleaseInfo info, ProgressCallback progress) throws IOException {
+        if (!isWindows()) {
+            stageUpdate(info, progress);
+            return;
+        }
         Installation inst = currentInstallation();
         if (inst == null || info.jar() == null)
             throw new IOException("This copy of Shufflingway can't update itself in place.");
 
-        HttpURLConnection conn = (HttpURLConnection) URI.create(info.jar().url()).toURL().openConnection();
-        conn.setRequestProperty("User-Agent", "Shufflingway-App");
-        conn.setConnectTimeout(10000);
-        conn.setReadTimeout(60000);
+        HttpURLConnection conn = openJarDownload(info.jar());
         try (InputStream in = conn.getInputStream()) {
             installJar(in, conn.getContentLengthLong(), inst, info.jar(), info.latestVersion(), progress);
         }
+    }
+
+    private static HttpURLConnection openJarDownload(JarAsset jar) throws IOException {
+        HttpURLConnection conn = (HttpURLConnection) URI.create(jar.url()).toURL().openConnection();
+        conn.setRequestProperty("User-Agent", "Shufflingway-App");
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(60000);
+        return conn;
     }
 
     /**
@@ -327,6 +362,20 @@ public final class UpdateChecker {
 
         Path dest = inst.appDir().resolve(jar.name());
         Path part = inst.appDir().resolve(jar.name() + ".part");
+        downloadVerified(in, total, part, jar.sha256(), progress);
+        Files.move(part, dest, REPLACE_EXISTING);
+
+        Path tmp = inst.cfg().resolveSibling(inst.cfg().getFileName() + ".tmp");
+        Files.writeString(tmp, newCfg, ISO_8859_1);
+        Files.move(tmp, inst.cfg(), REPLACE_EXISTING, ATOMIC_MOVE);
+    }
+
+    /**
+     * Writes {@code in} to {@code part} and checks its SHA-256 against {@code sha256}. On any failure
+     * {@code part} is deleted and this throws.
+     */
+    static void downloadVerified(InputStream in, long total, Path part, String sha256,
+                                 ProgressCallback progress) throws IOException {
         MessageDigest sha = sha256();
         try (OutputStream out = Files.newOutputStream(part)) {
             byte[] buf = new byte[8192];
@@ -342,15 +391,10 @@ public final class UpdateChecker {
             Files.deleteIfExists(part);
             throw e;
         }
-        if (!HexFormat.of().formatHex(sha.digest()).equalsIgnoreCase(jar.sha256())) {
+        if (!HexFormat.of().formatHex(sha.digest()).equalsIgnoreCase(sha256)) {
             Files.deleteIfExists(part);
             throw new IOException("The download didn't match the release's checksum, so nothing was changed.");
         }
-        Files.move(part, dest, REPLACE_EXISTING);
-
-        Path tmp = inst.cfg().resolveSibling(inst.cfg().getFileName() + ".tmp");
-        Files.writeString(tmp, newCfg, ISO_8859_1);
-        Files.move(tmp, inst.cfg(), REPLACE_EXISTING, ATOMIC_MOVE);
     }
 
     private static MessageDigest sha256() {
@@ -366,13 +410,51 @@ public final class UpdateChecker {
      * caller exits next.
      */
     public static void relaunch() throws IOException {
-        Installation inst = currentInstallation();
-        if (inst == null) throw new IOException("Not running from an installed copy.");
-        new ProcessBuilder(inst.exe().toString(), AFTER_UPDATE_ARG,
-                String.valueOf(ProcessHandle.current().pid()))
+        Path exe;
+        if (isWindows()) {
+            Installation inst = currentInstallation();
+            exe = inst == null ? null : inst.exe();
+        } else {
+            exe = installedLauncher();
+        }
+        if (exe == null) throw new IOException("Not running from an installed copy.");
+        ProcessBuilder pb = new ProcessBuilder(relaunchCommand(exe, ProcessHandle.current().pid(), isMac()))
                 .redirectOutput(Redirect.DISCARD)
-                .redirectError(Redirect.DISCARD)
-                .start();
+                .redirectError(Redirect.DISCARD);
+        forgetLauncherState(pb.environment());
+        pb.start();
+    }
+
+    /**
+     * Removes the mark the Linux launcher sets in its own environment while it starts the JVM.
+     * A launcher that inherits it, with the {@code LD_LIBRARY_PATH} set alongside it, takes itself
+     * for that inner start and hands its arguments to the JVM as options, which refuses them.
+     */
+    static void forgetLauncherState(Map<String, String> env) {
+        env.remove("_JPACKAGE_LAUNCHER");
+    }
+
+    /**
+     * The command that starts the launcher at {@code exe} again. On macOS a launcher inside an app
+     * bundle is started through {@code open}, so the new copy runs as that app.
+     */
+    static List<String> relaunchCommand(Path exe, long pid, boolean mac) {
+        Path bundle = mac ? appBundle(exe) : null;
+        if (bundle != null)
+            return List.of("open", "-n", bundle.toString(), "--args", AFTER_UPDATE_ARG, String.valueOf(pid));
+        return List.of(exe.toString(), AFTER_UPDATE_ARG, String.valueOf(pid));
+    }
+
+    /** The {@code .app} folder holding a launcher at {@code X.app/Contents/MacOS/X}, or {@code null}. */
+    static Path appBundle(Path exe) {
+        Path macos = exe.toAbsolutePath().getParent();
+        Path contents = macos == null ? null : macos.getParent();
+        Path bundle = contents == null ? null : contents.getParent();
+        if (bundle == null || bundle.getFileName() == null) return null;
+        boolean layout = "MacOS".equals(macos.getFileName().toString())
+                && "Contents".equals(contents.getFileName().toString())
+                && bundle.getFileName().toString().endsWith(".app");
+        return layout ? bundle : null;
     }
 
     /**
@@ -423,6 +505,180 @@ public final class UpdateChecker {
         } catch (IOException e) {
             // Unreadable app folder: nothing to clean.
         }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Staged update (macOS and Linux)
+    //
+    // The installed app folder belongs to root there (a .pkg in /Applications, a .deb in /opt), and
+    // changing a macOS app bundle breaks its signature. So the new jar goes into the user's data
+    // folder instead. At every start, the installed copy looks there first: when a jar newer than
+    // itself is waiting, it runs that jar's main in this same process, in a class loader of its own.
+    // The process stays the installed launcher, with the runtime and options it started with.
+    // ---------------------------------------------------------------------------------------------
+
+    /** Where a staged update waits: {@code updates} in the user's data folder. */
+    static Path updatesDir() {
+        return AppPaths.appDataDir().resolve("updates");
+    }
+
+    /** The jpackage launcher this run was started from, or {@code null} for a dev run. */
+    static Path installedLauncher() {
+        String exe = System.getProperty("jpackage.app-path");
+        return exe == null || exe.isBlank() ? null : Path.of(exe);
+    }
+
+    private static boolean isMac() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        return os.contains("mac") || os.contains("darwin");
+    }
+
+    static InPlaceStatus stagedStatus(JarAsset jar, Path launcher, Path updates, int runtimeFeature) {
+        if (launcher == null)                    return InPlaceStatus.NOT_INSTALLED;
+        try {
+            Files.createDirectories(updates);
+        } catch (IOException | SecurityException e) {
+            return InPlaceStatus.READ_ONLY;
+        }
+        if (!isWritable(updates))                return InPlaceStatus.READ_ONLY;
+        if (jar == null)                         return InPlaceStatus.NO_JAR;
+        if (jar.javaFeature() > runtimeFeature)  return InPlaceStatus.NEEDS_NEW_RUNTIME;
+        return InPlaceStatus.READY;
+    }
+
+    private static void stageUpdate(ReleaseInfo info, ProgressCallback progress) throws IOException {
+        if (installedLauncher() == null || info.jar() == null)
+            throw new IOException("This copy of Shufflingway can't update itself in place.");
+        HttpURLConnection conn = openJarDownload(info.jar());
+        try (InputStream in = conn.getInputStream()) {
+            stageJar(in, conn.getContentLengthLong(), updatesDir(), info.jar(), progress);
+        }
+    }
+
+    /**
+     * Writes {@code in} into {@code updates} as {@code jar}'s file once its SHA-256 matches. The next
+     * start runs it. Nothing in {@code updates} changes unless the checksum matches.
+     */
+    static void stageJar(InputStream in, long total, Path updates, JarAsset jar,
+                         ProgressCallback progress) throws IOException {
+        if (!JAR_ASSET.matcher(jar.name()).matches())
+            throw new IOException("Unexpected release name: " + jar.name());
+        Files.createDirectories(updates);
+        Path part = updates.resolve(jar.name() + ".part");
+        downloadVerified(in, total, part, jar.sha256(), progress);
+        Files.move(part, updates.resolve(jar.name()), REPLACE_EXISTING, ATOMIC_MOVE);
+    }
+
+    /** Why the last staged update couldn't start, for {@link #logStagedUpdateFailure()}. */
+    private static Throwable stagedFailure;
+
+    /**
+     * Runs first in {@code main} on macOS and Linux. When the user's data folder holds an update
+     * newer than this copy, this runs that jar's {@code main} with {@code args} and returns
+     * {@code true}: the caller then returns without starting itself. Returns {@code false} on
+     * Windows, for a dev run, when this already is the staged copy, when nothing newer is waiting,
+     * or when the staged jar fails to start; a jar that fails to start is deleted, so the installed
+     * version runs from then on.
+     */
+    public static boolean runStagedUpdate(String[] args) {
+        if (isWindows() || installedLauncher() == null) return false;
+        if (STAGED_LOADER_NAME.equals(UpdateChecker.class.getClassLoader().getName())) return false;
+        Path jar = pickStagedJar(updatesDir(), currentVersion(), Runtime.version().feature(), Instant.now());
+        return jar != null && runJar(jar, args);
+    }
+
+    /**
+     * The newest jar in {@code updates} that is newer than {@code current} and runs on this
+     * runtime, or {@code null}. Deletes the jars that are not newer, which a later installer has
+     * overtaken, the older ones the chosen jar replaces, and interrupted downloads older than
+     * {@link #STALE_PART_AGE}.
+     */
+    static Path pickStagedJar(Path updates, String current, int runtimeFeature, Instant now) {
+        Path best = null;
+        String bestVersion = null;
+        List<Path> stale = new ArrayList<>();
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(updates)) {
+            for (Path f : files) {
+                String name = f.getFileName().toString();
+                Matcher m = JAR_ASSET.matcher(name);
+                if (!m.matches()) {
+                    if (name.endsWith(".part") && isOlderThan(f, now.minus(STALE_PART_AGE))) stale.add(f);
+                    continue;
+                }
+                String version = m.group(1);
+                if (Integer.parseInt(m.group(2)) > runtimeFeature) continue;  // the installer's to apply
+                if (!isNewer(version, current)) {
+                    stale.add(f);
+                } else if (best == null || isNewer(version, bestVersion)) {
+                    if (best != null) stale.add(best);
+                    best = f;
+                    bestVersion = version;
+                } else {
+                    stale.add(f);
+                }
+            }
+        } catch (IOException | NumberFormatException e) {
+            return null;  // no updates folder yet, or nothing readable in it
+        }
+        for (Path f : stale) {
+            try {
+                Files.deleteIfExists(f);
+            } catch (IOException e) {
+                // A later start retries.
+            }
+        }
+        return best;
+    }
+
+    private static boolean isOlderThan(Path f, Instant cutoff) {
+        try {
+            return Files.getLastModifiedTime(f).compareTo(FileTime.from(cutoff)) < 0;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Runs the {@code Main-Class} of {@code jar} in a class loader of its own, whose parent is the
+     * platform loader, so none of this copy's classes leak into it. The thread's context loader is
+     * set to it first: Swing's event thread, JDBC's driver lookup and ImageIO's plugin scan read
+     * that. Returns {@code false}, with {@code jar} deleted, when it can't be loaded or its main
+     * throws.
+     */
+    static boolean runJar(Path jar, String[] args) {
+        Thread thread = Thread.currentThread();
+        ClassLoader previous = thread.getContextClassLoader();
+        try {
+            String mainClass;
+            try (JarFile jf = new JarFile(jar.toFile())) {
+                Manifest mf = jf.getManifest();
+                mainClass = mf == null ? null : mf.getMainAttributes().getValue(Attributes.Name.MAIN_CLASS);
+            }
+            if (mainClass == null) throw new IOException(jar.getFileName() + " has no Main-Class.");
+            // Never closed: the staged copy's classes load from it for the life of the process.
+            URLClassLoader loader = new URLClassLoader(STAGED_LOADER_NAME,
+                    new URL[] { jar.toUri().toURL() }, ClassLoader.getPlatformClassLoader());
+            Method main = Class.forName(mainClass, true, loader).getMethod("main", String[].class);
+            thread.setContextClassLoader(loader);
+            main.invoke(null, (Object) args);
+            return true;
+        } catch (IOException | ReflectiveOperationException | LinkageError | RuntimeException e) {
+            thread.setContextClassLoader(previous);
+            stagedFailure = e instanceof InvocationTargetException ite && ite.getCause() != null
+                    ? ite.getCause() : e;
+            try {
+                Files.deleteIfExists(jar);
+            } catch (IOException ignored) {
+                // pickStagedJar offers it again next start, and this fails the same way.
+            }
+            return false;
+        }
+    }
+
+    /** Logs why a staged update couldn't start, if one couldn't. Call once the log is open. */
+    public static void logStagedUpdateFailure() {
+        Throwable t = stagedFailure;
+        if (t != null) AppLogger.log("A downloaded update failed to start; running the installed version", t);
     }
 
     // ---------------------------------------------------------------------------------------------

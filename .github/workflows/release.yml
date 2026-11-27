@@ -47,15 +47,16 @@ jobs:
             | macOS 13+ | **Mac Installer** |
             | Linux (Debian/Ubuntu) | **Linux Installer** |
 
-            **Windows in-app update** is the file **Help > Check for Updates** applies to an installed copy on Windows. It is not an installer; new users should download the installer for their platform instead.
+            **In-app update** is the file **Help > Check for Updates** downloads to update an installed copy, on every platform. It is not an installer; new users should download the installer for their platform instead.
 
   # ── Windows installer (MSI) ────────────────────────────────────────────────
   release-windows:
     needs: create-release
     runs-on: windows-latest
     env:
-      # The Java the MSI bundles. The updater's jar asset is named after it; an installed copy with
-      # an older runtime updates through the MSI instead of swapping the jar.
+      # The Java the installers bundle (the macOS and Linux jobs set up the same version). The
+      # updater's jar asset is named after it; an installed copy with an older runtime updates
+      # through its installer instead.
       JAVA_FEATURE: '25'
     permissions:
       contents: write
@@ -123,8 +124,10 @@ jobs:
             --type             msi `
             --dest             target/dist
 
-      # What Help > Check for Updates downloads on Windows: the jar alone, which it swaps into the
-      # user's install. The name must match UpdateChecker.JAR_ASSET.
+      # What Help > Check for Updates downloads on every platform: the jar alone, which Windows swaps
+      # into the user's install and macOS and Linux stage in the user's data folder. It carries the
+      # natives for all three, so this job's copy serves them all. The name must match
+      # UpdateChecker.JAR_ASSET.
       - name: Stage jar for the in-place updater
         shell: pwsh
         run: |
@@ -140,7 +143,7 @@ jobs:
           V="${{ needs.create-release.outputs.version }}"
           gh release upload "v$V" --repo "${{ github.repository }}" --clobber \
             "$(echo target/dist/*.msi)#Windows Installer" \
-            "target/dist/shufflingway-$V-java${{ env.JAVA_FEATURE }}.jar#Windows in-app update (not an installer)"
+            "target/dist/shufflingway-$V-java${{ env.JAVA_FEATURE }}.jar#In-app update (not an installer)"
 
   # ── macOS installer (PKG) ──────────────────────────────────────────────────
   release-macos:

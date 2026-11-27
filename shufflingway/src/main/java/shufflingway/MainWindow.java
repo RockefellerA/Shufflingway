@@ -2050,9 +2050,12 @@ public class MainWindow {
 	boolean p1ExtraTurnThenLose = false;
 
 	public static void main(String[] args) {
+		// macOS and Linux: a downloaded update newer than this copy runs instead of it, in this process.
+		if (UpdateChecker.runStagedUpdate(args)) return;
 		// Before the log opens: a copy restarted by an update waits here for the old one to exit.
 		UpdateChecker.finishPendingUpdate(args);
 		AppLogger.init();
+		UpdateChecker.logStagedUpdateFailure();
 		UiScale.init();
 		Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
 				AppLogger.log("Uncaught exception in thread: " + thread.getName(), throwable));
