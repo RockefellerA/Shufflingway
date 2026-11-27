@@ -5508,10 +5508,17 @@ final class AutoAbilityTriggers {
 			return;
 		}
 		mw.logEntry("[EX BURST] " + card.name() + " — " + effect);
+		// An effect opening with "you may search …" had that search answered by accepting it: nothing
+		// happens between that yes and the search's own prompt, so asking again could only repeat it.
+		// A "you may search" later in the effect stays a choice of its own, made after what comes first.
+		GameContext ctx = mw.buildAcceptedExBurstContext(isP1, OPENS_WITH_YOU_MAY_SEARCH.matcher(effect).find());
 		if (card.isSummon()) { mw.currentResolutionIsSummon = true; mw.currentSummonSource = card; }
-		try { fn.accept(mw.buildGameContext(isP1, true)); } finally { mw.currentResolutionIsSummon = false; mw.currentSummonSource = null; }
+		try { fn.accept(ctx); } finally { mw.currentResolutionIsSummon = false; mw.currentSummonSource = null; }
 		triggerAutoAbilitiesForOpponentUsesExBurst(isP1);
 	}
+
+	/** An EX Burst effect whose first words are "you may search". */
+	private static final Pattern OPENS_WITH_YOU_MAY_SEARCH = Pattern.compile("(?i)^\\s*you\\s+may\\s+search\\b");
 
 	/** The local player's EX Burst prompt: the card, its effect, OK or Decline. */
 	private boolean askExBurst(CardData card, String effect) {
@@ -5545,7 +5552,8 @@ final class AutoAbilityTriggers {
 		nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
 
 		JLabel effectLabel = new JLabel(
-				"<html><div style='text-align:center;width:" + CARD_W + "px'>" + effect + "</div></html>",
+				"<html><div style='text-align:center;width:" + CARD_W + "px'>"
+						+ MainWindow.capitalizeFirst(effect) + "</div></html>",
 				SwingConstants.CENTER);
 
 		JPanel infoPanel = new JPanel();

@@ -1831,6 +1831,13 @@ final class ActionResolverSearch {
             ctx.searchDeckNElementSummonsDifferentCost(count, element);
         };
     }
+    /**
+     * What an optional search asks before it runs ("You may search for …"). Named so that an
+     * accepted EX Burst opening with that search can recognise its prompt and answer it: see
+     * {@link GameContextImpl#promptYouMay}.
+     */
+    static final String MAY_SEARCH_PROMPT = "Search your deck? Declining means you did not search.";
+
     static Consumer<GameContext> tryParseSearchDeck(String text, CardData source, int xValue) {
         // Lifted off before the identity groups read the text — see SEARCH_WITH_DIFFERENT_NAMES.
         PickGate gate = PickGate.ANY;
@@ -2103,7 +2110,7 @@ final class ActionResolverSearch {
         // ability: a "you may" attached to some other clause must not make this search optional.
         if (!YOU_MAY_IMMEDIATELY_BEFORE.matcher(text.substring(0, m.start())).find()) return search;
         return ctx -> {
-            if (!ctx.promptYouMay("Search your deck? Declining means you did not search.")) {
+            if (!ctx.promptYouMay(MAY_SEARCH_PROMPT)) {
                 ctx.logEntry("Declined to search — no search takes place");
                 ctx.markEffectFizzled();
                 return;

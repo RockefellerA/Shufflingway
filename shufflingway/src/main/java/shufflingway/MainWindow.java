@@ -18792,9 +18792,22 @@ public class MainWindow {
 	}
 
 	GameContext buildGameContext(boolean isP1, boolean exBurst) {
+		return buildGameContext(isP1, exBurst, false);
+	}
+
+	/**
+	 * The context an EX Burst resolves in once its player has accepted it. With
+	 * {@code openingSearchAccepted}, the effect opens with "you may search", and accepting the EX
+	 * Burst already said yes to that search, so it is not asked a second time.
+	 */
+	GameContext buildAcceptedExBurstContext(boolean isP1, boolean openingSearchAccepted) {
+		return buildGameContext(isP1, true, openingSearchAccepted);
+	}
+
+	private GameContext buildGameContext(boolean isP1, boolean exBurst, boolean openingSearchAccepted) {
 		suppressExBurstsThisAbility = false;
 		aiPrefersOwnTargets         = false;
-		return new GameContextImpl(this, isP1, exBurst);
+		return new GameContextImpl(this, isP1, exBurst, openingSearchAccepted);
 	}
 
 	/**

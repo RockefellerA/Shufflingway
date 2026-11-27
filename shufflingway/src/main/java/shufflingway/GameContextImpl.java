@@ -172,10 +172,25 @@ final class GameContextImpl implements GameContext {
 	/** Card the most recent {@link #lookAtTopDeck} put into hand; read by riders on that look. */
 	private CardData lastLookAddedToHand = null;
 
+	/**
+	 * Set on the context of an EX Burst whose effect opens with "you may search", which its player
+	 * has just accepted: saying yes to the EX Burst already said yes to that search. The first
+	 * {@link #promptYouMay} of the resolution uses it up, and it answers that prompt only if it is
+	 * the search's own. Any other prompt coming first means the opening search was not asked
+	 * through this route, and it is asked as usual.
+	 */
+	private boolean openingSearchAccepted;
+
 	GameContextImpl(MainWindow mw, boolean isP1, boolean exBurst) {
+		this(mw, isP1, exBurst, false);
+	}
+
+	/** @param openingSearchAccepted see {@link #openingSearchAccepted} */
+	GameContextImpl(MainWindow mw, boolean isP1, boolean exBurst, boolean openingSearchAccepted) {
 		this.mw = mw;
 		this.isP1 = isP1;
 		this.exBurst = exBurst;
+		this.openingSearchAccepted = openingSearchAccepted;
 	}
 
 	/**
@@ -11400,6 +11415,10 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public boolean promptYouMay(String prompt) {
+				// Decided the same way on both clients, so neither waits on an answer the other skips.
+				boolean answered = openingSearchAccepted && ActionResolverSearch.MAY_SEARCH_PROMPT.equals(prompt);
+				openingSearchAccepted = false;
+				if (answered) return true;
 				SearchUpgrade advice = searchUpgradeAdvice;
 				searchUpgradeAdvice = null;
 				if (advice != null) return promptSearchUpgrade(prompt, advice);

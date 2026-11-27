@@ -71573,6 +71573,67 @@ public class CardBehaviorTest {
 		}
 	}
 
+	/**
+	 * A window that answers every question yes, or with the first option, and records what was
+	 * asked: the way to see a prompt was never put, where a real one would block on a dialog.
+	 */
+	private static final class AskedWindow extends MainWindow {
+		final List<ChoiceKind> asked = new ArrayList<>();
+
+		@Override List<Integer> decide(PlayerChoice choice) {
+			asked.add(choice.kind());
+			return List.of(choice.kind() == ChoiceKind.DECK_SEARCH ? 0 : 1);
+		}
+	}
+
+	/** The whole card: {@link #PAPALYMO_5_159S} is its second sentence alone. */
+	private static final String PAPALYMO_5_159S_FULL = "[[ex]]EX BURST[[/]] When Papalymo enters the field, you may "
+			+ "search for 1 Card Name Yda and add it to your hand.[[br]] If the Card Name Yda you control deals "
+			+ "damage to a Forward, increase the damage by 2000 instead. ";
+
+	// Accepting an EX Burst that is "you may search …" already said yes to the search; asking
+	// "Search your deck?" next could only repeat the answer.
+	@Test
+	void acceptingAnExBurstThatOpensWithYouMaySearchSearchesWithoutAskingAgain() {
+		AskedWindow mw = new AskedWindow();
+		CardData papalymo = makeForwardWithText("Papalymo", "Earth", 3, 5000, PAPALYMO_5_159S_FULL);
+		CardData yda = makeForward("Yda", "Earth", 2, 5000);
+		mw.gameState.getIdentity().put(papalymo, true);
+		mw.gameState.getIdentity().put(yda, true);
+		mw.gameState.getP1DamageZone().add(papalymo);
+		mw.gameState.getP1MainDeck().add(yda);
+
+		mw.autoAbilityTriggers.triggerExBurst(papalymo, true);
+
+		assertTrue(mw.gameState.getP1Hand().contains(yda), "the search ran");
+		assertEquals(List.of(ChoiceKind.EX_BURST, ChoiceKind.DECK_SEARCH), mw.asked,
+				"asked whether to use the EX Burst, then which card; never whether to search");
+	}
+
+	// The same search as an ordinary "you may" still asks: no EX Burst answered it.
+	@Test
+	void anOptionalSearchOutsideAnExBurstIsStillAsked() {
+		AskedWindow mw = new AskedWindow();
+		assertTrue(mw.buildGameContext(true).promptYouMay(ActionResolverSearch.MAY_SEARCH_PROMPT));
+		assertEquals(List.of(ChoiceKind.MAY), mw.asked);
+	}
+
+	// The acceptance answers the effect's opening search, nothing else: a different "you may"
+	// reached first is asked, and spends the answer, so a later search is asked too.
+	@Test
+	void theAcceptedExBurstAnswersOnlyAnOpeningSearchPrompt() {
+		AskedWindow mw = new AskedWindow();
+		GameContext ctx = mw.buildAcceptedExBurstContext(true, true);
+		assertTrue(ctx.promptYouMay("Draw 1 card?"));
+		assertTrue(ctx.promptYouMay(ActionResolverSearch.MAY_SEARCH_PROMPT));
+		assertEquals(List.of(ChoiceKind.MAY, ChoiceKind.MAY), mw.asked);
+
+		AskedWindow notOpening = new AskedWindow();
+		assertTrue(notOpening.buildAcceptedExBurstContext(true, false)
+				.promptYouMay(ActionResolverSearch.MAY_SEARCH_PROMPT));
+		assertEquals(List.of(ChoiceKind.MAY), notOpening.asked, "an effect that does not open with the search");
+	}
+
 	@Test
 	void tifaWatchesHerCategoryVIICharactersHitOpposingForwards() {
 		MainWindow mw = new MainWindow();
