@@ -636,6 +636,24 @@ public class DeckManager extends JFrame {
         // The charts on the left, the card count on the right, each in the flow it always sat in.
         JPanel chartsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         chartsPanel.add(chartsButton);
+        // Buy Deck: opens TCGplayer's Mass Entry with this deck's cards, Limit Break deck included,
+        // through the affiliate link, with the commission disclosure beside it in the tooltip.
+        // Commented out until Shufflingway is in TCGplayer's affiliate programme and
+        // TcgPlayer.affiliate wraps its links. The link itself was checked in a browser.
+        // JButton buyDeckBtn = new JButton("Buy Deck");
+        // buyDeckBtn.setIcon(new CartIcon(buyDeckBtn.getFontMetrics(buyDeckBtn.getFont()).getHeight()));
+        // buyDeckBtn.setToolTipText("<html>Open this deck's cards on TCGplayer<br>"
+        //         + TcgPlayer.DISCLOSURE + "</html>");
+        // buyDeckBtn.addActionListener(e -> {
+        //     List<Object[]> cards = new ArrayList<>();
+        //     for (List<Object[]> group : allDeckGroups()) cards.addAll(group);
+        //     if (cards.isEmpty()) {
+        //         JOptionPane.showMessageDialog(this, "Add some cards to the deck first.");
+        //         return;
+        //     }
+        //     Browser.open(TcgPlayer.deckUrl(cards));
+        // });
+        // chartsPanel.add(buyDeckBtn);
         JPanel countPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         countPanel.add(countLabel);
         JPanel btnLabelsPanel = new JPanel(new BorderLayout());

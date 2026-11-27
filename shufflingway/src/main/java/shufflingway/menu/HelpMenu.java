@@ -1,14 +1,11 @@
 package shufflingway.menu;
 
 import java.awt.BorderLayout;
-import java.awt.Desktop;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.event.ActionEvent;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,6 +28,7 @@ import javax.swing.SwingWorker;
 import javax.swing.Timer;
 
 import scraper.AppPaths;
+import shufflingway.Browser;
 import shufflingway.UpdateChecker;
 import shufflingway.dialog.WelcomeDialog;
 
@@ -222,7 +220,7 @@ public class HelpMenu extends JMenu {
             return;
         }
         if (info.installerUrl() == null || info.installerKind() == null) {
-            openInBrowser("https://github.com/RockefellerA/shufflingway/releases/latest");
+            Browser.open("https://github.com/RockefellerA/shufflingway/releases/latest");
             return;
         }
 
@@ -314,21 +312,11 @@ public class HelpMenu extends JMenu {
 
     private static void openGuidePdf(int guide) {
         switch (guide) {
-            case 0 -> openInBrowser("https://fftcg.cdn.sewest.net/2024-03/fftcgrulesheet-en.pdf");
-            case 1 -> openInBrowser("https://fftcg.cdn.sewest.net/2026-08/fftcg-comprules-v3.3.pdf");
-            case 2 -> openInBrowser("https://fftcg.cdn.sewest.net/2024-03/lb-rule-explanation-eg.pdf");
-            case 3 -> openInBrowser("https://fftcg.cdn.sewest.net/2024-11/priming-rules-explanation-en.pdf");
-            case 4 -> openInBrowser("https://fftcg.cdn.sewest.net/2024-11/priming-supplementary-rules-en.pdf");
-        }
-    }
-
-    private static void openInBrowser(String url) {
-        if (!Desktop.isDesktopSupported()
-                || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) return;
-        try {
-            Desktop.getDesktop().browse(new URI(url));
-        } catch (IOException | URISyntaxException ex) {
-            ex.printStackTrace();
+            case 0 -> Browser.open("https://fftcg.cdn.sewest.net/2024-03/fftcgrulesheet-en.pdf");
+            case 1 -> Browser.open("https://fftcg.cdn.sewest.net/2026-08/fftcg-comprules-v3.3.pdf");
+            case 2 -> Browser.open("https://fftcg.cdn.sewest.net/2024-03/lb-rule-explanation-eg.pdf");
+            case 3 -> Browser.open("https://fftcg.cdn.sewest.net/2024-11/priming-rules-explanation-en.pdf");
+            case 4 -> Browser.open("https://fftcg.cdn.sewest.net/2024-11/priming-supplementary-rules-en.pdf");
         }
     }
 }
