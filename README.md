@@ -11,8 +11,9 @@ Includes a deck manager, full card browser, game board and CPU opponent.
 
 Links to rules and guides are found in the Help menu.
 
-<img width="2456" height="1380" alt="Deck Manager" src="https://github.com/user-attachments/assets/87c0fcc9-7fec-4128-a8c5-b26aa17f0c3e" />
-<img width="2456" height="1384" alt="Game Board" src="https://github.com/user-attachments/assets/be915f5b-1443-40fb-ae8c-41c745a2adc8" />
+<img width="2560" height="1392" alt="deck-manager-paladin" src="https://github.com/user-attachments/assets/a9e7fe64-aea1-43b9-a179-b71404eb63ad" />
+<img width="2560" height="1392" alt="game-board-paladin" src="https://github.com/user-attachments/assets/b9fa3ab7-8c68-44e9-903c-a9f30e7c9a60" />
+
 
 Shufflingway allows you to play against a CPU or a friend with the application facilitating the flow of the game, tracking the game state and resolving card interactions.
 
