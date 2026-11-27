@@ -14,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.lang.ProcessBuilder.Redirect;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -292,7 +293,11 @@ class UpdateCheckerTest {
             assertEquals(loader + "|" + loader + "|--after-update,42", System.getProperty("staged.test"));
             assertTrue(Files.exists(jar));
         } finally {
+            // A started copy keeps its loader, and so its jar, open for the life of the process.
+            // The test has to close it, or Windows cannot delete the temp folder holding the jar.
+            ClassLoader staged = Thread.currentThread().getContextClassLoader();
             Thread.currentThread().setContextClassLoader(before);
+            if (staged != before && staged instanceof URLClassLoader u) u.close();
             System.clearProperty("staged.test");
         }
     }
@@ -331,8 +336,11 @@ class UpdateCheckerTest {
     void onMacTheRestartGoesThroughOpenForTheAppBundle() {
         Path mac = Path.of("/Applications/Shufflingway.app/Contents/MacOS/Shufflingway");
         Path linux = Path.of("/opt/shufflingway/bin/shufflingway");
+        // Spelled by this JVM's path rules, as the launcher paths below are: the bundle path is made
+        // absolute, which on Windows puts a drive letter in front of it.
+        String bundle = Path.of("/Applications/Shufflingway.app").toAbsolutePath().toString();
 
-        assertEquals(List.of("open", "-n", "/Applications/Shufflingway.app", "--args",
+        assertEquals(List.of("open", "-n", bundle, "--args",
                 UpdateChecker.AFTER_UPDATE_ARG, "7"), UpdateChecker.relaunchCommand(mac, 7, true));
         assertEquals(List.of(linux.toString(), UpdateChecker.AFTER_UPDATE_ARG, "7"),
                 UpdateChecker.relaunchCommand(linux, 7, true));

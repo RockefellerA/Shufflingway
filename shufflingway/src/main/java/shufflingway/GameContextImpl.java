@@ -3876,6 +3876,7 @@ final class GameContextImpl implements GameContext {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				if (deck.isEmpty()) { logEntry("Reveal: your deck is empty — no cancel"); return; }
 				CardData top = deck.peekFirst();   // revealed; stays on top
+				mw.noteKnownInDeck(top);
 				logEntry((isP1 ? "" : "[P2] ") + "Revealed top of deck: " + top.name() + " (" + top.type() + ")");
 				if (ComputerPlayer.cardMatchesType(top, type)) {
 					mw.lastChosenSelectionCancelled = true;
@@ -4445,6 +4446,7 @@ final class GameContextImpl implements GameContext {
 						if (!mw.effectMayPlayOntoField(card, isP1, false)) {
 							logEntry(p + card.name() + " cannot be played onto the field — it stays on top of the deck");
 							deck.addFirst(card);
+							mw.noteKnownInDeck(card);
 							refreshDeck.run();
 							return;
 						}
@@ -4455,6 +4457,7 @@ final class GameContextImpl implements GameContext {
 								if ("mayPlayOntoField".equals(clause.cardOp()) && !activated[0]) {
 									logEntry(card.name() + " — play declined, returned to top of deck");
 									deck.addFirst(card);
+									mw.noteKnownInDeck(card);
 									refreshDeck.run();
 									return;
 								}
@@ -4518,6 +4521,7 @@ final class GameContextImpl implements GameContext {
 								if (!activated[0]) {
 									logEntry(card.name() + " — free cast declined, returned to top of deck");
 									deck.addFirst(card);
+									mw.noteKnownInDeck(card);
 									refreshDeck.run();
 									return;
 								}
@@ -4532,6 +4536,7 @@ final class GameContextImpl implements GameContext {
 					// so any subsequent draw includes it
 					if (!returnedToDeck) {
 						deck.addFirst(card);
+						mw.noteKnownInDeck(card);
 						refreshDeck.run();
 						returnedToDeck = true;
 					}
@@ -4541,6 +4546,7 @@ final class GameContextImpl implements GameContext {
 				// No clause matched — put card back on top
 				logEntry(p + "No condition matched — returning " + card.name() + " to top of " + deckLabel);
 				deck.addFirst(card);
+				mw.noteKnownInDeck(card);
 				refreshDeck.run();
 			}
 
@@ -4614,6 +4620,7 @@ final class GameContextImpl implements GameContext {
 					// rather than dropped: the card was already taken off the deck above to be
 					// shown, and losing it here would mill the player one card per use.
 					deck.addFirst(card);
+					mw.noteKnownInDeck(card);
 					if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
 					logEntry((isP1 ? "" : "[P2] ") + card.name() + " returned to the top of the deck");
 					return;
@@ -4694,6 +4701,7 @@ final class GameContextImpl implements GameContext {
 				} else {
 					logEntry((seatIsP1 ? "P1" : "P2") + " returns " + card.name() + " to top of deck");
 					deck.addFirst(card);
+					mw.noteKnownInDeck(card);
 				}
 				if (seatIsP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
 			}
@@ -7402,6 +7410,7 @@ final class GameContextImpl implements GameContext {
 				if (t.idx() < 0 || t.idx() >= bz.size()) return;
 				CardData card = bz.remove(t.idx());
 				(isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).addFirst(card);
+				mw.noteKnownInDeck(card);
 				logEntry((isP1 ? "" : "[P2] ") + card.name() + " → Break Zone to top of deck");
 				if (t.isP1()) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
@@ -7412,6 +7421,7 @@ final class GameContextImpl implements GameContext {
 				if (t.idx() < 0 || t.idx() >= bz.size()) return;
 				CardData card = bz.remove(t.idx());
 				(isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck()).addLast(card);
+				mw.noteKnownInDeck(card);
 				logEntry((isP1 ? "" : "[P2] ") + card.name() + " → Break Zone to bottom of deck");
 				if (t.isP1()) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
@@ -11871,6 +11881,7 @@ final class GameContextImpl implements GameContext {
 				};
 				logEntry("Revealed opponent's top card: " + top.name() + " (" + top.type() + ") — "
 						+ (matches ? "is" : "is not") + " a " + type);
+				mw.noteKnownInDeck(top);
 				return matches;
 			}
 
@@ -11884,6 +11895,7 @@ final class GameContextImpl implements GameContext {
 				// Named in the shared log, as the type-reading twin above does: the reveal is public
 				// and the card stays on top either way.
 				logEntry("Revealed opponent's top card: " + top.name() + " (cost " + top.cost() + ")");
+				mw.noteKnownInDeck(top);
 				return top.cost();
 			}
 
@@ -13232,6 +13244,7 @@ final class GameContextImpl implements GameContext {
 					Boolean ownerIsP1 = mw.gameState.getIdentity().get(source);
 					(Boolean.TRUE.equals(ownerIsP1) ? mw.gameState.getP1MainDeck()
 					                                : mw.gameState.getP2MainDeck()).addFirst(source);
+					mw.noteKnownInDeck(source);
 					logEntry("Effect: " + source.name() + " → Break Zone to top of its owner's deck");
 					if (bzIsP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 					if (Boolean.TRUE.equals(ownerIsP1)) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();

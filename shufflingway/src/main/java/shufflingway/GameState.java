@@ -182,7 +182,7 @@ public class GameState {
     private int p2Crystals = 0;
 
     // --- P1 ---
-    private final Deque<CardData>          p1MainDeck        = new ArrayDeque<>();
+    private final MainDeck                 p1MainDeck        = new MainDeck();
     private final List<CardData>           p1LbDeck          = new ArrayList<>();
     private final HandList                 p1Hand            = new HandList(true);
     private final BreakZoneList            p1BreakZone       = new BreakZoneList(true);
@@ -209,7 +209,7 @@ public class GameState {
     private final IdentityHashMap<CardData, Boolean> identity = new IdentityHashMap<>();
 
     // --- P2 ---
-    private final Deque<CardData>          p2MainDeck    = new ArrayDeque<>();
+    private final MainDeck                 p2MainDeck    = new MainDeck();
     private final List<CardData>           p2LbDeck      = new ArrayList<>();
     private final List<CardData>           p2DamageZone  = new ArrayList<>();
     private final HandList                 p2Hand        = new HandList(false);
@@ -489,6 +489,64 @@ public class GameState {
             super.removeRange(from, to);
             left(gone);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Main Deck cards both players know
+    // -------------------------------------------------------------------------
+
+    /**
+     * A Main Deck that remembers which of its cards both players know although they lie face down:
+     * a Forward put back on top of it from the field, a top card revealed and left where it was.
+     * Held by identity, since two copies of one printing are equal and only the one seen is known.
+     *
+     * <p>Cards go into a deck from a dozen places, each adding to the deque directly, so the deque
+     * is where knowledge is lost. A card comes in unknown, and whoever put it in face up marks it
+     * after it lands. {@code ArrayDeque} routes every insertion ({@code push}, {@code add},
+     * {@code offer*}, {@code addAll}) through {@link #addFirst} or {@link #addLast}. Emptying the deck
+     * forgets every card, and a shuffle empties it and refills it. A card that leaves keeps its mark,
+     * but nothing reads it: only cards in the deck are asked about, and it comes back in unknown.
+     */
+    private static final class MainDeck extends ArrayDeque<CardData> {
+        private final Set<CardData> known = Collections.newSetFromMap(new IdentityHashMap<>());
+
+        @Override public void addFirst(CardData c) { known.remove(c); super.addFirst(c); }
+        @Override public void addLast(CardData c)  { known.remove(c); super.addLast(c); }
+        @Override public void clear()              { known.clear();   super.clear(); }
+
+        boolean holds(CardData c) {
+            for (CardData d : this) if (d == c) return true;
+            return false;
+        }
+
+        boolean markKnown(CardData c) {
+            if (c == null || !holds(c)) return false;
+            known.add(c);
+            return true;
+        }
+
+        boolean isKnown(CardData c) { return c != null && known.contains(c) && holds(c); }
+    }
+
+    /**
+     * Records that both players know {@code card}, now face down in a Main Deck: it went in face up,
+     * or it was revealed there and stayed. Returns false and records nothing when no deck holds it.
+     * Both clients reach this off the same move, so it needs no sync.
+     */
+    public boolean noteKnownInDeck(CardData card) {
+        return p1MainDeck.markKnown(card) || p2MainDeck.markKnown(card);
+    }
+
+    /** Whether {@code card} is in a Main Deck and both players know it there. */
+    public boolean isKnownInDeck(CardData card) {
+        return p1MainDeck.isKnown(card) || p2MainDeck.isKnown(card);
+    }
+
+    /** The top card of {@code deckIsP1}'s Main Deck when both players know what it is, else {@code null}. */
+    public CardData knownDeckTop(boolean deckIsP1) {
+        MainDeck deck = deckIsP1 ? p1MainDeck : p2MainDeck;
+        CardData top = deck.peekFirst();
+        return deck.isKnown(top) ? top : null;
     }
 
     public void addToPermanentRfp(CardData card)

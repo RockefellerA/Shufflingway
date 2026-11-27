@@ -1,5 +1,6 @@
 package shufflingway.graphics;
 
+import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
@@ -42,6 +43,11 @@ public final class CardPile {
 	/** The outline of the pile's bottom card, which sets the pile off from the slot behind it. */
 	private static final Color BASE_OUTLINE = new Color(20, 20, 20, 200);
 
+	/** How opaque a known top card's face is over its back: see {@link #renderKnownTop}. */
+	private static final float KNOWN_FACE_ALPHA = 0.6f;
+	/** The diameter of a known top card's eye, as a fraction of the card's width. */
+	private static final double KNOWN_EYE_FRACTION = 0.24;
+
 	private CardPile() {}
 
 	/** The canvas {@link #render} draws a pile of {@code cw × ch} cards on: a card plus a full pile's rise. */
@@ -80,6 +86,23 @@ public final class CardPile {
 		g.drawImage(CardAnimation.toARGB(top, cw, ch), card.x, card.y, null);
 		g.dispose();
 		return canvas;
+	}
+
+	/**
+	 * As {@link #render}, for a pile whose top card lies face down but both players know what it is.
+	 * The top card is drawn as {@code back} with {@code face} over it, semi-translucent, so it still
+	 * reads as a face-down card, and a {@link RevealEye} in its middle.
+	 */
+	public static BufferedImage renderKnownTop(Image back, Image face, int count, int cw, int ch, Lean lean) {
+		BufferedImage top = CardAnimation.toARGB(back, cw, ch);
+		Graphics2D g = top.createGraphics();
+		// SrcAtop keeps the back's rounded silhouette: the face lands only where the back is.
+		g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_ATOP, KNOWN_FACE_ALPHA));
+		g.drawImage(CardAnimation.toARGB(face, cw, ch), 0, 0, null);
+		g.setComposite(AlphaComposite.SrcOver);
+		RevealEye.paint(g, cw / 2.0, ch / 2.0, cw * KNOWN_EYE_FRACTION);
+		g.dispose();
+		return render(top, count, cw, ch, lean);
 	}
 
 	/** Where {@link #render} draws the top card of a {@code count}-card pile, for anything drawn over it. */

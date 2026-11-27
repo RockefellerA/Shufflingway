@@ -13789,6 +13789,183 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Known deck cards — what both players know lies face down in a deck
+	// A card put into a deck face up, or revealed there and left in place, is known until a shuffle
+	// or until it comes back into the deck unseen. A known top card is drawn on the pile, face up
+	// under an eye.
+	// =========================================================================================
+
+	/** P2's Forward {@code name}, on P2's field. */
+	private static CardData p2ForwardOnField(MainWindow mw, String name) {
+		CardData c = makeForward(name, "Fire", 2, 5000);
+		mw.gameState.getIdentity().put(c, false);
+		mw.placeP2CardInForwardZone(c);
+		return c;
+	}
+
+	@Test
+	void aForwardPutOnTopOfItsDeckIsTheKnownTop() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2MainDeck().add(makeForward("Below", "Fire", 1, 3000));
+		CardData bounced = p2ForwardOnField(mw, "Bounced");
+		mw.returnP2ForwardToDeck(0, false);
+		assertSame(bounced, mw.gameState.knownDeckTop(false));
+		assertTrue(mw.p2DeckLabel.getToolTipText().endsWith("top card revealed: Bounced"),
+				mw.p2DeckLabel.getToolTipText());
+	}
+
+	@Test
+	void aShuffleForgetsEveryKnownCard() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2MainDeck().add(makeForward("Below", "Fire", 1, 3000));
+		p2ForwardOnField(mw, "Bounced");
+		mw.returnP2ForwardToDeck(0, false);
+		mw.shuffleDeck(false);
+		assertNull(mw.gameState.knownDeckTop(false));
+		assertEquals("Player 2 Deck", mw.p2DeckLabel.getToolTipText());
+	}
+
+	// Knowledge is of the card, not the position: covered, the known card is hidden; uncovered, it
+	// is known again, because both players know it is still the next card down.
+	@Test
+	void aKnownCardCoveredByAnUnseenOneIsKnownAgainOnceUncovered() {
+		MainWindow mw = new MainWindow();
+		CardData bounced = p2ForwardOnField(mw, "Bounced");
+		mw.returnP2ForwardToDeck(0, false);
+		CardData hidden = makeForward("Hidden", "Fire", 1, 3000);
+		mw.gameState.getP2MainDeck().addFirst(hidden);
+		assertNull(mw.gameState.knownDeckTop(false));
+		mw.gameState.getP2MainDeck().pollFirst();
+		assertSame(bounced, mw.gameState.knownDeckTop(false));
+	}
+
+	// Every way into an ArrayDeque goes through addFirst or addLast, which is what forgets the mark.
+	// This pins that the JDK still routes them so.
+	@Test
+	void everyWayBackIntoTheDeckComesBackUnknown() {
+		MainWindow mw = new MainWindow();
+		Deque<CardData> deck = mw.gameState.getP2MainDeck();
+		CardData c = makeForward("Known", "Fire", 1, 3000);
+		List<Consumer<CardData>> ways = List.of(deck::add, deck::push, deck::offer, deck::offerFirst,
+				deck::offerLast, deck::addFirst, deck::addLast, x -> deck.addAll(List.of(x)));
+		for (int i = 0; i < ways.size(); i++) {
+			deck.clear();
+			deck.add(c);
+			assertTrue(mw.gameState.noteKnownInDeck(c));
+			deck.pollFirst();
+			ways.get(i).accept(c);
+			assertFalse(mw.gameState.isKnownInDeck(c), "insertion route " + i + " kept the mark");
+		}
+	}
+
+	// Two copies of one printing are equal records; only the copy that was seen is known.
+	@Test
+	void onlyTheCopyPutInFaceUpIsKnownNotItsTwin() {
+		MainWindow mw = new MainWindow();
+		CardData bounced = p2ForwardOnField(mw, "Twin");
+		mw.returnP2ForwardToDeck(0, false);
+		CardData twin = makeForward("Twin", "Fire", 2, 5000);
+		assertEquals(bounced, twin);
+		mw.gameState.getP2MainDeck().addFirst(twin);
+		assertNull(mw.gameState.knownDeckTop(false));
+	}
+
+	@Test
+	void aNoteForACardInNoDeckRecordsNothing() {
+		MainWindow mw = new MainWindow();
+		assertFalse(mw.gameState.noteKnownInDeck(makeForward("Nowhere", "Fire", 1, 3000)));
+	}
+
+	@Test
+	void anOpponentsTopCardRevealedInPlaceIsKnown() {
+		MainWindow mw = new MainWindow();
+		CardData top = makeForward("Top", "Fire", 1, 3000);
+		mw.gameState.getP2MainDeck().add(top);
+		assertTrue(mw.buildGameContext(true).revealOpponentTopCardIsType("Forward"));
+		assertSame(top, mw.gameState.knownDeckTop(false));
+	}
+
+	// The miss path reveals through the deck-look dialogs and leaves the card on top (the CPU keeps
+	// it there), so a reveal is marked there too, after the cards go back.
+	@Test
+	void aTopCardRevealedAndKeptOnTopIsKnown() {
+		MainWindow mw = new MainWindow();
+		CardData summon = makeSummon("Miss", "Fire", 2, "Deal 1000 damage.");
+		mw.gameState.getP2MainDeck().add(summon);
+		mw.buildGameContext(false).revealTopAddToHandIfType("Forward");
+		assertSame(summon, mw.gameState.knownDeckTop(false));
+	}
+
+	// A private look at several cards may rearrange them unseen, so what was known of them is lost.
+	@Test
+	void aPrivateLookAtSeveralCardsForgetsTheKnownTop() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2MainDeck().add(makeForward("Below", "Fire", 1, 3000));
+		p2ForwardOnField(mw, "Bounced");
+		mw.returnP2ForwardToDeck(0, false);
+		mw.buildGameContext(false).lookAtTopDeck(new LookConfig(2, LookConfig.LookAction.RETURN_TOP_ORDERED));
+		assertNull(mw.gameState.knownDeckTop(false));
+	}
+
+	// A private look at one card cannot move it out of sight: kept on top, it is still the card it was.
+	@Test
+	void aPrivateLookAtTheKnownTopAloneKeepsItKnown() {
+		MainWindow mw = new MainWindow();
+		CardData bounced = p2ForwardOnField(mw, "Bounced");
+		mw.returnP2ForwardToDeck(0, false);
+		mw.buildGameContext(false).lookAtTopDeck(new LookConfig(1, LookConfig.LookAction.PEEK));
+		assertSame(bounced, mw.gameState.knownDeckTop(false));
+	}
+
+	@Test
+	void aKnownTopCardDrawnIsShownInHand() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2MainDeck().add(makeForward("Below", "Fire", 1, 3000));
+		CardData bounced = p2ForwardOnField(mw, "Bounced");
+		mw.returnP2ForwardToDeck(0, false);
+		mw.buildGameContext(false).drawCards(2);
+		assertEquals(List.of(bounced), mw.shownInHand(false),
+				"only the known card is shown; the one under it was drawn unseen");
+	}
+
+	// "Put it under the top N cards" lifts those cards off and puts them back as they were: what was
+	// known of them stays known, and the card from the field is known where it went.
+	@Test
+	void aForwardPutUnderTheTopCardKeepsTheKnownTopKnown() {
+		MainWindow mw = new MainWindow();
+		CardData first = p2ForwardOnField(mw, "First");
+		mw.returnP2ForwardToDeck(0, false);
+		CardData second = p2ForwardOnField(mw, "Second");
+		mw.returnP2ForwardUnderDeckTop(0, 1);
+		assertSame(first, mw.gameState.knownDeckTop(false));
+		assertSame(second, List.copyOf(mw.gameState.getP2MainDeck()).get(1));
+		assertTrue(mw.gameState.isKnownInDeck(second));
+	}
+
+	// A searched card is revealed, so one put back on top of the deck is known there.
+	@Test
+	void aSearchedCardPutOnTopIsKnown() {
+		MainWindow mw = new MainWindow();
+		CardData found = makeForward("Found", "Fire", 2, 5000);
+		mw.gameState.getP2MainDeck().add(makeSummon("Other", "Fire", 1, "Deal 1000 damage."));
+		mw.gameState.getP2MainDeck().add(found);
+		mw.searchDeckForCard(false, true, false, false, false, -1, null,
+				null, null, null, null, null, null, "deckTop", 1, false, null);
+		assertSame(found, mw.gameState.knownDeckTop(false));
+	}
+
+	@Test
+	void aBreakZoneCardPutOnTopIsKnown() {
+		MainWindow mw = new MainWindow();
+		CardData salvaged = makeForward("Salvaged", "Fire", 2, 5000);
+		mw.gameState.getIdentity().put(salvaged, false);
+		mw.gameState.getP2BreakZone().add(salvaged);
+		mw.buildGameContext(false).putBreakZoneTargetOnTopOfDeck(
+				new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE));
+		assertSame(salvaged, mw.gameState.knownDeckTop(false));
+	}
+
+	// =========================================================================================
 	// Title format: Special Rules
 	// A Title game casts without the card's Element, and its uniqueness rule is by card number:
 	// two Characters of one name may share a field when their numbers differ, and two copies of one

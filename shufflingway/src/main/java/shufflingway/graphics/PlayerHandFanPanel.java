@@ -1,6 +1,5 @@
 package shufflingway.graphics;
 
-import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
@@ -14,8 +13,6 @@ import java.awt.Shape;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.AffineTransform;
-import java.awt.geom.Ellipse2D;
-import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -94,8 +91,7 @@ public class PlayerHandFanPanel extends JComponent {
 	 * the rise, so its eye needs this much clear above that or the panel's edge cuts it off.
 	 */
 	private static int shownBadgeHeadroom() {
-		double d = CardAnimation.CARD_W * SHOWN_BADGE_FRACTION;
-		return (int) Math.ceil(d / 2 + d * SHOWN_RIM_FRACTION / 2) + 1;
+		return (int) Math.ceil(RevealEye.reach(CardAnimation.CARD_W * SHOWN_BADGE_FRACTION)) + 1;
 	}
 
 	// Matching HandFanPanel, so the two hands separate their overlaps the same way.
@@ -123,12 +119,8 @@ public class PlayerHandFanPanel extends JComponent {
 	/** A cost that an effect has brought down, and one an effect has pushed up. */
 	private static final Color COST_DOWN = new Color(0x44EE44);
 	private static final Color COST_UP   = new Color(0xFF8844);
-	/** The badge on a card the opponent has seen: a dark disc, so the eye reads on any art. */
-	private static final double SHOWN_BADGE_FRACTION = 0.17;   // its diameter, of CARD_W
-	private static final double SHOWN_RIM_FRACTION   = 0.06;   // its rim's width, of the diameter
-	private static final Color SHOWN_DISC = new Color(20, 20, 28, 210);
-	private static final Color SHOWN_RIM  = new Color(255, 255, 255, 150);
-	private static final Color SHOWN_IRIS = new Color(70, 140, 230);
+	/** The {@link RevealEye} on a card the opponent has seen: its diameter, as a fraction of CARD_W. */
+	private static final double SHOWN_BADGE_FRACTION = 0.17;
 
 	/**
 	 * What the rules currently say about a card in hand: what it would cost to cast right now
@@ -480,36 +472,8 @@ public class PlayerHandFanPanel extends JComponent {
 	 * clear of the right-hand neighbour that covers each card's right side. The panel's overhang
 	 * above the seated cards is what the upper half draws into.
 	 */
-	private static void drawShownBadge(Graphics2D g0) {
-		Graphics2D g = (Graphics2D) g0.create();
-		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-		double d  = CardAnimation.CARD_W * SHOWN_BADGE_FRACTION;
-		double cx = CardAnimation.CARD_W / 2.0;
-		double cy = 0;
-
-		g.setColor(SHOWN_DISC);
-		g.fill(new Ellipse2D.Double(cx - d / 2, cy - d / 2, d, d));
-		g.setColor(SHOWN_RIM);
-		g.setStroke(new BasicStroke((float) (d * SHOWN_RIM_FRACTION)));
-		g.draw(new Ellipse2D.Double(cx - d / 2, cy - d / 2, d, d));
-
-		// Almond: two arcs meeting at the corners of the eye.
-		double ew = d * 0.68, eh = d * 0.42;
-		Path2D.Double almond = new Path2D.Double();
-		almond.moveTo(cx - ew / 2, cy);
-		almond.quadTo(cx, cy - eh, cx + ew / 2, cy);
-		almond.quadTo(cx, cy + eh, cx - ew / 2, cy);
-		almond.closePath();
-		g.setColor(Color.WHITE);
-		g.fill(almond);
-
-		double iris = d * 0.26;
-		g.setColor(SHOWN_IRIS);
-		g.fill(new Ellipse2D.Double(cx - iris / 2, cy - iris / 2, iris, iris));
-		double pupil = iris * 0.45;
-		g.setColor(Color.BLACK);
-		g.fill(new Ellipse2D.Double(cx - pupil / 2, cy - pupil / 2, pupil, pupil));
-		g.dispose();
+	private static void drawShownBadge(Graphics2D g) {
+		RevealEye.paint(g, CardAnimation.CARD_W / 2.0, 0, CardAnimation.CARD_W * SHOWN_BADGE_FRACTION);
 	}
 
 	/**

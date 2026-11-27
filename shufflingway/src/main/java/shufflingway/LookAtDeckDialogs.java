@@ -195,7 +195,7 @@ class LookAtDeckDialogs {
         // declined. Leaving the cards on top is the one outcome that changes nothing.
         if (decision == null) decision = DeckLookDecision.keepOnTop(n);
         CardData taken = applyDeckLook(decision, peeked, deck, isP1, namesArePublic,
-                config.action(), null);
+                config.reveal(), config.action(), null);
         // applyDeckLook refreshes the decider's own deck label, which is the looked-at one in every
         // case but this: a look across the table put its cards back into the other player's deck.
         if (config.opponentDeck()) {
@@ -287,25 +287,30 @@ class LookAtDeckDialogs {
      * @param namesArePublic false for a private look the opponent controls — the moves are then
      *                       logged by count, because naming the cards would show the human at this
      *                       seat cards they are not entitled to see
+     * @param revealed       the cards were revealed to both players, not looked at. Unlike
+     *                       {@code namesArePublic}, which is true for every look of this seat's own,
+     *                       it reads the same on both clients
      * @param playOntoField  puts a card into play for the seat at {@code isP1}; required only when
      *                       the decision names one, and it is the caller's because which zone a
      *                       card enters is the effect's business, not this one's
      */
     private CardData applyDeckLook(DeckLookDecision decision, List<CardData> peeked,
-            Deque<CardData> deck, boolean isP1, boolean namesArePublic,
+            Deque<CardData> deck, boolean isP1, boolean namesArePublic, boolean revealed,
             LookConfig.LookAction action, Consumer<CardData> playOntoField) {
-        return applyDeckLook(decision, peeked, deck, isP1, namesArePublic, action, playOntoField,
-                RevealTake.FIELD);
+        return applyDeckLook(decision, peeked, deck, isP1, namesArePublic, revealed, action,
+                playOntoField, RevealTake.FIELD);
     }
 
     private CardData applyDeckLook(DeckLookDecision decision, List<CardData> peeked,
-            Deque<CardData> deck, boolean isP1, boolean namesArePublic,
+            Deque<CardData> deck, boolean isP1, boolean namesArePublic, boolean revealed,
             LookConfig.LookAction action, Consumer<CardData> playOntoField, RevealTake take) {
         int n = peeked.size();
         // An arrangement that puts every card back on top in the order it was found moved nothing,
         // and saying so would only repeat the "Look at top N" line already in the log.
         boolean moved = !decision.equals(DeckLookDecision.keepOnTop(n));
         boolean name  = namesArePublic && moved;
+        // Asked before the cards come off: putting them back forgets what was known of them.
+        boolean loneCardWasKnown = n == 1 && gameState.isKnownInDeck(peeked.get(0));
 
         for (int i = 0; i < n; i++) deck.pollFirst();
 
@@ -327,6 +332,12 @@ class LookAtDeckDialogs {
         // toTop is topmost first, so it is pushed back in reverse.
         List<Integer> top = decision.toTop();
         for (int k = top.size() - 1; k >= 0; k--) deck.addFirst(peeked.get(top.get(k)));
+        // What both players know of the cards back on top. A reveal showed them all, and the shared
+        // log names the order they went back in. A look at one card cannot rearrange it out of
+        // sight, so if it was known and went back on top, it is still known. A look at several may
+        // have reordered them unseen, so whatever was known of them is forgotten.
+        for (int i : top)
+            if (revealed || loneCardWasKnown) gameState.noteKnownInDeck(peeked.get(i));
         if (name && !top.isEmpty()) log("→ Top of deck (topmost first): " + names(peeked, top));
         for (int i : decision.toBottom()) {
             deck.addLast(peeked.get(i));
@@ -1346,7 +1357,7 @@ class LookAtDeckDialogs {
         if (decision == null) decision = DeckLookDecision.keepOnTop(n);
         // A reveal is public, so the moves are named in the shared log whoever made them; and none
         // of these effects is the one that animates.
-        applyDeckLook(decision, cards, deck, isP1, true, null, playOntoField, take);
+        applyDeckLook(decision, cards, deck, isP1, true, true, null, playOntoField, take);
     }
 
     /**
@@ -1817,8 +1828,8 @@ class LookAtDeckDialogs {
             Predicate<CardData> matches) {
         List<CardData> taken = new ArrayList<>();
         for (CardData c : cards) if (matches.test(c)) taken.add(c);
-        applyDeckLook(splitDecision(cards, taken, RestGoes.BREAK_ZONE), cards, deck, isP1, true, null, null,
-                RevealTake.FIELD);
+        applyDeckLook(splitDecision(cards, taken, RestGoes.BREAK_ZONE), cards, deck, isP1, true, true, null,
+                null, RevealTake.FIELD);
     }
 
     private void revealAddUpToRestBz(List<CardData> cards, Deque<CardData> deck, boolean isP1,

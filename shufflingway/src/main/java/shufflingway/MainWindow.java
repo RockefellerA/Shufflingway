@@ -2209,6 +2209,10 @@ public class MainWindow {
 		});
 
 		p2DeckLabel = pileSlotLabel("DECK", "Player 2 Deck");
+		p2DeckLabel.addMouseListener(new MouseAdapter() {
+			@Override public void mouseEntered(MouseEvent e) { showKnownDeckTopZoom(false); }
+			@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+		});
 
 		p2RemoveButton = new BezelButton("RFP", BezelButton.Round.NONE);
 		p2RemoveButton.setToolTipText("Player 2 Removed From Play");
@@ -2303,6 +2307,8 @@ public class MainWindow {
 		// P1 deck label — interactive
 		p1DeckLabel = pileSlotLabel("DECK", "Player 1 Deck");
 		p1DeckLabel.addMouseListener(new MouseAdapter() {
+			@Override public void mouseEntered(MouseEvent e) { showKnownDeckTopZoom(true); }
+			@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
 			@Override
 			public void mousePressed(MouseEvent e) {
 				onP1DeckClicked();
@@ -4146,18 +4152,106 @@ public class MainWindow {
 	}
 
 
-	void refreshP1DeckLabel() {
-		int count = gameState.getP1MainDeck().size();
-		p1DeckLabel.setIcon(p1DeckShuffling ? blankPileIcon()
-				: count == 0 ? emptySlotIcon("DECK") : deckPileIcon(true, count));
+	// -------------------------------------------------------------------------
+	// Deck slots, and the deck cards both players know
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Faces of known deck tops, scaled to the field card, by image URL. With these cached, a deck
+	 * whose known top has not changed redraws at once, without showing its cardback while the face
+	 * decodes again. Read and written on the EDT only.
+	 */
+	private final Map<String, BufferedImage> knownTopFaces = new HashMap<>();
+	/** URLs whose face is being decoded, so a burst of refreshes queues each one once. */
+	private final Set<String> knownTopFacesLoading = new HashSet<>();
+
+	void refreshP1DeckLabel() { refreshDeckLabel(true); }
+
+	void refreshP2DeckLabel() { refreshDeckLabel(false); }
+
+	/**
+	 * Redraws {@code isP1}'s deck slot. It is blank while the deck shuffles, shows its name while the
+	 * deck is empty, and otherwise shows the pile. When both players know the top card, the pile shows
+	 * that card's face through its back, under an eye.
+	 */
+	private void refreshDeckLabel(boolean isP1) {
+		JLabel label = isP1 ? p1DeckLabel : p2DeckLabel;
+		if (label == null) return;
+		int count = (isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck()).size();
+		CardData known = gameState.knownDeckTop(isP1);
+		String name = isP1 ? "Player 1 Deck" : "Player 2 Deck";
+		label.setToolTipText(known == null ? name : name + " — top card revealed: " + known.name());
+		if (isP1 ? p1DeckShuffling : p2DeckShuffling) { label.setIcon(blankPileIcon()); return; }
+		if (count == 0) { label.setIcon(emptySlotIcon("DECK")); return; }
+		label.setIcon(deckPileIcon(isP1, count, known == null ? null : knownTopFace(known.imageUrl())));
 	}
 
-	void refreshP2DeckLabel() {
-		if (p2DeckLabel == null) return;
-		int count = gameState.getP2MainDeck().size();
-		p2DeckLabel.setIcon(p2DeckShuffling ? blankPileIcon()
-				: count == 0 ? emptySlotIcon("DECK") : deckPileIcon(false, count));
+	/**
+	 * The face for a known deck top, or {@code null} while it decodes. The decode runs off the EDT
+	 * and redraws both decks when it lands. A face that fails to load is not cached, so the next
+	 * refresh tries again; refreshes follow deck changes, so the retries are not a loop.
+	 */
+	private BufferedImage knownTopFace(String url) {
+		if (url == null) return null;
+		BufferedImage cached = knownTopFaces.get(url);
+		if (cached != null || !knownTopFacesLoading.add(url)) return cached;
+		new SwingWorker<BufferedImage, Void>() {
+			@Override protected BufferedImage doInBackground() throws Exception {
+				Image img = ImageCache.load(url);
+				return img == null ? null : CardAnimation.scaledCard(img, CARD_W, CARD_H);
+			}
+			@Override protected void done() {
+				knownTopFacesLoading.remove(url);
+				try {
+					BufferedImage face = get();
+					if (face == null) return;
+					// Two decks show at most two faces; keep the cache from growing over a long game.
+					if (knownTopFaces.size() >= 8) knownTopFaces.clear();
+					knownTopFaces.put(url, face);
+					refreshDeckLabel(true);
+					refreshDeckLabel(false);
+				} catch (InterruptedException | ExecutionException ignored) {}
+			}
+		}.execute();
+		return null;
 	}
+
+	/**
+	 * Records that both players know {@code card}, now face down in a Main Deck, and redraws the
+	 * decks. Call it after the card lands, from every move that puts a card into a deck face up (from
+	 * the field, the Break Zone, a search) and from every reveal that leaves its card in the deck. A
+	 * card that goes in any other way goes in unknown, and a shuffle forgets every card; see
+	 * {@link GameState#noteKnownInDeck}.
+	 */
+	void noteKnownInDeck(CardData card) {
+		if (!gameState.noteKnownInDeck(card)) return;
+		refreshDeckLabel(true);
+		refreshDeckLabel(false);
+	}
+
+	/** Hovering a deck whose top card both players know shows that card, as hovering a Break Zone does. */
+	private void showKnownDeckTopZoom(boolean isP1) {
+		CardData known = gameState.knownDeckTop(isP1);
+		if (known != null && !(isP1 ? p1DeckShuffling : p2DeckShuffling)) showZoomAt(known.imageUrl());
+	}
+
+	/**
+	 * The cards among the top {@code n} of {@code isP1}'s deck that both players know, top first,
+	 * for a draw that is about to take them. A known card drawn is known to be in that hand.
+	 */
+	private List<CardData> knownAmongTop(boolean isP1, int n) {
+		List<CardData> known = new ArrayList<>();
+		int seen = 0;
+		for (CardData c : isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck()) {
+			if (seen++ >= n) break;
+			if (gameState.isKnownInDeck(c)) known.add(c);
+		}
+		return known;
+	}
+
+	// -------------------------------------------------------------------------
+	// Cards shown in hand
+	// -------------------------------------------------------------------------
 
 	/**
 	 * Refreshes P2's fanned hand — one card per card held, face up for those P2 has shown and a back
@@ -6422,6 +6516,7 @@ public class MainWindow {
 		// Forward into the deck.
 		if (toBottom) zone.addLast(card);
 		else          zone.addFirst(card);
+		noteKnownInDeck(card);
 		logEntry(card.name() + " → " + pos + " of deck");
 
 		removeP1ForwardSlotState(idx);
@@ -6449,6 +6544,7 @@ public class MainWindow {
 		// One insertion only — see returnP1ForwardToDeck.
 		if (toBottom) zone.addLast(card);
 		else          zone.addFirst(card);
+		noteKnownInDeck(card);
 		logEntry("[P2] " + card.name() + " → " + pos + " of deck");
 
 		removeP2ForwardSlotState(idx);
@@ -6473,6 +6569,7 @@ public class MainWindow {
 		Deque<CardData> deck = player1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
 		if (toBottom) deck.addLast(card);
 		else          deck.addFirst(card);
+		noteKnownInDeck(card);
 		logEntry((side ? "" : "[P2] ") + card.name() + " → " + (toBottom ? "bottom" : "top") + " of deck");
 
 		clearBackupSlotState(idx, side);
@@ -6530,12 +6627,22 @@ public class MainWindow {
 		autoAbilityTriggers.triggerAutoAbilitiesForPutIntoDeck(card);
 	}
 
-	/** Inserts {@code card} beneath the top {@code position} cards of {@code deck}, or at its bottom. */
-	private static void insertUnderTop(Deque<CardData> deck, CardData card, int position) {
+	/**
+	 * Inserts {@code card}, from the field, beneath the top {@code position} cards of {@code deck}, or
+	 * at its bottom. The cards lifted off go back as they were, so both players still know whatever
+	 * they knew of them, and the card put under them went in face up.
+	 */
+	private void insertUnderTop(Deque<CardData> deck, CardData card, int position) {
 		List<CardData> preserved = new ArrayList<>();
-		for (int i = 0; i < position && !deck.isEmpty(); i++) preserved.add(deck.pollFirst());
+		List<CardData> known     = new ArrayList<>();
+		for (int i = 0; i < position && !deck.isEmpty(); i++) {
+			if (gameState.isKnownInDeck(deck.peekFirst())) known.add(deck.peekFirst());
+			preserved.add(deck.pollFirst());
+		}
 		deck.addFirst(card);
 		for (int i = preserved.size() - 1; i >= 0; i--) deck.addFirst(preserved.get(i));
+		for (CardData c : known) gameState.noteKnownInDeck(c);
+		noteKnownInDeck(card);
 	}
 
 	// -------------------------------------------------------------------------
@@ -7073,8 +7180,10 @@ public class MainWindow {
 						else                       placeP2CardInForwardZone(card);
 					}
 				}
+				// A searched card is revealed, so it lies face down in the deck as a known card.
 				case "deckTop" -> {
 					deck.addFirst(card);
+					noteKnownInDeck(card);
 					logEntry((isP1 ? "" : "[P2] ") + card.name() + " → top of deck (search)");
 					if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 				}
@@ -7082,10 +7191,14 @@ public class MainWindow {
 					if (deck.isEmpty()) {
 						deck.addFirst(card);
 					} else {
+						// The card lifted off goes straight back, as known as it was.
+						boolean topKnown = gameState.isKnownInDeck(deck.peekFirst());
 						CardData top = deck.pollFirst();
 						deck.addFirst(card);
 						deck.addFirst(top);
+						if (topKnown) gameState.noteKnownInDeck(top);
 					}
+					noteKnownInDeck(card);
 					logEntry((isP1 ? "" : "[P2] ") + card.name() + " → under top card of deck (search)");
 					if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 				}
@@ -10924,14 +11037,18 @@ public class MainWindow {
 	}
 
 	List<CardData> drawP1Cards(int count) {
+		List<CardData> known = knownAmongTop(true, count);
 		List<CardData> drawn = gameState.drawToHand(count);
+		noteShownInHand(true, known);
 		p1Turn.cardsDrawnThisTurn += drawn.size();
 		autoAbilityTriggers.triggerAutoAbilitiesForDraw(true, drawn.size());
 		return drawn;
 	}
 
 	List<CardData> drawP2Cards(int count) {
+		List<CardData> known = knownAmongTop(false, count);
 		List<CardData> drawn = gameState.drawP2ToHand(count);
+		noteShownInHand(false, known);
 		p2Turn.cardsDrawnThisTurn += drawn.size();
 		autoAbilityTriggers.triggerAutoAbilitiesForDraw(false, drawn.size());
 		return drawn;
@@ -25168,10 +25285,15 @@ public class MainWindow {
 		return lookDialogsInstance;
 	}
 
-	/** A Main Deck as a pile of {@code count} cardbacks, the count in the top card's corner. */
-	private ImageIcon deckPileIcon(boolean isP1, int count) {
+	/**
+	 * A Main Deck as a pile of {@code count} cardbacks, the count in the top card's corner. With
+	 * {@code knownFace}, the top card is one both players know: see {@link CardPile#renderKnownTop}.
+	 */
+	private ImageIcon deckPileIcon(boolean isP1, int count, Image knownFace) {
 		CardPile.Lean lean = pileLean(isP1);
-		BufferedImage buf = CardPile.render(loadCardbackImage(), count, CARD_W, CARD_H, lean);
+		BufferedImage buf = knownFace == null
+				? CardPile.render(loadCardbackImage(), count, CARD_W, CARD_H, lean)
+				: CardPile.renderKnownTop(loadCardbackImage(), knownFace, count, CARD_W, CARD_H, lean);
 		Rectangle top = CardPile.topCard(count, CARD_W, CARD_H, lean);
 		Graphics2D g = buf.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);

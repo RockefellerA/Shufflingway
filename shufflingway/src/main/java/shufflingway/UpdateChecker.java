@@ -648,6 +648,7 @@ public final class UpdateChecker {
     static boolean runJar(Path jar, String[] args) {
         Thread thread = Thread.currentThread();
         ClassLoader previous = thread.getContextClassLoader();
+        URLClassLoader loader = null;
         try {
             String mainClass;
             try (JarFile jf = new JarFile(jar.toFile())) {
@@ -655,8 +656,9 @@ public final class UpdateChecker {
                 mainClass = mf == null ? null : mf.getMainAttributes().getValue(Attributes.Name.MAIN_CLASS);
             }
             if (mainClass == null) throw new IOException(jar.getFileName() + " has no Main-Class.");
-            // Never closed: the staged copy's classes load from it for the life of the process.
-            URLClassLoader loader = new URLClassLoader(STAGED_LOADER_NAME,
+            // Kept open once main returns: the staged copy's classes load from it for the life of
+            // the process.
+            loader = new URLClassLoader(STAGED_LOADER_NAME,
                     new URL[] { jar.toUri().toURL() }, ClassLoader.getPlatformClassLoader());
             Method main = Class.forName(mainClass, true, loader).getMethod("main", String[].class);
             thread.setContextClassLoader(loader);
@@ -666,6 +668,14 @@ public final class UpdateChecker {
             thread.setContextClassLoader(previous);
             stagedFailure = e instanceof InvocationTargetException ite && ite.getCause() != null
                     ? ite.getCause() : e;
+            // Closed so the jar can be deleted: Windows will not delete a file that is still open.
+            if (loader != null) {
+                try {
+                    loader.close();
+                } catch (IOException ignored) {
+                    // The delete below may then fail too, and that is handled there.
+                }
+            }
             try {
                 Files.deleteIfExists(jar);
             } catch (IOException ignored) {
