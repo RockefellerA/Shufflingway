@@ -26,7 +26,7 @@ Use the 'Releases' section on the right to download the latest version.
 * Mac Installer (.pkg): macOS 13+
 * Linux Installer (.deb): Debian/Ubuntu
 
-Once the application has been installed, you can update to any new releases from "Check for Updates..." in the Help menu. Most updates download only the app itself and restart it, with no installer.
+Once the application has been installed, you can update to any new releases from "Check for Updates..." in the Help menu.
 
 # Quick Start Guide
 
