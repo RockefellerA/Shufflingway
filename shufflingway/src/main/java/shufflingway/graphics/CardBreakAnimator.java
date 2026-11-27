@@ -8,6 +8,9 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 
+import shufflingway.audio.Sound;
+import shufflingway.audio.SoundEffects;
+
 /**
  * Transparent overlay installed on the frame's DRAG_LAYER that renders
  * card-break animations: a diagonal slash sweeps across the card, then
@@ -68,12 +71,14 @@ public class CardBreakAnimator extends JComponent {
 	}
 
 	/**
-	 * Queues a break animation. {@code center} must be in layered-pane coordinates
-	 * and represent the center of the card image.
+	 * Queues a break animation, heard as {@link Sound#CARD_BREAK}. {@code center} must be in
+	 * layered-pane coordinates and represent the center of the card image.
 	 */
 	public void startBreak(BufferedImage img, Point center) {
 		breaks.add(new Break(img, center));
 		if (!timer.isRunning()) timer.start();
+		// Several cards broken at once restart the one clip rather than stacking: one swish.
+		SoundEffects.play(Sound.CARD_BREAK);
 	}
 
 	/** Never intercepts mouse events. */
