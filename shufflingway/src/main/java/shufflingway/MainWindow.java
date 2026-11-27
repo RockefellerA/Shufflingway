@@ -2194,7 +2194,10 @@ public class MainWindow {
 		p2LimitButton.setPreferredSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p2LimitButton.setMinimumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
 		p2LimitButton.setMaximumSize(new Dimension(LIMIT_W, CORNER_BAR_H));
-		p2LimitButton.addActionListener(e -> showP2LbViewerDialog());
+		p2LimitButton.addActionListener(e -> {
+			SoundEffects.play(Sound.TICK);
+			showP2LbViewerDialog();
+		});
 
 		p2BreakLabel = pileSlotLabel("BREAK", "Player 2 Break Zone");
 		p2BreakLabel.addMouseListener(new MouseAdapter() {
@@ -2224,7 +2227,10 @@ public class MainWindow {
 		p2RemoveButton.setPreferredSize(new Dimension(REMOVE_W, CORNER_BAR_H));
 		p2RemoveButton.setMinimumSize(new Dimension(REMOVE_W, CORNER_BAR_H));
 		p2RemoveButton.setMaximumSize(new Dimension(REMOVE_W, CORNER_BAR_H));
-		p2RemoveButton.addActionListener(e -> showRemovedFromPlayDialog("P2"));
+		p2RemoveButton.addActionListener(e -> {
+			SoundEffects.play(Sound.TICK);
+			showRemovedFromPlayDialog("P2");
+		});
 
 		p2CrystalDisplay = crystalButton(new Dimension(CRYSTAL_W, CORNER_BAR_H), ElementColor.FIRE.color);
 
@@ -2340,6 +2346,7 @@ public class MainWindow {
 		// Opens at any time: whether each card can be cast right now is lbCastBlocked's call, the
 		// same one a card in hand gets, and the dialog shows the rest as blocked.
 		p1LimitButton.addActionListener(e -> {
+			SoundEffects.play(Sound.TICK);
 			if (!gameState.getP1LbDeck().isEmpty() && !gameState.isP1GameOver()) showLbDialog();
 		});
 
@@ -2355,7 +2362,10 @@ public class MainWindow {
 		p1RemoveButton.setPreferredSize(new Dimension(REMOVE_W, CORNER_BAR_H));
 		p1RemoveButton.setMinimumSize(new Dimension(REMOVE_W, CORNER_BAR_H));
 		p1RemoveButton.setMaximumSize(new Dimension(REMOVE_W, CORNER_BAR_H));
-		p1RemoveButton.addActionListener(e -> showRemovedFromPlayDialog("P1"));
+		p1RemoveButton.addActionListener(e -> {
+			SoundEffects.play(Sound.TICK);
+			showRemovedFromPlayDialog("P1");
+		});
 
 		p1CrystalDisplay = crystalButton(new Dimension(CRYSTAL_W, CORNER_BAR_H), ElementColor.ICE.color);
 

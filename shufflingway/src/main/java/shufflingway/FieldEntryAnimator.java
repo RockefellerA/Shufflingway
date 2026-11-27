@@ -17,6 +17,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
 
+import shufflingway.audio.Sound;
+import shufflingway.audio.SoundEffects;
 import shufflingway.graphics.CardAnimation;
 import shufflingway.graphics.CardLimitBreakAnimator;
 import shufflingway.graphics.CardPrimingAnimator;
@@ -296,6 +298,9 @@ final class FieldEntryAnimator {
 			});
 			return;
 		}
+		// Every placement onto the field reports here. One with no arrival animation is down in its
+		// slot already, so it is heard now; an animated one is heard as play() lands it.
+		tap();
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, isP1, paidExtraCost);
 	}
 
@@ -307,7 +312,10 @@ final class FieldEntryAnimator {
 	private void play(CardData card, boolean isP1, Style style, Point origin) {
 		JLabel label = mw.findFieldSlotLabel(card, isP1);
 		String url   = card.imageUrl();
-		if (label == null || label.getWidth() == 0 || url == null) {
+		// No slot: nothing was set down on the board, so nothing is heard.
+		if (label == null) { finish(card, isP1, null); return; }
+		if (label.getWidth() == 0 || url == null) {
+			tap();
 			finish(card, isP1, null);
 			return;
 		}
@@ -323,9 +331,17 @@ final class FieldEntryAnimator {
 			@Override protected void done() {
 				BufferedImage loaded = null;
 				try { loaded = get(); } catch (InterruptedException | ExecutionException ignored) {}
-				if (loaded == null) { finish(card, isP1, null); return; }
+				if (loaded == null) { tap(); finish(card, isP1, null); return; }
 				final BufferedImage img = loaded;
-				Timer t = new Timer(start(style, img, origin, center), e -> finish(card, isP1, img));
+				int ms = start(style, img, origin, center);
+				// A Limit Break card lands in its slot on the first frame and shakes there; every
+				// other arrival comes to rest on the last.
+				boolean landsFirst = style == Style.LIMIT_BREAK;
+				if (landsFirst) tap();
+				Timer t = new Timer(ms, e -> {
+					if (!landsFirst) tap();
+					finish(card, isP1, img);
+				});
 				t.setRepeats(false);
 				t.start();
 			}
@@ -379,6 +395,11 @@ final class FieldEntryAnimator {
 	 * arrival triggered. Callers that end a turn or hand over priority must wait for this to clear.
 	 */
 	boolean isBusy() { return inFlight > 0; }
+
+	/** The card is heard being set down on the board: {@link Sound#CARD_PLACE}. */
+	private static void tap() {
+		SoundEffects.play(Sound.CARD_PLACE);
+	}
 
 	private static ImageIcon blankIcon() {
 		if (blankIcon == null)
