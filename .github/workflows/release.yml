@@ -13,8 +13,19 @@ on:
         required: true
         default: '0.1.0'
 
+# The installers are uploaded under these fixed names, the same in every release, so README.md can
+# link to releases/latest/download/<name> and always fetch the newest one. Renaming one here breaks
+# the README's link to it. The in-app updater finds installers by extension, so it reads any name.
+env:
+  WINDOWS_INSTALLER: Shufflingway-Windows.msi
+  MAC_INSTALLER: Shufflingway-macOS.pkg
+  LINUX_INSTALLER: Shufflingway-Linux-amd64.deb
+
 jobs:
-  # ── Create the GitHub Release (both platform jobs upload into this) ────────
+  # ── Create the GitHub Release as a draft (the platform jobs upload into it) ──
+  # A draft until publish-release runs, once every platform has uploaded: published any earlier,
+  # the README's latest-release links and the in-app updater would find a release still missing
+  # its installers while the platform jobs build them.
   create-release:
     runs-on: ubuntu-latest
     permissions:
@@ -35,6 +46,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.ver.outputs.version }}
+          draft: true
           generate_release_notes: true
           # Placed above the generated notes, so new users pick an installer, not the update jar.
           # The names in bold are the asset labels the platform jobs upload with.
@@ -134,15 +146,17 @@ jobs:
           Copy-Item target\shufflingway.jar "target\dist\shufflingway-${{ needs.create-release.outputs.version }}-java${{ env.JAVA_FEATURE }}.jar"
 
       # Uploaded with labels, which the release page shows in place of the file names. The updater
-      # matches assets by file name, which a label doesn't change.
+      # finds the installer by its extension and the jar by its name, and a label changes neither.
+      # The MSI goes up under its fixed name (see env at the top); the jar keeps its versioned one.
       - name: Upload MSI and jar to release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           V="${{ needs.create-release.outputs.version }}"
+          mv "$(echo target/dist/*.msi)" "target/dist/$WINDOWS_INSTALLER"
           gh release upload "v$V" --repo "${{ github.repository }}" --clobber \
-            "$(echo target/dist/*.msi)#Windows Installer" \
+            "target/dist/$WINDOWS_INSTALLER#Windows Installer" \
             "target/dist/shufflingway-$V-java${{ env.JAVA_FEATURE }}.jar#In-app update (not an installer)"
 
   # ── macOS installer (PKG) ──────────────────────────────────────────────────
@@ -213,12 +227,14 @@ jobs:
             --type             pkg \
             --dest             target/dist
 
+      # Under its fixed name (see env at the top), which also drops the 1.x version macOS needed.
       - name: Upload PKG to release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          mv "$(echo target/dist/*.pkg)" "target/dist/$MAC_INSTALLER"
           gh release upload "v${{ needs.create-release.outputs.version }}" --repo "${{ github.repository }}" --clobber \
-            "$(echo target/dist/*.pkg)#Mac Installer"
+            "target/dist/$MAC_INSTALLER#Mac Installer"
 
   # ── Linux DEB ─────────────────────────────────────────────────────────────
   release-linux:
@@ -267,9 +283,28 @@ jobs:
             --type             deb \
             --dest             target/dist
 
+      # Under its fixed name (see env at the top). apt reads the package's name and version from
+      # inside the .deb, so the file name is free to change.
       - name: Upload DEB to release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          mv "$(echo target/dist/*.deb)" "target/dist/$LINUX_INSTALLER"
           gh release upload "v${{ needs.create-release.outputs.version }}" --repo "${{ github.repository }}" --clobber \
-            "$(echo target/dist/*.deb)#Linux Installer"
+            "target/dist/$LINUX_INSTALLER#Linux Installer"
+
+  # ── Publish the release once every platform has uploaded ──────────────────
+  # Only now does it become the latest release, which the README's links and the in-app updater
+  # read. If any platform job fails, the release stays a draft and the previous one stays latest.
+  publish-release:
+    needs: [create-release, release-windows, release-macos, release-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release edit "v${{ needs.create-release.outputs.version }}" --repo "${{ github.repository }}" \
+            --draft=false

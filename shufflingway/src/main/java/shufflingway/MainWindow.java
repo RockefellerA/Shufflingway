@@ -145,6 +145,7 @@ import shufflingway.graphics.CardPrimingAnimator;
 import shufflingway.graphics.CardRfpAnimator;
 import shufflingway.graphics.CardSlideAnimator;
 import shufflingway.graphics.CounterOrb;
+import shufflingway.graphics.DamageSlot;
 import shufflingway.graphics.CrystalDisplay;
 import shufflingway.graphics.DamageNegateFlash;
 import shufflingway.graphics.DamageNumberOverlay;
@@ -693,7 +694,7 @@ public class MainWindow {
 	JPanel p2MonsterPanel;
 
 	int      p2DamageCount = 0;
-	private JPanel[] p2DamageSlots = new JPanel[7];
+	private DamageSlot[] p2DamageSlots = new DamageSlot[7];
 
 	// P2 field state (managed by ComputerPlayer)
 	final JLabel[]     p2BackupLabels        = new JLabel[5];
@@ -721,7 +722,7 @@ public class MainWindow {
 
 	// Damage zone UI
 	private JPanel     p1DamageSlotPanel;
-	private JPanel[]   p1DamageSlots = new JPanel[7];
+	private DamageSlot[] p1DamageSlots = new DamageSlot[7];
 	ShieldIcon         p1ShieldIcon;
 	ShieldIcon         p2ShieldIcon;
 	/**
@@ -4718,13 +4719,7 @@ public class MainWindow {
 			p1DamageSlotPanel.putClientProperty("exBurst", Boolean.FALSE);
 			p1DamageSlotPanel.repaint();
 		}
-		for (JPanel slot : p1DamageSlots) {
-			if (slot != null) {
-				slot.putClientProperty("cardImg", null);
-				slot.putClientProperty("isExBurst", null);
-				slot.repaint();
-			}
-		}
+		for (DamageSlot slot : p1DamageSlots) if (slot != null) slot.reset();
 
 		// Break zone labels
 		refreshP1BreakLabel();
@@ -4784,13 +4779,7 @@ public class MainWindow {
 		p2DamageCount = 0;
 		p1CannotLose = false;
 		p2CannotLose = false;
-		for (JPanel slot : p2DamageSlots) {
-			if (slot != null) {
-				slot.putClientProperty("cardImg", null);
-				slot.putClientProperty("isExBurst", null);
-				slot.repaint();
-			}
-		}
+		for (DamageSlot slot : p2DamageSlots) if (slot != null) slot.reset();
 		refreshP2DeckLabel();
 		refreshP2HandCountLabel();
 	}
@@ -5512,9 +5501,8 @@ public class MainWindow {
 					p1DamageSlotPanel.repaint();
 				}
 				if (idx < 7 && p1DamageSlots[idx] != null) {
-					JPanel slot = p1DamageSlots[idx];
-					slot.putClientProperty("isExBurst", isEx ? Boolean.TRUE : Boolean.FALSE);
-					slot.repaint();
+					DamageSlot slot = p1DamageSlots[idx];
+					slot.setExBurst(isEx);
 					String url = drawn.imageUrl();
 					new SwingWorker<Image, Void>() {
 						@Override protected Image doInBackground() throws Exception {
@@ -5522,8 +5510,9 @@ public class MainWindow {
 						}
 						@Override protected void done() {
 							try {
+								// The tile presses in and turns red as its card arrives.
 								Image img = get();
-								if (img != null) { slot.putClientProperty("cardImg", img); slot.repaint(); }
+								if (img != null) slot.setCard(img);
 							} catch (InterruptedException | ExecutionException ignored) {}
 						}
 					}.execute();
@@ -5613,9 +5602,8 @@ public class MainWindow {
 		Timer revealTimer = new Timer(animDelay, e -> {
 			try {
 				if (slotIdx >= 0 && slotIdx < p2DamageSlots.length && p2DamageSlots[slotIdx] != null) {
-					JPanel slot = p2DamageSlots[slotIdx];
-					slot.putClientProperty("isExBurst", isEx ? Boolean.TRUE : Boolean.FALSE);
-					slot.repaint();
+					DamageSlot slot = p2DamageSlots[slotIdx];
+					slot.setExBurst(isEx);
 					if (drawn != null) {
 						String url = drawn.imageUrl();
 						new SwingWorker<Image, Void>() {
@@ -5624,8 +5612,9 @@ public class MainWindow {
 							}
 							@Override protected void done() {
 								try {
+									// The tile presses in and turns red as its card arrives.
 									Image img = get();
-									if (img != null) { slot.putClientProperty("cardImg", img); slot.repaint(); }
+									if (img != null) slot.setCard(img);
 								} catch (InterruptedException | ExecutionException ignored) {}
 							}
 						}.execute();
@@ -9207,29 +9196,28 @@ public class MainWindow {
 
 	/** Repaints damage-zone slot visuals from {@code gameState} after non-draw mutations. */
 	void refreshDamageZoneSlots(boolean isP1) {
-		List<CardData> dz   = isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone();
-		JPanel[]      slots = isP1 ? p1DamageSlots               : p2DamageSlots;
+		List<CardData> dz     = isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone();
+		DamageSlot[]   slots  = isP1 ? p1DamageSlots               : p2DamageSlots;
 		for (int i = 0; i < slots.length; i++) {
-			JPanel slot = slots[i];
+			DamageSlot slot = slots[i];
 			if (slot == null) continue;
 			if (i < dz.size()) {
 				CardData cd = dz.get(i);
-				slot.putClientProperty("isExBurst", cd.exBurst() ? Boolean.TRUE : Boolean.FALSE);
-				final JPanel fSlot = slot;
-				final String url   = cd.imageUrl();
+				slot.setExBurst(cd.exBurst());
+				final String url = cd.imageUrl();
 				new SwingWorker<Image, Void>() {
 					@Override protected Image doInBackground() throws Exception { return ImageCache.load(url); }
 					@Override protected void done() {
 						try {
 							Image img = get();
-							if (img != null) { fSlot.putClientProperty("cardImg", img); fSlot.repaint(); }
+							if (img != null) slot.setCard(img);
 						} catch (InterruptedException | ExecutionException ignored) {}
 					}
 				}.execute();
 			} else {
-				slot.putClientProperty("cardImg",  null);
-				slot.putClientProperty("isExBurst", null);
-				slot.repaint();
+				// A card gone from the Damage Zone: its tile comes back out.
+				slot.setCard(null);
+				slot.setExBurst(false);
 			}
 		}
 		refreshOverflowDamageButton(isP1);
@@ -25004,48 +24992,7 @@ public class MainWindow {
 
 			String[] slotLetters = { "D", "A", "M", "A", "G", "E", "P1" };
 			for (int i = 0; i < 7; i++) {
-				final String letter = slotLetters[i];
-				JPanel slot = new JPanel() {
-					@Override public void setBackground(Color c) { /* paintComponent owns background */ }
-					@Override protected void paintComponent(Graphics g) {
-						Image img = (Image) getClientProperty("cardImg");
-						Graphics2D g2 = (Graphics2D) g.create();
-						g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-						g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-						g2.setColor(img != null ? Color.RED : Color.DARK_GRAY);
-						g2.fillRect(0, 0, getWidth(), getHeight());
-						if (img != null) {
-							int iw = img.getWidth(null), ih = img.getHeight(null);
-							if (iw > 0 && ih > 0) {
-								int cardAreaW = getWidth() / 2;
-								double scale = Math.min((double) cardAreaW / iw, (double) getHeight() / ih);
-								int dw = (int)(iw * scale), dh = (int)(ih * scale);
-								int dy = (getHeight() - dh) / 2;
-								g2.drawImage(img, 0, dy, dw, dy + dh, 0, 0, iw, ih, null);
-							}
-						}
-						g2.setFont(FontLoader.loadPixelFont(14));
-						g2.setColor(Color.WHITE);
-						FontMetrics fm = g2.getFontMetrics();
-						int tx = (getWidth() - fm.stringWidth(letter)) / 2;
-						int ty = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
-						g2.drawString(letter, tx, ty);
-						if (getClientProperty("isExBurst") == Boolean.TRUE) {
-							g2.setFont(FontLoader.loadPixelFont(9));
-							FontMetrics exFm = g2.getFontMetrics();
-							int exW = exFm.stringWidth("EX");
-							int exX = getWidth() - exW - 3;
-							int exY = exFm.getAscent() + 2;
-							g2.setColor(Color.BLACK);
-							g2.drawString("EX", exX + 1, exY + 1);
-							g2.setColor(Color.YELLOW);
-							g2.drawString("EX", exX, exY);
-						}
-						g2.dispose();
-					}
-				};
-				slot.setOpaque(true);
-				slot.setBorder(BorderFactory.createLineBorder(new Color(80, 80, 80), 1));
+				DamageSlot slot = new DamageSlot(slotLetters[i], true);
 				// Per-slot listener: hovering a filled slot previews that damage card in the side
 				// panel.  It also has to repeat the stack-level context menu, because a child with
 				// its own MouseListener becomes the event target and the parent no longer sees it.
@@ -25085,47 +25032,7 @@ public class MainWindow {
 			};
 			slotsPanel.setOpaque(true);
 			for (int i = 0; i < letters.length; i++) {
-				final String letter = letters[i];
-				JPanel slot = new JPanel() {
-					@Override public void setBackground(Color c) { /* paintComponent owns background */ }
-					@Override protected void paintComponent(Graphics g) {
-						Image img = (Image) getClientProperty("cardImg");
-						Graphics2D g2 = (Graphics2D) g.create();
-						g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-						g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-						g2.setColor(img != null ? Color.RED : Color.DARK_GRAY);
-						g2.fillRect(0, 0, getWidth(), getHeight());
-						if (img != null) {
-							int iw = img.getWidth(null), ih = img.getHeight(null);
-							if (iw > 0 && ih > 0) {
-								int cardAreaW = getWidth() / 2;
-								double scale = Math.min((double) cardAreaW / iw, (double) getHeight() / ih);
-								int dw = (int)(iw * scale), dh = (int)(ih * scale);
-								int dy = (getHeight() - dh) / 2;
-								int dx = getWidth() - dw;
-								g2.drawImage(img, dx, dy, dx + dw, dy + dh, 0, 0, iw, ih, null);
-							}
-						}
-						g2.setFont(FontLoader.loadPixelFont(14));
-						g2.setColor(Color.WHITE);
-						FontMetrics fm = g2.getFontMetrics();
-						int tx = (getWidth() - fm.stringWidth(letter)) / 2;
-						int ty = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
-						g2.drawString(letter, tx, ty);
-						if (getClientProperty("isExBurst") == Boolean.TRUE) {
-							g2.setFont(FontLoader.loadPixelFont(9));
-							FontMetrics exFm = g2.getFontMetrics();
-							int exY = exFm.getAscent() + 2;
-							g2.setColor(Color.BLACK);
-							g2.drawString("EX", 4, exY + 1);
-							g2.setColor(Color.YELLOW);
-							g2.drawString("EX", 3, exY);
-						}
-						g2.dispose();
-					}
-				};
-				slot.setOpaque(true);
-				slot.setBorder(BorderFactory.createLineBorder(new Color(80, 80, 80), 1));
+				DamageSlot slot = new DamageSlot(letters[i], false);
 				final int slotIdx = i;
 				slot.addMouseListener(new MouseAdapter() {
 					@Override public void mouseEntered(MouseEvent e) {

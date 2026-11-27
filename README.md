@@ -20,11 +20,13 @@ Current card coverage: **100%**
 
 # Installation Guide
 
-Use the 'Releases' section on the right to download the latest version.
+Download the installer for your platform. Each link always fetches the latest version.
 
-* Windows Installer (.msi): Windows
-* Mac Installer (.pkg): macOS 13+
-* Linux Installer (.deb): Debian/Ubuntu
+* [Windows Installer (.msi)](https://github.com/RockefellerA/Shufflingway/releases/latest/download/Shufflingway-Windows.msi): Windows
+* [Mac Installer (.pkg)](https://github.com/RockefellerA/Shufflingway/releases/latest/download/Shufflingway-macOS.pkg): macOS 13+
+* [Linux Installer (.deb)](https://github.com/RockefellerA/Shufflingway/releases/latest/download/Shufflingway-Linux-amd64.deb): Debian/Ubuntu
+
+Release notes and earlier versions are in the [Releases](https://github.com/RockefellerA/Shufflingway/releases) section.
 
 Once the application has been installed, you can update to any new releases from "Check for Updates..." in the Help menu.
 
