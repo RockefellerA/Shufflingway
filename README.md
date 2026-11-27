@@ -19,8 +19,9 @@ Shufflingway allows you to play against a CPU or a friend with the application f
 Current card coverage: **100%**
 
 # Installation Guide
+![Latest release](https://img.shields.io/github/v/release/RockefellerA/Shufflingway)
 
-Download the installer for your platform. Each link always fetches the latest version.
+Download the installer for your platform:
 
 * [Windows Installer (.msi)](https://github.com/RockefellerA/Shufflingway/releases/latest/download/Shufflingway-Windows.msi): Windows
 * [Mac Installer (.pkg)](https://github.com/RockefellerA/Shufflingway/releases/latest/download/Shufflingway-macOS.pkg): macOS 13+
