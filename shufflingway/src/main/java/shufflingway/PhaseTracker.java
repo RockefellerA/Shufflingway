@@ -30,6 +30,11 @@ import javax.swing.Timer;
  * red otherwise. On phase change the old diamond's halo fades out as the new
  * one's fades in over ~240ms.
  *
+ * Until a game's first player is decided the track is idle: no phase lit or passed, and no turn
+ * pill, as it is nobody's turn. Before a game it shows no turn number either ({@link
+ * #clearGame()}); while the players decide on their opening hands it reads "TURN 0" ({@link
+ * #beginDeal()}). The first {@link #setPhase} then fades its phase in from nothing.
+ *
  * The Attack phase is shown as a cluster of four small sub-steps connected by a
  * thinner inner line, representing the four internal sub-steps of the Attack
  * phase. The same blue/red glow animates between sub-steps as
@@ -256,11 +261,16 @@ public class PhaseTracker extends JPanel {
     private static final Color RED_PILL_BG   = new Color(0x7a1d1d);
 
     // -- State ------------------------------------------------------------------
-    private int     phaseIdx       = 0;
-    private int     prevPhaseIdx   = 0;
+    /** {@link #phaseIdx} while no game is in play: no phase is current, and none has passed. */
+    private static final int NO_PHASE = -1;
+
+    private int     phaseIdx       = NO_PHASE;
+    private int     prevPhaseIdx   = NO_PHASE;
     private int     attackStep     = 0;   // 0..3; only meaningful in Attack phase
     private int     prevAttackStep = 0;
-    private int     turn           = 1;
+    private int     turn           = 0;
+    /** Whether an idle track reads "TURN 0": set while the opening hands are being decided. */
+    private boolean dealing        = false;
     private boolean isMyTurn       = true;  // whose turn it is (controls the banner)
     private boolean hasPriority    = true;  // who currently holds priority (controls diamond color)
 
@@ -318,6 +328,34 @@ public class PhaseTracker extends JPanel {
         setTurn(turn);
         setMyTurn(isMyTurn);
     }
+
+    /**
+     * Back to the idle track shown while no game is in play: no turn number, no turn pill, and no
+     * phase lit or passed. Any fade in flight is dropped rather than finished.
+     */
+    public void clearGame() {
+        animTimer.stop();
+        progress       = 1f;
+        phaseIdx       = NO_PHASE;
+        prevPhaseIdx   = NO_PHASE;
+        attackStep     = 0;
+        prevAttackStep = 0;
+        turn           = 0;
+        dealing        = false;
+        repaint();
+    }
+
+    /**
+     * The idle track shown while the players decide on their opening hands: "TURN 0", but still no
+     * turn pill and no phase lit, as nobody's turn has begun until the first player is decided.
+     */
+    public void beginDeal() {
+        clearGame();
+        dealing = true;
+    }
+
+    /** Whether the track is idle: no game in play, so no phase and nobody's turn. */
+    public boolean isIdle() { return phaseIdx == NO_PHASE; }
 
     /** Move to a new phase. Entering Attack resets the sub-step to 0. */
     public void setPhase(String phase) {
@@ -391,7 +429,8 @@ public class PhaseTracker extends JPanel {
         repaint();
     }
 
-    public String  getPhase()      { return PHASES[phaseIdx]; }
+    /** The current phase's name, or {@code null} while {@linkplain #isIdle idle}. */
+    public String  getPhase()      { return isIdle() ? null : PHASES[phaseIdx]; }
     public int     getTurn()       { return turn; }
     public boolean isMyTurn()      { return isMyTurn; }
     public int     getAttackStep() { return attackStep; }
@@ -479,13 +518,18 @@ public class PhaseTracker extends JPanel {
         g.setColor(p.connectorHi());  g.fillRect(x1, cy + 1, x2 - x1, 1);
     }
 
-    /** "TURN N"  |  [ YOUR TURN ] row. */
+    /**
+     * "TURN N"  |  [ YOUR TURN ] row. {@linkplain #isIdle Idle}, only "TURN 0" while the opening
+     * hands are decided, and nothing before that.
+     */
     private void drawTopStrip(Graphics2D g, int w, Color pillBg, Palette p) {
+        if (isIdle() && !dealing) return;
         g.setFont(stripFont);
         g.setColor(p.text());
         FontMetrics fm = g.getFontMetrics();
         int stripY = PAD_TOP + fm.getAscent();
         g.drawString("TURN " + turn, PAD_X, stripY);
+        if (isIdle()) return;
 
         String pillText  = pillText();
         int    pillTextW = fm.stringWidth(pillText);

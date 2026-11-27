@@ -3600,6 +3600,8 @@ public class MainWindow {
 	}
 
 	private void drawOpeningHand() {
+		// "TURN 0" while the hands are decided; the coin flip's first turn brings turn 1 and the pill.
+		if (phaseTracker != null) phaseTracker.beginDeal();
 		List<CardData> drawn = gameState.drawOpeningHand();
 		refreshP1DeckLabel();
 		logEntry("Drew opening hand (" + drawn.size() + " cards)");
@@ -4740,6 +4742,8 @@ public class MainWindow {
 		if (p1CrystalDisplay != null) p1CrystalDisplay.hardReset();
 		if (p2CrystalDisplay != null) p2CrystalDisplay.hardReset();
 		setCornerButtonsShown(false);
+		// The phase track blank until the new game's hands are dealt (drawOpeningHand)
+		if (phaseTracker != null) phaseTracker.clearGame();
 
 		// P2 backup slots
 		for (int i = 0; i < p2BackupCards.length; i++) {
