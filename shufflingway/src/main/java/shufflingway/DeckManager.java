@@ -47,6 +47,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -121,7 +122,11 @@ public class DeckManager extends JFrame {
     private JTable deckTable;
 
     private final JLabel countLabel;
+    /** The Element pie and cost curve, at the deck list's lower left, opposite {@link #countLabel}. */
+    private final DeckChartsButton chartsButton = new DeckChartsButton();
     private final JLabel cardImageLabel;
+    /** The serial of the card the preview shows, or is loading; {@code null} before the first. */
+    private String previewSerial;
 
     private static final Color LB_BG          = new Color(50, 50, 50);
     private static final Color LB_FG          = new Color(0xFF, 0xD7, 0x00);
@@ -418,13 +423,11 @@ public class DeckManager extends JFrame {
 
         cardTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
-                int viewRow = cardTable.getSelectedRow();
-                if (viewRow >= 0) {
-                    int modelRow = cardTable.convertRowIndexToModel(viewRow);
-                    loadCardImageAsync((String) browserModel.getValueAt(modelRow, 0));
-                }
+                String serial = browserSelectedSerial();
+                if (serial != null) loadCardImageAsync(serial);
             }
         });
+        previewSelectionOnClick(cardTable, this::browserSelectedSerial);
 
         // Search controls
         String[] columnChoices = new String[BROWSER_COLUMNS.length + 1];
@@ -469,6 +472,7 @@ public class DeckManager extends JFrame {
         CardBinderView.Switchable views = CardBinderView.around(cardTable, 0, 1, 3);
         browserViews = views;
         binderView = views.binder();
+        previewSelectionOnClick(binderView, this::browserSelectedSerial);
 
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createTitledBorder("Card Browser"));
@@ -544,11 +548,11 @@ public class DeckManager extends JFrame {
 
         deckTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
-                int row = deckTable.getSelectedRow();
-                if (row >= 0 && !isHeaderRow(row))
-                    loadCardImageAsync((String) deckModel.getValueAt(row, 1));
+                String serial = deckSelectedSerial();
+                if (serial != null) loadCardImageAsync(serial);
             }
         });
+        previewSelectionOnClick(deckTable, this::deckSelectedSerial);
 
         JButton removeBtn    = new JButton("Remove 1 from Deck  ✕");
         JButton removeAllBtn = new JButton("Remove All From Deck");
@@ -629,8 +633,14 @@ public class DeckManager extends JFrame {
         btnPanel.add(removePanel, BorderLayout.WEST);
         btnPanel.add(formatPanel, BorderLayout.EAST);
 
-        JPanel btnLabelsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        btnLabelsPanel.add(countLabel);
+        // The charts on the left, the card count on the right, each in the flow it always sat in.
+        JPanel chartsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        chartsPanel.add(chartsButton);
+        JPanel countPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        countPanel.add(countLabel);
+        JPanel btnLabelsPanel = new JPanel(new BorderLayout());
+        btnLabelsPanel.add(chartsPanel, BorderLayout.WEST);
+        btnLabelsPanel.add(countPanel,  BorderLayout.EAST);
 
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createTitledBorder("Deck Contents"));
@@ -905,6 +915,10 @@ public class DeckManager extends JFrame {
         int fwd = sumQty(deckForwards), bak = sumQty(deckBackups),
             sum = sumQty(deckSummons),  mon = sumQty(deckMonsters), lb = sumQty(deckLbs);
         updateCountLabel(fwd + bak + sum + mon, lb);
+        // The main deck only: Limit Break cards are a deck of their own.
+        List<Object[]> main = new ArrayList<>();
+        for (List<Object[]> group : List.of(deckForwards, deckBackups, deckSummons, deckMonsters)) main.addAll(group);
+        chartsButton.setStats(DeckStats.of(main));
     }
 
     private void addSection(String name, List<Object[]> rows) {
@@ -998,6 +1012,7 @@ public class DeckManager extends JFrame {
             clearDeckGroups();
             deckModel.setRowCount(0);
             countLabel.setText(formatCountLabel(0, 0));
+            chartsButton.setStats(DeckStats.EMPTY);
             refreshFormatLegality();
             loadDeckList();
         } catch (SQLException e) {
@@ -1732,7 +1747,40 @@ public class DeckManager extends JFrame {
     /** A loaded preview: the full-size icon, where it came from and a binder-size copy. */
     private record Preview(ImageIcon icon, String url, BufferedImage thumb) {}
 
+    /** The serial of the card selected in the browser (table or binder), or {@code null}. */
+    private String browserSelectedSerial() {
+        int viewRow = cardTable.getSelectedRow();
+        return viewRow < 0 ? null : (String) browserModel.getValueAt(cardTable.convertRowIndexToModel(viewRow), 0);
+    }
+
+    /** The serial of the card selected in the deck list, or {@code null}; a section header is no card. */
+    private String deckSelectedSerial() {
+        int row = deckTable.getSelectedRow();
+        return row < 0 || isHeaderRow(row) ? null : (String) deckModel.getValueAt(row, 1);
+    }
+
+    /**
+     * Shows {@code view}'s selected card whenever {@code view} is clicked, even when the click selects
+     * nothing new. The browser and the deck list keep separate selections, so going back to the card
+     * still selected in the other one changes no selection, and the preview, which otherwise follows
+     * selection changes, would go on showing the card from the list just left.
+     *
+     * <p>Checked once the click has been handled: a click that did change the selection has been
+     * shown by then, and the check finds the preview already showing it.
+     */
+    private void previewSelectionOnClick(JComponent view, Supplier<String> selectedSerial) {
+        view.addMouseListener(new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent e) {
+                SwingUtilities.invokeLater(() -> {
+                    String serial = selectedSerial.get();
+                    if (serial != null && !serial.equals(previewSerial)) loadCardImageAsync(serial);
+                });
+            }
+        });
+    }
+
     private void loadCardImageAsync(String serial) {
+        previewSerial = serial;
         cardImageLabel.setIcon(null);
         cardImageLabel.setText("Loading…");
         cardImageLabel.setToolTipText(null);
@@ -1764,16 +1812,19 @@ public class DeckManager extends JFrame {
             protected void done() {
                 try {
                     Preview preview = get();
+                    // The preview may have just downloaded this card; show it in the binder too.
+                    if (preview != null) binderView.imageLoaded(serial, preview.url(), preview.thumb());
+                    // A card clicked since has the preview now; this slower load must not cover it.
+                    if (!serial.equals(previewSerial)) return;
                     if (preview != null) {
                         cardImageLabel.setIcon(preview.icon());
                         captionPreview(serial, null);
-                        // The preview may have just downloaded this card; show it in the binder too.
-                        binderView.imageLoaded(serial, preview.url(), preview.thumb());
                     } else {
                         cardImageLabel.setIcon(null);
                         captionPreview(serial, "No image available");
                     }
                 } catch (InterruptedException | ExecutionException e) {
+                    if (!serial.equals(previewSerial)) return;
                     cardImageLabel.setIcon(null);
                     captionPreview(serial, "Error loading image");
                 }
