@@ -1940,4 +1940,48 @@ public class DeckManager extends JFrame {
         table.getColumnModel().getColumn(7).setPreferredWidth(70);  // Job
         setCategoryColumns(table, 8);
     }
+
+    // -------------------------------------------------------------------------
+    // Scripted setup, for ReadmeScreenshots
+    // -------------------------------------------------------------------------
+
+    /**
+     * Selects the saved deck named {@code name} in My Decks, which loads it into Deck Contents, and
+     * scrolls the list to it. Returns false, selecting nothing, when no deck has that name.
+     */
+    boolean selectDeckNamed(String name) {
+        for (int i = 0; i < deckListModel.size(); i++) {
+            if (deckListModel.get(i).name().equals(name)) {
+                deckList.setSelectedIndex(i);
+                deckList.ensureIndexIsVisible(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether the Card Browser has its rows, which load in the background after the window opens. */
+    boolean browserLoaded() {
+        return browserModel.getRowCount() > 0;
+    }
+
+    /**
+     * Selects {@code serial} in the Card Browser, which previews it, and scrolls the browser to it.
+     * Returns false when the browser does not list it, which it does not until {@link #browserLoaded()}.
+     */
+    boolean selectBrowserCard(String serial) {
+        for (int row = 0; row < cardTable.getRowCount(); row++) {
+            if (serial.equals(browserModel.getValueAt(cardTable.convertRowIndexToModel(row), 0))) {
+                cardTable.setRowSelectionInterval(row, row);
+                cardTable.scrollRectToVisible(cardTable.getCellRect(row, 0, true));
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether the preview has finished loading {@code serial}'s image. */
+    boolean previewShows(String serial) {
+        return serial.equals(previewSerial) && cardImageLabel.getIcon() != null;
+    }
 }

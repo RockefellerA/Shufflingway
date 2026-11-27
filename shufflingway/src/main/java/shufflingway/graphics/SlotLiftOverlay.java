@@ -275,7 +275,7 @@ public class SlotLiftOverlay extends JComponent {
 	private void paintLift(Graphics g, Lift l) {
 		JLabel slot = l.slot;
 		Icon   icon = slot.getIcon();
-		if (l.progress == 0 || icon == null || !slot.isShowing()) return;
+		if (l.progress == 0 || icon == null || !visibleInThisWindow(slot)) return;
 		Graphics2D g2 = (Graphics2D) g.create();
 		try {
 			// Stay inside the row's viewport sideways, so a card scrolled half out of view is not
@@ -298,6 +298,21 @@ public class SlotLiftOverlay extends JComponent {
 		} finally {
 			g2.dispose();
 		}
+	}
+
+	/**
+	 * Whether {@code slot} is on the board this overlay draws over, and neither it nor anything it
+	 * sits in is hidden. Not {@link Component#isShowing()}, which is also false whenever the window
+	 * is not on screen: a board painted into an image without being shown (the README screenshots)
+	 * still draws its raised cards. A slot that has left the field has no way up to this window.
+	 */
+	private boolean visibleInThisWindow(JLabel slot) {
+		JRootPane root = SwingUtilities.getRootPane(this);
+		for (Component c = slot; c != null; c = c.getParent()) {
+			if (!c.isVisible()) return false;
+			if (c == root) return true;
+		}
+		return false;
 	}
 
 	/** Smoothstep: eases out of the row and into the raised position. */
