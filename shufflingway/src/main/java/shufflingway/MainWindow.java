@@ -135,6 +135,7 @@ import shufflingway.graphics.AbilityToolTip;
 import shufflingway.graphics.ActionButton;
 import shufflingway.graphics.BezelButton;
 import shufflingway.graphics.BoardEdgeFadePanel;
+import shufflingway.graphics.BoardTexture;
 import shufflingway.graphics.CardAnimation;
 import static shufflingway.graphics.CardAnimation.CARD_H;
 import static shufflingway.graphics.CardAnimation.CARD_W;
@@ -2129,7 +2130,7 @@ public class MainWindow {
 		frame.setJMenuBar(menuBar);
 		menuBar.add(new FileMenu(frame, this::newGameFromMenu,
 				() -> applySidePanelSide(AppSettings.getSidePanelSide()),
-				this::applyBoardColor, this::notReadyIndicatorChanged));
+				this::applyBoardColor, this::applyBoardTexture, this::notReadyIndicatorChanged));
 		multiplayerMenu = new MultiplayerMenu(frame,
 				setup -> {
 					SwingUtilities.invokeLater(() -> {
@@ -2269,7 +2270,9 @@ public class MainWindow {
 				@Override public void mouseExited(MouseEvent e) { hideZoom(); }
 			});
 		}
+		// Transparent, like everything over the zone but the damage stack, so its texture shows.
 		JPanel p2BackupWrapper = new JPanel(new GridBagLayout());
+		p2BackupWrapper.setOpaque(false);
 		GridBagConstraints p2BackupGbc = new GridBagConstraints();
 		p2BackupGbc.anchor = GridBagConstraints.NORTH;
 		p2BackupGbc.weighty = 1.0;
@@ -2283,6 +2286,7 @@ public class MainWindow {
 		// The fan claims the top of the band, pushing the backups down away from the screen edge.
 		// Its height is paid for out of the forward zone's spare seating — see buildForwardZonePanel.
 		JPanel p2TopRow = new JPanel(new BorderLayout());
+		p2TopRow.setOpaque(false);
 		p2TopRow.add(p2HandFan,       BorderLayout.NORTH);
 		p2TopRow.add(p2BackupWrapper, BorderLayout.CENTER);
 
@@ -2414,7 +2418,9 @@ public class MainWindow {
 			});
 		}
 
+		// Transparent, like everything over the zone but the damage stack, so its texture shows.
 		JPanel p1BackupWrapper = new JPanel(new GridBagLayout());
+		p1BackupWrapper.setOpaque(false);
 		GridBagConstraints p1BackupGbc = new GridBagConstraints();
 		p1BackupGbc.anchor = GridBagConstraints.SOUTH;
 		p1BackupGbc.weighty = 1.0;
@@ -2541,10 +2547,12 @@ public class MainWindow {
 		gbc.weighty = 1.0; gbc.gridy = 2; gameBoard.add(p1Board,  gbc);
 
 
-		// Apply the saved field colors at startup. The dropdowns that change these live in
-		// Preferences (see applyBoardColor, wired through FileMenu → PreferencesDialog).
+		// Apply the saved field colors and textures at startup. The dropdowns that change these live
+		// in Preferences (see applyBoardColor, wired through FileMenu → PreferencesDialog).
 		applyBoardColor(false, AppSettings.getP2BoardColor());
 		applyBoardColor(true,  AppSettings.getP1BoardColor());
+		applyBoardTexture(false, AppSettings.getP2BoardTexture());
+		applyBoardTexture(true,  AppSettings.getP1BoardTexture());
 
 		// --- Side Panel (card preview + Next button + Game Log) ---
 
@@ -25343,7 +25351,8 @@ public class MainWindow {
 	/**
 	 * Applies a field/board color to one player's zones and gradient board. Visual only — the
 	 * caller (Preferences) is responsible for persisting the choice. {@code colorName} is a value
-	 * from {@link ElementColor#boardColorChoices()} ({@code "Default"} or a title-case element).
+	 * from {@link ElementColor#boardColorChoices()}, a title-case element; one that names no
+	 * element changes nothing.
 	 */
 	void applyBoardColor(boolean isP1, String colorName) {
 		if (isP1) {
@@ -25355,10 +25364,19 @@ public class MainWindow {
 		}
 	}
 
+	/**
+	 * Lays a texture over one player's field color. Visual only, like {@link #applyBoardColor};
+	 * the caller persists the choice.
+	 */
+	void applyBoardTexture(boolean isP1, BoardTexture texture) {
+		BoardEdgeFadePanel zones = isP1 ? p1ZonesPanel : p2ZonesPanel;
+		if (zones != null) zones.setTexture(texture, isP1 ? 0 : 1);
+	}
+
 	private void applyElementColor(String selection, JPanel... panels) {
-		Color bg = "Default".equals(selection)
-				? UIManager.getColor("Panel.background")
-				: ElementColor.fromName(selection).color;
+		ElementColor element = ElementColor.fromName(selection);
+		if (element == null) return;
+		Color bg = element.color;
 		for (JPanel panel : panels) {
 			setPanelBackground(panel, bg);
 			panel.repaint();

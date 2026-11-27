@@ -13,6 +13,7 @@ import javax.swing.KeyStroke;
 import shufflingway.CardBrowser;
 import shufflingway.DeckManager;
 import shufflingway.dialog.PreferencesDialog;
+import shufflingway.graphics.BoardTexture;
 
 /**
  * File menu for the main window.
@@ -27,7 +28,8 @@ public class FileMenu extends JMenu {
      *                Forward that is not ready yet is marked
      */
     public FileMenu(JFrame owner, Runnable newGame, Runnable onLayoutChanged,
-            BiConsumer<Boolean, String> onBoardColorChanged, Runnable onNotReadyIndicatorChanged) {
+            BiConsumer<Boolean, String> onBoardColorChanged,
+            BiConsumer<Boolean, BoardTexture> onBoardTextureChanged, Runnable onNotReadyIndicatorChanged) {
         super("File");
 
         JMenuItem newGameItem = new JMenuItem("New Game");
@@ -52,7 +54,7 @@ public class FileMenu extends JMenu {
         add(preferences);
         preferences.addActionListener((ActionEvent e) -> {
             PreferencesDialog dialog = new PreferencesDialog(owner, onLayoutChanged, onBoardColorChanged,
-                    onNotReadyIndicatorChanged);
+                    onBoardTextureChanged, onNotReadyIndicatorChanged);
             dialog.setVisible(true);
         });
 

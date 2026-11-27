@@ -18,8 +18,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
+import java.util.function.BiConsumer;
 
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -53,24 +55,28 @@ import shufflingway.Theme;
 import shufflingway.UiScale;
 import shufflingway.audio.Sound;
 import shufflingway.audio.SoundEffects;
+import shufflingway.graphics.BoardTexture;
 import shufflingway.graphics.Counter;
 
 
 public class PreferencesDialog extends JDialog {
 
 	public PreferencesDialog(Frame owner) {
-		this(owner, null, null, null);
+		this(owner, null, null, null, null);
 	}
 
 	/**
 	 * @param onLayoutChanged     invoked after a layout setting changes (e.g. side panel side)
 	 * @param onBoardColorChanged invoked as {@code (isP1, colorName)} when a field color changes;
 	 *                            applies the color to the live board. May be {@code null}.
+	 * @param onBoardTextureChanged invoked as {@code (isP1, texture)} when a field texture changes;
+	 *                            applies it to the live board. May be {@code null}.
 	 * @param onNotReadyIndicatorChanged invoked after the not-ready indicator changes, to redraw
 	 *                            the Forwards on the live board. May be {@code null}.
 	 */
 	public PreferencesDialog(Frame owner, Runnable onLayoutChanged,
-			java.util.function.BiConsumer<Boolean, String> onBoardColorChanged,
+			BiConsumer<Boolean, String> onBoardColorChanged,
+			BiConsumer<Boolean, BoardTexture> onBoardTextureChanged,
 			Runnable onNotReadyIndicatorChanged) {
 		super(owner, "Preferences", true);
 		setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -162,18 +168,19 @@ public class PreferencesDialog extends JDialog {
 		// No font picker: typeface is fixed per role in FontLoader — Pixel Emulator for the numeric card
 		// overlays, FF36 for everything else — because a single user-chosen face cannot serve both.
 
-		// ── Field Color ──────────────────────────────────────────────────────
+		// ── Field ────────────────────────────────────────────────────────────
 		JPanel fieldColorPanel = new JPanel();
 		fieldColorPanel.setLayout(new BoxLayout(fieldColorPanel, BoxLayout.Y_AXIS));
 		fieldColorPanel.setBorder(BorderFactory.createTitledBorder(
-				BorderFactory.createEtchedBorder(), "Field Color",
+				BorderFactory.createEtchedBorder(), "Field",
 				TitledBorder.LEFT, TitledBorder.TOP));
 
-		fieldColorPanel.add(buildFieldColorRow("P1 Field:",
-				AppSettings.getP1BoardColor(), true, onBoardColorChanged));
-		fieldColorPanel.add(javax.swing.Box.createVerticalStrut(4));
-		fieldColorPanel.add(buildFieldColorRow("P2 Field:",
-				AppSettings.getP2BoardColor(), false, onBoardColorChanged));
+		// P2 above P1, as their fields sit on the board.
+		fieldColorPanel.add(buildFieldColorRow("P2 Field:", AppSettings.getP2BoardColor(),
+				AppSettings.getP2BoardTexture(), false, onBoardColorChanged, onBoardTextureChanged));
+		fieldColorPanel.add(Box.createVerticalStrut(4));
+		fieldColorPanel.add(buildFieldColorRow("P1 Field:", AppSettings.getP1BoardColor(),
+				AppSettings.getP1BoardTexture(), true, onBoardColorChanged, onBoardTextureChanged));
 
 		fieldColorPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		contentPanel.add(fieldColorPanel);
@@ -224,6 +231,14 @@ public class PreferencesDialog extends JDialog {
 		});
 
 		resetButton.addActionListener(e -> {
+			// Confirmed first, Cancel the default, so a stray click or Enter keeps the custom back.
+			String custom = new File(AppSettings.getCustomCardbackPath()).getName();
+			Object[] options = {"Reset", "Cancel"};
+			int choice = JOptionPane.showOptionDialog(cardBackPanel,
+					"Reset the card back to the default?\n\"" + custom + "\" will no longer be used.",
+					"Reset Card Back", JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE,
+					null, options, options[1]);
+			if (choice != 0) return;
 			AppSettings.setCustomCardbackPath("");
 			AppSettings.save();
 			currentLabel.setText("Current: Default");
@@ -547,12 +562,13 @@ public class PreferencesDialog extends JDialog {
 	}
 
 	/**
-	 * Builds one field-color row: a label plus a color dropdown seeded to {@code current}. On
-	 * change it persists the choice (via {@link AppSettings}) and applies it to the live board
-	 * through {@code onBoardColorChanged}.
+	 * Builds one field row: a label, a color dropdown seeded to {@code current} and a texture
+	 * dropdown seeded to {@code currentTexture}. On change each persists its choice (via
+	 * {@link AppSettings}) and applies it to the live board through its callback.
 	 */
-	private static JPanel buildFieldColorRow(String label, String current, boolean isP1,
-			java.util.function.BiConsumer<Boolean, String> onBoardColorChanged) {
+	private static JPanel buildFieldColorRow(String label, String current, BoardTexture currentTexture,
+			boolean isP1, BiConsumer<Boolean, String> onBoardColorChanged,
+			BiConsumer<Boolean, BoardTexture> onBoardTextureChanged) {
 		JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
 		row.add(new JLabel(label));
 		JComboBox<String> combo = new JComboBox<>(ElementColor.boardColorChoices());
@@ -567,6 +583,21 @@ public class PreferencesDialog extends JDialog {
 			if (onBoardColorChanged != null) onBoardColorChanged.accept(isP1, sel);
 		});
 		row.add(combo);
+
+		row.add(Box.createHorizontalStrut(8));
+		row.add(new JLabel("Texture:"));
+		JComboBox<BoardTexture> textureCombo = new JComboBox<>(BoardTexture.values());
+		textureCombo.setSelectedItem(currentTexture);
+		textureCombo.setFocusable(false);
+		textureCombo.addActionListener(e -> {
+			BoardTexture sel = (BoardTexture) textureCombo.getSelectedItem();
+			if (sel == null) return;
+			if (isP1) AppSettings.setP1BoardTexture(sel);
+			else      AppSettings.setP2BoardTexture(sel);
+			AppSettings.save();
+			if (onBoardTextureChanged != null) onBoardTextureChanged.accept(isP1, sel);
+		});
+		row.add(textureCombo);
 		row.setAlignmentX(Component.LEFT_ALIGNMENT);
 		return row;
 	}

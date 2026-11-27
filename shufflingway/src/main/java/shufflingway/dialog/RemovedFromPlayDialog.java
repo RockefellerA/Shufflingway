@@ -63,7 +63,18 @@ public class RemovedFromPlayDialog {
             cells.add(wrapper);
         }
 
-        dlg.getContentPane().add(CardGridPane.of(cells));
+        // As the Break Zone dialog closes.
+        JButton closeBtn = new JButton("Close");
+        closeBtn.setFont(FontLoader.loadPixelFont(11));
+        closeBtn.addActionListener(ae -> { onZoomHide.run(); dlg.dispose(); });
+
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+        south.add(closeBtn);
+        south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+
+        dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+        dlg.getContentPane().add(CardGridPane.of(cells), BorderLayout.CENTER);
+        dlg.getContentPane().add(south,                  BorderLayout.SOUTH);
         dlg.pack();
         dlg.setLocationRelativeTo(owner);
         dlg.setVisible(true);

@@ -9,8 +9,9 @@ import javax.swing.JPanel;
 import javax.swing.UIManager;
 
 /**
- * A player's zone backdrop: flat element colour over most of its height, fading to the board's
- * neutral tone over the last {@code fadeHeight} pixels of its centre-facing edge.
+ * A player's zone backdrop: flat element colour, with an optional {@link BoardTexture} over it,
+ * over most of its height, fading to the board's neutral tone over the last {@code fadeHeight}
+ * pixels of its centre-facing edge.
  *
  * <p>The board gradient used to live entirely in the strip between the two zones. That strip is
  * whatever the zones leave over — a few dozen pixels at best, and far less once a zone grows — and
@@ -58,6 +59,22 @@ public class BoardEdgeFadePanel extends JPanel {
 		glow.addPainter(this);
 	}
 
+	private BoardTexture texture = BoardTexture.NONE;
+	private int textureVariant;
+
+	/**
+	 * The surface laid over the zone's colour, grown from {@code variant}'s seeds: give each seat its
+	 * own, so the two fields are not copies. It fades out toward the centre with the colour. It shows
+	 * only where the zone's contents are non-opaque, which is everywhere but the damage stack.
+	 */
+	public void setTexture(BoardTexture texture, int variant) {
+		BoardTexture t = texture == null ? BoardTexture.NONE : texture;
+		if (t == this.texture && variant == textureVariant) return;
+		this.texture = t;
+		this.textureVariant = variant;
+		repaint();
+	}
+
 	@Override
 	protected void paintComponent(Graphics g) {
 		int w = getWidth(), h = getHeight();
@@ -68,18 +85,19 @@ public class BoardEdgeFadePanel extends JPanel {
 		if (flat == null) flat = edge;
 		int f = Math.min(fadeHeight, h);
 
+		// The colour and texture cover the whole zone, and the fade is the neutral tone laid over
+		// them from clear to solid, so the texture fades out with the colour.
 		Graphics2D g2 = (Graphics2D) g.create();
 		g2.setColor(flat);
-		if (fadeAtBottom) {
-			g2.fillRect(0, 0, w, h - f);
-			if (f > 0) {
-				g2.setPaint(new GradientPaint(0, h - f, flat, 0, h, edge));
+		g2.fillRect(0, 0, w, h);
+		texture.paint(g2, w, h, textureVariant);
+		if (f > 0) {
+			Color clear = new Color(edge.getRed(), edge.getGreen(), edge.getBlue(), 0);
+			if (fadeAtBottom) {
+				g2.setPaint(new GradientPaint(0, h - f, clear, 0, h, edge));
 				g2.fillRect(0, h - f, w, f);
-			}
-		} else {
-			g2.fillRect(0, f, w, h - f);
-			if (f > 0) {
-				g2.setPaint(new GradientPaint(0, f, flat, 0, 0, edge));
+			} else {
+				g2.setPaint(new GradientPaint(0, f, clear, 0, 0, edge));
 				g2.fillRect(0, 0, w, f);
 			}
 		}

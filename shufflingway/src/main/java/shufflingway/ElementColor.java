@@ -19,18 +19,30 @@ public enum ElementColor {
         this.color = Color.decode(hex);
     }
 
+    /** The element's name in title case, e.g. {@code "Fire"}: how a field color is shown and saved. */
+    public String title() {
+        String n = name();
+        return n.charAt(0) + n.substring(1).toLowerCase();
+    }
+
     /**
-     * Board field-color menu choices: {@code "Default"} followed by each element name in title
-     * case (e.g. {@code "Fire"}). Shared by the Preferences field-color dropdowns.
+     * Board field-color menu choices: each element name in title case (e.g. {@code "Fire"}).
+     * Shared by the Preferences field-color dropdowns.
      */
     public static String[] boardColorChoices() {
-        String[] items = new String[values().length + 1];
-        items[0] = "Default";
-        for (int i = 0; i < values().length; i++) {
-            String n = values()[i].name();
-            items[i + 1] = n.charAt(0) + n.substring(1).toLowerCase();
-        }
+        String[] items = new String[values().length];
+        for (int i = 0; i < values().length; i++) items[i] = values()[i].title();
         return items;
+    }
+
+    /**
+     * {@code saved} as one of {@link #boardColorChoices()}, or {@code fallback} when it names no
+     * element: unset, or {@code "Default"}, which the board offered before every field took an
+     * element's color.
+     */
+    public static String boardColorOr(String saved, String fallback) {
+        ElementColor c = fromName(saved);
+        return c == null ? fallback : c.title();
     }
 
     /** Returns the ElementColor for the given element name (case-insensitive), or null if not found. */

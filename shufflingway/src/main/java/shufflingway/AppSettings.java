@@ -6,6 +6,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Properties;
 
+import shufflingway.graphics.BoardTexture;
+
 /**
  * Persists application settings to {@code settings.ini} in the same directory
  * as the card database (see {@link scraper.AppPaths}).
@@ -65,9 +67,9 @@ public final class AppSettings {
     // Settings
     // -------------------------------------------------------------------------
 
-    /** Returns the saved P1 board color selection, or {@code "Light"} if unset. */
+    /** Returns the saved P1 board color selection, or {@code "Light"} if unset or not an element. */
     public static String getP1BoardColor() {
-        return props.getProperty("p1.board.color", "Light");
+        return ElementColor.boardColorOr(props.getProperty("p1.board.color"), "Light");
     }
 
     /** Saves the P1 board color selection (call {@link #save()} to persist). */
@@ -75,14 +77,34 @@ public final class AppSettings {
         props.setProperty("p1.board.color", color);
     }
 
-    /** Returns the saved P2 board color selection, or {@code "Dark"} if unset. */
+    /** Returns the saved P2 board color selection, or {@code "Dark"} if unset or not an element. */
     public static String getP2BoardColor() {
-        return props.getProperty("p2.board.color", "Dark");
+        return ElementColor.boardColorOr(props.getProperty("p2.board.color"), "Dark");
     }
 
     /** Saves the P2 board color selection (call {@link #save()} to persist). */
     public static void setP2BoardColor(String color) {
         props.setProperty("p2.board.color", color);
+    }
+
+    /** The texture over P1's field color. Defaults to {@link BoardTexture#NONE}. */
+    public static BoardTexture getP1BoardTexture() {
+        return BoardTexture.parse(props.getProperty("p1.board.texture"));
+    }
+
+    /** Saves the texture over P1's field color (call {@link #save()} to persist). */
+    public static void setP1BoardTexture(BoardTexture texture) {
+        props.setProperty("p1.board.texture", texture.id());
+    }
+
+    /** The texture over P2's field color. Defaults to {@link BoardTexture#NONE}. */
+    public static BoardTexture getP2BoardTexture() {
+        return BoardTexture.parse(props.getProperty("p2.board.texture"));
+    }
+
+    /** Saves the texture over P2's field color (call {@link #save()} to persist). */
+    public static void setP2BoardTexture(BoardTexture texture) {
+        props.setProperty("p2.board.texture", texture.id());
     }
 
     /**
