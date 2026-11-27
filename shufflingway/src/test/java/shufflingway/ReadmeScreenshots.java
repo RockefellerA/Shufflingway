@@ -58,7 +58,9 @@ import shufflingway.graphics.FieldSlotLabel;
  * </pre>
  *
  * <p>The output directory defaults to {@code target/screenshots}. Naming themes renders only
- * those.
+ * those. A run of more than one theme also writes {@code deck-manager-animated.png} and
+ * {@code game-board-animated.png}, animated PNGs that flip between the themes every three seconds
+ * in the order named, losslessly (see {@link AnimatedPng}).
  *
  * <p>Nothing is shown on screen. Each window is laid out at the size the app opens at on this
  * machine (UiScale reads the monitor and {@code settings.ini}) and painted into an image at the
@@ -192,6 +194,7 @@ public final class ReadmeScreenshots {
 
 		SoundEffects.silence();
 		try {
+			List<BufferedImage> deckManager = new ArrayList<>(), gameBoard = new ArrayList<>();
 			for (Theme theme : themes) {
 				String slug = theme.name().toLowerCase(Locale.ROOT).replace('_', '-');
 				MainWindow mw = onEdt(() -> {
@@ -200,9 +203,13 @@ public final class ReadmeScreenshots {
 					layOut(w.frame);
 					return w;
 				});
-				write(deckManagerShot(mw), new File(out, "deck-manager-" + slug + ".png"));
-				write(gameBoardShot(mw), new File(out, "game-board-" + slug + ".png"));
+				deckManager.add(write(deckManagerShot(mw), new File(out, "deck-manager-" + slug + ".png")));
+				gameBoard.add(write(gameBoardShot(mw), new File(out, "game-board-" + slug + ".png")));
 				onEdt(() -> { mw.frame.dispose(); return null; });
+			}
+			if (themes.size() > 1) {
+				writeAnimated(deckManager, new File(out, "deck-manager-animated.png"));
+				writeAnimated(gameBoard, new File(out, "game-board-animated.png"));
 			}
 		} finally {
 			// The CPU's timers, the image loaders and the Swing threads would otherwise keep the JVM up.
@@ -516,9 +523,20 @@ public final class ReadmeScreenshots {
 		return null;
 	}
 
-	private static void write(BufferedImage img, File file) throws Exception {
+	/** How long each theme is shown before an animated screenshot flips to the next. */
+	private static final int FLIP_MS = 3000;
+
+	/** Writes {@code img} as a PNG and returns it. */
+	private static BufferedImage write(BufferedImage img, File file) throws Exception {
 		ImageIO.write(img, "png", file);
 		System.out.println("wrote " + file.getPath() + " (" + img.getWidth() + "x" + img.getHeight() + ")");
+		return img;
+	}
+
+	/** One scene in every theme rendered, as an APNG that flips between them every {@link #FLIP_MS}. */
+	private static void writeAnimated(List<BufferedImage> frames, File file) throws Exception {
+		AnimatedPng.write(frames, FLIP_MS, file);
+		System.out.printf("wrote %s (%d frames, %,d KB)%n", file.getPath(), frames.size(), file.length() / 1024);
 	}
 
 	// =============================================================================================
