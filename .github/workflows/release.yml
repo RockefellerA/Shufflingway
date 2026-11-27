@@ -36,14 +36,27 @@ jobs:
         with:
           tag_name: v${{ steps.ver.outputs.version }}
           generate_release_notes: true
+          # Placed above the generated notes, so new users pick an installer, not the update jar.
+          # The names in bold are the asset labels the platform jobs upload with.
+          body: |
+            ## Download
+
+            | Platform | Download |
+            | --- | --- |
+            | Windows | **Windows Installer** |
+            | macOS 13+ | **Mac Installer** |
+            | Linux (Debian/Ubuntu) | **Linux Installer** |
+
+            **In-app update** is the file **Help > Check for Updates** downloads to update an installed copy, on every platform. It is not an installer; new users should download the installer for their platform instead.
 
   # ── Windows installer (MSI) ────────────────────────────────────────────────
   release-windows:
     needs: create-release
     runs-on: windows-latest
     env:
-      # The Java the MSI bundles. The updater's jar asset is named after it; an installed copy with
-      # an older runtime updates through the MSI instead of swapping the jar.
+      # The Java the installers bundle (the macOS and Linux jobs set up the same version). The
+      # updater's jar asset is named after it; an installed copy with an older runtime updates
+      # through its installer instead.
       JAVA_FEATURE: '25'
     permissions:
       contents: write
@@ -111,22 +124,28 @@ jobs:
             --type             msi `
             --dest             target/dist
 
-      # What Help > Check for Updates downloads on Windows: the jar alone, which it swaps into the
-      # user's install. The name must match UpdateChecker.JAR_ASSET.
+      # What Help > Check for Updates downloads on every platform: the jar alone, which Windows swaps
+      # into the user's install and macOS and Linux stage in the user's data folder. It carries the
+      # natives for all three, so this job's copy serves them all. The name must match
+      # UpdateChecker.JAR_ASSET.
       - name: Stage jar for the in-place updater
         shell: pwsh
         run: |
           Copy-Item target\shufflingway.jar "target\dist\shufflingway-${{ needs.create-release.outputs.version }}-java${{ env.JAVA_FEATURE }}.jar"
 
+      # Uploaded with labels, which the release page shows in place of the file names. The updater
+      # matches assets by file name, which a label doesn't change.
       - name: Upload MSI and jar to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.create-release.outputs.version }}
-          files: |
-            shufflingway/target/dist/*.msi
-            shufflingway/target/dist/*.jar
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ needs.create-release.outputs.version }}"
+          gh release upload "v$V" --repo "${{ github.repository }}" --clobber \
+            "$(echo target/dist/*.msi)#Windows Installer" \
+            "target/dist/shufflingway-$V-java${{ env.JAVA_FEATURE }}.jar#In-app update (not an installer)"
 
-  # ── macOS DMG ─────────────────────────────────────────────────────────────
+  # ── macOS installer (PKG) ──────────────────────────────────────────────────
   release-macos:
     needs: create-release
     runs-on: macos-latest
@@ -180,7 +199,7 @@ jobs:
           sips -z 512  512  src/main/resources/images/shufflingway.png --out Shufflingway.iconset/icon_512x512.png
           iconutil -c icns Shufflingway.iconset
 
-      - name: Run jpackage (DMG)
+      - name: Run jpackage (PKG)
         run: |
           jpackage \
             --input            jpackage-input \
@@ -191,14 +210,15 @@ jobs:
             --main-class       shufflingway.MainWindow \
             --java-options     "--enable-native-access=ALL-UNNAMED" \
             --icon             Shufflingway.icns \
-            --type             dmg \
+            --type             pkg \
             --dest             target/dist
 
-      - name: Upload DMG to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.create-release.outputs.version }}
-          files: shufflingway/target/dist/*.dmg
+      - name: Upload PKG to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "v${{ needs.create-release.outputs.version }}" --repo "${{ github.repository }}" --clobber \
+            "$(echo target/dist/*.pkg)#Mac Installer"
 
   # ── Linux DEB ─────────────────────────────────────────────────────────────
   release-linux:
@@ -248,7 +268,8 @@ jobs:
             --dest             target/dist
 
       - name: Upload DEB to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.create-release.outputs.version }}
-          files: shufflingway/target/dist/*.deb
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "v${{ needs.create-release.outputs.version }}" --repo "${{ github.repository }}" --clobber \
+            "$(echo target/dist/*.deb)#Linux Installer"

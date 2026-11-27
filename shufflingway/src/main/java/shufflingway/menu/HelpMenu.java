@@ -206,7 +206,8 @@ public class HelpMenu extends JMenu {
                 "An update is available!\n\nCurrent version:  %s\nNew version:      %s\n\n%s",
                 info.currentVersion(), info.latestVersion(),
                 inPlaceReady ? "Download it and restart Shufflingway now?" : "Download and install now?");
-        if (inPlace == UpdateChecker.InPlaceStatus.READ_ONLY) {
+        if (inPlace == UpdateChecker.InPlaceStatus.READ_ONLY
+                && info.installerKind() == UpdateChecker.InstallerKind.MSI) {
             msg += "\n\nThis copy is installed in a folder only an administrator can change, so it"
                     + "\nupdates through the installer. Newer installers put Shufflingway in your user"
                     + "\nfolder, where it updates itself. To switch, uninstall this copy from"

@@ -22,11 +22,11 @@ Current card coverage: **100%**
 
 Use the 'Releases' section on the right to download the latest version.
 
-* .msi: Windows Installer
-* .dmg: MacOS 13+
-* .deb: Linux
+* Windows Installer (.msi): Windows
+* Mac Installer (.pkg): macOS 13+
+* Linux Installer (.deb): Debian/Ubuntu
 
-Once the application has been installed, you can update to any new releases from "Check for Updates..." in the Help menu.
+Once the application has been installed, you can update to any new releases from "Check for Updates..." in the Help menu. Most updates download only the app itself and restart it, with no installer.
 
 # Quick Start Guide
 

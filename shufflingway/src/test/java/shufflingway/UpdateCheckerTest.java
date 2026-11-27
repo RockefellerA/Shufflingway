@@ -17,13 +17,21 @@ import java.lang.ProcessBuilder.Redirect;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.nio.file.attribute.FileTime;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
+import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import javax.tools.ToolProvider;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -65,6 +73,18 @@ class UpdateCheckerTest {
         assertTrue(info.updateAvailable());
         assertEquals("https://x/a.msi", info.installerUrl());
         assertEquals(new JarAsset(NEW_JAR, "https://x/a.jar", "cc", 25), info.jar());
+    }
+
+    @Test
+    void onMacTheInstallerIsThePkg() {
+        String body = """
+                {"tag_name":"v0.2.348","assets":[
+                  {"name":"Shufflingway-0.2.348.msi","browser_download_url":"https://x/a.msi"},
+                  {"name":"Shufflingway-1.2.348.pkg","browser_download_url":"https://x/a.pkg"},
+                  {"name":"shufflingway_0.2.348_amd64.deb","browser_download_url":"https://x/a.deb"}]}
+                """;
+        assertEquals("https://x/a.pkg",
+                UpdateChecker.parseRelease(body, "0.2.347", InstallerKind.PKG).installerUrl());
     }
 
     @Test
@@ -200,8 +220,162 @@ class UpdateCheckerTest {
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Staged update (macOS and Linux)
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    void stageJarKeepsTheJarOnlyOnceItsChecksumMatches(@TempDir Path root) throws Exception {
+        Path updates = root.resolve("updates");
+        byte[] data = "new jar".getBytes(UTF_8);
+
+        assertThrows(IOException.class, () -> UpdateChecker.stageJar(new ByteArrayInputStream(data),
+                data.length, updates, new JarAsset(NEW_JAR, "u", sha256("other".getBytes(UTF_8)), 25), p -> {}));
+        assertEquals(Set.of(), names(updates));
+
+        UpdateChecker.stageJar(new ByteArrayInputStream(data), data.length, updates,
+                new JarAsset(NEW_JAR, "u", sha256(data), 25), p -> {});
+        assertArrayEquals(data, Files.readAllBytes(updates.resolve(NEW_JAR)));
+        assertEquals(Set.of(NEW_JAR), names(updates));
+    }
+
+    @Test
+    void stageJarRefusesANameThatIsNotAReleaseJar(@TempDir Path root) {
+        JarAsset evil = new JarAsset("../shufflingway-0.2.348-java25.jar", "u", "00", 25);
+        assertThrows(IOException.class, () -> UpdateChecker.stageJar(
+                new ByteArrayInputStream(new byte[0]), 0, root, evil, p -> {}));
+    }
+
+    @Test
+    void pickStagedJarRunsTheNewestAndClearsWhatItOvertook(@TempDir Path updates) throws Exception {
+        Instant now = Instant.parse("2026-11-27T12:00:00Z");
+        for (String name : List.of("shufflingway-0.2.340-java25.jar",   // older than the install
+                                   "shufflingway-0.2.347-java25.jar",   // the installed version
+                                   "shufflingway-0.2.348-java25.jar",   // newer, but overtaken
+                                   "shufflingway-0.2.350-java25.jar",   // the one to run
+                                   "shufflingway-0.2.351-java26.jar",   // needs the next installer
+                                   "shufflingway-0.2.352-java25.jar.part",
+                                   "shufflingway-0.2.353-java25.jar.part",
+                                   "notes.txt")) {
+            Files.writeString(updates.resolve(name), "x");
+        }
+        Files.setLastModifiedTime(updates.resolve("shufflingway-0.2.352-java25.jar.part"),
+                FileTime.from(now.minus(Duration.ofHours(2))));
+        Files.setLastModifiedTime(updates.resolve("shufflingway-0.2.353-java25.jar.part"),
+                FileTime.from(now.minus(Duration.ofMinutes(5))));
+
+        Path picked = UpdateChecker.pickStagedJar(updates, "0.2.347", 25, now);
+
+        assertEquals(updates.resolve("shufflingway-0.2.350-java25.jar"), picked);
+        assertEquals(Set.of("shufflingway-0.2.350-java25.jar", "shufflingway-0.2.351-java26.jar",
+                "shufflingway-0.2.353-java25.jar.part", "notes.txt"), names(updates));
+    }
+
+    @Test
+    void pickStagedJarFindsNothingOnceAnInstallerHasOvertakenIt(@TempDir Path updates) throws Exception {
+        Files.writeString(updates.resolve(NEW_JAR), "x");
+
+        assertNull(UpdateChecker.pickStagedJar(updates, "0.2.349", 25, Instant.now()));
+        assertEquals(Set.of(), names(updates));
+        assertNull(UpdateChecker.pickStagedJar(updates.resolve("missing"), "0.2.349", 25, Instant.now()));
+    }
+
+    @Test
+    void runJarRunsTheJarsMainInALoaderOfItsOwn(@TempDir Path root) throws Exception {
+        Path jar = mainJar(root, "System.setProperty(\"staged.test\", "
+                + "Main.class.getClassLoader().getName() + \"|\" "
+                + "+ Thread.currentThread().getContextClassLoader().getName() + \"|\" "
+                + "+ String.join(\",\", args));");
+        ClassLoader before = Thread.currentThread().getContextClassLoader();
+        try {
+            assertTrue(UpdateChecker.runJar(jar, new String[] { "--after-update", "42" }));
+            String loader = UpdateChecker.STAGED_LOADER_NAME;
+            assertEquals(loader + "|" + loader + "|--after-update,42", System.getProperty("staged.test"));
+            assertTrue(Files.exists(jar));
+        } finally {
+            Thread.currentThread().setContextClassLoader(before);
+            System.clearProperty("staged.test");
+        }
+    }
+
+    @Test
+    void aStagedJarThatFailsToStartIsDeleted(@TempDir Path root) throws Exception {
+        ClassLoader before = Thread.currentThread().getContextClassLoader();
+        Path throwing = mainJar(root, "throw new IllegalStateException(\"boom\");");
+        Path broken = Files.writeString(root.resolve("shufflingway-0.2.349-java25.jar"), "not a jar");
+
+        assertFalse(UpdateChecker.runJar(throwing, new String[0]));
+        assertFalse(UpdateChecker.runJar(broken, new String[0]));
+
+        assertFalse(Files.exists(throwing));
+        assertFalse(Files.exists(broken));
+        assertTrue(before == Thread.currentThread().getContextClassLoader(), "the context loader is put back");
+    }
+
+    @Test
+    void stagedStatusNeedsAnInstalledCopyAWritableFolderAndAJarForThisRuntime(@TempDir Path root)
+            throws Exception {
+        Path launcher = root.resolve("bin").resolve("shufflingway");
+        Path updates = root.resolve("updates");
+        Path blocked = Files.writeString(root.resolve("file"), "x").resolve("updates");
+        JarAsset jar25 = new JarAsset(NEW_JAR, "u", "00", 25);
+
+        assertEquals(InPlaceStatus.READY, UpdateChecker.stagedStatus(jar25, launcher, updates, 25));
+        assertEquals(InPlaceStatus.NOT_INSTALLED, UpdateChecker.stagedStatus(jar25, null, updates, 25));
+        assertEquals(InPlaceStatus.READ_ONLY, UpdateChecker.stagedStatus(jar25, launcher, blocked, 25));
+        assertEquals(InPlaceStatus.NO_JAR, UpdateChecker.stagedStatus(null, launcher, updates, 25));
+        assertEquals(InPlaceStatus.NEEDS_NEW_RUNTIME,
+                UpdateChecker.stagedStatus(new JarAsset(NEW_JAR, "u", "00", 26), launcher, updates, 25));
+    }
+
+    @Test
+    void onMacTheRestartGoesThroughOpenForTheAppBundle() {
+        Path mac = Path.of("/Applications/Shufflingway.app/Contents/MacOS/Shufflingway");
+        Path linux = Path.of("/opt/shufflingway/bin/shufflingway");
+
+        assertEquals(List.of("open", "-n", "/Applications/Shufflingway.app", "--args",
+                UpdateChecker.AFTER_UPDATE_ARG, "7"), UpdateChecker.relaunchCommand(mac, 7, true));
+        assertEquals(List.of(linux.toString(), UpdateChecker.AFTER_UPDATE_ARG, "7"),
+                UpdateChecker.relaunchCommand(linux, 7, true));
+        assertEquals(List.of(linux.toString(), UpdateChecker.AFTER_UPDATE_ARG, "7"),
+                UpdateChecker.relaunchCommand(linux, 7, false));
+    }
+
+    @Test
+    void theRestartedLauncherDoesNotInheritTheRunningOnesStartupMark() {
+        // The Linux launcher sets these on itself; inheriting both made the new one hand
+        // --after-update to the JVM as an option ("Unrecognized option"), and it never started.
+        java.util.Map<String, String> env = new java.util.HashMap<>(java.util.Map.of(
+                "_JPACKAGE_LAUNCHER", "0", "LD_LIBRARY_PATH", ":/opt/shufflingway/lib/app", "HOME", "/home/u"));
+
+        UpdateChecker.forgetLauncherState(env);
+
+        assertEquals(java.util.Map.of("LD_LIBRARY_PATH", ":/opt/shufflingway/lib/app", "HOME", "/home/u"), env);
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------------------
+
+    /** A jar whose {@code Main.main(String[] args)} runs {@code body}, named like a release jar. */
+    private static Path mainJar(Path root, String body) throws Exception {
+        Path src = Files.createDirectories(root.resolve("src"));
+        Path classes = Files.createDirectories(root.resolve("classes"));
+        Path java = Files.writeString(src.resolve("Main.java"),
+                "public class Main { public static void main(String[] args) { " + body + " } }");
+        assertEquals(0, ToolProvider.getSystemJavaCompiler().run(null, null, null,
+                "-d", classes.toString(), java.toString()));
+
+        Manifest mf = new Manifest();
+        mf.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        mf.getMainAttributes().put(Attributes.Name.MAIN_CLASS, "Main");
+        Path jar = root.resolve(NEW_JAR);
+        try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jar), mf)) {
+            out.putNextEntry(new JarEntry("Main.class"));
+            out.write(Files.readAllBytes(classes.resolve("Main.class")));
+            out.closeEntry();
+        }
+        return jar;
+    }
 
     /** Lays out a jpackage install under {@code root} and reads it back. */
     private static Installation install(Path root) throws IOException {
