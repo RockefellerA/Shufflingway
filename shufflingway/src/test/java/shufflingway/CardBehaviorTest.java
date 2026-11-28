@@ -41224,6 +41224,41 @@ public class CardBehaviorTest {
 		assertTrue(mw.gameState.getP2Hand().isEmpty());
 	}
 
+	@Test
+	void aCpuWarpPaymentIsLoggedAsACastsIs() {
+		// 《Wind》《1》: the Backup and the discard both have to show, ahead of the play they paid for.
+		MainWindow mw = new MainWindow();
+		CardData sophie = makeWarpForward("Sophie", "Wind", 6, 1, List.of("Wind", ""));
+		mw.gameState.getP2Hand().add(sophie);
+		mw.gameState.getP2Hand().add(makeForward("Wind Spare", "Wind", 2, 5000));
+		giveP2Backup(mw, 0, "Fire Backup", "Fire");
+
+		assertTrue(new ComputerPlayer(mw).warpCastIfAble());
+
+		String log = mw.gameLogText();
+		assertTrue(log.contains("[P2] Dulls Fire Backup for CP"), log);
+		assertTrue(log.contains("[P2] Discards Wind Spare for CP"), log);
+		assertTrue(log.indexOf("Discards Wind Spare for CP") < log.indexOf("Played \"Sophie\" via Warp"), log);
+	}
+
+	@Test
+	void aPlayerWarpPaymentIsLoggedToo() {
+		MainWindow mw = new MainWindow();
+		CardData sophie = makeWarpForward("Sophie", "Wind", 6, 1, List.of("Wind", ""));
+		CardData spare  = makeForward("Wind Spare", "Wind", 2, 5000);
+		mw.gameState.getP1Hand().add(sophie);
+		mw.gameState.getP1Hand().add(spare);
+		mw.p1BackupCards[0]  = makeFieldAbilityCard("Fire Backup", "Fire", "Backup", "");
+		mw.p1BackupStates[0] = CardState.ACTIVE;
+
+		mw.executeWarpPlay(true, sophie, 0, List.of(1), List.of(0), Map.of(), Map.of());
+
+		String log = mw.gameLogText();
+		assertTrue(log.contains("Dulls Fire Backup for CP"), log);
+		assertTrue(log.contains("Discards Wind Spare for CP"), log);
+		assertFalse(log.contains("[P2]"), log);
+	}
+
 	// ---- Warp ahead of the cast (AI play choice) -------------------------------------------------
 	//
 	// Found in playtesting: the CPU never warped, because it tried Warp only once nothing else

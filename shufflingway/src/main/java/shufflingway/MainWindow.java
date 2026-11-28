@@ -12991,6 +12991,8 @@ public class MainWindow {
 		CardData[]     backupCards = isP1 ? p1BackupCards  : p2BackupCards;
 		CardState[]    backupStates= isP1 ? p1BackupStates : p2BackupStates;
 		List<CardData> hand        = isP1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		List<String>   dulledForCp    = new ArrayList<>();
+		List<String>   discardedForCp = new ArrayList<>();
 
 		for (int bi : backupDullIndices) {
 			backupStates[bi] = CardState.DULL;
@@ -13000,6 +13002,7 @@ public class MainWindow {
 					: matchesAnyElement(backupCards[bi], elems)
 					? contributingElement(backupCards[bi], elems) : elems[0];
 			addCp(isP1, cpElem, 1);
+			dulledForCp.add(backupCards[bi].name());
 		}
 		// Break-for-CP payments (Sherlotta 8-053H), after the dull step so a Backup paying both
 		// ways is still on the field for it. Its Element joins the clear set below, so CP the Warp
@@ -13012,9 +13015,12 @@ public class MainWindow {
 			String cpElem = matchesAnyElement(discarded, elems)
 					? contributingElement(discarded, elems) : elems[0];
 			addCp(isP1, cpElem, 2);
+			discardedForCp.add(discarded.name());
 			playerBreakFromHand(isP1, di);
 			if (di < cardHandIdx) cardHandIdx--;
 		}
+		// Above the play it bought, as an ordinary cast logs its payment.
+		logCpPayment(isP1, dulledForCp, discardedForCp);
 		for (String e : warpCpToClear) {
 			spendCp(isP1, e, cpForElement(isP1, e));
 			clearCp(isP1, e);
