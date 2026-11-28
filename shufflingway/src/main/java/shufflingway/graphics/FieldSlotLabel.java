@@ -48,8 +48,11 @@ public class FieldSlotLabel extends JLabel {
 	/** The tooltip manager's delay before the pointer came over this slot, or -1 while it is elsewhere. */
 	private int savedDismissDelay = -1;
 
-	/** How long the pointer rests on a button before its tooltip appears. */
-	private static final int BUTTON_TOOLTIP_DELAY_MS = 500;
+	/**
+	 * How long the pointer rests on a button before its tooltip appears: well under the 750 ms
+	 * every other tooltip waits, since an ability is read before it is used.
+	 */
+	private static final int BUTTON_TOOLTIP_DELAY_MS = 300;
 	/** The button under the pointer, usable or not — the one whose tooltip would show — or -1. */
 	private int tipButton = -1;
 	/** The tooltip manager's start delay while {@link #tipButton} has it borrowed, or -1. */
@@ -256,9 +259,9 @@ public class FieldSlotLabel extends JLabel {
 	}
 
 	/**
-	 * The tooltip to show: the action-button style over a button, the stock one elsewhere on the
-	 * slot. The tooltip manager asks each time it shows one, so moving between a button and a
-	 * trait tab switches styles.
+	 * The tooltip to show: an {@link AbilityToolTip}, fitted to the ability, over a button; the
+	 * stock one elsewhere on the slot. The tooltip manager asks each
+	 * time it shows one, so moving between a button and a trait tab switches between them.
 	 */
 	@Override
 	public JToolTip createToolTip() {

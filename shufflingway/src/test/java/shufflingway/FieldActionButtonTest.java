@@ -21,7 +21,9 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.ToolTipManager;
 import javax.swing.border.BevelBorder;
+import javax.swing.border.Border;
 import javax.swing.border.CompoundBorder;
+import javax.swing.border.LineBorder;
 
 import org.junit.jupiter.api.Test;
 
@@ -227,16 +229,16 @@ class FieldActionButtonTest {
 	// The tooltip manager's start delay is one setting for the whole application, so the slot only
 	// borrows it while the pointer is on a button.
 	@Test
-	void theTooltipDelayIsHalfASecondOnAButtonAndRestoredOffIt() {
+	void theTooltipDelayIsShortOnAButtonAndRestoredOffIt() {
 		ToolTipManager ttm = ToolTipManager.sharedInstance();
 		int before = ttm.getInitialDelay();
 		try {
 			ttm.setInitialDelay(750);
 			FieldSlotLabel slot = slotWithButtons(List.of(() -> { }, () -> { }));
 			moveTo(slot, button(0).getCenterX(), button(0).getCenterY());
-			assertEquals(500, ttm.getInitialDelay());
+			assertEquals(300, ttm.getInitialDelay());
 			moveTo(slot, button(1).getCenterX(), button(1).getCenterY());
-			assertEquals(500, ttm.getInitialDelay(), "still on a button");
+			assertEquals(300, ttm.getInitialDelay(), "still on a button");
 			moveTo(slot, H / 2.0, H / 2.0);
 			assertEquals(750, ttm.getInitialDelay(), "handed back off the buttons");
 
@@ -249,20 +251,37 @@ class FieldActionButtonTest {
 	}
 
 	@Test
-	void theAbilityTooltipIsWhiteOnDarkGreyInARaisedBevel() {
+	void theAbilityTooltipIsWhiteOnDarkGreyInAFramedRaisedBevel() {
 		AbilityToolTip tip = new AbilityToolTip();
 		assertTrue(tip.isOpaque());
 		assertEquals(Color.WHITE, tip.getForeground());
 		Color bg = tip.getBackground();
 		assertTrue(bg.getRed() < 0x50 && bg.getRed() == bg.getGreen(), "a dark, neutral grey");
-		assertTrue(tip.getBorder() instanceof CompoundBorder cb
-				&& cb.getOutsideBorder() instanceof BevelBorder bevel
-				&& bevel.getBevelType() == BevelBorder.RAISED, "framed by a raised bevel");
+
+		List<Border> layers = borderLayers(tip.getBorder());
+		assertTrue(layers.get(0) instanceof LineBorder outline && outline.getLineColor().getRed() < 0x30,
+				"a dark outline, which holds against pale card art");
+		assertTrue(layers.get(1) instanceof LineBorder rule && rule.getLineColor().getRed() > 0x90,
+				"a light line inside it, which holds against the dark board");
+		assertTrue(layers.get(2) instanceof BevelBorder bevel && bevel.getBevelType() == BevelBorder.RAISED,
+				"and the raised bevel inside the frame");
 	}
 
-	private static final String SHORT_DESCRIPTION = "<html>[Dull, Fire] → Draw 1 card.</html>";
+	/** {@code border}'s layers, outermost first, with every compound border opened up. */
+	private static List<Border> borderLayers(Border border) {
+		List<Border> layers = new ArrayList<>();
+		if (border instanceof CompoundBorder cb) {
+			layers.addAll(borderLayers(cb.getOutsideBorder()));
+			layers.addAll(borderLayers(cb.getInsideBorder()));
+		} else {
+			layers.add(border);
+		}
+		return layers;
+	}
+
+	private static final String SHORT_DESCRIPTION = "<html>[Dull, Fire]: Draw 1 card.</html>";
 	private static final String LONG_DESCRIPTION = "<html><font color='#ED930D'>[Ultimate Jecht Shot]</font> "
-			+ "[Dull, S, Fire, any, any] → Choose 1 Forward opponent controls. Break it. If you have received "
+			+ "[Dull, S, Fire, any, any]: Choose 1 Forward opponent controls. Break it. If you have received "
 			+ "5 or more damage, deal your opponent 1 point of damage and draw 1 card. You can only use this "
 			+ "ability during your turn.</html>";
 
@@ -291,7 +310,7 @@ class FieldActionButtonTest {
 		assertEquals(2.0, linesOf(tip, LONG_DESCRIPTION), 0.25, "two lines, not three");
 
 		FontMetrics fm = tip.getFontMetrics(tip.getFont());
-		int oneLineWidth = fm.stringWidth("[Ultimate Jecht Shot] [Dull, S, Fire, any, any] → Choose 1 Forward "
+		int oneLineWidth = fm.stringWidth("[Ultimate Jecht Shot] [Dull, S, Fire, any, any]: Choose 1 Forward "
 				+ "opponent controls. Break it. If you have received 5 or more damage, deal your opponent 1 point "
 				+ "of damage and draw 1 card. You can only use this ability during your turn.");
 		int textWidth = tip.getPreferredSize().width - tip.getInsets().left - tip.getInsets().right;

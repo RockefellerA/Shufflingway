@@ -69,7 +69,7 @@ class LobbyExchangeTest {
     @Test
     void theJoinerSeesEachSettingBeforeStartThenAnswersWithItsDeck() throws IOException {
         host.send(settings(false, false, 0));        // on connect
-        host.send(settings(true, false, 0));         // the host ticks Enable Debugging
+        host.send(settings(true, false, 0));         // the host ticks Allow Debug
         host.send(settings(true, true, 1));          // and Enable Standard Banlist
         host.send(deckList("Host deck", "1-001H"));  // and presses Start
 

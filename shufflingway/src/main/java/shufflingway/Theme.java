@@ -14,6 +14,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.UnsupportedLookAndFeelException;
 import javax.swing.plaf.metal.MetalLookAndFeel;
+import shufflingway.graphics.ToolTipStyle;
 
 import static java.util.Map.entry;
 
@@ -222,6 +223,8 @@ public enum Theme {
 
 	/** Installs this theme and restyles every open window. */
 	public void apply() {
+		// Every theme shares one tooltip look. Ahead of the look-and-feel: it outlives the change.
+		ToolTipStyle.install();
 		if (this == CLASSIC) {
 			try {
 				UIManager.setLookAndFeel(new MetalLookAndFeel());

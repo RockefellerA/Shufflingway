@@ -279,7 +279,6 @@ public class PlayerHandFanPanel extends JComponent {
 		// Cards that kept their index keep their rise, so a hand changing under a raised card does
 		// not drop it; anything new starts seated. The next mouse move re-decides regardless.
 		rise = Arrays.copyOf(rise, cards.size());
-		setToolTipText(cards.isEmpty() ? null : "Your hand: " + cards.size());
 		repaint();
 	}
 

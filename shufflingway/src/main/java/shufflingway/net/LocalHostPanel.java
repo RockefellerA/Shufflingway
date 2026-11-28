@@ -47,7 +47,7 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
 
     private final JButton hostBtn;
     /**
-     * "Enable Debugging": whether the Debug menu may be used during the match, on both clients.
+     * "Allow Debug": whether the Debug menu may be used during the match, on both clients.
      * Offered only to a host who has the Debug menu at all; otherwise the match runs without it.
      */
     private final JCheckBox debugBox;
@@ -89,12 +89,13 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
         }
         add(ipPanel, BorderLayout.NORTH);
 
-        debugBox = new JCheckBox("Enable Debugging", false);
+        debugBox = new JCheckBox("Allow Debug", false);
         debugBox.setToolTipText("Let both players use the Debug menu during this game.");
         debugBox.addActionListener(e -> sendLobbySettings());
 
         rules = new FormatPicker(DeckFormat.STANDARD, false);
         rules.setOnChange(this::onRulesChanged);
+        if (AppSettings.isDebugEnabled()) rules.addOption(debugBox);
 
         hostBtn = new JButton("Host");
         hostBtn.addActionListener(e -> startHosting());
@@ -105,7 +106,6 @@ final class LocalHostPanel extends LocalLobbyDialog.Role {
         gc.gridx = 0; gc.gridy = 0; gc.weightx = 1; gc.anchor = GridBagConstraints.WEST;
         gc.insets = new Insets(0, 0, 2, 0);
         options.add(rules, gc);
-        if (AppSettings.isDebugEnabled()) { gc.gridy++; options.add(debugBox, gc); }
         gc.gridy++; gc.weighty = 1; gc.anchor = GridBagConstraints.SOUTHEAST;
         options.add(hostBtn, gc);
         add(options, BorderLayout.CENTER);

@@ -17,8 +17,9 @@ import shufflingway.DeckFormat;
 
 /**
  * A game's deck rules as the player sets them: a Format row of radio buttons and "Enable Banlist"
- * under it. Shown in the CPU game's New Game dialog and wherever a multiplayer host sets up a match;
- * the other player is shown the result instead.
+ * under it, with any further match options ({@link #addOption}) lined up beneath. Shown in the CPU
+ * game's New Game dialog and wherever a multiplayer host sets up a match; the other player is shown
+ * the result instead.
  *
  * <p>A format that is not yet playable ({@link DeckFormat#available()}) is listed but disabled.
  */
@@ -48,15 +49,30 @@ public class FormatPicker extends JPanel {
         }
         formatRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        banlistBox.setOpaque(false);
+        styleOption(banlistBox);
         banlistBox.setToolTipText("Decks that break the banlist cannot be chosen.");
         banlistBox.addActionListener(e -> onChange.run());
-        banlistBox.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
-        banlistBox.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         add(formatRow);
         add(banlistBox);
         setValues(format, banlist);
+    }
+
+    /**
+     * Adds {@code box} under "Enable Banlist", styled and spaced as it is, so the checkboxes stand in
+     * one column. It is not one of the deck rules: {@link #setOnChange} and {@link #setEnabled} leave
+     * it to the caller.
+     */
+    public void addOption(JCheckBox box) {
+        styleOption(box);
+        add(box);
+    }
+
+    /** The look every checkbox here shares; one left with the theme's border sits at its own indent and spacing. */
+    private static void styleOption(JCheckBox box) {
+        box.setOpaque(false);
+        box.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
+        box.setAlignmentX(Component.LEFT_ALIGNMENT);
     }
 
     /** Run whenever the player changes the format or the banlist; read the new values from here. */

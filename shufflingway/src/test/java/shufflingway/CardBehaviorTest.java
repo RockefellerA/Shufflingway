@@ -1,6 +1,7 @@
 package shufflingway;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -32477,8 +32478,30 @@ public class CardBehaviorTest {
 				.contains("discard 1 Job Moogle"));
 	}
 
+	// Generic CP reads as the card prints it, one circled amount, not "any" per CP.
+	@Test
+	void theActionMenuShowsGenericCpAsOneCircledAmount() {
+		MainWindow mw = new MainWindow();
+		CardData card = makeCostedTraitCard("Auron", "Fire", "Forward", 5,
+				"《Dull》《Fire》《2》: Draw 1 card.");
+		assertEquals("[Dull, Fire, " + GenericCp.label(2) + "]",
+				mw.buildAbilityMenuLabel(card.actionAbilities().get(0)).split(": ")[0]);
+	}
+
+	// HTML labels set the circle in a font that draws it well.
+	@Test
+	void theActionMenuHtmlSetsTheCircleInItsFont() {
+		assumeTrue(GenericCp.FAMILY != null, "no font here draws the circled digits");
+		MainWindow mw = new MainWindow();
+		ActionAbility ability = makeCostedTraitCard("Auron", "Fire", "Forward", 5,
+				"《Dull》《Fire》《2》: Draw 1 card.").actionAbilities().get(0);
+		String circle = "<font face='" + GenericCp.FAMILY + "'>" + GenericCp.circle(2) + "</font>";
+		assertTrue(mw.buildAbilityMenuLabelHtml(ability).contains(circle), "the menu");
+		assertTrue(mw.abilityDescriptionHtml(ability, false).contains(circle), "the tooltip");
+	}
+
 	// Counter and dull-other costs never reached the action menu label either. 89 abilities carry
-	// one, and most have no CP cost at all, so they rendered as "[0] → <effect>" — an ability that
+	// one, and most have no CP cost at all, so they rendered as "[0]: <effect>" — an ability that
 	// costs dulling five Characters advertising itself as free.
 	@Test
 	void theActionMenuShowsACounterCost() {
@@ -32551,7 +32574,7 @@ public class CardBehaviorTest {
 				"Dull 1 active Job Dancer or Card Name Dancer other than Penelo: "
 				+ "Choose 1 Forward. Its power becomes 4000 until the end of the turn.");
 		assertEquals("[dull 1 active Job Dancer or Name Dancer except Penelo]",
-				mw.buildAbilityMenuLabel(penelo.actionAbilities().get(0)).split(" → ")[0]);
+				mw.buildAbilityMenuLabel(penelo.actionAbilities().get(0)).split(": ")[0]);
 	}
 
 	/** 29-005L Cloud pays with either of two named Forwards, and both belong in the label. */
@@ -32730,7 +32753,7 @@ public class CardBehaviorTest {
 		MainWindow mw = new MainWindow();
 		CardData yuri = makeCostedTraitCard("Yuri", "Light", "Forward", 4, YURI_DULL_BACKUPS);
 		assertEquals("[dull 3 active Backups (same Elem.), self may cover 1]",
-				mw.buildAbilityMenuLabel(yuri.actionAbilities().get(0)).split(" → ")[0]);
+				mw.buildAbilityMenuLabel(yuri.actionAbilities().get(0)).split(": ")[0]);
 	}
 
 	/** The "own Job X to BZ" restriction was emitted by two identical lines, so it printed twice. */

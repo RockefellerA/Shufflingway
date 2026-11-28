@@ -150,7 +150,8 @@ public class RemoteLobbyDialog extends JDialog {
         createPasswordField = new JPasswordField(16);
         createPasswordField.setToolTipText("Optional; leave blank for a lobby anyone can join");
         createRules = new FormatPicker(DeckFormat.STANDARD, false);
-        debugBox   = new JCheckBox("Allow Debug menu");
+        debugBox   = new JCheckBox("Allow Debug");
+        createRules.addOption(debugBox);
         createBtn  = new JButton("Create Lobby");
         createBtn.addActionListener(e -> createLobby());
 
@@ -161,11 +162,14 @@ public class RemoteLobbyDialog extends JDialog {
         gc.anchor = GridBagConstraints.WEST;
         addRow(createPanel, gc, 0, "Lobby name:", lobbyNameField);
         addRow(createPanel, gc, 1, "Password:", createPasswordField);
-        gc.gridx = 1; gc.gridy = 2; gc.fill = GridBagConstraints.NONE;
+        // Across both columns from the left edge, as on the Local lobby's Host tab. The Format row
+        // opens with its layout's 6px gap, so the picker starts 6px further left to line "Format:"
+        // up with the labels above it.
+        gc.gridx = 0; gc.gridy = 2; gc.gridwidth = 2; gc.fill = GridBagConstraints.NONE;
+        gc.insets = new Insets(3, 3 - 6, 3, 3);
         createPanel.add(createRules, gc);
-        gc.gridy = 3;
-        createPanel.add(debugBox, gc);
-        gc.gridy = 4; gc.anchor = GridBagConstraints.EAST;
+        gc.gridx = 1; gc.gridy = 3; gc.gridwidth = 1; gc.anchor = GridBagConstraints.EAST;
+        gc.insets = new Insets(3, 3, 3, 3);
         createPanel.add(createBtn, gc);
 
         tabs = new JTabbedPane();

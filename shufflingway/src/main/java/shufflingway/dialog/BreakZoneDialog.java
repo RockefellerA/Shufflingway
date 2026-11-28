@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import javax.swing.*;
+import shufflingway.graphics.CardActionMenu;
 import shufflingway.graphics.CardAnimation;
 import static shufflingway.graphics.CardAnimation.*;
 
@@ -68,7 +69,7 @@ public class BreakZoneDialog {
                             .anyMatch(a -> a.breakZoneOnly() != null);
                     if (!anyBzAbility && !hasBzPlay) return;
                     cb.onZoomHide();
-                    JPopupMenu menu = new JPopupMenu();
+                    JPopupMenu menu = new CardActionMenu();
                     if (hasBzPlay) {
                         JMenuItem playItem = new JMenuItem("Play  (" + bzPlayCost + " CP)");
                         playItem.setEnabled(canAfford);

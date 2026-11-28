@@ -139,6 +139,7 @@ import shufflingway.graphics.BoardTexture;
 import shufflingway.graphics.CardAnimation;
 import static shufflingway.graphics.CardAnimation.CARD_H;
 import static shufflingway.graphics.CardAnimation.CARD_W;
+import shufflingway.graphics.CardActionMenu;
 import shufflingway.graphics.CardBreakAnimator;
 import shufflingway.graphics.CardLimitBreakAnimator;
 import shufflingway.graphics.CardPile;
@@ -151,6 +152,7 @@ import shufflingway.graphics.CrystalDisplay;
 import shufflingway.graphics.DamageNegateFlash;
 import shufflingway.graphics.DamageNumberOverlay;
 import shufflingway.graphics.DeckShuffleAnimator;
+import shufflingway.graphics.DraggableCardRow;
 import shufflingway.graphics.ResolvingGlow;
 import shufflingway.graphics.FieldCardIcon;
 import shufflingway.graphics.FieldSlotLabel;
@@ -2854,7 +2856,7 @@ public class MainWindow {
 	}
 
 	/**
-	 * Greys out the Debug menu for a networked match whose host left "Enable Debugging" unchecked,
+	 * Greys out the Debug menu for a networked match whose host left "Allow Debug" unchecked,
 	 * on both clients alike, and restores it for any other game and as soon as the connection
 	 * ends. A local game against the AI always has it. No-op when debug mode is off, as there is
 	 * no menu.
@@ -3498,20 +3500,14 @@ public class MainWindow {
 	}
 
 	/**
-	 * Expresses {@code arranged} as positions in {@code original}, so a hand order can be sent
-	 * as a permutation rather than as cards. Matched by identity: the deck holds a distinct
-	 * {@link CardData} per copy, and two copies of one card are equal but not interchangeable
-	 * here.
+	 * The cards of {@code original} in the order {@code positions} names them. A hand order is
+	 * kept and sent as positions rather than as cards: the deck holds a distinct {@link CardData}
+	 * per copy, and two copies of one card are equal but not interchangeable here.
 	 */
-	private static List<Integer> permutationOf(List<CardData> original, List<CardData> arranged) {
-		List<Integer> order = new ArrayList<>(arranged.size());
-		boolean[] taken = new boolean[original.size()];
-		for (CardData card : arranged) {
-			for (int i = 0; i < original.size(); i++) {
-				if (!taken[i] && original.get(i) == card) { order.add(i); taken[i] = true; break; }
-			}
-		}
-		return order;
+	private static List<CardData> arranged(List<CardData> original, List<Integer> positions) {
+		List<CardData> cards = new ArrayList<>(positions.size());
+		for (int i : positions) cards.add(original.get(i));
+		return cards;
 	}
 
 	/** The opponent has settled their opening hand; turn 1 waits for both players. */
@@ -3627,77 +3623,17 @@ public class MainWindow {
 		if (openingHandPopup != null) openingHandPopup.dispose();
 		openingHandPopup = new JWindow(frame);
 
-		// Mutable display order — swapped in-place when player reorders
-		List<CardData> handOrder = new ArrayList<>(cards);
-
-		// ── Card labels ──────────────────────────────────────────────────────
-		JLabel[] cardLabels = new JLabel[handOrder.size()];
-		int[] selectedIdx = { -1 };  // -1 = nothing selected
-
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
-
-		for (int i = 0; i < handOrder.size(); i++) {
-			final int idx = i;
-			JLabel lbl = new JLabel("Loading...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setBorder(BorderFactory.createLineBorder(Color.GRAY, 2));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setForeground(Color.WHITE);
-			lbl.setFont(FontLoader.loadPixelFont(10));
-			lbl.setHorizontalAlignment(SwingConstants.CENTER);
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override
-				public void mousePressed(MouseEvent e) {
-					if (!mulliganAvailable) return;
-					if (selectedIdx[0] == -1) {
-						// Select this card
-						selectedIdx[0] = idx;
-						cardLabels[idx].setBorder(createCardGlowBorder(Color.YELLOW));
-					} else if (selectedIdx[0] == idx) {
-						// Deselect
-						selectedIdx[0] = -1;
-						cardLabels[idx].setBorder(BorderFactory.createLineBorder(Color.GRAY, 2));
-					} else {
-						// Swap the two cards
-						int other = selectedIdx[0];
-
-						CardData tmpCard = handOrder.get(idx);
-						handOrder.set(idx, handOrder.get(other));
-						handOrder.set(other, tmpCard);
-
-						Icon tmpIcon = cardLabels[idx].getIcon();
-						String tmpText = cardLabels[idx].getText();
-						cardLabels[idx].setIcon(cardLabels[other].getIcon());
-						cardLabels[idx].setText(cardLabels[other].getText());
-						cardLabels[other].setIcon(tmpIcon);
-						cardLabels[other].setText(tmpText);
-
-						cardLabels[idx].setBorder(BorderFactory.createLineBorder(Color.GRAY, 2));
-						cardLabels[other].setBorder(BorderFactory.createLineBorder(Color.GRAY, 2));
-						selectedIdx[0] = -1;
-					}
-				}
-				@Override
-				public void mouseEntered(MouseEvent e) {
-					showZoomAt(handOrder.get(idx).imageUrl());
-				}
-				@Override
-				public void mouseExited(MouseEvent e) {
-					hideZoom();
-				}
-			});
-
-			cardLabels[i] = lbl;
-			cardsPanel.add(lbl);
-		}
+		// ── Cards ────────────────────────────────────────────────────────────
+		// Dragged into order while a mulligan is still open: the order they would go to the bottom
+		// of the deck in, and the hand's order if kept.
+		DraggableCardRow cardsRow = new DraggableCardRow(cards.size(), CARD_W, CARD_H,
+				FontLoader.loadPixelFont(10), mulliganAvailable);
+		cardsRow.setHoverListener(card -> showZoomAt(cards.get(card).imageUrl()), this::hideZoom);
 
 		// Load card images asynchronously
-		for (int i = 0; i < handOrder.size(); i++) {
+		for (int i = 0; i < cards.size(); i++) {
 			final int idx = i;
-			final String url = handOrder.get(i).imageUrl();
+			final String url = cards.get(i).imageUrl();
 			new SwingWorker<ImageIcon, Void>() {
 				@Override protected ImageIcon doInBackground() throws Exception {
 					Image img = ImageCache.load(url);
@@ -3707,7 +3643,7 @@ public class MainWindow {
 				@Override protected void done() {
 					try {
 						ImageIcon icon = get();
-						if (icon != null) { cardLabels[idx].setIcon(icon); cardLabels[idx].setText(null); }
+						if (icon != null) cardsRow.setImage(idx, icon);
 					} catch (InterruptedException | ExecutionException ignored) {}
 				}
 			}.execute();
@@ -3715,7 +3651,7 @@ public class MainWindow {
 
 		// ── Instructions label ───────────────────────────────────────────────
 		JLabel instructions = new JLabel(
-				mulliganAvailable ? "Click a card to select it, then click another to swap positions." : " ",
+				mulliganAvailable ? "Drag cards to reorder them." : " ",
 				SwingConstants.CENTER);
 		instructions.setFont(FontLoader.loadPixelFont(10));
 
@@ -3727,8 +3663,8 @@ public class MainWindow {
 			openingHandPopup.dispose();
 			openingHandPopup = null;
 			if (mulliganAvailable) logEntry("Kept opening hand");
-			List<Integer> order = permutationOf(cards, handOrder);
-			gameState.keepHand(handOrder);
+			List<Integer> order = cardsRow.order();
+			gameState.keepHand(arranged(cards, order));
 			if (matchSetup != null) {
 				// The opponent's client holds this hand as P2's; tell it the order we settled on
 				// so both sides address the same card by the same index from here on.
@@ -3768,12 +3704,12 @@ public class MainWindow {
 			hideZoom();
 			logEntry("Took mulligan");
 			// A mulligan reorders the deck, so the opponent's copy of it has to follow.
+			List<Integer> bottomOrder = cardsRow.order();
 			if (matchSetup != null) {
 				sendToOpponent(GameAction.of(ActionType.MULLIGAN, new JSONObject()
-						.put("bottomOrder", new JSONArray(permutationOf(cards, handOrder)))));
+						.put("bottomOrder", new JSONArray(bottomOrder))));
 			}
-			// handOrder is the player's chosen bottom-of-deck order
-			List<CardData> newCards = gameState.mulligan(new ArrayList<>(handOrder));
+			List<CardData> newCards = gameState.mulligan(arranged(cards, bottomOrder));
 			refreshP1DeckLabel();
 			showOpeningHandPopup(newCards, AppSettings.isDebugUnlimitedMulligan());
 		});
@@ -3795,7 +3731,7 @@ public class MainWindow {
 				BorderFactory.createRaisedBevelBorder(),
 				BorderFactory.createEmptyBorder(8, 8, 8, 8)));
 		mainPanel.add(titleLabel,  BorderLayout.NORTH);
-		mainPanel.add(cardsPanel,  BorderLayout.CENTER);
+		mainPanel.add(cardsRow,    BorderLayout.CENTER);
 		mainPanel.add(bottomPanel, BorderLayout.SOUTH);
 
 		openingHandPopup.getContentPane().add(mainPanel);
@@ -10298,7 +10234,7 @@ public class MainWindow {
 		// The menu takes the pointer off the fan at once; without this the card drops mid-decision.
 		if (p1HandFan != null) p1HandFan.setHoverFrozen(true);
 
-		JPopupMenu menu = new JPopupMenu();
+		JPopupMenu menu = new CardActionMenu();
 
 		JMenuItem playItem = new JMenuItem("Play");
 		playItem.setEnabled(canCastFromHand(card, handIdx));
@@ -10401,6 +10337,8 @@ public class MainWindow {
 		for (ActionAbility ability : card.actionAbilities()) {
 			if (!ability.whileCardInHand()) continue;
 			boolean abilityEnabled = autoAbilityTriggers.canActivateHandAbility(ability, card, true);
+			// Disabled as plain text: Swing draws disabled HTML in the theme's own grey, and the
+			// card menu draws plain text in its own.
 			String abilityHtml = buildAbilityMenuLabelHtml(ability);
 			JMenuItem item = new JMenuItem(abilityEnabled
 					? "<html>Use: " + abilityHtml.substring("<html>".length())
@@ -15888,7 +15826,7 @@ public class MainWindow {
 
 	/**
 	 * Returns a display label for an action ability menu item, e.g.
-	 * {@code "[Mug] Wind, Dull, S → ...effect..."} (truncated to 60 chars).
+	 * {@code "[Mug] [Dull, S, Wind]: ...effect..."} (truncated to 60 chars).
 	 */
 	String buildAbilityMenuLabel(ActionAbility ability) {
 		return buildAbilityLabel(ability, true);
@@ -15900,7 +15838,7 @@ public class MainWindow {
 		if (ability.isSpecial() && !ability.abilityName().isEmpty())
 			sb.append("[").append(ability.abilityName()).append("] ");
 
-		// --- Cost section (left of →) ---
+		// --- Cost section (before the colon) ---
 		StringBuilder cost = new StringBuilder();
 		boolean firstCost = true;
 		if (ability.requiresDull())    { cost.append("Dull");      firstCost = false; }
@@ -15908,9 +15846,16 @@ public class MainWindow {
 		if (ability.hasXCost())        { if (!firstCost) cost.append(", "); cost.append("X"); firstCost = false; }
 		if (ability.crystalCost() > 0) { if (!firstCost) cost.append(", "); cost.append(ability.crystalCost()).append(" Crystal"); firstCost = false; }
 		if (ability.selfMillCost() > 0) { if (!firstCost) cost.append(", "); cost.append("mill ").append(ability.selfMillCost()); firstCost = false; }
+		// Generic CP as one circled amount, as the card prints it, where its first CP stands.
+		int generic = (int) ability.cpCost().stream().filter(String::isEmpty).count();
+		boolean genericShown = false;
 		for (String e : ability.cpCost()) {
+			if (e.isEmpty()) {
+				if (genericShown) continue;
+				genericShown = true;
+			}
 			if (!firstCost) cost.append(", ");
-			cost.append(e.isEmpty() ? "any" : e);
+			cost.append(e.isEmpty() ? GenericCp.label(generic) : e);
 			firstCost = false;
 		}
 		if (ability.revealCost() != null) {
@@ -15954,7 +15899,7 @@ public class MainWindow {
 		}
 		// Discard costs were priced and paid but never shown here, so an ability whose only cost
 		// beyond its CP was a discard read as free in the menu — 18-003C Machinist offered itself
-		// as "[Fire] → Draw 1 card" with no sign that it eats itself to do it.
+		// as "[Fire]: Draw 1 card" with no sign that it eats itself to do it.
 		for (DiscardCost dc : ability.discardCosts()) {
 			if (!firstCost) cost.append(", ");
 			cost.append("discard ");
@@ -15975,7 +15920,7 @@ public class MainWindow {
 		}
 		// Counter and dull-other costs were the last two the label stayed silent about. 89 abilities
 		// carry one, and most of them have no CP cost at all, so they advertised themselves as
-		// "[0] → <effect>" — 8-096L Sakura offered a free Break that actually costs dulling five
+		// "[0]: <effect>" — 8-096L Sakura offered a free Break that actually costs dulling five
 		// active Lightning Backups, and 12-107R Lunafreya's two abilities gave no sign that the
 		// second costs four times the first.
 		for (CounterCost cc : ability.counterCosts()) {
@@ -15995,9 +15940,10 @@ public class MainWindow {
 			cost.append("dull ").append(describeAbilityDullCost(dfc));
 			firstCost = false;
 		}
-		sb.append("[").append(firstCost ? "0" : cost).append("] → ");
+		// A colon, as the card prints it: an arrow already means "to a zone" inside a cost (→BZ).
+		sb.append("[").append(firstCost ? "0" : cost).append("]: ");
 
-		// --- Restriction section (right of →, before effect) ---
+		// --- Restriction section (after the colon, before effect) ---
 		StringBuilder restrict = new StringBuilder();
 		boolean firstRestrict = true;
 		if (ability.damageThreshold() > 0)         { restrict.append("Dmg≥").append(ability.damageThreshold()); firstRestrict = false; }
@@ -16060,7 +16006,7 @@ public class MainWindow {
 		else
 			body = escapeTooltipHtml(plain);
 		if (payOwnCost) body += " (pay your own cost)";
-		return body;
+		return GenericCp.html(body);
 	}
 
 	/** HTML version of {@link #buildAbilityMenuLabel}: wraps the [AbilityName] in orange. */
@@ -16070,9 +16016,9 @@ public class MainWindow {
 			String prefix = "[" + ability.abilityName() + "] ";
 			if (plain.startsWith(prefix))
 				return "<html><font color='#ED930D'>[" + ability.abilityName() + "]</font> "
-						+ plain.substring(prefix.length());
+						+ GenericCp.html(plain.substring(prefix.length()));
 		}
-		return "<html>" + plain;
+		return "<html>" + GenericCp.html(plain);
 	}
 
 	/** @see CostCalculator#canPayOptionalCost */
