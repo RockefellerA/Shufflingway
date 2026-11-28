@@ -7049,14 +7049,19 @@ public class MainWindow {
 		return set != null ? set : List.of();
 	}
 
-	/** @return whether a card was found, chosen, and moved to {@code destination}. */
-	private boolean searchDeckForCardImpl(boolean isP1,
-			boolean inclForwards, boolean inclBackups,
-			boolean inclMonsters, boolean inclSummons,
-			int costVal, String costCmp, String cardNameFilter, String jobFilter,
-			String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-			String destination, int count, boolean entersDull, CardData.Trait requireTrait) {
-		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+	/**
+	 * The cards of {@code deck} a search with these filters finds, in deck order. The whole of what
+	 * a search matches on, apart from the riders on what may be taken together; {@link SearchProbe}
+	 * asks it of a search that has not been made.
+	 *
+	 * @param powerVal            the printed-power bound, or -1 — {@link #searchPowerVal}'s reading
+	 * @param identityConjunctive Job, Card Name and Category read together — {@link #searchIdentityConjunctive}
+	 */
+	List<CardData> deckSearchMatches(Collection<CardData> deck,
+			boolean inclForwards, boolean inclBackups, boolean inclMonsters, boolean inclSummons,
+			int costVal, String costCmp, int powerVal, String powerCmp,
+			String cardNameFilter, String jobFilter, String categoryFilter, String elementFilter,
+			String excludeName, String excludeElem, CardData.Trait requireTrait, boolean identityConjunctive) {
 		boolean anyType = !inclForwards && !inclBackups && !inclMonsters && !inclSummons;
 		List<CardData> matches = new ArrayList<>();
 		for (CardData c : deck) {
@@ -7071,7 +7076,7 @@ public class MainWindow {
 			if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 			// The printed power, like the printed cost beside it: nothing on the field can be
 			// boosting a card that is still in the deck.
-			if (!CardFilters.meetsPowerConstraint(c.power(), searchPowerVal, searchPowerCmp)) continue;
+			if (!CardFilters.meetsPowerConstraint(c.power(), powerVal, powerCmp)) continue;
 			// Job, Card Name and Category identify a card three different ways. Stated together
 			// they are usually alternatives: "Category FFL Forwards or Job Warrior of Light
 			// Forwards" (12-099R Sarah) wants either. Alone, each is a plain requirement.
@@ -7083,7 +7088,7 @@ public class MainWindow {
 			int idFilters = (jobFilter      != null ? 1 : 0)
 			              + (cardNameFilter != null ? 1 : 0)
 			              + (categoryFilter != null ? 1 : 0);
-			boolean passesIdentity = idFilters <= 1 || searchIdentityConjunctive
+			boolean passesIdentity = idFilters <= 1 || identityConjunctive
 				? meetsJobFilterEffective(c, jobFilter)
 					&& meetsCardNameFilter(c, cardNameFilter)
 					&& meetsCategoryFilter(c, categoryFilter)
@@ -7103,6 +7108,21 @@ public class MainWindow {
 			}
 			matches.add(c);
 		}
+		return matches;
+	}
+
+	/** @return whether a card was found, chosen, and moved to {@code destination}. */
+	private boolean searchDeckForCardImpl(boolean isP1,
+			boolean inclForwards, boolean inclBackups,
+			boolean inclMonsters, boolean inclSummons,
+			int costVal, String costCmp, String cardNameFilter, String jobFilter,
+			String categoryFilter, String elementFilter, String excludeName, String excludeElem,
+			String destination, int count, boolean entersDull, CardData.Trait requireTrait) {
+		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+		List<CardData> matches = deckSearchMatches(deck,
+				inclForwards, inclBackups, inclMonsters, inclSummons, costVal, costCmp,
+				searchPowerVal, searchPowerCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter,
+				excludeName, excludeElem, requireTrait, searchIdentityConjunctive);
 		if (matches.isEmpty()) {
 			shuffleDeck(isP1);
 			logEntry("Search: no matching card found in deck");

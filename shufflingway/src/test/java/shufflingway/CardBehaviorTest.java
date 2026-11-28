@@ -35533,6 +35533,83 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 9-014L Nael against 25-086R Abzu's "The power of Forwards opponent controls cannot be increased
+	// by Summons or abilities." (Board behaviour.)
+	//
+	// Found in playtesting: "Remove 1 Backup from the game: Until the end of the turn, Nael gains
+	// +2000 power and Haste." lost the Haste along with the power. Abzu stops the increase and
+	// nothing else — rule 2.3: "If the effects of text on a card are impossible to carry out, that
+	// part of the text should be ignored." The boosts of the source itself returned before granting
+	// the traits beside the power.
+	// =========================================================================================
+
+	private static final String ABZU_SUPPRESSION =
+			"The power of Forwards opponent controls cannot be increased by Summons or abilities.";
+
+	/** P1's {@code forward} on the field across from a P2 Abzu. */
+	private static MainWindow facingAbzu(CardData forward) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, forward);
+		CardData abzu = makeFieldAbilityCard("Abzu", "Water", "Monster", ABZU_SUPPRESSION);
+		mw.gameState.getIdentity().put(abzu, false);
+		mw.placeP2CardInMonsterZone(abzu);
+		return mw;
+	}
+
+	@Test
+	void naelStillGainsHasteWhenAbzuStopsItsPowerBoost() {
+		CardData nael = makeForward("Nael", "Lightning", 6, 9000);
+		MainWindow mw = facingAbzu(nael);
+		Consumer<GameContext> boost = ActionResolver.parse(
+				"Until the end of the turn, Nael gains +2000 power and Haste.", nael);
+		assertNotNull(boost);
+
+		boost.accept(mw.buildGameContext(true));
+
+		assertEquals(9000, mw.effectiveP1ForwardPower(0), "Abzu stops the increase");
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.HASTE), "and only the increase");
+	}
+
+	@Test
+	void aPermanentSelfBoostUnderAbzuKeepsItsTraitToo() {
+		CardData nael = makeForward("Nael", "Lightning", 6, 9000);
+		MainWindow mw = facingAbzu(nael);
+
+		mw.buildGameContext(true).boostSourceForwardPermanently(nael, 2000, EnumSet.of(CardData.Trait.HASTE));
+
+		assertEquals(9000, mw.effectiveP1ForwardPower(0));
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.HASTE));
+	}
+
+	@Test
+	void aPermanentBoostToAChosenForwardUnderAbzuKeepsItsTraitToo() {
+		MainWindow mw = facingAbzu(makeForward("Vivi", "Fire", 3, 7000));
+
+		mw.buildGameContext(true).boostTargetPermanently(new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD),
+				2000, EnumSet.of(CardData.Trait.BRAVE));
+
+		assertEquals(7000, mw.effectiveP1ForwardPower(0));
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void aMonsterActingAsAForwardIsKeptFromARaiseByAbzu() {
+		// A Monster that is a Forward is one of "the Forwards opponent controls". Its field-grant half
+		// already read it so; a resolved boost did not ask.
+		CardData redCap = riderMonster("Red Cap", "Fire", "During your turn, Red Cap also becomes a Forward with 7000 power.");
+		MainWindow mw = monsterOnTurnOf(redCap, true, GameState.Player.P1);
+		CardData abzu = makeFieldAbilityCard("Abzu", "Water", "Monster", ABZU_SUPPRESSION);
+		mw.gameState.getIdentity().put(abzu, false);
+		mw.placeP2CardInMonsterZone(abzu);
+
+		mw.buildGameContext(true).boostTarget(new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER),
+				2000, EnumSet.of(CardData.Trait.HASTE));
+
+		assertEquals(7000, mw.p1MonsterForwardPower(0), "Abzu stops the increase");
+		assertTrue(mw.effectiveMonsterHasTrait(true, 0, CardData.Trait.HASTE), "and only the increase");
+	}
+
+	// =========================================================================================
 	// Dion 29-106H: "If you control 7 or more Characters, Dion can prime to pay 《Water》《1》
 	// instead of paying the Priming cost."
 	//
@@ -41147,6 +41224,48 @@ public class CardBehaviorTest {
 		assertTrue(mw.gameState.getP2Hand().isEmpty());
 	}
 
+	// ---- Warp ahead of the cast (AI play choice) -------------------------------------------------
+	//
+	// Found in playtesting: the CPU never warped, because it tried Warp only once nothing else
+	// could be cast — and with a card to discard for CP, something always could. A Character it
+	// could cast is now warped instead while P1 could not force lethal next turn.
+
+	/** A CPU hand of an 18-097R Rinoa in miniature — cost 3, Warp 2 for 《Water》 — and three Water Backups to cast her. */
+	private static MainWindow cpuHoldingAWarpForward(CardData rinoa) {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getIdentity().put(rinoa, false);
+		mw.gameState.getP2Hand().add(rinoa);
+		for (int s = 0; s < 3; s++) giveP2Backup(mw, s, "Water Backup " + s, "Water");
+		return mw;
+	}
+
+	@Test
+	void theCpuWarpsACharacterItCouldCastWhenNothingNeedsItOnTheField() {
+		CardData rinoa = makeWarpForward("Rinoa", "Water", 3, 2, List.of("Water"));
+		MainWindow mw = cpuHoldingAWarpForward(rinoa);
+
+		assertTrue(new ComputerPlayer(mw).castFromHandIfAble());
+
+		assertEquals(1, mw.gameState.getP2WarpZone().size(), "warped for 1 rather than cast for 3");
+		assertSame(rinoa, mw.gameState.getP2WarpZone().get(0).card);
+		assertEquals(2, Arrays.stream(mw.p2BackupStates).filter(s -> s == CardState.ACTIVE).count(),
+				"the CP the Warp saved is left for the next play");
+	}
+
+	@Test
+	void theCpuCastsItOutrightWhenP1CouldOtherwiseForceLethal() {
+		CardData rinoa = makeWarpForward("Rinoa", "Water", 3, 2, List.of("Water"));
+		MainWindow mw = cpuHoldingAWarpForward(rinoa);
+		for (int i = 0; i < 6; i++) mw.gameState.getP2DamageZone().add(makeForward("Dmg " + i, "Fire", 1, 1000));
+		placeP1Forward(mw, makeForward("Rival", "Fire", 3, 7000));
+
+		assertTrue(new ComputerPlayer(mw).castFromHandIfAble());
+		resolveStack(mw);
+
+		assertTrue(mw.gameState.getP2WarpZone().isEmpty(), "at 6 damage, one unblocked attack ends the game");
+		assertTrue(mw.p2ForwardCards.stream().anyMatch(c -> c == rinoa));
+	}
+
 	// =========================================================================================
 	// Black Mage 4-079C, "《Earth》《Dull》: Choose 1 Forward. It cannot become dull by your
 	// opponent's Summons or abilities this turn."  The choose half already parsed; the sentence
@@ -43363,6 +43482,85 @@ public class CardBehaviorTest {
 
 		assertFalse(new ComputerPlayer(mw).buffWouldOnlyHelpP1(
 				source.actionAbilities().get(0), source));
+	}
+
+	// =========================================================================================
+	// 4-132R Tonberries: "Put Tonberries into the Break Zone: Choose 1 Forward. It loses 2000 power
+	// until the end of the turn." (AI activation.)
+	//
+	// Found in playtesting: with no Forward on P1's side, the CPU turned its 4-142R Malboro into a
+	// Forward, then put Tonberries into the Break Zone to shrink it. The gate that holds a harmful
+	// ability back while P1 has no Forward (abilityHarmsChosenTarget) knew damage only.
+	// =========================================================================================
+
+	private static final String TONBERRIES_SACRIFICE =
+			"Put Tonberries into the Break Zone: Choose 1 Forward. It loses 2000 power until the end of the turn.";
+
+	/** Whether the CPU holds back the action ability of a P2 Forward {@code name} printing {@code text}, placed on {@code mw}. */
+	private static boolean harmWouldOnlyHitP2(MainWindow mw, String name, String text) {
+		CardData source = makeForwardWithText(name, "Water", 2, 5000, text);
+		placeP2Forward(mw, source);
+		return new ComputerPlayer(mw).harmWouldOnlyHitP2(source.actionAbilities().get(0), source);
+	}
+
+	@Test
+	void theAiWillNotSacrificeTonberriesToShrinkItsOwnForward() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Malboro", "Water", 3, 6000));
+		assertTrue(harmWouldOnlyHitP2(mw, "Tonberries", TONBERRIES_SACRIFICE),
+				"every Forward it could choose is P2's own");
+
+		MainWindow withRival = new MainWindow();
+		placeP1Forward(withRival, makeForward("Vayne", "Wind", 4, 8000));
+		assertFalse(harmWouldOnlyHitP2(withRival, "Tonberries", TONBERRIES_SACRIFICE));
+	}
+
+	@Test
+	void aHarmCountsOnlyTheP1CardsItsChoiceCanReach() {
+		// A P1 Forward is not enough when the choice cannot reach it — the reason this asks the
+		// eligible targets rather than whether P1 has a Forward.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Vayne", "Wind", 5, 8000));
+		assertTrue(harmWouldOnlyHitP2(mw, "Skeleton", "《Dull》: Choose 1 Forward of cost 2 or less. Break it."));
+	}
+
+	@Test
+	void aProtectionIsNotTakenForAHarm() {
+		// CHOOSE_FOLLOWUP_HARMS_TARGET reads a bare "cannot", which is why the gate has its own pattern.
+		MainWindow mw = new MainWindow();
+		assertFalse(harmWouldOnlyHitP2(mw, "Ricard", "《Dull》: Choose 1 Forward. It cannot be broken this turn."));
+		assertFalse(harmWouldOnlyHitP2(mw, "Zemus", "《Dull》: Choose 1 Forward. It cannot be blocked this turn."));
+	}
+
+	@Test
+	void aChoiceOfP2sOwnSideIsItsPriceNotAHarmAimedWrong() {
+		MainWindow mw = new MainWindow();
+		assertFalse(harmWouldOnlyHitP2(mw, "Delita", "《Dull》: Choose 1 Forward you control. Break it."));
+	}
+
+	// ---- The same harm, cast as a Summon (AI cast choice) ----------------------------------------
+	//
+	// summonHasSomethingToHit counted a Forward of P2's own as something for the Summon to hit, so
+	// "Choose 1 Forward. It loses 4000 power" was cast with no P1 Forward and landed on P2's own.
+
+	@Test
+	void theCpuWillNotCastAHarmfulSummonAtItsOwnBoard() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Ally", "Water", 3, 7000));
+		CardData drain = makeSummon("Drain", "Water", 2, "Choose 1 Forward. It loses 4000 power until the end of the turn.");
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+
+		assertFalse(cpu.summonHasSomethingToHit(drain), "the only Forward to choose is P2's own");
+		placeP1Forward(mw, makeForward("Rival", "Fire", 3, 7000));
+		assertTrue(cpu.summonHasSomethingToHit(drain));
+	}
+
+	@Test
+	void aHelpfulSummonStillCountsP2sOwnForwards() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Ally", "Water", 3, 7000));
+		CardData boost = makeSummon("Boost", "Water", 2, "Choose 1 Forward. It gains +4000 power until the end of the turn.");
+		assertTrue(new ComputerPlayer(mw).summonHasSomethingToHit(boost));
 	}
 
 	// =========================================================================================
@@ -53452,6 +53650,120 @@ public class CardBehaviorTest {
 				+ "choose 1 Forward of cost X or less. Put it into the Break Zone.").get(0);
 		assertTrue(AutoAbilityTriggers.dispatchedByTriggers(etf, null),
 				"the payment run is what the triggers dispatch, and its sub-effect now resolves");
+	}
+
+	// ---- Rinoa: the X a CPU pays (AI payment) ----------------------------------------------------
+	//
+	// Found in playtesting: the CPU bought one unit of X, as it does for any plain 《X》, paid it with
+	// a 2-CP discard, and broke nothing — P1 had no Forward of cost 2 or less. X is now the cost of
+	// the dearest opposing Forward the AI can reach, and with none in reach the offer is declined.
+
+	private static final String RINOA_18_097R_ETB = "When Rinoa enters the field, you may pay 《X》. When you do so, "
+			+ "choose 1 Forward of cost X or less. Put it into the Break Zone.";
+
+	@Test
+	void aCpuRinoaKeepsItsCardWhenNoOpposingForwardIsWithinReach() {
+		CardData held  = makeForward("Kurasame", "Ice", 3, 7000);
+		CardData rival = makeForward("Rival", "Fire", 5, 8000);
+		MainWindow mw = cpuDiscarderArrives("Rinoa", RINOA_18_097R_ETB, List.of(rival), held);
+
+		assertTrue(mw.gameState.getP2Hand().stream().anyMatch(c -> c == held),
+				"one card is 2 CP, short of the cost-5 Forward");
+		assertTrue(mw.p1ForwardCards.stream().anyMatch(c -> c == rival));
+		assertTrue(mw.gameLogText().contains("no opposing card of cost 2 or less to choose"), mw.gameLogText());
+	}
+
+	@Test
+	void aCpuRinoaPaysTheXItsDearestReachableTargetCosts() {
+		CardData cheap = makeForward("Cheap", "Fire", 2, 5000);
+		CardData dear  = makeForward("Dear", "Fire", 4, 8000);
+		CardData far   = makeForward("Far", "Fire", 7, 10000);
+		MainWindow mw = cpuDiscarderArrives("Rinoa", RINOA_18_097R_ETB, List.of(cheap, dear, far),
+				makeForward("Held 1", "Ice", 3, 7000), makeForward("Held 2", "Ice", 3, 7000));
+
+		assertTrue(mw.gameLogText().contains("Rinoa — paid 4 CP"), mw.gameLogText());
+		assertTrue(mw.p1ForwardCards.stream().noneMatch(c -> c == dear), "the dearest of the 4 CP it can reach");
+		assertTrue(mw.p1ForwardCards.stream().anyMatch(c -> c == cheap));
+		assertTrue(mw.p1ForwardCards.stream().anyMatch(c -> c == far), "cost 7 is past what two cards pay");
+	}
+
+	// ---- The rest of the 《X》 family: deck searches and a Break Zone choice (AI payment) ---------
+	//
+	// Nine searches (22-004H Angeal, 23-051L Hope, 25-051L Rem, …) and 23-061H Warrior of Light's
+	// Break Zone choice had the same one unit of X, which finds a cost-1 card or nothing. The CPU
+	// counts its own deck's contents — not their order — as its owner may.
+
+	private static final String ANGEAL_22_004H_ETB = "When Angeal enters the field, you may pay 《X》. When you do so, "
+			+ "search for 1 Job SOLDIER Forward of cost X and play it onto the field.";
+	private static final String ANGEAL_PAYOFF = "search for 1 Job SOLDIER Forward of cost X and play it onto the field.";
+
+	private static CardData soldier(String name, int cost) {
+		return makeTextCard(name, "Earth", "Forward", cost, 7000, "SOLDIER", "");
+	}
+
+	/** A CPU Angeal entering with {@code deck} as its deck and {@code hand} in its hand. */
+	private static MainWindow cpuAngealArrives(List<CardData> deck, CardData... hand) {
+		MainWindow mw = new MainWindow();
+		stackP2Deck(mw, deck.toArray(CardData[]::new));
+		holdP2(mw, hand);
+		placeP2Forward(mw, makeTextCard("Angeal", "Earth", "Forward", 4, 8000, "SOLDIER", ANGEAL_22_004H_ETB));
+		resolveStack(mw);
+		return mw;
+	}
+
+	@Test
+	void aCpuAngealPaysTheExactCostOfTheDearestSoldierItCanReach() {
+		CardData two = soldier("Kunsel", 2), four = soldier("Zack", 4), seven = soldier("Sephiroth", 7);
+		MainWindow mw = cpuAngealArrives(List.of(two, four, seven),
+				makeForward("Held 1", "Ice", 3, 7000), makeForward("Held 2", "Ice", 3, 7000));
+
+		assertTrue(mw.gameLogText().contains("Angeal — paid 4 CP"), mw.gameLogText());
+		assertTrue(mw.p2ForwardCards.stream().anyMatch(c -> c == four), "X = 4 finds the cost-4 SOLDIER");
+		assertTrue(mw.gameState.getP2MainDeck().stream().anyMatch(c -> c == two));
+	}
+
+	@Test
+	void aCpuAngealKeepsItsCardWhenNoSoldierIsWithinWhatItCanPay() {
+		CardData held = makeForward("Held", "Ice", 3, 7000);
+		MainWindow mw = cpuAngealArrives(List.of(soldier("Sephiroth", 7)), held);
+
+		assertTrue(mw.gameState.getP2Hand().stream().anyMatch(c -> c == held));
+		assertTrue(mw.gameLogText().contains("nothing of cost 2 or less in the deck for it to find"), mw.gameLogText());
+	}
+
+	@Test
+	void aSearchedCardThatWouldClashByNameIsNotPaidFor() {
+		// A second Angeal played onto the field puts both into the Break Zone (the unique-name rule).
+		MainWindow mw = new MainWindow();
+		CardData angeal = makeTextCard("Angeal", "Earth", "Forward", 4, 8000, "SOLDIER", "");
+		placeP2Forward(mw, angeal);
+		stackP2Deck(mw, soldier("Kunsel", 2), soldier("Angeal", 4));
+
+		assertEquals(2, mw.autoAbilityTriggers.aiXFor(ANGEAL_PAYOFF, angeal, false, 5));
+		assertEquals(-1, mw.autoAbilityTriggers.aiXFor(ANGEAL_PAYOFF, angeal, false, 1));
+	}
+
+	@Test
+	void aBreakZoneChoiceMeasuredInXIsPaidTheCostOfTheDearestCardThere() {
+		// 23-061H Warrior of Light: "choose 1 Job Standard Unit of cost X in your Break Zone. Play it
+		// onto the field."
+		MainWindow mw = new MainWindow();
+		CardData wol = makeForward("Warrior of Light", "Light", 5, 9000);
+		for (int cost : new int[]{2, 5, 8}) {
+			CardData unit = makeTextCard("Unit " + cost, "Fire", "Forward", cost, 5000, "Standard Unit", "");
+			mw.gameState.getIdentity().put(unit, false);
+			mw.gameState.getP2BreakZone().add(unit);
+		}
+		String payoff = "choose 1 Job Standard Unit of cost X in your Break Zone. Play it onto the field.";
+
+		assertEquals(5, mw.autoAbilityTriggers.aiXFor(payoff, wol, false, 6));
+		assertEquals(-1, mw.autoAbilityTriggers.aiXFor(payoff, wol, false, 1));
+	}
+
+	@Test
+	void aPayoffWithNoCardMeasuredInXLeavesTheOneUnitStanding() {
+		MainWindow mw = new MainWindow();
+		assertNull(mw.autoAbilityTriggers.aiXFor("gain 《C》 for each CP paid as X.", null, false, 4));
 	}
 
 	// =========================================================================================
@@ -69883,10 +70195,14 @@ public class CardBehaviorTest {
 		activeP2Backups(mw, "Ice", 1);
 		CardData montblanc = makeTextCard("Montblanc", "Ice", "Backup", 2, 0, null, MONTBLANC_17_020R);
 		mw.gameState.getIdentity().put(montblanc, false);
+		// A Hurdy the one Ice CP reaches: with none in the deck the AI pays nothing at all.
+		CardData hurdy = makeTextCard("Hurdy", "Ice", "Forward", 1, 5000, null, "");
+		stackP2Deck(mw, hurdy);
 
 		mw.placeP2CardInFirstBackupSlot(montblanc);   // fires its enters-the-field trigger
 		resolveStack(mw);
 
+		assertTrue(mw.p2ForwardCards.stream().anyMatch(c -> c == hurdy), "X = 1 finds the cost-1 Hurdy");
 		for (int i = 0; i < mw.p2BackupCards.length; i++) {
 			CardData b = mw.p2BackupCards[i];
 			if (b == null || b == montblanc) continue;

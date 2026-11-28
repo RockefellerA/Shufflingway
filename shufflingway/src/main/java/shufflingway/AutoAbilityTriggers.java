@@ -4617,6 +4617,13 @@ final class AutoAbilityTriggers {
 			return play != null && play.apply(new GameContextImpl(mw, isP1, false)) == null
 					? "no card in hand for it to play" : null;
 		}
+		// A search measured in X (22-004H Angeal) is read at the most X the seat could pay, as a choice
+		// is below: nothing in the deck within that reach is nothing at any X.
+		if (PAYOFF_OPENS_ON_SEARCH.matcher(part).find() && PAYOFF_COST_X.matcher(part).find()) {
+			int mostX = mostCpFor(isP1);
+			Integer x = aiXFor(part, source, isP1, mostX);
+			if (x != null) return x >= 0 ? null : "nothing of cost " + mostX + " or less in the deck for it to find";
+		}
 		Matcher named = PAYOFF_SEARCHES_BY_NAME.matcher(part);
 		if (named.find()) {
 			String name = named.group("name").trim();
@@ -4624,17 +4631,122 @@ final class AutoAbilityTriggers {
 					.noneMatch(c -> c.name().equalsIgnoreCase(name)) ? "no " + name + " left in the deck to find" : null;
 		}
 		if (!PAYOFF_CHOICE.matcher(part).find()) return null;
-		TargetSpec spec = ActionResolver.targetSpec(part, source);
+		// A cost measured in X (18-097R Rinoa's "of cost X or less") is read at the most X the seat
+		// could pay: nothing within that reach is nothing at any X.
+		boolean xCost = PAYOFF_COST_X.matcher(part).find();
+		int mostX = xCost ? mostCpFor(isP1) : -1;
+		TargetSpec spec = ActionResolver.targetSpec(xCost ? withCostXAtMost(part, mostX) : part, source);
 		if (spec == null) return null;
 		List<ForwardTarget> eligible = mw.eligibleChoiceTargets(spec, source, isP1, false);
 		if (spec.zone() != null)
 			return eligible.isEmpty() ? "nothing in the Break Zone to choose" : null;
-		boolean forOwn = spec.selfOnly() || (!spec.opponentOnly() && ActionResolver.chooseEffectBenefitsTarget(part));
+		if (eligible.stream().anyMatch(choiceServes(part, spec, isP1))) return null;
+		String reach = xCost ? " of cost " + mostX + " or less" : "";
+		return choiceIsForOwn(part, spec) ? "no card of its own" + reach + " to choose"
+				: "no opposing card" + reach + " to choose";
+	}
+
+	/** Whether a payoff's choice is aimed at the AI's own cards: a help, or a choice that names them. */
+	private static boolean choiceIsForOwn(String part, TargetSpec spec) {
+		return spec.selfOnly() || (!spec.opponentOnly() && ActionResolver.chooseEffectBenefitsTarget(part));
+	}
+
+	/**
+	 * Which of a payoff choice's picks do the AI any good, as {@code GameContextImpl}'s target picker
+	 * aims it: its own cards for a help, the opponent's for anything else, and its own either way
+	 * for a pick the effect is for — a blink, a shield.
+	 */
+	private static Predicate<ForwardTarget> choiceServes(String part, TargetSpec spec, boolean isP1) {
+		boolean forOwn = choiceIsForOwn(part, spec);
 		GameContext.AiOwnPick pick = ActionResolver.aiOwnPickOf(part);
 		boolean ownServes = forOwn || pick == GameContext.AiOwnPick.BLINK || pick == GameContext.AiOwnPick.SHIELD;
 		boolean oppServes = !forOwn;
-		if (eligible.stream().anyMatch(t -> t.isP1() == isP1 ? ownServes : oppServes)) return null;
-		return forOwn ? "no card of its own to choose" : "no opposing card to choose";
+		return t -> t.isP1() == isP1 ? ownServes : oppServes;
+	}
+
+	/** "of cost X" or "of cost X or less" — a choice bounded by the 《X》 paid (18-097R Rinoa). */
+	private static final Pattern PAYOFF_COST_X =
+			Pattern.compile("(?i)\\bof\\s+cost\\s+X(?:\\s+or\\s+less)?\\b(?!\\s+or\\s+more)");
+
+	/**
+	 * {@code part} with its cost of X read as "of cost {@code n} or less" — every card some X up to
+	 * {@code n} reaches, which an exact "of cost X" reaches as well, X being the payer's to name.
+	 */
+	private static String withCostXAtMost(String part, int n) {
+		return PAYOFF_COST_X.matcher(part).replaceFirst("of cost " + Math.max(0, n) + " or less");
+	}
+
+	/** The most CP {@code isP1} could produce now — every active Backup, and 2 for every card in hand. */
+	private int mostCpFor(boolean isP1) {
+		return aiPlanCp(isP1, Integer.MAX_VALUE).produced();
+	}
+
+	/** A payoff part opening on a deck search — 22-004H Angeal's "search for 1 Job SOLDIER Forward of cost X …". */
+	private static final Pattern PAYOFF_OPENS_ON_SEARCH = Pattern.compile("(?i)^search\\s+for\\b");
+
+	/**
+	 * The X the AI pays for a payoff that takes a card by a cost measured in X: the printed cost of
+	 * the dearest card it reaches within {@code maxX}, which is the least X that still reaches the
+	 * card the AI then takes — and for an exact "of cost X", the only X that takes it at all.
+	 * <ul>
+	 *   <li>a field choice — 18-097R Rinoa's "choose 1 Forward of cost X or less. Put it into the
+	 *       Break Zone." — counts the cards on the side it serves ({@link #choiceServes});</li>
+	 *   <li>a Break Zone choice — 23-061H Warrior of Light's "choose 1 Job Standard Unit of cost X in
+	 *       your Break Zone. Play it onto the field." — counts the cards it can choose there;</li>
+	 *   <li>a deck search — 22-004H Angeal's "search for 1 Job SOLDIER Forward of cost X and play it
+	 *       onto the field" — counts the cards the search would find ({@link SearchProbe}).</li>
+	 * </ul>
+	 * A card the payoff plays onto the field is counted only when it could stay there
+	 * ({@link #couldEnterField}). {@code -1} when nothing is in reach; {@code null} when the payoff
+	 * has no such part, or one this cannot read, and one unit of X stands.
+	 */
+	Integer aiXFor(String payoff, CardData source, boolean isP1, int maxX) {
+		if (payoff == null || maxX < 0) return null;
+		for (String part : payoffParts(payoff)) {
+			if (!PAYOFF_COST_X.matcher(part).find()) continue;
+			String reach = withCostXAtMost(part, maxX);
+			boolean played = PLAYS_ONTO_FIELD.matcher(part).find();
+			if (PAYOFF_OPENS_ON_SEARCH.matcher(part).find()) {
+				SearchProbe.Found found = SearchProbe.finds(mw, reach, source, isP1);
+				if (found == null) return null;
+				boolean toField = "field".equals(found.destination());
+				return found.cards().stream()
+						.filter(c -> !toField || couldEnterField(c, isP1))
+						.mapToInt(CardData::cost).max().orElse(-1);
+			}
+			if (!PAYOFF_OPENS_ON_CHOICE.matcher(part).find()) return null;
+			TargetSpec spec = ActionResolver.targetSpec(reach, source);
+			if (spec == null) return null;
+			List<ForwardTarget> eligible = mw.eligibleChoiceTargets(spec, source, isP1, false);
+			if (spec.zone() != null)
+				return eligible.stream()
+						.map(t -> (t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone()).get(t.idx()))
+						.filter(c -> !played || couldEnterField(c, isP1))
+						.mapToInt(CardData::cost).max().orElse(-1);
+			return eligible.stream()
+					.filter(choiceServes(part, spec, isP1))
+					.map(mw::fieldCardDataOrNull)
+					.filter(Objects::nonNull)
+					.mapToInt(CardData::cost)
+					.max().orElse(-1);
+		}
+		return null;
+	}
+
+	/** "… play it onto the field", "… play it onto your field" — a payoff that puts what it takes into play. */
+	private static final Pattern PLAYS_ONTO_FIELD =
+			Pattern.compile("(?i)\\bplay\\s+(?:it|them)\\s+onto\\s+(?:the|your)\\s+field\\b");
+
+	/**
+	 * Whether {@code card} could enter {@code isP1}'s field and stay: no copy of its name there already
+	 * (the unique-name rule puts both into the Break Zone), no second Light or Dark Character, and a
+	 * free slot for a Backup.
+	 */
+	private boolean couldEnterField(CardData card, boolean isP1) {
+		if (card.isSummon()) return false;
+		if (!card.multicard() && mw.hasUniquenessClashOnField(card, isP1)) return false;
+		if (card.isLightOrDark() && mw.hasLightOrDarkOnField(isP1)) return false;
+		return !card.isBackup() || Arrays.stream(mw.playerBackupCards(isP1)).anyMatch(Objects::isNull);
 	}
 
 	/** "You may: …" or "Your opponent may: …", as the offer dialogs word it. */
@@ -4646,6 +4758,12 @@ final class AutoAbilityTriggers {
 	private boolean aiAccepts(String what) {
 		mw.logEntry("[AutoAbility] [AI] auto-accepts " + what);
 		return true;
+	}
+
+	/** The AI turning an offer down, and saying why. */
+	private boolean aiDeclines(String what, String why) {
+		mw.logEntry("[AutoAbility] [AI] declines " + what + ComputerPlayer.reasoning(" (" + why + ")"));
+		return false;
 	}
 
 	/** Locates {@code card} in {@code isP1}'s field zones, or {@code null} if it has left. */
@@ -7357,20 +7475,35 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
+		// The AI buys one unit of X, which is what it has always done for a plain 《X》. A payoff that
+		// takes a card by a cost measured in X is bought the X that card costs (aiXFor), read
+		// against what this payment can draw on (cpSource): one unit of Rinoa's "of cost X or less"
+		// reached nothing, and a discard for it then paid 2 for nothing at all.
+		Integer xPick = null;
+		if (isXCost && PAYOFF_COST_X.matcher(subEffect).find()) {
+			int mostCp = aiPlanCp(effectIsP1, Integer.MAX_VALUE, elementNeeds, cpSource, false) instanceof CpPlan all
+					? Math.min(all.produced(), maxCp) : 0;
+			xPick = aiXFor(subEffect, source, effectIsP1, xBoughtBy(mostCp, fixedCost, xPerUnit));
+		}
+		boolean nothingInReach = xPick != null && xPick < 0;
+
 		// The payer is asked, then pays. A CPU payer turns down a payoff with nothing to act on
-		// (CPUOptional, from nothingToActOn) and otherwise takes the offer.
+		// (CPUOptional, from nothingToActOn), or nothing the 《X》 it can pay reaches, and otherwise
+		// takes the offer.
 		String finalSubEffect = subEffect;
 		if (!acceptsOptional(fa, isP1, source, source.name() + " — " + optionalPrompt(fa, fa.effectText()),
-				() -> aiAccepts("optional ability"))) {
+				() -> nothingInReach
+						? aiDeclines("optional ability", "nothing the 《X》 it can pay reaches")
+						: aiAccepts("optional ability"))) {
 			mw.logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 			return;
 		}
 
 		IntUnaryOperator xFromPaid = paid -> xBoughtBy(paid, fixedCost, xPerUnit);
 		boolean whenYouDoSo = followsWhenYouDoSo(payM.group(), payM.start(2) - payM.start());
-		// The AI buys one unit of X, which is what it has always done for a plain 《X》, and pays
-		// nothing when it cannot reach the fixed part.
-		int aiTarget = isXCost ? fixedCost + xPerUnit : fixedCost;
+		// ... and pays nothing when it cannot reach the fixed part.
+		int aiX = xPick != null && xPick >= 0 ? xPick : 1;
+		int aiTarget = isXCost ? fixedCost + aiX * xPerUnit : fixedCost;
 		payCpAtResolution(source.name(), fixedCost, maxCp, effectIsP1, 0, elementNeeds, cpSource,
 				() -> {
 					CpPlan plan = aiPlanCp(effectIsP1, aiTarget, elementNeeds, cpSource, false);

@@ -21,6 +21,8 @@ import java.util.stream.Collectors;
 
 import javax.swing.Timer;
 
+import shufflingway.GameContext.AiOwnPick;
+
 /**
  * AI controller for Player 2 (the computer opponent).
  * Package-private; instantiated by {@link MainWindow} via {@code new ComputerPlayer(this)}.
@@ -1089,7 +1091,7 @@ class ComputerPlayer implements OpponentController {
 	 * private plan record.
 	 */
 	boolean warpCastIfAble() {
-		P2Plan plan = findWarpPlan();
+		P2Plan plan = findWarpPlan(i -> true);
 		if (plan == null) return false;
 		executeP2HandPlay(plan);
 		return true;
@@ -1178,6 +1180,12 @@ class ComputerPlayer implements OpponentController {
 			}
 		}
 
+		// A Character with Warp goes in by Warp while nothing on the board needs it there now.
+		List<Integer> characterCands = new ArrayList<>(fieldCands);
+		characterCands.addAll(backupCands);
+		P2Plan warpFirst = preferredWarpPlan(characterCands);
+		if (warpFirst != null) return warpFirst;
+
 		List<Integer> candidates = new ArrayList<>(fieldCands);
 		candidates.addAll(summonCands);
 		candidates.addAll(backupCands);
@@ -1211,14 +1219,37 @@ class ComputerPlayer implements OpponentController {
 			if (discardCast != null) return P2Plan.discardCast(cardIdx, discardCast);
 		}
 		// Nothing casts outright. A Warp card offers a second, usually far cheaper route: pay the
-		// Warp cost now and the card enters the field by itself once its counters run out. Tried
-		// only after the ordinary plays are exhausted, so warping spends what is left over rather
-		// than competing with a card that would reach the field this turn.
-		return findWarpPlan();
+		// Warp cost now and the card enters the field by itself once its counters run out. Here it
+		// is what is left over — a Summon, or a Character warped despite the board needing it,
+		// because nothing could be cast in its place.
+		return findWarpPlan(i -> true);
 	}
 
 	/**
-	 * P2's Warp cast, or null when no card in hand can be warped.
+	 * The Warp cast P2 makes in place of casting a Character outright, or {@code null}. Warp is
+	 * usually the cheaper route — 18-097R Rinoa warps for 《Water》 against a cast cost of 3 — and the
+	 * card still enters the field once its counters run out, its arrival abilities with it; what it
+	 * gives up is the turns until then. So it is taken while nothing calls for the Character on the
+	 * field now: P1's Forwards could not force lethal on P2 next turn through the blockers P2 already
+	 * has ({@link #p1ForcesLethalNextTurn}). The CP it saves goes to the next play this turn.
+	 *
+	 * <p>Only from {@code characterCands}, the Characters the main phase could cast now (cleared of
+	 * name and Light/Dark clashes), and only one whose Warp costs less than its cast. A Summon is left
+	 * to the fallback: what it does is wanted now, not when its counters run out.
+	 */
+	private P2Plan preferredWarpPlan(List<Integer> characterCands) {
+		List<CardData> hand = mw.gameState.getP2Hand();
+		Set<Integer> cheaper = new LinkedHashSet<>();
+		for (int i : characterCands) {
+			CardData c = hand.get(i);
+			if (c.hasWarp() && c.warpCost().size() < mw.castCostFor(c, false)) cheaper.add(i);
+		}
+		if (cheaper.isEmpty() || p1ForcesLethalNextTurn(List.of())) return null;
+		return findWarpPlan(cheaper::contains);
+	}
+
+	/**
+	 * P2's Warp cast of a hand card at an index {@code among} admits, or null when none can be warped.
 	 *
 	 * <p>Gated like the P1 hand menu's Warp item: the cast-timing restriction and the cast limit
 	 * (checked by the caller) apply, but the name-uniqueness and Light/Dark field rules do not — a
@@ -1229,12 +1260,12 @@ class ComputerPlayer implements OpponentController {
 	 * relation to the printed one, so printed cost stands in for what the card is worth once it
 	 * lands.
 	 */
-	private P2Plan findWarpPlan() {
+	private P2Plan findWarpPlan(Predicate<Integer> among) {
 		List<CardData> hand = mw.gameState.getP2Hand();
 		List<Integer> cands = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
 			CardData c = hand.get(i);
-			if (!c.hasWarp()) continue;
+			if (!c.hasWarp() || !among.test(i)) continue;
 			if (mw.summonCastBlocked(c, false)) continue;
 			if (!mw.castRestrictionMet(c, false)) continue;
 			cands.add(i);
@@ -1364,12 +1395,15 @@ class ComputerPlayer implements OpponentController {
 	 * {@link ActionResolver#summonTargetRequirement}, which reports nothing for a Summon that is
 	 * worth casting regardless, and for one it cannot read.
 	 */
-	private boolean summonHasSomethingToHit(CardData summon) {
+	boolean summonHasSomethingToHit(CardData summon) {
 		ActionResolver.SummonTargetNeed need =
 				ActionResolver.summonTargetRequirement(summon.summonEffect());
 		if (need == null) return true;
-		// "you control" / "opponent controls" are read from P2's seat, since P2 is the caster.
-		boolean own = !need.oppOnly() && countFieldCards(false, need) > 0;
+		// "you control" / "opponent controls" are read from P2's seat, since P2 is the caster. A harm
+		// to what it chooses ("Choose 1 Forward. It loses 4000 power …") is not cast at P2's own
+		// cards — the mirror of harmWouldOnlyHitP2 for abilities — unless the Summon names them.
+		boolean ownServes = need.ownOnly() || !harmsWhatItChooses(summon.summonEffect());
+		boolean own = !need.oppOnly() && ownServes && countFieldCards(false, need) > 0;
 		boolean opp = !need.ownOnly() && countFieldCards(true,  need) > 0;
 		return own || opp;
 	}
@@ -2987,6 +3021,7 @@ class ComputerPlayer implements OpponentController {
 				if (!mw.autoAbilityTriggers.canActivateBzAbility(ability, card, false)) continue;
 				if (ActionResolver.parse(ability.effectText(), card) == null) continue;
 				if (abilityHarmsChosenTarget(ability) && !p1HasAnyForward()) continue;
+				if (harmWouldOnlyHitP2(ability, card)) continue;
 				// Mirror of the above for the other side: an ability that can only choose a Forward P2
 				// controls does nothing while P2 has none, so paying its cost is pure waste.
 				if (ActionResolver.targetsOnlyOwnForwards(ability.effectText()) && !p2HasAnyForward()) continue;
@@ -3133,6 +3168,8 @@ class ComputerPlayer implements OpponentController {
 			if (!mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, false)) continue;
 			if (ActionResolver.parse(ability.effectText(), card) == null) continue;
 			if (abilityHarmsChosenTarget(ability) && !p1HasAnyForward()) continue;
+			// Any other harm to what it chooses — a power loss, a break — with no P1 card to choose.
+			if (harmWouldOnlyHitP2(ability, card)) continue;
 			// Mirror of the above for the other side: an ability that can only choose a Forward P2
 			// controls does nothing while P2 has none, so paying its cost is pure waste.
 			if (ActionResolver.targetsOnlyOwnForwards(ability.effectText()) && !p2HasAnyForward()) continue;
@@ -3902,6 +3939,51 @@ class ComputerPlayer implements OpponentController {
 			return false;
 		}
 		return true;
+	}
+
+	/**
+	 * A harm done to what a "choose" picks: broken, put into the Break Zone, removed from the game,
+	 * damaged, dulled, frozen, weakened, or kept from attacking or blocking. Narrower than
+	 * {@link ActionResolverPatterns#CHOOSE_FOLLOWUP_HARMS_TARGET}, whose bare "cannot" also reads the
+	 * protections — "It cannot be broken this turn." (1-146H Ricard) — as harm.
+	 */
+	private static final Pattern HARMS_THE_CHOSEN = Pattern.compile(
+			"(?i)\\b(?:break\\s+(?:it|them)|put\\s+(?:it|them)\\s+into\\s+the\\s+Break\\s+Zone"
+			+ "|remove\\s+(?:it|them)\\s+from\\s+the\\s+game|deal\\s+(?:it|them)\\b|(?:dull|freeze)\\s+(?:it|them)"
+			+ "|(?:it|they)\\s+loses?|(?:its|their)\\s+power\\s+becomes|(?:it|they)\\s+cannot\\s+(?:attack|block))\\b");
+
+	/**
+	 * True when {@code ability}'s "choose" harms what it picks and P1 controls nothing it may choose —
+	 * so the pick lands on a Character of P2's own, or, for an "up to" choice, on nothing at all. 4-132R
+	 * Tonberries put itself into the Break Zone for "Choose 1 Forward. It loses 2000 power until the
+	 * end of the turn." with P2's own Malboro, a Forward for the turn, the only Forward to choose.
+	 *
+	 * <p>{@link #abilityHarmsChosenTarget} asks the same of damage alone, and only whether P1 has a
+	 * Forward. This is the mirror of {@link #buffWouldOnlyHelpP1}: it asks the eligible targets, so a
+	 * choice of Backups or of "cost 3 or less" counts only the P1 cards it can reach. A pick the AI
+	 * could want among its own cards — a blink, a shield, a bounce, an activation
+	 * ({@link ActionResolver#aiOwnPickOf}) — is left to the gates that judge it, and so is a choice
+	 * naming P2's own side, which is the ability's price rather than a harm aimed wrong.
+	 */
+	boolean harmWouldOnlyHitP2(ActionAbility ability, CardData source) {
+		String text = ability.effectText();
+		if (!harmsWhatItChooses(text)) return false;
+		TargetSpec spec = ActionResolver.targetSpec(text, source);
+		if (spec == null || spec.zone() != null || spec.selfOnly()) return false;
+		for (ForwardTarget t : mw.eligibleAbilityChoiceTargets(spec, ability, source, false))
+			if (t.isP1()) return false;
+		return true;
+	}
+
+	/**
+	 * Whether {@code text}'s choice harms what it picks ({@link #HARMS_THE_CHOSEN}) with no pick of
+	 * the AI's own it could want — a blink, a shield, a bounce, an activation
+	 * ({@link ActionResolver#aiOwnPickOf}).
+	 */
+	private static boolean harmsWhatItChooses(String text) {
+		if (text == null || !HARMS_THE_CHOSEN.matcher(text).find()) return false;
+		AiOwnPick pick = ActionResolver.aiOwnPickOf(text);
+		return pick == AiOwnPick.NONE || pick == AiOwnPick.SPEND;
 	}
 
 	/**

@@ -2559,11 +2559,13 @@ final class GameContextImpl implements GameContext {
 				int idx = target.idx();
 				if (idx < 0 || idx >= fwds.size()) return;
 				CardData card = fwds.get(idx);
+				// Only the increase is stopped (rule 2.3); a trait granted beside it still lands.
 				if (amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(tgtP1)
 						|| mw.oppForwardSelfBoostSuppressedFor(tgtP1))) {
 					logEntry((tgtP1 ? "" : "[P2] ") + card.name()
 							+ " — power boost suppressed (opponent's field ability)");
-					return;
+					if (traits.isEmpty()) return;
+					amount = 0;
 				}
 				// merge/addAll, not put — the grant outlasts the turn, so a repeat application finds
 				// the earlier one still standing and has to stack on it (Ellone 27-020R).
@@ -7456,6 +7458,18 @@ final class GameContextImpl implements GameContext {
 	// =========================================================================================
 	// Power and trait changes on a target
 	// =========================================================================================
+			/**
+			 * Whether a raise to the power of {@code card}, a Forward or a Character acting as one on
+			 * {@code targetIsP1}'s side, is stopped — 25-086R Abzu, 8-128R Meltigemini — and logs it
+			 * when it is. Only the raise: what else the same effect grants still lands (rule 2.3).
+			 */
+			private boolean forwardRaiseSuppressed(boolean targetIsP1, CardData card) {
+				if (!mw.oppForwardPowerBoostSuppressedFor(targetIsP1) && !mw.oppForwardSelfBoostSuppressedFor(targetIsP1))
+					return false;
+				logEntry((targetIsP1 ? "" : "[P2] ") + card.name() + " — power boost suppressed (opponent's field ability)");
+				return true;
+			}
+
 			@Override public void boostTarget(ForwardTarget t, int amount,
 					EnumSet<CardData.Trait> traits) {
 				boolean isP1    = t.isP1();
@@ -7468,6 +7482,8 @@ final class GameContextImpl implements GameContext {
 					CardData[] bcards = isP1 ? mw.p1BackupCards : mw.p2BackupCards;
 					if (!asFwd || idx < 0 || idx >= bcards.length || bcards[idx] == null) return;
 					CardData bcard = bcards[idx];
+					// Acting as a Forward, it is one that 25-086R Abzu keeps from being raised.
+					if (amount > 0 && forwardRaiseSuppressed(isP1, bcard)) amount = 0;
 					(isP1 ? mw.p1BackupForwardBoost : mw.p2BackupForwardBoost).merge(bcard, amount, Integer::sum);
 					EnumSet<CardData.Trait> bGranted = EnumSet.noneOf(CardData.Trait.class);
 					if (!traits.isEmpty()) {
@@ -7484,7 +7500,7 @@ final class GameContextImpl implements GameContext {
 						if (bsb.length() > 0) bsb.append(" and ");
 						bsb.append("+").append(amount).append(" power");
 					}
-					logEntry((isP1 ? "" : "[P2] ") + bcard.name() + " gains " + bsb + " until end of turn");
+					if (bsb.length() > 0) logEntry((isP1 ? "" : "[P2] ") + bcard.name() + " gains " + bsb + " until end of turn");
 					if (isP1) mw.refreshP1BackupSlot(idx); else mw.refreshP2BackupSlot(idx);
 					return;
 				}
@@ -7497,9 +7513,12 @@ final class GameContextImpl implements GameContext {
 				// A Monster only keeps granted traits while it is actually acting as a Forward.
 				EnumSet<CardData.Trait> grantedTraits = EnumSet.noneOf(CardData.Trait.class);
 				if (monster) {
-					(isP1 ? mw.p1MonsterPowerBoost : mw.p2MonsterPowerBoost).merge(card, amount, Integer::sum);
 					boolean asForward = isP1 ? mw.isP1MonsterTemporarilyForward(idx)
 					                         : mw.isP2MonsterTemporarilyForward(idx);
+					// A Monster acting as a Forward is a Forward to 25-086R Abzu, as its field-grant
+					// half already reads it (MainWindow.computeConditionalBoostForTarget).
+					if (amount > 0 && asForward && forwardRaiseSuppressed(isP1, card)) amount = 0;
+					(isP1 ? mw.p1MonsterPowerBoost : mw.p2MonsterPowerBoost).merge(card, amount, Integer::sum);
 					if (asForward && !traits.isEmpty()) {
 						(isP1 ? mw.p1MonsterTempTraits : mw.p2MonsterTempTraits)
 								.computeIfAbsent(card, k -> EnumSet.noneOf(CardData.Trait.class))
@@ -7535,7 +7554,7 @@ final class GameContextImpl implements GameContext {
 					sb.append("+").append(amount).append(" power");
 				}
 
-				logEntry((isP1 ? "" : "[P2] ") + card.name() + " gains " + sb + " until end of turn");
+				if (sb.length() > 0) logEntry((isP1 ? "" : "[P2] ") + card.name() + " gains " + sb + " until end of turn");
 				if (monster) { if (isP1) mw.refreshP1MonsterSlot(idx); else mw.refreshP2MonsterSlot(idx); }
 				else         { if (isP1) mw.refreshP1ForwardSlot(idx); else mw.refreshP2ForwardSlot(idx); }
 			}
@@ -7581,13 +7600,19 @@ final class GameContextImpl implements GameContext {
 				List<EnumSet<CardData.Trait>> tempTraits = isP1 ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits;
 				for (int i = 0; i < fwds.size(); i++) {
 					if (fwds.get(i).name().equals(source.name())) {
+						// Only the increase is stopped (rule 2.3: the part that cannot be carried out is
+						// ignored). 9-014L Nael's "+2000 power and Haste" still gains Haste under 25-086R
+						// Abzu.
 						if (amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(isP1) || mw.oppForwardSelfBoostSuppressedFor(isP1))) {
 							logEntry(source.name() + " — power boost suppressed (opponent's field ability)");
-							return;
+							if (traits.isEmpty()) return;
+							tempTraits.get(i).addAll(traits);
+							logEntry(source.name() + " gains " + ActionResolver.traitNamesOnly(traits) + " until end of turn");
+						} else {
+							powerBoost.set(i, powerBoost.get(i) + amount);
+							tempTraits.get(i).addAll(traits);
+							logEntry(source.name() + " gains +" + amount + " power until end of turn");
 						}
-						powerBoost.set(i, powerBoost.get(i) + amount);
-						tempTraits.get(i).addAll(traits);
-						logEntry(source.name() + " gains +" + amount + " power until end of turn");
 						if (isP1) mw.refreshP1ForwardSlot(i); else mw.refreshP2ForwardSlot(i);
 						return;
 					}
@@ -7600,9 +7625,11 @@ final class GameContextImpl implements GameContext {
 				for (int i = 0; i < fwds.size(); i++) {
 					CardData card = fwds.get(i);
 					if (!card.name().equals(source.name())) continue;
+					// Only the increase is stopped (rule 2.3); a trait granted beside it still lands.
 					if (amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(isP1) || mw.oppForwardSelfBoostSuppressedFor(isP1))) {
 						logEntry(source.name() + " — power boost suppressed (opponent's field ability)");
-						return;
+						if (traits.isEmpty()) return;
+						amount = 0;
 					}
 					if (amount > 0) mw.permanentPowerBoost.merge(card, amount, Integer::sum);
 					if (!traits.isEmpty())
