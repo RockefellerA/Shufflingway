@@ -27,9 +27,13 @@ import shufflingway.AppSettings;
  * thread also serialises access to each clip without locking.
  *
  * <p>Each sound is decoded into one {@link Clip} the first time it is needed (or by
- * {@link #preload()}). Replaying a sound that is still playing restarts it rather than layering a
- * second copy, which is the right behaviour for short UI clicks; a longer effect that must overlap
- * itself would want a small pool of clips instead.
+ * {@link #preload()}). A sound asked for again while its clip is still playing is not played a
+ * second time: the clip plays on to its end, so several cards broken at once are heard as one
+ * break. It cannot be restarted instead. On Windows the clip is a {@code DirectClip}, whose own
+ * feeder thread spends the whole of a short clip draining it, and a {@link Clip#stop()} there lets
+ * the feeder fall out of its drain and stop the clip again just after the restart's
+ * {@link Clip#start()}: the restart and the rest of the first play are both lost. An effect that
+ * must overlap itself would want a small pool of clips.
  *
  * <p>A machine with no usable output device, or a missing or undecodable file, leaves that sound
  * silent: the failure is logged once and the sound is not retried for the rest of the session.
@@ -44,6 +48,9 @@ public final class SoundEffects {
 
 	/** Loaded clips, touched only on the audio thread. A sound whose load failed maps to null. */
 	private static final Map<Sound, Clip> clips = new EnumMap<>(Sound.class);
+
+	/** When each sound's clip was last started, as {@link System#nanoTime()}; audio thread only. */
+	private static final Map<Sound, Long> startedAt = new EnumMap<>(Sound.class);
 
 	private static volatile boolean silenced;
 
@@ -90,6 +97,8 @@ public final class SoundEffects {
 	private static void playNow(Sound sound, int volume) {
 		Clip clip = clip(sound);
 		if (clip == null) return;
+		long now = System.nanoTime();
+		if (stillPlaying(clip, startedAt.get(sound), now)) return;
 		if (clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
 			FloatControl gain = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
 			gain.setValue(Math.max(gain.getMinimum(), Math.min(gain.getMaximum(), gainDb(volume))));
@@ -98,6 +107,19 @@ public final class SoundEffects {
 		clip.flush();
 		clip.setFramePosition(0);
 		clip.start();
+		startedAt.put(sound, now);
+	}
+
+	/**
+	 * Whether {@code clip}, last started at {@code startedAt} (null if never), is still playing at
+	 * {@code now}. Neither test is enough alone. {@link Clip#isRunning()} turns true only once the
+	 * feeder thread has written the first block, a moment after {@link Clip#start()}, so a second
+	 * request in that moment would see it false. The clip's length covers that moment, and the
+	 * running flag covers the drain after the last frame, which ends with the feeder's own stop.
+	 */
+	static boolean stillPlaying(Clip clip, Long startedAt, long now) {
+		if (clip.isRunning()) return true;
+		return startedAt != null && now - startedAt < clip.getMicrosecondLength() * 1000L;
 	}
 
 	private static Clip clip(Sound sound) {

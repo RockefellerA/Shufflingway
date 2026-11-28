@@ -77,7 +77,7 @@ public class CardBreakAnimator extends JComponent {
 	public void startBreak(BufferedImage img, Point center) {
 		breaks.add(new Break(img, center));
 		if (!timer.isRunning()) timer.start();
-		// Several cards broken at once restart the one clip rather than stacking: one swish.
+		// Several cards broken at once are one swish: SoundEffects lets a clip still playing finish.
 		SoundEffects.play(Sound.CARD_BREAK);
 	}
 
